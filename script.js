@@ -4,7 +4,7 @@
     var STORAGE_KEY = "trainhub.v1";
     var DEFAULT_CATEGORIES = ["Technique", "Gammes", "Improvisation", "Jeu en groupe", "Copie de morceaux"];
     var DEFAULT_INSTRUMENTS = ["Basse", "Guitare", "Piano"];
-    var INSTRUMENT_PALETTE = ["#00e676", "#a78bfa", "#f472b6", "#2dd4bf", "#fb923c", "#f87171"];
+    var FOLDER_PALETTE = ["#00e676", "#a78bfa", "#f472b6", "#2dd4bf", "#fb923c", "#f87171"];
     var STATUSES = [
         { value: "a_faire", label: "À faire" },
         { value: "en_cours", label: "En cours" },
@@ -21,13 +21,17 @@
         return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     }
 
-    function makeFolder(name) {
-        return { id: uid(), name: name, folders: [], exercises: [] };
+    function makeFolder(name, color) {
+        var f = { id: uid(), name: name, folders: [], exercises: [] };
+        if (color) f.color = color;
+        return f;
     }
 
-    function makeInstrument(name, colorIndex) {
-        var color = INSTRUMENT_PALETTE[(colorIndex || 0) % INSTRUMENT_PALETTE.length];
-        return { id: uid(), name: name, color: color, categories: DEFAULT_CATEGORIES.map(makeFolder) };
+    function makeInstrument(name) {
+        var categories = DEFAULT_CATEGORIES.map(function (catName, i) {
+            return makeFolder(catName, FOLDER_PALETTE[i % FOLDER_PALETTE.length]);
+        });
+        return { id: uid(), name: name, categories: categories };
     }
 
     function makeDefaultState() {
@@ -48,9 +52,13 @@
         if (!s.settings || typeof s.settings !== "object") s.settings = { showUpdatedAt: false };
         if (typeof s.settings.showUpdatedAt !== "boolean") s.settings.showUpdatedAt = false;
         if (!Array.isArray(s.instruments)) s.instruments = [];
-        s.instruments.forEach(function (inst, i) {
-            if (!inst.color) inst.color = INSTRUMENT_PALETTE[i % INSTRUMENT_PALETTE.length];
+        s.instruments.forEach(function (inst) {
             if (!Array.isArray(inst.categories)) inst.categories = [];
+            // La couleur se pose sur les grands chapitres (repérage des dossiers/sous-dossiers),
+            // pas sur l'instrument : les 3 instruments partagent la même identité visuelle.
+            inst.categories.forEach(function (cat, i) {
+                if (!cat.color) cat.color = FOLDER_PALETTE[i % FOLDER_PALETTE.length];
+            });
             inst.categories.forEach(normalizeFolder);
         });
         return s;
@@ -239,7 +247,8 @@
 
     // ---------- rendering ----------
 
-    var $tabs = document.getElementById("instrument-tabs");
+    var $instrumentSelect = document.getElementById("instrument-select");
+    var $renameInstrumentBtn = document.getElementById("rename-instrument-btn");
     var $chapterBar = document.getElementById("chapter-bar");
     var $breadcrumb = document.getElementById("breadcrumb");
     var $folderContainer = document.getElementById("folder-container");
@@ -256,45 +265,23 @@
     }
 
     function render() {
-        var activeInst = getActiveInstrument();
-        document.documentElement.style.setProperty("--instrument-accent", (activeInst && activeInst.color) || "#00e676");
-        renderTabs();
+        var inst = getActiveInstrument();
+        var path = inst ? getNavPath(inst) : [];
+        var rootChapter = inst && path.length ? findById(inst.categories, path[0]) : null;
+        document.documentElement.style.setProperty("--chapter-accent", (rootChapter && rootChapter.color) || "#00e676");
+        renderInstrumentSelect();
         renderChapterBar();
         renderMain();
     }
 
-    function renderTabs() {
-        $tabs.innerHTML = "";
+    function renderInstrumentSelect() {
+        $instrumentSelect.innerHTML = "";
         state.instruments.forEach(function (inst) {
-            var isActive = inst.id === state.activeInstrumentId;
-            var btn = document.createElement("button");
-            btn.type = "button";
-            btn.className = "instrument-tab" + (isActive ? " active" : "");
-
-            var dot = document.createElement("span");
-            dot.className = "instrument-dot";
-            dot.style.background = inst.color;
-            btn.appendChild(dot);
-            btn.appendChild(document.createTextNode(inst.name));
-
-            if (isActive) {
-                btn.style.borderColor = inst.color;
-                btn.style.color = inst.color;
-                btn.style.background = "color-mix(in srgb, " + inst.color + " 16%, transparent)";
-            }
-
-            btn.dataset.instrumentId = inst.id;
-            btn.addEventListener("click", function () {
-                state.activeInstrumentId = inst.id;
-                save();
-                render();
-            });
-            btn.addEventListener("dblclick", function (e) {
-                e.preventDefault();
-                renameInstrument(inst.id);
-            });
-            btn.title = "Double-clic pour renommer";
-            $tabs.appendChild(btn);
+            var opt = document.createElement("option");
+            opt.value = inst.id;
+            opt.textContent = inst.name;
+            if (inst.id === state.activeInstrumentId) opt.selected = true;
+            $instrumentSelect.appendChild(opt);
         });
     }
 
@@ -324,13 +311,24 @@
         var activeId = path[0];
 
         inst.categories.forEach(function (chapter, idx) {
+            var isActive = chapter.id === activeId;
             var chip = document.createElement("div");
-            chip.className = "chapter-chip" + (chapter.id === activeId ? " active" : "");
+            chip.className = "chapter-chip" + (isActive ? " active" : "");
+            if (isActive) {
+                chip.style.borderColor = chapter.color;
+                chip.style.background = "color-mix(in srgb, " + chapter.color + " 12%, transparent)";
+            }
+
+            var dot = document.createElement("span");
+            dot.className = "chapter-dot";
+            dot.style.background = chapter.color;
+            chip.appendChild(dot);
 
             var btn = document.createElement("button");
             btn.type = "button";
             btn.className = "chapter-chip-label";
             btn.textContent = chapter.name;
+            if (isActive) btn.style.color = chapter.color;
             btn.addEventListener("click", function () {
                 clearFilters();
                 setNavPath(inst, [chapter.id]);
@@ -366,7 +364,7 @@
             if (!name) return;
             name = name.trim();
             if (!name) return;
-            var chapter = makeFolder(name);
+            var chapter = makeFolder(name, FOLDER_PALETTE[inst.categories.length % FOLDER_PALETTE.length]);
             inst.categories.push(chapter);
             clearFilters();
             setNavPath(inst, [chapter.id]);
@@ -949,10 +947,20 @@
 
     // ---------- top actions ----------
 
+    $instrumentSelect.addEventListener("change", function () {
+        state.activeInstrumentId = $instrumentSelect.value;
+        save();
+        render();
+    });
+
+    $renameInstrumentBtn.addEventListener("click", function () {
+        renameInstrument(state.activeInstrumentId);
+    });
+
     document.getElementById("add-instrument-btn").addEventListener("click", function () {
         var name = window.prompt("Nom du nouvel instrument :");
         if (!name) return;
-        var inst = makeInstrument(name.trim(), state.instruments.length);
+        var inst = makeInstrument(name.trim());
         state.instruments.push(inst);
         state.activeInstrumentId = inst.id;
         save();
