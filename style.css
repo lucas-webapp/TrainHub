@@ -22,6 +22,11 @@
 
     --accent: #00e676;
     --accent-hover: #00c853;
+    /* Couleur d'identité de l'instrument actif (voir INSTRUMENT_PALETTE dans script.js) : teinte
+       le bandeau de chapitres, les icônes de dossier et le fil d'Ariane pour se repérer d'un coup
+       d'oeil, sans toucher aux couleurs de statut (à faire/en cours/terminé/à revoir) qui restent
+       un système séparé. --accent reste la couleur fixe du logo et des actions génériques. */
+    --instrument-accent: var(--accent);
     --btn-text: #e9f3ec;
 
     --btn-neutral-1: #262626; --btn-neutral-2: #1a1a1a; --btn-neutral-border: #3a3a3a; --btn-neutral-border-hover: #4a4a4a;
@@ -141,10 +146,12 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     padding: 6px 14px;
     font-weight: 600;
 }
-.instrument-tab.active {
-    background: rgba(0,230,118,.12);
-    border-color: var(--accent);
-    color: var(--accent);
+.instrument-tab.active { font-weight: 700; }
+.instrument-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex: none;
 }
 .top-actions { display: flex; gap: 6px; margin-left: auto; }
 .top-actions button.active { border-color: #4dabf7; color: #4dabf7; }
@@ -216,9 +223,11 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     padding: 8px 16px;
     background: var(--card-bg-2);
     border-bottom: 1px solid var(--border);
+    border-top: 3px solid var(--instrument-accent);
     position: sticky;
     top: 0;
     z-index: 15;
+    transition: border-top-color .15s ease;
 }
 .chapter-chip {
     display: flex;
@@ -229,7 +238,7 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     border-radius: 20px;
     padding: 2px 2px 2px 4px;
 }
-.chapter-chip.active { border-color: var(--accent); background: rgba(0,230,118,.1); }
+.chapter-chip.active { border-color: var(--instrument-accent); background: color-mix(in srgb, var(--instrument-accent) 12%, transparent); }
 .chapter-chip-label {
     background: transparent;
     border-color: transparent;
@@ -238,7 +247,7 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     font-weight: 600;
     font-size: var(--fs-sm);
 }
-.chapter-chip.active .chapter-chip-label { color: var(--accent); }
+.chapter-chip.active .chapter-chip-label { color: var(--instrument-accent); }
 .chapter-chip button.icon-btn { padding: 5px; }
 .chapter-add { display: flex; }
 
@@ -257,7 +266,7 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     color: var(--text-muted);
     font-weight: 600;
 }
-.crumb:hover { color: var(--accent); background: rgba(255,255,255,.06); }
+.crumb:hover { color: var(--instrument-accent); background: rgba(255,255,255,.06); }
 .crumb-current, .crumb-current:hover { color: var(--text-main); background: transparent; cursor: default; }
 .crumb-sep { color: var(--text-muted); opacity: .5; }
 
@@ -284,7 +293,7 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     text-align: left;
 }
 .folder-open:hover { background: rgba(255,255,255,.05); }
-.folder-icon { color: var(--accent); display: inline-flex; }
+.folder-icon { color: var(--instrument-accent); display: inline-flex; }
 .folder-name { font-weight: 700; font-size: var(--fs-base); flex: 1; }
 .folder-count { color: var(--text-muted); font-size: var(--fs-xs); }
 .folder-actions { display: flex; gap: 2px; }
@@ -300,7 +309,7 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     font-weight: 600;
     padding: 2px 4px;
 }
-.result-path:hover { color: var(--accent); background: rgba(255,255,255,.05); }
+.result-path:hover { color: var(--instrument-accent); background: rgba(255,255,255,.05); }
 
 /* ---------- exercise row ---------- */
 .exercise {

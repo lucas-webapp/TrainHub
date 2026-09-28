@@ -4,6 +4,7 @@
     var STORAGE_KEY = "trainhub.v1";
     var DEFAULT_CATEGORIES = ["Technique", "Gammes", "Improvisation", "Jeu en groupe", "Copie de morceaux"];
     var DEFAULT_INSTRUMENTS = ["Basse", "Guitare", "Piano"];
+    var INSTRUMENT_PALETTE = ["#00e676", "#a78bfa", "#f472b6", "#2dd4bf", "#fb923c", "#f87171"];
     var STATUSES = [
         { value: "a_faire", label: "À faire" },
         { value: "en_cours", label: "En cours" },
@@ -24,8 +25,9 @@
         return { id: uid(), name: name, folders: [], exercises: [] };
     }
 
-    function makeInstrument(name) {
-        return { id: uid(), name: name, categories: DEFAULT_CATEGORIES.map(makeFolder) };
+    function makeInstrument(name, colorIndex) {
+        var color = INSTRUMENT_PALETTE[(colorIndex || 0) % INSTRUMENT_PALETTE.length];
+        return { id: uid(), name: name, color: color, categories: DEFAULT_CATEGORIES.map(makeFolder) };
     }
 
     function makeDefaultState() {
@@ -46,7 +48,8 @@
         if (!s.settings || typeof s.settings !== "object") s.settings = { showUpdatedAt: false };
         if (typeof s.settings.showUpdatedAt !== "boolean") s.settings.showUpdatedAt = false;
         if (!Array.isArray(s.instruments)) s.instruments = [];
-        s.instruments.forEach(function (inst) {
+        s.instruments.forEach(function (inst, i) {
+            if (!inst.color) inst.color = INSTRUMENT_PALETTE[i % INSTRUMENT_PALETTE.length];
             if (!Array.isArray(inst.categories)) inst.categories = [];
             inst.categories.forEach(normalizeFolder);
         });
@@ -253,6 +256,8 @@
     }
 
     function render() {
+        var activeInst = getActiveInstrument();
+        document.documentElement.style.setProperty("--instrument-accent", (activeInst && activeInst.color) || "#00e676");
         renderTabs();
         renderChapterBar();
         renderMain();
@@ -261,10 +266,23 @@
     function renderTabs() {
         $tabs.innerHTML = "";
         state.instruments.forEach(function (inst) {
+            var isActive = inst.id === state.activeInstrumentId;
             var btn = document.createElement("button");
             btn.type = "button";
-            btn.className = "instrument-tab" + (inst.id === state.activeInstrumentId ? " active" : "");
-            btn.textContent = inst.name;
+            btn.className = "instrument-tab" + (isActive ? " active" : "");
+
+            var dot = document.createElement("span");
+            dot.className = "instrument-dot";
+            dot.style.background = inst.color;
+            btn.appendChild(dot);
+            btn.appendChild(document.createTextNode(inst.name));
+
+            if (isActive) {
+                btn.style.borderColor = inst.color;
+                btn.style.color = inst.color;
+                btn.style.background = "color-mix(in srgb, " + inst.color + " 16%, transparent)";
+            }
+
             btn.dataset.instrumentId = inst.id;
             btn.addEventListener("click", function () {
                 state.activeInstrumentId = inst.id;
@@ -934,7 +952,7 @@
     document.getElementById("add-instrument-btn").addEventListener("click", function () {
         var name = window.prompt("Nom du nouvel instrument :");
         if (!name) return;
-        var inst = makeInstrument(name.trim());
+        var inst = makeInstrument(name.trim(), state.instruments.length);
         state.instruments.push(inst);
         state.activeInstrumentId = inst.id;
         save();
