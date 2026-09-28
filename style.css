@@ -256,6 +256,7 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     font-weight: 600;
     font-size: var(--fs-sm);
     cursor: default;
+    -webkit-touch-callout: none;
 }
 .chapter-chip.active .chapter-chip-label { color: var(--chapter-accent); }
 .chapter-add { display: flex; }
@@ -296,7 +297,7 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 .folder-row:hover { background: rgba(255,255,255,.04); }
 .folder-row.dragging { opacity: .5; cursor: grabbing; }
 .folder-icon { color: var(--chapter-accent); display: inline-flex; flex: none; }
-.folder-name { font-weight: 700; font-size: var(--fs-base); flex: 1; cursor: default; }
+.folder-name { font-weight: 700; font-size: var(--fs-base); flex: 1; cursor: default; -webkit-touch-callout: none; }
 .folder-count { color: var(--text-muted); font-size: var(--fs-xs); flex: none; }
 
 /* ---------- résultats de recherche / filtre à revoir ---------- */
@@ -467,6 +468,7 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    -webkit-touch-callout: none;
 }
 .tree-count { font-size: var(--fs-2xs); color: var(--text-muted); flex: none; }
 

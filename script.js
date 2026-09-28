@@ -229,13 +229,17 @@
     }
 
     // Renommer/déplacer sont des actions rares sur les chapitres/dossiers : plutôt que des boutons
-    // toujours visibles, on utilise clic droit (ou appui long, qui déclenche nativement
-    // "contextmenu" sur mobile) et double-clic sur le nom pour renommer/supprimer, et
-    // glisser-déposer pour réordonner. `suppressNextClick` évite qu'un clic de navigation se
-    // déclenche juste après un glisser (certains navigateurs émettent quand même un "click" final).
+    // toujours visibles, on utilise clic droit et double-clic sur le nom (souris) pour renommer/
+    // supprimer, et glisser-déposer pour réordonner. `suppressNextClick` évite qu'un clic de
+    // navigation se déclenche juste après un glisser (certains navigateurs émettent quand même un
+    // "click" final).
     var suppressNextClick = false;
+    var LONG_PRESS_MS = 550;
+    var LONG_PRESS_TOLERANCE = 10;
 
     function bindRenameGestures(nameEl, getParentArray, folder, inst) {
+        var triggeredByPress = false;
+
         nameEl.addEventListener("dblclick", function (e) {
             e.stopPropagation();
             renameOrDeleteFolder(getParentArray(), folder, inst);
@@ -243,8 +247,45 @@
         nameEl.addEventListener("contextmenu", function (e) {
             e.preventDefault();
             e.stopPropagation();
+            // Un appui long tactile a pu déjà déclencher le renommage via le minuteur ci-dessous
+            // avant que "contextmenu" n'arrive (son délai varie selon l'appareil) — on évite alors
+            // d'ouvrir une deuxième invite de renommage à la suite.
+            if (triggeredByPress) { triggeredByPress = false; return; }
             renameOrDeleteFolder(getParentArray(), folder, inst);
         });
+
+        // Détection manuelle de l'appui long tactile : contrairement à Android ou à un clic droit
+        // sur ordinateur, Safari sur iPhone/iPad ne déclenche pas de façon fiable l'événement
+        // "contextmenu" sur un appui long pour un élément quelconque de la page. On ne peut donc
+        // pas compter dessus pour renommer/supprimer au doigt — d'où ce minuteur, indépendant du
+        // navigateur, qui ne concerne que les pointeurs tactiles/stylet (la souris a déjà
+        // dblclick/clic droit ci-dessus).
+        var pressTimer = null;
+        var startX = 0, startY = 0;
+
+        function cancelPress() {
+            if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+        }
+
+        nameEl.addEventListener("pointerdown", function (e) {
+            if (e.pointerType === "mouse") return;
+            startX = e.clientX;
+            startY = e.clientY;
+            cancelPress();
+            pressTimer = setTimeout(function () {
+                pressTimer = null;
+                triggeredByPress = true;
+                suppressNextClick = true;
+                renameOrDeleteFolder(getParentArray(), folder, inst);
+                setTimeout(function () { triggeredByPress = false; }, 400);
+            }, LONG_PRESS_MS);
+        });
+        nameEl.addEventListener("pointermove", function (e) {
+            if (!pressTimer) return;
+            if (Math.abs(e.clientX - startX) > LONG_PRESS_TOLERANCE || Math.abs(e.clientY - startY) > LONG_PRESS_TOLERANCE) cancelPress();
+        });
+        nameEl.addEventListener("pointerup", cancelPress);
+        nameEl.addEventListener("pointercancel", cancelPress);
     }
 
     function setupDragReorder(container, itemSelector, getArray, axis) {
