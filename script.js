@@ -134,12 +134,6 @@
         if ($searchInput) $searchInput.value = "";
     }
 
-    function countAll(folder) {
-        var n = folder.exercises.length;
-        folder.folders.forEach(function (f) { n += countAll(f); });
-        return n;
-    }
-
     function collectExercises(inst, matchFn) {
         var results = [];
         function walk(list, names, ids) {
@@ -228,36 +222,27 @@
         return b;
     }
 
-    // Renommer/déplacer sont des actions rares sur les chapitres/dossiers : plutôt que des boutons
-    // toujours visibles, on utilise clic droit sur le nom (souris) pour renommer/supprimer, et
-    // glisser-déposer pour réordonner. Pas de double-clic : un simple clic sur le nom navigue
-    // désormais comme le reste de la ligne (un double-clic aurait sinon dû retarder CHAQUE clic
-    // simple pour voir s'il en suit un second — le délai reproché sur mobile). `suppressNextClick`
-    // évite qu'un clic de navigation se déclenche juste après un glisser (certains navigateurs
-    // émettent quand même un "click" final).
+    // Renommer/supprimer passent par un petit menu contextuel intégré à la page : clic droit
+    // (ordinateur) ou appui long (téléphone) sur toute la ligne du dossier. Pas de double-clic :
+    // un simple clic navigue. `suppressNextClick` évite qu'un clic de navigation se déclenche juste
+    // après un glisser ou un appui long (certains navigateurs émettent quand même un "click" final).
     var suppressNextClick = false;
     var LONG_PRESS_MS = 550;
     var LONG_PRESS_TOLERANCE = 10;
 
-    function bindRenameGestures(nameEl, getParentArray, folder, inst) {
+    function bindFolderMenu(el, getParentArray, folder, inst) {
         var triggeredByPress = false;
 
-        nameEl.addEventListener("contextmenu", function (e) {
+        el.addEventListener("contextmenu", function (e) {
             e.preventDefault();
             e.stopPropagation();
-            // Un appui long tactile a pu déjà déclencher le renommage via le minuteur ci-dessous
-            // avant que "contextmenu" n'arrive (son délai varie selon l'appareil) — on évite alors
-            // d'ouvrir une deuxième invite de renommage à la suite.
+            // L'appui long tactile a pu déjà ouvrir le menu via le minuteur ci-dessous.
             if (triggeredByPress) { triggeredByPress = false; return; }
-            renameOrDeleteFolder(getParentArray(), folder, inst);
+            openFolderMenu(e.clientX, e.clientY, getParentArray, folder, inst);
         });
 
-        // Détection manuelle de l'appui long tactile : contrairement à Android ou à un clic droit
-        // sur ordinateur, Safari sur iPhone/iPad ne déclenche pas de façon fiable l'événement
-        // "contextmenu" sur un appui long pour un élément quelconque de la page. On ne peut donc
-        // pas compter dessus pour renommer/supprimer au doigt — d'où ce minuteur, indépendant du
-        // navigateur, qui ne concerne que les pointeurs tactiles/stylet (la souris a déjà
-        // dblclick/clic droit ci-dessus).
+        // Safari sur iPhone/iPad ne déclenche pas "contextmenu" sur un appui long : minuteur
+        // manuel, limité aux pointeurs tactiles/stylet (la souris a le clic droit).
         var pressTimer = null;
         var startX = 0, startY = 0;
 
@@ -265,8 +250,9 @@
             if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
         }
 
-        nameEl.addEventListener("pointerdown", function (e) {
+        el.addEventListener("pointerdown", function (e) {
             if (e.pointerType === "mouse") return;
+            if (e.target.closest("button, input, textarea, select")) return;
             startX = e.clientX;
             startY = e.clientY;
             cancelPress();
@@ -274,16 +260,212 @@
                 pressTimer = null;
                 triggeredByPress = true;
                 suppressNextClick = true;
-                renameOrDeleteFolder(getParentArray(), folder, inst);
-                setTimeout(function () { triggeredByPress = false; }, 400);
+                // Le "click" éventuel suit immédiatement le relâchement : on ne l'ignore qu'une fois.
+                document.addEventListener("pointerup", function onUp() {
+                    document.removeEventListener("pointerup", onUp, true);
+                    setTimeout(function () { suppressNextClick = false; }, 60);
+                }, true);
+                openFolderMenu(startX, startY, getParentArray, folder, inst);
+                setTimeout(function () { triggeredByPress = false; }, 800);
             }, LONG_PRESS_MS);
         });
-        nameEl.addEventListener("pointermove", function (e) {
+        el.addEventListener("pointermove", function (e) {
             if (!pressTimer) return;
             if (Math.abs(e.clientX - startX) > LONG_PRESS_TOLERANCE || Math.abs(e.clientY - startY) > LONG_PRESS_TOLERANCE) cancelPress();
         });
-        nameEl.addEventListener("pointerup", cancelPress);
-        nameEl.addEventListener("pointercancel", cancelPress);
+        el.addEventListener("pointerup", cancelPress);
+        el.addEventListener("pointercancel", cancelPress);
+    }
+
+    // ---------- menu contextuel (renommer / supprimer) ----------
+
+    var openMenu = null;
+
+    function closeFolderMenu() {
+        if (!openMenu) return;
+        openMenu.backdrop.remove();
+        openMenu.menu.remove();
+        document.removeEventListener("keydown", openMenu.onKey, true);
+        openMenu = null;
+    }
+
+    // Chemin d'ids menant au dossier `id` (null s'il est introuvable).
+    function findPathTo(inst, id) {
+        function walk(list, acc) {
+            for (var i = 0; i < list.length; i++) {
+                var p = acc.concat(list[i].id);
+                if (list[i].id === id) return p;
+                var sub = walk(list[i].folders, p);
+                if (sub) return sub;
+            }
+            return null;
+        }
+        return walk(inst.categories, []);
+    }
+
+    function folderDepth(inst, id) {
+        var p = findPathTo(inst, id);
+        return p ? p.length : 0;
+    }
+
+    function deleteFolder(parentArray, folder, inst) {
+        var pos = parentArray.indexOf(folder);
+        if (pos !== -1) parentArray.splice(pos, 1);
+        var path = getNavPath(inst);
+        var inPath = path.indexOf(folder.id);
+        if (inPath !== -1) setNavPath(inst, path.slice(0, inPath));
+        save();
+        render();
+    }
+
+    function openFolderMenu(x, y, getParentArray, folder, inst) {
+        closeFolderMenu();
+
+        // Fond transparent qui ferme le menu au prochain appui ailleurs. On écoute "pointerdown"
+        // (et non "click") : le relâchement du doigt qui a ouvert le menu par appui long ne doit
+        // pas le refermer aussitôt.
+        var backdrop = document.createElement("div");
+        backdrop.className = "ctx-backdrop";
+        backdrop.addEventListener("pointerdown", function (e) { e.preventDefault(); closeFolderMenu(); });
+        backdrop.addEventListener("contextmenu", function (e) { e.preventDefault(); closeFolderMenu(); });
+
+        var menu = document.createElement("div");
+        menu.className = "ctx-menu";
+        menu.setAttribute("role", "menu");
+        menu.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+
+        function menuButton(text, className, onClick) {
+            var b = document.createElement("button");
+            b.type = "button";
+            b.className = "ctx-item" + (className ? " " + className : "");
+            b.textContent = text;
+            // Idem : un bouton ne réagit que si l'appui a COMMENCÉ dessus (ou au clavier,
+            // e.detail === 0), pour ignorer le relâchement de l'appui long qui a ouvert le menu.
+            var armed = false;
+            b.addEventListener("pointerdown", function () { armed = true; });
+            b.addEventListener("click", function (e) {
+                if (!armed && e.detail !== 0) return;
+                armed = false;
+                onClick();
+            });
+            return b;
+        }
+
+        function showMain() {
+            menu.innerHTML = "";
+            var title = document.createElement("div");
+            title.className = "ctx-title";
+            title.textContent = folder.name;
+            menu.appendChild(title);
+            if (canAddSub) menu.appendChild(menuButton("Nouveau sous-dossier", "", showAddSub));
+            menu.appendChild(menuButton("Renommer", "", showRename));
+            menu.appendChild(menuButton("Supprimer", "ctx-danger", showDelete));
+        }
+
+        var depth = folderDepth(inst, folder.id);
+        var canAddSub = depth > 0 && depth < MAX_FOLDER_DEPTH;
+
+        function showAddSub() {
+            menu.innerHTML = "";
+            var input = document.createElement("input");
+            input.type = "text";
+            input.className = "ctx-input";
+            input.placeholder = "Nom du sous-dossier…";
+            function commit() {
+                var name = input.value.trim();
+                if (!name) return;
+                var child = makeFolder(name);
+                folder.folders.push(child);
+                treeExpanded[folder.id] = true;
+                // On ouvre directement le nouveau dossier (chemin = chemin du parent + enfant).
+                var parentPath = findPathTo(inst, folder.id);
+                if (parentPath) { clearFilters(); setNavPath(inst, parentPath.concat(child.id)); }
+                save();
+                closeFolderMenu();
+                render();
+            }
+            input.addEventListener("keydown", function (e) {
+                e.stopPropagation();
+                if (e.key === "Enter") commit();
+                if (e.key === "Escape") closeFolderMenu();
+            });
+            menu.appendChild(input);
+            var actions = document.createElement("div");
+            actions.className = "ctx-actions";
+            actions.appendChild(menuButton("Annuler", "ctx-secondary", closeFolderMenu));
+            actions.appendChild(menuButton("Créer", "ctx-primary", commit));
+            menu.appendChild(actions);
+            place();
+            input.focus();
+        }
+
+        function showRename() {
+            menu.innerHTML = "";
+            var input = document.createElement("input");
+            input.type = "text";
+            input.className = "ctx-input";
+            input.value = folder.name;
+            function commit() {
+                var name = input.value.trim();
+                if (name && name !== folder.name) {
+                    folder.name = name;
+                    save();
+                }
+                closeFolderMenu();
+                render();
+            }
+            input.addEventListener("keydown", function (e) {
+                e.stopPropagation();
+                if (e.key === "Enter") commit();
+                if (e.key === "Escape") closeFolderMenu();
+            });
+            menu.appendChild(input);
+            var actions = document.createElement("div");
+            actions.className = "ctx-actions";
+            actions.appendChild(menuButton("Annuler", "ctx-secondary", closeFolderMenu));
+            actions.appendChild(menuButton("Valider", "ctx-primary", commit));
+            menu.appendChild(actions);
+            place();
+            input.focus();
+            input.select();
+        }
+
+        function showDelete() {
+            menu.innerHTML = "";
+            var hasContent = folder.folders.length > 0 || folder.exercises.length > 0;
+            var msg = document.createElement("div");
+            msg.className = "ctx-message";
+            msg.textContent = "Supprimer « " + folder.name + " »" + (hasContent ? " et tout son contenu (sous-dossiers et exercices)" : "") + " ?";
+            menu.appendChild(msg);
+            var actions = document.createElement("div");
+            actions.className = "ctx-actions";
+            actions.appendChild(menuButton("Annuler", "ctx-secondary", closeFolderMenu));
+            actions.appendChild(menuButton("Supprimer", "ctx-danger-solid", function () {
+                closeFolderMenu();
+                deleteFolder(getParentArray(), folder, inst);
+            }));
+            menu.appendChild(actions);
+            place();
+        }
+
+        // Garde le menu dans l'écran, légèrement décalé du doigt/curseur.
+        function place() {
+            var w = menu.offsetWidth || 200;
+            var h = menu.offsetHeight || 120;
+            var left = Math.min(Math.max(8, x + 6), Math.max(8, window.innerWidth - w - 8));
+            var top = Math.min(Math.max(8, y + 6), Math.max(8, window.innerHeight - h - 8));
+            menu.style.left = left + "px";
+            menu.style.top = top + "px";
+        }
+
+        function onKey(e) { if (e.key === "Escape") closeFolderMenu(); }
+
+        document.body.appendChild(backdrop);
+        document.body.appendChild(menu);
+        document.addEventListener("keydown", onKey, true);
+        openMenu = { backdrop: backdrop, menu: menu, onKey: onKey };
+        showMain();
+        place();
     }
 
     function setupDragReorder(container, itemSelector, getArray, axis) {
@@ -296,19 +478,29 @@
         }
 
         container.addEventListener("pointerdown", function (e) {
+            if (e.button !== undefined && e.button !== 0) return; // clic droit : menu contextuel, pas de glisser
+            // Les boutons/champs internes (chevron, "+", saisie) gardent leur propre clic.
+            if (e.target.closest("button, input, textarea, select")) return;
             var item = e.target.closest(itemSelector);
             if (!item || item.parentNode !== container) return; // seuls les enfants directs de CE niveau sont concernés
             dragEl = item;
             startX = e.clientX;
             startY = e.clientY;
             moved = false;
-            try { item.setPointerCapture(e.pointerId); } catch (err) {}
+            // Pas de capture du pointeur ici : dans un vrai navigateur, capturer dès l'appui
+            // redirige le "click" final vers le nœud entier, ce qui rendait inopérants le
+            // chevron, le "+" et le clic sur un sous-dossier. On ne capture qu'une fois le
+            // glisser réellement commencé (seuil de 10 px), voir pointermove.
         });
 
         container.addEventListener("pointermove", function (e) {
             if (!dragEl) return;
+            if (!moved && e.buttons === 0 && e.pointerType === "mouse") { dragEl = null; return; } // relâché hors de la zone
             var delta = axis === "x" ? (e.clientX - startX) : (e.clientY - startY);
             if (!moved && Math.abs(delta) < 10) return;
+            if (!moved) {
+                try { dragEl.setPointerCapture(e.pointerId); } catch (err) {}
+            }
             moved = true;
             dragEl.classList.add("dragging");
             var siblings = directChildren().filter(function (el) { return el !== dragEl; });
@@ -342,25 +534,6 @@
         container.addEventListener("pointercancel", finish);
     }
 
-    function renameOrDeleteFolder(parentArray, folder, inst) {
-        var newName = window.prompt("Renommer :", folder.name);
-        if (newName === null) return;
-        newName = newName.trim();
-        if (!newName) {
-            var hasContent = folder.folders.length > 0 || folder.exercises.length > 0;
-            if (!window.confirm("Supprimer « " + folder.name + " »" + (hasContent ? " et tout son contenu" : "") + " ?")) return;
-            var pos = parentArray.indexOf(folder);
-            if (pos !== -1) parentArray.splice(pos, 1);
-            var path = getNavPath(inst);
-            var inPath = path.indexOf(folder.id);
-            if (inPath !== -1) setNavPath(inst, path.slice(0, inPath));
-        } else {
-            folder.name = newName;
-        }
-        save();
-        render();
-    }
-
     // ---------- rendering ----------
 
     var $instrumentSelect = document.getElementById("instrument-select");
@@ -374,6 +547,62 @@
     var $toggleARevoir = document.getElementById("toggle-a-revoir-btn");
     var $toggleUpdatedAt = document.getElementById("toggle-updated-at-btn");
     var $searchInput = document.getElementById("search-input");
+
+    // ---------- largeur réglable du bandeau gauche (ordinateur) ----------
+    // Réglage propre à chaque appareil (taille d'écran différente) : gardé en localStorage, pas
+    // synchronisé. La zone principale s'adapte d'elle-même (flex: 1).
+    var SIDEBAR_WIDTH_KEY = "trainhub.sidebarWidth";
+    var SIDEBAR_DEFAULT = 280, SIDEBAR_MIN = 200, SIDEBAR_MAX = 560;
+    var $sidebarResizer = document.getElementById("sidebar-resizer");
+
+    function applySidebarWidth(w) {
+        w = Math.round(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, w)));
+        document.documentElement.style.setProperty("--sidebar-width", w + "px");
+        return w;
+    }
+
+    (function initSidebarResizer() {
+        var stored = null;
+        try { stored = parseInt(localStorage.getItem(SIDEBAR_WIDTH_KEY), 10); } catch (e) {}
+        applySidebarWidth(stored || SIDEBAR_DEFAULT);
+        if (!$sidebarResizer) return;
+
+        var dragging = false;
+        var current = stored || SIDEBAR_DEFAULT;
+
+        $sidebarResizer.addEventListener("pointerdown", function (e) {
+            if (e.button !== undefined && e.button !== 0) return;
+            e.preventDefault();
+            dragging = true;
+            try { $sidebarResizer.setPointerCapture(e.pointerId); } catch (err) {}
+            document.body.classList.add("resizing-sidebar");
+        });
+        $sidebarResizer.addEventListener("pointermove", function (e) {
+            if (!dragging) return;
+            var left = $sidebarTree.getBoundingClientRect().left;
+            current = applySidebarWidth(e.clientX - left);
+        });
+        function stop() {
+            if (!dragging) return;
+            dragging = false;
+            document.body.classList.remove("resizing-sidebar");
+            try { localStorage.setItem(SIDEBAR_WIDTH_KEY, String(current)); } catch (err) {}
+        }
+        $sidebarResizer.addEventListener("pointerup", stop);
+        $sidebarResizer.addEventListener("pointercancel", stop);
+        $sidebarResizer.addEventListener("dblclick", function () {
+            current = applySidebarWidth(SIDEBAR_DEFAULT);
+            try { localStorage.setItem(SIDEBAR_WIDTH_KEY, String(current)); } catch (err) {}
+        });
+        // Clavier : flèches gauche/droite pour ajuster finement.
+        $sidebarResizer.tabIndex = 0;
+        $sidebarResizer.addEventListener("keydown", function (e) {
+            if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+            e.preventDefault();
+            current = applySidebarWidth(current + (e.key === "ArrowRight" ? 20 : -20));
+            try { localStorage.setItem(SIDEBAR_WIDTH_KEY, String(current)); } catch (err) {}
+        });
+    })();
 
     if ($searchInput) {
         $searchInput.addEventListener("input", function () {
@@ -442,10 +671,10 @@
             var label = document.createElement("span");
             label.className = "chapter-chip-label";
             label.textContent = chapter.name;
-            label.title = "Clic droit (ordinateur) ou appui long (mobile) pour renommer/supprimer";
             if (isActive) label.style.color = chapter.color;
-            bindRenameGestures(label, function () { return getActiveInstrument().categories; }, chapter, inst);
             chip.appendChild(label);
+            chip.title = "Clic droit (ordinateur) ou appui long (mobile) : renommer / supprimer";
+            bindFolderMenu(chip, function () { return getActiveInstrument().categories; }, chapter, inst);
 
             chip.addEventListener("click", function (e) {
                 if (suppressNextClick) { suppressNextClick = false; return; }
@@ -575,14 +804,9 @@
         var label = document.createElement("span");
         label.className = "tree-label";
         label.textContent = folder.name;
-        label.title = "Clic droit (ordinateur) ou appui long (mobile) pour renommer/supprimer";
         row.appendChild(label);
-        bindRenameGestures(label, function () { return getParentArrayFor(getActiveInstrument(), ancestorPath); }, folder, inst);
-
-        var count = document.createElement("span");
-        count.className = "tree-count";
-        count.textContent = countAll(folder);
-        row.appendChild(count);
+        row.title = "Clic droit (ordinateur) ou appui long (mobile) : renommer / supprimer";
+        bindFolderMenu(row, function () { return getParentArrayFor(getActiveInstrument(), ancestorPath); }, folder, inst);
 
         row.addEventListener("click", function (e) {
             if (suppressNextClick) { suppressNextClick = false; return; }
@@ -593,13 +817,16 @@
 
         wrap.appendChild(row);
 
-        if (expanded && (hasChildren || fullPath.length < MAX_FOLDER_DEPTH)) {
+        // Le champ "Nouveau sous-dossier" n'apparaît que sous le dossier sélectionné, pour garder
+        // l'arborescence épurée (ailleurs : clic droit / appui long → "Nouveau sous-dossier").
+        var canAdd = isSelected && fullPath.length < MAX_FOLDER_DEPTH;
+        if (expanded && (hasChildren || canAdd)) {
             var childWrap = document.createElement("div");
             childWrap.className = "tree-children";
             folder.folders.forEach(function (child) {
                 childWrap.appendChild(renderTreeNode(inst, child, fullPath, currentPath, rootColor));
             });
-            if (fullPath.length < MAX_FOLDER_DEPTH) {
+            if (canAdd) {
                 childWrap.appendChild(renderTreeAddFolder(folder));
             }
             wrap.appendChild(childWrap);
@@ -656,10 +883,6 @@
     function renderContentHeading(folder) {
         $contentHeading.innerHTML = "";
         if (!folder) return;
-        var dot = document.createElement("span");
-        dot.className = "heading-dot";
-        dot.style.background = folder.color || "var(--chapter-accent)";
-        $contentHeading.appendChild(dot);
         var h2 = document.createElement("h2");
         h2.textContent = folder.name;
         $contentHeading.appendChild(h2);
@@ -711,7 +934,13 @@
         renderContentHeading(currentFolder);
         $folderContainer.innerHTML = "";
 
+        // Sous-dossiers du dossier courant, dans le MÊME ordre que l'arborescence de gauche (même
+        // tableau de données) : la zone principale reflète exactement la branche sélectionnée.
         if (currentFolder.folders.length) {
+            var foldersLabel = document.createElement("div");
+            foldersLabel.className = "section-label";
+            foldersLabel.textContent = "Sous-dossiers";
+            $folderContainer.appendChild(foldersLabel);
             var foldersWrap = document.createElement("div");
             foldersWrap.className = "folders-wrap";
             currentFolder.folders.forEach(function (f, idx) {
@@ -725,6 +954,12 @@
             $folderContainer.appendChild(renderAddFolderForm(currentFolder));
         }
 
+        if (currentFolder.folders.length) {
+            var exLabel = document.createElement("div");
+            exLabel.className = "section-label";
+            exLabel.textContent = "Exercices";
+            $folderContainer.appendChild(exLabel);
+        }
         var exercisesWrap = document.createElement("div");
         exercisesWrap.className = "exercises-wrap";
         currentFolder.exercises.forEach(function (ex, idx) {
@@ -748,14 +983,9 @@
         var label = document.createElement("span");
         label.className = "folder-name";
         label.textContent = folder.name;
-        label.title = "Clic droit (ordinateur) ou appui long (mobile) pour renommer/supprimer";
         row.appendChild(label);
-        bindRenameGestures(label, function () { return parentArray; }, folder, inst);
-
-        var count = document.createElement("span");
-        count.className = "folder-count";
-        count.textContent = countAll(folder);
-        row.appendChild(count);
+        row.title = "Clic droit (ordinateur) ou appui long (mobile) : renommer / supprimer";
+        bindFolderMenu(row, function () { return parentArray; }, folder, inst);
 
         row.addEventListener("click", function (e) {
             if (suppressNextClick) { suppressNextClick = false; return; }
@@ -844,7 +1074,6 @@
                 id: uid(),
                 title: title,
                 notes: "",
-                tempo: "",
                 status: "a_faire",
                 links: [],
                 collapsed: true,
@@ -915,7 +1144,7 @@
         });
         row.appendChild(status);
 
-        var expandBtn = iconButton(ex.collapsed ? "▾" : "▴", "Détails (notes, tempo, liens)", function () {
+        var expandBtn = iconButton(ex.collapsed ? "▾" : "▴", "Détails (notes, liens)", function () {
             ex.collapsed = !ex.collapsed;
             save();
             render();
@@ -950,25 +1179,6 @@
             details.appendChild(updatedNote);
         }
 
-        var fieldRow = document.createElement("div");
-        fieldRow.className = "field-row";
-
-        var tempoLabel = document.createElement("label");
-        tempoLabel.textContent = "Tempo (BPM)";
-        var tempoInput = document.createElement("input");
-        tempoInput.type = "number";
-        tempoInput.min = "0";
-        tempoInput.className = "tempo-input";
-        tempoInput.value = ex.tempo || "";
-        tempoInput.placeholder = "—";
-        tempoInput.addEventListener("change", function () {
-            ex.tempo = tempoInput.value;
-            touchExercise(ex);
-            save();
-        });
-        fieldRow.appendChild(tempoLabel);
-        fieldRow.appendChild(tempoInput);
-        details.appendChild(fieldRow);
 
         var notesLabel = document.createElement("label");
         notesLabel.textContent = "Notes";

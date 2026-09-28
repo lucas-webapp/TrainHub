@@ -291,7 +291,6 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 .folder-row.dragging { opacity: .5; cursor: grabbing; }
 .folder-icon { color: var(--chapter-accent); display: inline-flex; flex: none; }
 .folder-name { font-weight: 700; font-size: var(--fs-base); flex: 1; cursor: default; -webkit-touch-callout: none; }
-.folder-count { color: var(--text-muted); font-size: var(--fs-xs); flex: none; }
 
 /* ---------- résultats de recherche / filtre à revoir ---------- */
 .result-item { display: flex; flex-direction: column; gap: 4px; }
@@ -350,9 +349,6 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 }
 .exercise.collapsed .exercise-details { display: none; }
 
-.field-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.field-row label { font-size: var(--fs-xs); color: var(--text-muted); }
-.tempo-input { width: 80px; }
 
 .links-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .link-chip {
@@ -460,7 +456,6 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     white-space: nowrap;
     -webkit-touch-callout: none;
 }
-.tree-count { font-size: var(--fs-2xs); color: var(--text-muted); flex: none; }
 
 .tree-children {
     display: flex;
@@ -492,12 +487,102 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 
 .sidebar-add-chapter { margin-top: 10px; padding: 0; }
 
+/* ---------- poignée de largeur du bandeau (ordinateur) ---------- */
+.sidebar-resizer {
+    display: none;
+    flex: none;
+    width: 8px;
+    margin-left: -4px;
+    margin-right: -4px;
+    align-self: stretch;
+    cursor: col-resize;
+    position: relative;
+    z-index: 5;
+    touch-action: none;
+}
+.sidebar-resizer::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 3px;
+    width: 2px;
+    background: transparent;
+    transition: background .15s ease;
+}
+.sidebar-resizer:hover::after,
+.sidebar-resizer:focus-visible::after,
+body.resizing-sidebar .sidebar-resizer::after { background: var(--chapter-accent); }
+.sidebar-resizer:focus { outline: none; }
+body.resizing-sidebar { cursor: col-resize; user-select: none; }
+
+/* ---------- titres de section de la zone principale ---------- */
+.section-label {
+    font-size: var(--fs-2xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--text-muted);
+    margin-bottom: -6px;
+}
+
+/* ---------- menu contextuel (renommer / supprimer) ---------- */
+.ctx-backdrop { position: fixed; inset: 0; z-index: 900; background: transparent; }
+.ctx-menu {
+    position: fixed;
+    z-index: 901;
+    min-width: 200px;
+    max-width: min(300px, calc(100vw - 16px));
+    background: var(--card-bg-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.5);
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.ctx-title {
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+    padding: 6px 10px 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4px;
+}
+.ctx-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    color: var(--text-main);
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    padding: 9px 10px;
+    border-radius: 7px;
+}
+.ctx-item:hover { background: rgba(255,255,255,.07); }
+.ctx-danger { color: #ff6b6b; }
+.ctx-message { font-size: var(--fs-sm); padding: 8px 10px; line-height: 1.4; }
+.ctx-input { margin: 4px; font-size: var(--fs-sm); }
+.ctx-actions { display: flex; justify-content: flex-end; gap: 6px; padding: 6px 4px 2px; }
+.ctx-actions .ctx-item { width: auto; text-align: center; padding: 7px 12px; }
+.ctx-secondary { color: var(--text-muted); }
+.ctx-primary { background: var(--chapter-accent); color: #000; }
+.ctx-primary:hover { background: var(--chapter-accent); filter: brightness(1.1); }
+.ctx-danger-solid { background: #e5484d; color: #fff; }
+.ctx-danger-solid:hover { background: #f2555a; }
+
 @media (min-width: 880px) {
     .chapter-bar { display: none; }
     .sidebar-tree {
         display: flex;
-        width: 280px;
+        width: var(--sidebar-width, 280px);
         flex: none;
+        min-width: 0;
         background: var(--card-bg);
         border-right: 1px solid var(--border);
         padding: 16px 12px 24px;
@@ -510,14 +595,24 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
         padding: 28px 32px;
         gap: 16px;
     }
-    .folders-wrap { display: none; }
+    .sidebar-resizer { display: block; }
+    /* Sous-dossiers du dossier courant en cartes, dans l'ordre de l'arborescence. L'ajout se
+       fait depuis l'arborescence : pas de doublon ici. */
+    .folders-wrap {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+        gap: 8px;
+    }
     #folder-container > .add-category-row { display: none; }
     .content-heading {
         display: flex;
         align-items: center;
         gap: 10px;
     }
-    .content-heading .heading-dot { width: 11px; height: 11px; border-radius: 50%; flex: none; }
+    .content-heading {
+        border-left: 3px solid var(--chapter-accent);
+        padding-left: 12px;
+    }
     .content-heading h2 {
         margin: 0;
         font-size: var(--fs-xl);
@@ -531,3 +626,6 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     .main { padding: 10px; }
     .logo-text { display: none; }
 }
+
+/* Appui long = menu renommer/supprimer : pas de bulle système iOS sur les lignes. */
+.tree-row, .folder-row, .chapter-chip { -webkit-touch-callout: none; -webkit-user-select: none; }
