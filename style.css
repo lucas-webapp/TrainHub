@@ -83,6 +83,7 @@ button {
 }
 button:hover { border-color: var(--btn-neutral-border-hover); }
 button:active { transform: translateY(1px); }
+button:disabled { opacity: .35; cursor: default; pointer-events: none; }
 button.icon-btn { padding: 7px; border-radius: 8px; }
 button.btn-accent {
     background: linear-gradient(180deg, var(--btn-green-1), var(--btn-green-2));
@@ -187,6 +188,17 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     flex-direction: column;
     gap: 14px;
 }
+
+.search-row input {
+    width: 100%;
+}
+
+.updated-at-note {
+    font-size: var(--fs-2xs);
+    color: var(--text-muted);
+}
+
+.link-icon { display: inline-flex; }
 
 .empty-state {
     text-align: center;

@@ -13,6 +13,7 @@
 
     var state = load() || makeDefaultState();
     var filterARevoir = false;
+    var searchQuery = "";
 
     function uid() {
         return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -77,13 +78,49 @@
         }
     }
 
-    function linkIconFor(label) {
+    var LINK_ICONS = {
+        youtube: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="3"/><path d="M10 9.5v5l4.5-2.5z" fill="currentColor" stroke="none"/></svg>',
+        note: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l10-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>',
+        pdf: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
+        audio: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10v4"/><path d="M7 7v10"/><path d="M11 4v16"/><path d="M15 7v10"/><path d="M19 10v4"/></svg>',
+        link: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.07 0l2-2a5 5 0 0 0-7.07-7.07l-1 1"/><path d="M14 11a5 5 0 0 0-7.07 0l-2 2a5 5 0 0 0 7.07 7.07l1-1"/></svg>'
+    };
+
+    function linkIconSvg(label) {
         var l = (label || "").toLowerCase();
-        if (l.indexOf("youtube") !== -1) return "▶";
-        if (l.indexOf("ireal") !== -1) return "♪";
-        if (l.indexOf("pdf") !== -1) return "📄";
-        if (l.indexOf("mp3") !== -1) return "🎵";
-        return "🔗";
+        if (l.indexOf("youtube") !== -1) return LINK_ICONS.youtube;
+        if (l.indexOf("ireal") !== -1) return LINK_ICONS.note;
+        if (l.indexOf("pdf") !== -1) return LINK_ICONS.pdf;
+        if (l.indexOf("mp3") !== -1 || l.indexOf("audio") !== -1) return LINK_ICONS.audio;
+        return LINK_ICONS.link;
+    }
+
+    function touchExercise(ex) {
+        ex.updatedAt = Date.now();
+    }
+
+    function formatUpdatedAt(ts) {
+        if (!ts) return "";
+        var d = new Date(ts);
+        var now = new Date();
+        if (d.toDateString() === now.toDateString()) {
+            return "aujourd'hui à " + d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+        }
+        var diffDays = Math.floor((now - d) / 86400000);
+        if (diffDays === 1) return "hier";
+        if (diffDays >= 0 && diffDays < 7) return "il y a " + diffDays + " j";
+        var opts = { day: "2-digit", month: "2-digit" };
+        if (d.getFullYear() !== now.getFullYear()) opts.year = "numeric";
+        return d.toLocaleDateString("fr-FR", opts);
+    }
+
+    function moveArrayItem(arr, index, delta) {
+        var newIndex = index + delta;
+        if (newIndex < 0 || newIndex >= arr.length) return false;
+        var tmp = arr[index];
+        arr[index] = arr[newIndex];
+        arr[newIndex] = tmp;
+        return true;
     }
 
     // ---------- rendering ----------
@@ -92,6 +129,14 @@
     var $categories = document.getElementById("categories-container");
     var $empty = document.getElementById("empty-state");
     var $toggleARevoir = document.getElementById("toggle-a-revoir-btn");
+    var $searchInput = document.getElementById("search-input");
+
+    if ($searchInput) {
+        $searchInput.addEventListener("input", function () {
+            searchQuery = $searchInput.value;
+            renderCategories();
+        });
+    }
 
     function render() {
         renderTabs();
@@ -144,23 +189,27 @@
 
         var categories = inst.categories;
         var anyVisible = false;
+        var hasFilter = filterARevoir || !!searchQuery;
+        var orderingEnabled = !hasFilter;
+        var query = searchQuery.trim().toLowerCase();
 
-        categories.forEach(function (cat) {
+        categories.forEach(function (cat, idx) {
             var exercises = cat.exercises;
             if (filterARevoir) exercises = exercises.filter(function (ex) { return ex.status === "a_revoir"; });
-            if (filterARevoir && exercises.length === 0) return;
+            if (query) exercises = exercises.filter(function (ex) { return ex.title.toLowerCase().indexOf(query) !== -1; });
+            if (hasFilter && exercises.length === 0) return;
             anyVisible = true;
-            $categories.appendChild(renderCategory(inst, cat, exercises));
+            $categories.appendChild(renderCategory(inst, cat, exercises, idx, categories.length, orderingEnabled, hasFilter));
         });
 
-        if (!filterARevoir) {
+        if (!hasFilter) {
             $categories.appendChild(renderAddCategoryForm(inst));
         }
 
-        $empty.hidden = anyVisible || !filterARevoir;
-        if (filterARevoir && !anyVisible) {
+        $empty.hidden = anyVisible || !hasFilter;
+        if (hasFilter && !anyVisible) {
             $empty.hidden = false;
-            $empty.textContent = "Rien à revoir pour l'instant sur cet instrument.";
+            $empty.textContent = filterARevoir ? "Rien à revoir pour l'instant sur cet instrument." : "Aucun exercice ne correspond à ta recherche.";
         }
     }
 
@@ -188,9 +237,9 @@
         return wrap;
     }
 
-    function renderCategory(inst, cat, exercises) {
+    function renderCategory(inst, cat, exercises, idx, total, orderingEnabled, forceExpand) {
         var el = document.createElement("div");
-        el.className = "category" + (cat.collapsed ? " collapsed" : "");
+        el.className = "category" + (!forceExpand && cat.collapsed ? " collapsed" : "");
 
         var header = document.createElement("div");
         header.className = "category-header";
@@ -212,6 +261,22 @@
 
         var actions = document.createElement("div");
         actions.className = "category-actions";
+
+        if (orderingEnabled) {
+            var upBtn = iconButton("↑", "Monter la catégorie", function (e) {
+                e.stopPropagation();
+                if (moveArrayItem(inst.categories, idx, -1)) { save(); render(); }
+            });
+            if (idx === 0) upBtn.disabled = true;
+            actions.appendChild(upBtn);
+
+            var downBtn = iconButton("↓", "Descendre la catégorie", function (e) {
+                e.stopPropagation();
+                if (moveArrayItem(inst.categories, idx, 1)) { save(); render(); }
+            });
+            if (idx === total - 1) downBtn.disabled = true;
+            actions.appendChild(downBtn);
+        }
 
         var renameBtn = iconButton("✎", "Renommer / supprimer la catégorie", function (e) {
             e.stopPropagation();
@@ -241,11 +306,11 @@
         var body = document.createElement("div");
         body.className = "category-body";
 
-        exercises.forEach(function (ex) {
-            body.appendChild(renderExercise(cat, ex));
+        exercises.forEach(function (ex, exIdx) {
+            body.appendChild(renderExercise(cat, ex, exIdx, exercises.length, orderingEnabled));
         });
 
-        body.appendChild(renderAddExerciseForm(cat));
+        if (!forceExpand) body.appendChild(renderAddExerciseForm(cat));
 
         el.appendChild(body);
         return el;
@@ -277,7 +342,8 @@
                 tempo: "",
                 status: "a_faire",
                 links: [],
-                collapsed: true
+                collapsed: true,
+                updatedAt: Date.now()
             });
             input.value = "";
             save();
@@ -293,12 +359,26 @@
         return wrap;
     }
 
-    function renderExercise(cat, ex) {
+    function renderExercise(cat, ex, idx, total, orderingEnabled) {
         var el = document.createElement("div");
         el.className = "exercise" + (ex.collapsed ? " collapsed" : "");
 
         var row = document.createElement("div");
         row.className = "exercise-row";
+
+        if (orderingEnabled) {
+            var upBtn = iconButton("↑", "Monter l'exercice", function () {
+                if (moveArrayItem(cat.exercises, idx, -1)) { save(); render(); }
+            });
+            if (idx === 0) upBtn.disabled = true;
+            row.appendChild(upBtn);
+
+            var downBtn = iconButton("↓", "Descendre l'exercice", function () {
+                if (moveArrayItem(cat.exercises, idx, 1)) { save(); render(); }
+            });
+            if (idx === total - 1) downBtn.disabled = true;
+            row.appendChild(downBtn);
+        }
 
         var title = document.createElement("input");
         title.type = "text";
@@ -306,6 +386,7 @@
         title.value = ex.title;
         title.addEventListener("change", function () {
             ex.title = title.value.trim() || ex.title;
+            touchExercise(ex);
             save();
         });
         row.appendChild(title);
@@ -323,6 +404,7 @@
         status.addEventListener("change", function () {
             ex.status = status.value;
             status.dataset.status = ex.status;
+            touchExercise(ex);
             save();
             if (filterARevoir) render();
         });
@@ -356,6 +438,13 @@
         var details = document.createElement("div");
         details.className = "exercise-details";
 
+        if (ex.updatedAt) {
+            var updatedNote = document.createElement("div");
+            updatedNote.className = "updated-at-note";
+            updatedNote.textContent = "Modifié " + formatUpdatedAt(ex.updatedAt);
+            details.appendChild(updatedNote);
+        }
+
         var fieldRow = document.createElement("div");
         fieldRow.className = "field-row";
 
@@ -369,6 +458,7 @@
         tempoInput.placeholder = "—";
         tempoInput.addEventListener("change", function () {
             ex.tempo = tempoInput.value;
+            touchExercise(ex);
             save();
         });
         fieldRow.appendChild(tempoLabel);
@@ -382,6 +472,7 @@
         notes.placeholder = "Remarques, points à retravailler…";
         notes.addEventListener("change", function () {
             ex.notes = notes.value;
+            touchExercise(ex);
             save();
         });
         details.appendChild(notesLabel);
@@ -400,7 +491,8 @@
             chip.target = "_blank";
             chip.rel = "noopener noreferrer";
             var iconSpan = document.createElement("span");
-            iconSpan.textContent = linkIconFor(link.label);
+            iconSpan.className = "link-icon";
+            iconSpan.innerHTML = linkIconSvg(link.label);
             chip.appendChild(iconSpan);
             var labelSpan = document.createElement("span");
             labelSpan.className = "link-label";
@@ -414,6 +506,7 @@
                 e.preventDefault();
                 e.stopPropagation();
                 ex.links.splice(idx, 1);
+                touchExercise(ex);
                 save();
                 render();
             });
@@ -443,6 +536,7 @@
             ex.links.push({ label: label, url: url });
             urlInput.value = "";
             labelInput.value = "";
+            touchExercise(ex);
             save();
             render();
         }
