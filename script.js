@@ -735,7 +735,7 @@
         var list = document.createElement("div");
         list.className = "tree-list";
         inst.categories.forEach(function (chapter) {
-            list.appendChild(renderTreeNode(inst, chapter, [], path, chapter.color));
+            list.appendChild(renderTreeNode(inst, chapter, [], path, chapter.color, 0));
         });
         $sidebarTree.appendChild(list);
         setupDragReorder(list, ".tree-node", function () { return getActiveInstrument().categories; }, "y");
@@ -768,18 +768,21 @@
         $sidebarTree.appendChild(addWrap);
     }
 
-    function renderTreeNode(inst, folder, ancestorPath, currentPath, rootColor) {
+    function renderTreeNode(inst, folder, ancestorPath, currentPath, rootColor, depth) {
         var fullPath = ancestorPath.concat(folder.id);
         var isSelected = folder.id === currentPath[currentPath.length - 1];
         var hasChildren = folder.folders.length > 0;
         var expanded = treeExpanded[folder.id] !== false;
+        // Profondeur plafonnée pour le style (au-delà, même apparence que le niveau 2) : la
+        // hiérarchie se lit déjà par l'indentation, pas besoin d'un 6e style différent.
+        var depthClass = "tree-row-d" + Math.min(depth, 2);
 
         var wrap = document.createElement("div");
         wrap.className = "tree-node";
         wrap.dataset.reorderId = folder.id;
 
         var row = document.createElement("div");
-        row.className = "tree-row" + (isSelected ? " selected" : "");
+        row.className = "tree-row " + depthClass + (isSelected ? " selected" : "");
 
         var twisty = document.createElement("button");
         twisty.type = "button";
@@ -796,10 +799,17 @@
         }
         row.appendChild(twisty);
 
-        // Bordure gauche fine + fond très léger dans la couleur du grand chapitre de la branche
-        // (au lieu d'un point de couleur) : visible sur toute la ligne, discret.
-        row.style.borderLeft = "3px solid " + rootColor;
-        row.style.background = "color-mix(in srgb, " + rootColor + " " + (isSelected ? "16%" : "5%") + ", transparent)";
+        // Seuls les grands chapitres (niveau 0) portent la couleur du chapitre en permanence :
+        // bordure gauche + fond très léger. Les sous-dossiers restent neutres (voir style.css,
+        // différenciés par la taille/le poids et l'imbrication) pour que la couleur reste un
+        // repère de chapitre, pas un habillage répété à chaque niveau. La sélection, elle, reste
+        // visible à tous les niveaux via la couleur du chapitre courant (--chapter-accent).
+        if (depth === 0) {
+            row.style.borderLeft = "3px solid " + rootColor;
+            row.style.background = "color-mix(in srgb, " + rootColor + " " + (isSelected ? "16%" : "5%") + ", transparent)";
+        } else if (isSelected) {
+            row.style.background = "color-mix(in srgb, " + rootColor + " 14%, transparent)";
+        }
 
         var label = document.createElement("span");
         label.className = "tree-label";
@@ -824,7 +834,7 @@
             var childWrap = document.createElement("div");
             childWrap.className = "tree-children";
             folder.folders.forEach(function (child) {
-                childWrap.appendChild(renderTreeNode(inst, child, fullPath, currentPath, rootColor));
+                childWrap.appendChild(renderTreeNode(inst, child, fullPath, currentPath, rootColor, depth + 1));
             });
             if (canAdd) {
                 childWrap.appendChild(renderTreeAddFolder(folder));

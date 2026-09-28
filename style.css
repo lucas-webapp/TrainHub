@@ -424,6 +424,19 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 .tree-row.dragging { opacity: .45; cursor: grabbing; }
 .tree-row.selected .tree-label { color: var(--chapter-accent); font-weight: 700; }
 
+/* Les 3 styles ci-dessous distinguent la hiérarchie en plus de l'indentation : seul le grand
+   chapitre (niveau 0) garde la couleur du chapitre en permanence (voir renderTreeNode). Les
+   sous-dossiers s'effacent progressivement — texte plus petit, plus discret — pour que la couleur
+   reste un repère de chapitre et non un habillage répété à chaque niveau. */
+.tree-row-d0 .tree-label { font-size: var(--fs-sm); font-weight: 700; }
+
+.tree-row-d1 { padding: 7px 8px; border-radius: 6px; }
+.tree-row-d1 .tree-label { font-weight: 600; }
+
+.tree-row-d2 { padding: 5px 8px; border-radius: 6px; }
+.tree-row-d2 .tree-label { font-size: var(--fs-xs); font-weight: 500; color: var(--text-muted); }
+.tree-row-d2.selected .tree-label { color: var(--chapter-accent); }
+
 .tree-twisty {
     width: 18px;
     height: 18px;
