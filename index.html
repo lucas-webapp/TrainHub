@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>TrainHub</title>
+<link rel="icon" type="image/svg+xml" href="icons/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0a0a0a">
+<link rel="stylesheet" href="style.css">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+<div class="top-bar">
+    <a class="logo" href="#" onclick="return false" title="TrainHub" aria-label="TrainHub">
+        <span class="logo-mark">
+            <svg class="icon" viewBox="0 0 48 48" width="22" height="22" aria-hidden="true">
+                <rect x="7" y="30" width="8" height="12" rx="2.5" fill="currentColor" opacity=".55"/>
+                <rect x="18" y="20" width="8" height="22" rx="2.5" fill="currentColor" opacity=".78"/>
+                <rect x="29" y="12" width="8" height="30" rx="2.5" fill="currentColor"/>
+                <path d="M31 19l6 6 8-8" fill="none" stroke="#e9f3ec" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        </span>
+        <span class="logo-text">TrainHub</span>
+    </a>
+    <div class="instrument-tabs" id="instrument-tabs"></div>
+    <div class="top-actions">
+        <button type="button" id="add-instrument-btn" class="icon-btn btn-ghost" title="Ajouter un instrument" aria-label="Ajouter un instrument">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+        <button type="button" id="toggle-a-revoir-btn" title="Afficher seulement les exercices à revoir">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20l-1.4-1.3C6 14.6 3 11.9 3 8.6 3 5.9 5.1 4 7.7 4c1.5 0 2.9.7 3.8 1.9.9-1.2 2.3-1.9 3.8-1.9C17.9 4 20 5.9 20 8.6c0 3.3-3 6-8.6 10.1Z"/></svg>
+            <span>À revoir</span>
+        </button>
+        <button type="button" id="export-btn" class="icon-btn btn-ghost" title="Exporter (sauvegarde JSON)" aria-label="Exporter">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3m0 12-4-4m4 4 4-4"/><path d="M4 17v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+        </button>
+        <button type="button" id="import-btn" class="icon-btn btn-ghost" title="Importer une sauvegarde JSON" aria-label="Importer">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0-12 4 4m-4-4-4 4"/><path d="M4 17v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+        </button>
+        <input type="file" id="import-input" accept="application/json" hidden>
+    </div>
+</div>
+
+<div class="main">
+    <div id="categories-container"></div>
+    <div id="empty-state" class="empty-state" hidden>Aucun exercice ici pour l'instant.</div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,517 @@
+(function () {
+    "use strict";
+
+    var STORAGE_KEY = "trainhub.v1";
+    var DEFAULT_CATEGORIES = ["Technique", "Gammes", "Improvisation", "Jeu en groupe", "Copie de morceaux"];
+    var DEFAULT_INSTRUMENTS = ["Basse", "Guitare", "Piano"];
+    var STATUSES = [
+        { value: "a_faire", label: "À faire" },
+        { value: "en_cours", label: "En cours" },
+        { value: "termine", label: "Terminé" },
+        { value: "a_revoir", label: "À revoir" }
+    ];
+
+    var state = load() || makeDefaultState();
+    var filterARevoir = false;
+
+    function uid() {
+        return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    }
+
+    function makeCategory(name) {
+        return { id: uid(), name: name, exercises: [] };
+    }
+
+    function makeInstrument(name) {
+        return { id: uid(), name: name, categories: DEFAULT_CATEGORIES.map(makeCategory) };
+    }
+
+    function makeDefaultState() {
+        var instruments = DEFAULT_INSTRUMENTS.map(makeInstrument);
+        return { activeInstrumentId: instruments[0].id, instruments: instruments };
+    }
+
+    function load() {
+        try {
+            var raw = localStorage.getItem(STORAGE_KEY);
+            if (!raw) return null;
+            var parsed = JSON.parse(raw);
+            if (!parsed || !Array.isArray(parsed.instruments)) return null;
+            return parsed;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function save() {
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        } catch (e) {
+            console.error("Sauvegarde impossible", e);
+        }
+    }
+
+    function getActiveInstrument() {
+        var found = state.instruments.filter(function (i) { return i.id === state.activeInstrumentId; })[0];
+        return found || state.instruments[0];
+    }
+
+    function guessLinkLabel(url) {
+        try {
+            var host = new URL(url).hostname.replace(/^www\./, "");
+            if (/youtube\.|youtu\.be/.test(host)) return "YouTube";
+            if (/irealpro|ireal-pro/.test(host)) return "iReal Pro";
+            if (/\.pdf($|\?)/i.test(url)) return "PDF";
+            if (/\.mp3($|\?)/i.test(url)) return "MP3";
+            if (/drive\.google/.test(host)) return "Google Drive";
+            if (/dropbox/.test(host)) return "Dropbox";
+            return host;
+        } catch (e) {
+            return "Lien";
+        }
+    }
+
+    function linkIconFor(label) {
+        var l = (label || "").toLowerCase();
+        if (l.indexOf("youtube") !== -1) return "▶";
+        if (l.indexOf("ireal") !== -1) return "♪";
+        if (l.indexOf("pdf") !== -1) return "📄";
+        if (l.indexOf("mp3") !== -1) return "🎵";
+        return "🔗";
+    }
+
+    // ---------- rendering ----------
+
+    var $tabs = document.getElementById("instrument-tabs");
+    var $categories = document.getElementById("categories-container");
+    var $empty = document.getElementById("empty-state");
+    var $toggleARevoir = document.getElementById("toggle-a-revoir-btn");
+
+    function render() {
+        renderTabs();
+        renderCategories();
+    }
+
+    function renderTabs() {
+        $tabs.innerHTML = "";
+        state.instruments.forEach(function (inst) {
+            var btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "instrument-tab" + (inst.id === state.activeInstrumentId ? " active" : "");
+            btn.textContent = inst.name;
+            btn.dataset.instrumentId = inst.id;
+            btn.addEventListener("click", function () {
+                state.activeInstrumentId = inst.id;
+                save();
+                render();
+            });
+            btn.addEventListener("dblclick", function (e) {
+                e.preventDefault();
+                renameInstrument(inst.id);
+            });
+            btn.title = "Double-clic pour renommer";
+            $tabs.appendChild(btn);
+        });
+    }
+
+    function renameInstrument(instrumentId) {
+        var inst = state.instruments.filter(function (i) { return i.id === instrumentId; })[0];
+        if (!inst) return;
+        var name = window.prompt("Renommer l'instrument :", inst.name);
+        if (name === null) return;
+        name = name.trim();
+        if (!name) {
+            if (state.instruments.length <= 1) return;
+            if (!window.confirm("Supprimer l'instrument « " + inst.name + " » et tous ses exercices ?")) return;
+            state.instruments = state.instruments.filter(function (i) { return i.id !== instrumentId; });
+            if (state.activeInstrumentId === instrumentId) state.activeInstrumentId = state.instruments[0].id;
+        } else {
+            inst.name = name;
+        }
+        save();
+        render();
+    }
+
+    function renderCategories() {
+        var inst = getActiveInstrument();
+        $categories.innerHTML = "";
+
+        var categories = inst.categories;
+        var anyVisible = false;
+
+        categories.forEach(function (cat) {
+            var exercises = cat.exercises;
+            if (filterARevoir) exercises = exercises.filter(function (ex) { return ex.status === "a_revoir"; });
+            if (filterARevoir && exercises.length === 0) return;
+            anyVisible = true;
+            $categories.appendChild(renderCategory(inst, cat, exercises));
+        });
+
+        if (!filterARevoir) {
+            $categories.appendChild(renderAddCategoryForm(inst));
+        }
+
+        $empty.hidden = anyVisible || !filterARevoir;
+        if (filterARevoir && !anyVisible) {
+            $empty.hidden = false;
+            $empty.textContent = "Rien à revoir pour l'instant sur cet instrument.";
+        }
+    }
+
+    function renderAddCategoryForm(inst) {
+        var wrap = document.createElement("div");
+        wrap.className = "add-category-row";
+        var input = document.createElement("input");
+        input.type = "text";
+        input.placeholder = "Nouvelle catégorie (ex: Technique, Gammes...)";
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn-accent";
+        btn.textContent = "+ Catégorie";
+        function commit() {
+            var name = input.value.trim();
+            if (!name) return;
+            inst.categories.push(makeCategory(name));
+            save();
+            render();
+        }
+        btn.addEventListener("click", commit);
+        input.addEventListener("keydown", function (e) { if (e.key === "Enter") commit(); });
+        wrap.appendChild(input);
+        wrap.appendChild(btn);
+        return wrap;
+    }
+
+    function renderCategory(inst, cat, exercises) {
+        var el = document.createElement("div");
+        el.className = "category" + (cat.collapsed ? " collapsed" : "");
+
+        var header = document.createElement("div");
+        header.className = "category-header";
+
+        var chevron = document.createElement("span");
+        chevron.className = "chevron";
+        chevron.innerHTML = "▾";
+        header.appendChild(chevron);
+
+        var name = document.createElement("span");
+        name.className = "category-name";
+        name.textContent = cat.name;
+        header.appendChild(name);
+
+        var count = document.createElement("span");
+        count.className = "category-count";
+        count.textContent = exercises.length;
+        header.appendChild(count);
+
+        var actions = document.createElement("div");
+        actions.className = "category-actions";
+
+        var renameBtn = iconButton("✎", "Renommer / supprimer la catégorie", function (e) {
+            e.stopPropagation();
+            var newName = window.prompt("Renommer la catégorie :", cat.name);
+            if (newName === null) return;
+            newName = newName.trim();
+            if (!newName) {
+                if (!window.confirm("Supprimer la catégorie « " + cat.name + " » et ses exercices ?")) return;
+                inst.categories = inst.categories.filter(function (c) { return c.id !== cat.id; });
+            } else {
+                cat.name = newName;
+            }
+            save();
+            render();
+        });
+        actions.appendChild(renameBtn);
+        header.appendChild(actions);
+
+        header.addEventListener("click", function () {
+            cat.collapsed = !cat.collapsed;
+            save();
+            render();
+        });
+
+        el.appendChild(header);
+
+        var body = document.createElement("div");
+        body.className = "category-body";
+
+        exercises.forEach(function (ex) {
+            body.appendChild(renderExercise(cat, ex));
+        });
+
+        body.appendChild(renderAddExerciseForm(cat));
+
+        el.appendChild(body);
+        return el;
+    }
+
+    function iconButton(glyph, title, onClick) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "icon-btn btn-ghost";
+        b.title = title;
+        b.textContent = glyph;
+        b.addEventListener("click", onClick);
+        return b;
+    }
+
+    function renderAddExerciseForm(cat) {
+        var wrap = document.createElement("div");
+        wrap.className = "add-exercise-row";
+        var input = document.createElement("input");
+        input.type = "text";
+        input.placeholder = "+ Ajouter un exercice…";
+        function commit() {
+            var title = input.value.trim();
+            if (!title) return;
+            cat.exercises.push({
+                id: uid(),
+                title: title,
+                notes: "",
+                tempo: "",
+                status: "a_faire",
+                links: [],
+                collapsed: true
+            });
+            input.value = "";
+            save();
+            render();
+        }
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = "Ajouter";
+        btn.addEventListener("click", commit);
+        input.addEventListener("keydown", function (e) { if (e.key === "Enter") commit(); });
+        wrap.appendChild(input);
+        wrap.appendChild(btn);
+        return wrap;
+    }
+
+    function renderExercise(cat, ex) {
+        var el = document.createElement("div");
+        el.className = "exercise" + (ex.collapsed ? " collapsed" : "");
+
+        var row = document.createElement("div");
+        row.className = "exercise-row";
+
+        var title = document.createElement("input");
+        title.type = "text";
+        title.className = "exercise-title";
+        title.value = ex.title;
+        title.addEventListener("change", function () {
+            ex.title = title.value.trim() || ex.title;
+            save();
+        });
+        row.appendChild(title);
+
+        var status = document.createElement("select");
+        status.className = "status-select";
+        status.dataset.status = ex.status;
+        STATUSES.forEach(function (s) {
+            var opt = document.createElement("option");
+            opt.value = s.value;
+            opt.textContent = s.label;
+            if (s.value === ex.status) opt.selected = true;
+            status.appendChild(opt);
+        });
+        status.addEventListener("change", function () {
+            ex.status = status.value;
+            status.dataset.status = ex.status;
+            save();
+            if (filterARevoir) render();
+        });
+        row.appendChild(status);
+
+        var expandBtn = iconButton(ex.collapsed ? "▾" : "▴", "Détails (notes, tempo, liens)", function () {
+            ex.collapsed = !ex.collapsed;
+            save();
+            render();
+        });
+        row.appendChild(expandBtn);
+
+        var delBtn = iconButton("✕", "Supprimer l'exercice", function () {
+            if (!window.confirm("Supprimer « " + ex.title + " » ?")) return;
+            cat.exercises = cat.exercises.filter(function (e) { return e.id !== ex.id; });
+            save();
+            render();
+        });
+        row.appendChild(delBtn);
+
+        el.appendChild(row);
+
+        if (!ex.collapsed) {
+            el.appendChild(renderExerciseDetails(ex));
+        }
+
+        return el;
+    }
+
+    function renderExerciseDetails(ex) {
+        var details = document.createElement("div");
+        details.className = "exercise-details";
+
+        var fieldRow = document.createElement("div");
+        fieldRow.className = "field-row";
+
+        var tempoLabel = document.createElement("label");
+        tempoLabel.textContent = "Tempo (BPM)";
+        var tempoInput = document.createElement("input");
+        tempoInput.type = "number";
+        tempoInput.min = "0";
+        tempoInput.className = "tempo-input";
+        tempoInput.value = ex.tempo || "";
+        tempoInput.placeholder = "—";
+        tempoInput.addEventListener("change", function () {
+            ex.tempo = tempoInput.value;
+            save();
+        });
+        fieldRow.appendChild(tempoLabel);
+        fieldRow.appendChild(tempoInput);
+        details.appendChild(fieldRow);
+
+        var notesLabel = document.createElement("label");
+        notesLabel.textContent = "Notes";
+        var notes = document.createElement("textarea");
+        notes.value = ex.notes || "";
+        notes.placeholder = "Remarques, points à retravailler…";
+        notes.addEventListener("change", function () {
+            ex.notes = notes.value;
+            save();
+        });
+        details.appendChild(notesLabel);
+        details.appendChild(notes);
+
+        var linksLabel = document.createElement("label");
+        linksLabel.textContent = "Liens (YouTube, iReal Pro, PDF, backing track…)";
+        details.appendChild(linksLabel);
+
+        var linksList = document.createElement("div");
+        linksList.className = "links-list";
+        (ex.links || []).forEach(function (link, idx) {
+            var chip = document.createElement("a");
+            chip.className = "link-chip";
+            chip.href = link.url;
+            chip.target = "_blank";
+            chip.rel = "noopener noreferrer";
+            var iconSpan = document.createElement("span");
+            iconSpan.textContent = linkIconFor(link.label);
+            chip.appendChild(iconSpan);
+            var labelSpan = document.createElement("span");
+            labelSpan.className = "link-label";
+            labelSpan.textContent = link.label;
+            chip.appendChild(labelSpan);
+            var removeBtn = document.createElement("span");
+            removeBtn.className = "link-remove";
+            removeBtn.textContent = "✕";
+            removeBtn.title = "Retirer ce lien";
+            removeBtn.addEventListener("click", function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                ex.links.splice(idx, 1);
+                save();
+                render();
+            });
+            chip.appendChild(removeBtn);
+            linksList.appendChild(chip);
+        });
+        details.appendChild(linksList);
+
+        var addLinkRow = document.createElement("div");
+        addLinkRow.className = "add-link-row";
+        var urlInput = document.createElement("input");
+        urlInput.type = "url";
+        urlInput.placeholder = "Coller un lien (YouTube, iReal Pro, PDF…)";
+        var labelInput = document.createElement("input");
+        labelInput.type = "text";
+        labelInput.placeholder = "Nom (optionnel)";
+        labelInput.style.maxWidth = "140px";
+        var addLinkBtn = document.createElement("button");
+        addLinkBtn.type = "button";
+        addLinkBtn.textContent = "+ Lien";
+        function commitLink() {
+            var url = urlInput.value.trim();
+            if (!url) return;
+            if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+            var label = labelInput.value.trim() || guessLinkLabel(url);
+            ex.links = ex.links || [];
+            ex.links.push({ label: label, url: url });
+            urlInput.value = "";
+            labelInput.value = "";
+            save();
+            render();
+        }
+        addLinkBtn.addEventListener("click", commitLink);
+        urlInput.addEventListener("keydown", function (e) { if (e.key === "Enter") commitLink(); });
+        labelInput.addEventListener("keydown", function (e) { if (e.key === "Enter") commitLink(); });
+        addLinkRow.appendChild(urlInput);
+        addLinkRow.appendChild(labelInput);
+        addLinkRow.appendChild(addLinkBtn);
+        details.appendChild(addLinkRow);
+
+        return details;
+    }
+
+    // ---------- top actions ----------
+
+    document.getElementById("add-instrument-btn").addEventListener("click", function () {
+        var name = window.prompt("Nom du nouvel instrument :");
+        if (!name) return;
+        var inst = makeInstrument(name.trim());
+        state.instruments.push(inst);
+        state.activeInstrumentId = inst.id;
+        save();
+        render();
+    });
+
+    $toggleARevoir.addEventListener("click", function () {
+        filterARevoir = !filterARevoir;
+        $toggleARevoir.classList.toggle("active", filterARevoir);
+        render();
+    });
+
+    document.getElementById("export-btn").addEventListener("click", function () {
+        var blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url;
+        a.download = "trainhub-sauvegarde-" + new Date().toISOString().slice(0, 10) + ".json";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    });
+
+    var importInput = document.getElementById("import-input");
+    document.getElementById("import-btn").addEventListener("click", function () {
+        importInput.click();
+    });
+    importInput.addEventListener("change", function () {
+        var file = importInput.files[0];
+        if (!file) return;
+        var reader = new FileReader();
+        reader.onload = function () {
+            try {
+                var parsed = JSON.parse(reader.result);
+                if (!parsed || !Array.isArray(parsed.instruments)) throw new Error("format invalide");
+                if (!window.confirm("Remplacer les données actuelles par cette sauvegarde ?")) return;
+                state = parsed;
+                if (!state.activeInstrumentId && state.instruments[0]) state.activeInstrumentId = state.instruments[0].id;
+                save();
+                render();
+            } catch (e) {
+                window.alert("Fichier de sauvegarde invalide.");
+            }
+        };
+        reader.readAsText(file);
+        importInput.value = "";
+    });
+
+    // ---------- init ----------
+    render();
+
+    if ("serviceWorker" in navigator) {
+        window.addEventListener("load", function () {
+            navigator.serviceWorker.register("sw.js").catch(function () {});
+        });
+    }
+})();
