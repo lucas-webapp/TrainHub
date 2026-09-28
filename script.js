@@ -13,7 +13,6 @@
     ];
     var MAX_FOLDER_DEPTH = 5;
 
-    var filterARevoir = false;
     var searchQuery = "";
     var navPaths = {}; // instrumentId -> [folderId, ...] depuis le grand chapitre (non synchronisé, juste la navigation en cours)
     var treeExpanded = {}; // folderId -> bool, replié/déplié dans l'arborescence latérale (non synchronisé, déplié par défaut)
@@ -37,7 +36,7 @@
 
     function makeDefaultState() {
         var instruments = DEFAULT_INSTRUMENTS.map(makeInstrument);
-        return { activeInstrumentId: instruments[0].id, instruments: instruments, updatedAt: 0, settings: { showUpdatedAt: false } };
+        return { activeInstrumentId: instruments[0].id, instruments: instruments, updatedAt: 0, settings: { showUpdatedAt: false, statusFilter: "" } };
     }
 
     function normalizeFolder(f) {
@@ -46,12 +45,17 @@
         f.folders.forEach(normalizeFolder);
         f.exercises.forEach(function (ex) {
             if (!Array.isArray(ex.links)) ex.links = [];
+            // Fichiers (PDF/MP3) joints à l'exercice : seules les métadonnées sont stockées dans
+            // l'état (donc synchronisées) — le contenu réel du fichier vit dans IndexedDB, sur cet
+            // appareil uniquement (voir bloc "fichiers joints" plus bas).
+            if (!Array.isArray(ex.files)) ex.files = [];
         });
     }
 
     function normalizeState(s) {
-        if (!s.settings || typeof s.settings !== "object") s.settings = { showUpdatedAt: false };
+        if (!s.settings || typeof s.settings !== "object") s.settings = { showUpdatedAt: false, statusFilter: "" };
         if (typeof s.settings.showUpdatedAt !== "boolean") s.settings.showUpdatedAt = false;
+        if (typeof s.settings.statusFilter !== "string") s.settings.statusFilter = "";
         if (!Array.isArray(s.instruments)) s.instruments = [];
         s.instruments.forEach(function (inst) {
             if (!Array.isArray(inst.categories)) inst.categories = [];
@@ -87,10 +91,155 @@
         }
     }
 
-    function save() {
+    function persist() {
         state.updatedAt = Date.now();
         saveLocal();
         scheduleCloudPush();
+    }
+
+    function save() {
+        persist();
+        pushHistory();
+    }
+
+    // ---------- annuler / rétablir ----------
+    // Historique de piles d'états complets (JSON), propre à cet appareil — chaque `save()` y ajoute
+    // un instantané. Annuler/rétablir déplacent juste le curseur et republient l'état obtenu
+    // (persist(), sans repasser par pushHistory sinon on écraserait le futur qu'on vient de
+    // récupérer). Un remplacement complet de l'état (synchro distante, import JSON) redémarre
+    // l'historique : les versions d'avant/après ne se comparent plus à ce qui vient d'arriver.
+    // (Le branchement des boutons et le premier instantané sont plus bas, une fois les éléments
+    // du DOM en main — voir "rendering".)
+    var HISTORY_LIMIT = 50;
+    var historyStack = [];
+    var historyIndex = -1;
+
+    function resetHistory() {
+        historyStack = [JSON.stringify(state)];
+        historyIndex = 0;
+        updateUndoRedoButtons();
+    }
+
+    function pushHistory() {
+        historyStack = historyStack.slice(0, historyIndex + 1);
+        historyStack.push(JSON.stringify(state));
+        if (historyStack.length > HISTORY_LIMIT) historyStack.shift();
+        historyIndex = historyStack.length - 1;
+        updateUndoRedoButtons();
+    }
+
+    function updateUndoRedoButtons() {
+        if ($undoBtn) $undoBtn.disabled = historyIndex <= 0;
+        if ($redoBtn) $redoBtn.disabled = historyIndex < 0 || historyIndex >= historyStack.length - 1;
+    }
+
+    function goToHistory(index) {
+        if (index < 0 || index >= historyStack.length) return;
+        historyIndex = index;
+        state = normalizeState(JSON.parse(historyStack[historyIndex]));
+        persist();
+        render();
+    }
+
+    function undo() { goToHistory(historyIndex - 1); }
+    function redo() { goToHistory(historyIndex + 1); }
+
+    // ---------- fichiers joints (PDF/MP3) ----------
+    // Le contenu des fichiers (potentiellement plusieurs Mo) vit dans IndexedDB, PAS dans `state` :
+    // Firestore refuse les documents de plus de 1 Mo, et on ne veut pas alourdir chaque synchro
+    // avec des PDF/MP3. Seules les métadonnées (nom, type, taille) sont sur l'exercice et donc
+    // synchronisées ; le fichier réel, lui, ne quitte jamais l'appareil où il a été ajouté.
+    var FILES_DB_NAME = "trainhub-files";
+    var filesDbPromise = null;
+
+    function openFilesDb() {
+        if (filesDbPromise) return filesDbPromise;
+        filesDbPromise = new Promise(function (resolve, reject) {
+            if (!("indexedDB" in window)) { reject(new Error("IndexedDB indisponible")); return; }
+            var req = indexedDB.open(FILES_DB_NAME, 1);
+            req.onupgradeneeded = function () {
+                if (!req.result.objectStoreNames.contains("files")) req.result.createObjectStore("files");
+            };
+            req.onsuccess = function () { resolve(req.result); };
+            req.onerror = function () { reject(req.error); };
+        });
+        return filesDbPromise;
+    }
+
+    function storeFileBlob(id, blob) {
+        return openFilesDb().then(function (db) {
+            return new Promise(function (resolve, reject) {
+                var tx = db.transaction("files", "readwrite");
+                tx.objectStore("files").put(blob, id);
+                tx.oncomplete = function () { resolve(); };
+                tx.onerror = function () { reject(tx.error); };
+            });
+        });
+    }
+
+    function getFileBlob(id) {
+        return openFilesDb().then(function (db) {
+            return new Promise(function (resolve, reject) {
+                var tx = db.transaction("files", "readonly");
+                var req = tx.objectStore("files").get(id);
+                req.onsuccess = function () { resolve(req.result || null); };
+                req.onerror = function () { reject(req.error); };
+            });
+        });
+    }
+
+    function deleteFileBlob(id) {
+        return openFilesDb().then(function (db) {
+            return new Promise(function (resolve, reject) {
+                var tx = db.transaction("files", "readwrite");
+                tx.objectStore("files").delete(id);
+                tx.oncomplete = function () { resolve(); };
+                tx.onerror = function () { reject(tx.error); };
+            });
+        }).catch(function () {});
+    }
+
+    function humanFileSize(bytes) {
+        if (!bytes && bytes !== 0) return "";
+        if (bytes < 1024) return bytes + " o";
+        if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + " Ko";
+        return (bytes / (1024 * 1024)).toFixed(1) + " Mo";
+    }
+
+    // ---------- sauvegardes de secours ----------
+    // Filet de sécurité indépendant de l'historique annuler/rétablir (qui, lui, ne garde que les
+    // modifications faites SUR CET appareil). Ici, on prend un instantané à chaque moment où une
+    // synchro pourrait effacer des données — avant qu'un autre appareil n'écrase l'état local, ou
+    // avant qu'on n'écrase le cloud avec l'état local — pour pouvoir tout récupérer même si le
+    // choix "le plus récent gagne" s'est trompé. Rangé en localStorage, donc propre à cet appareil.
+    var BACKUPS_KEY = "trainhub.backups.v1";
+    var BACKUPS_LIMIT = 12;
+
+    function totalExerciseCount(s) {
+        var n = 0;
+        function walk(list) {
+            list.forEach(function (f) {
+                n += f.exercises.length;
+                walk(f.folders);
+            });
+        }
+        (s.instruments || []).forEach(function (inst) { walk(inst.categories || []); });
+        return n;
+    }
+
+    function loadBackups() {
+        try { return JSON.parse(localStorage.getItem(BACKUPS_KEY)) || []; } catch (e) { return []; }
+    }
+
+    function backupSnapshot(reason, stateObj) {
+        try {
+            var list = loadBackups();
+            list.push({ at: Date.now(), reason: reason, count: totalExerciseCount(stateObj), json: JSON.stringify(stateObj) });
+            if (list.length > BACKUPS_LIMIT) list = list.slice(list.length - BACKUPS_LIMIT);
+            localStorage.setItem(BACKUPS_KEY, JSON.stringify(list));
+        } catch (e) {
+            console.error("Sauvegarde de secours impossible", e);
+        }
     }
 
     function getActiveInstrument() {
@@ -128,10 +277,13 @@
     }
 
     function clearFilters() {
-        filterARevoir = false;
-        if ($toggleARevoir) $toggleARevoir.classList.remove("active");
         searchQuery = "";
         if ($searchInput) $searchInput.value = "";
+        if (state.settings.statusFilter) {
+            state.settings.statusFilter = "";
+            if ($statusFilter) $statusFilter.value = "";
+            save();
+        }
     }
 
     function collectExercises(inst, matchFn) {
@@ -174,6 +326,7 @@
     };
     var FOLDER_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>';
     var CHEVRON_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>';
+    var PENCIL_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
 
     function linkIconSvg(label) {
         var l = (label || "").toLowerCase();
@@ -218,6 +371,17 @@
         b.className = "icon-btn btn-ghost";
         b.title = title;
         b.textContent = glyph;
+        b.addEventListener("click", onClick);
+        return b;
+    }
+
+    function svgIconButton(svg, title, onClick) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "icon-btn btn-ghost";
+        b.title = title;
+        b.setAttribute("aria-label", title);
+        b.innerHTML = svg;
         b.addEventListener("click", onClick);
         return b;
     }
@@ -318,7 +482,7 @@
         render();
     }
 
-    function openFolderMenu(x, y, getParentArray, folder, inst) {
+    function openFolderMenu(x, y, getParentArray, folder, inst, startScreen) {
         closeFolderMenu();
 
         // Fond transparent qui ferme le menu au prochain appui ailleurs. On écoute "pointerdown"
@@ -464,7 +628,7 @@
         document.body.appendChild(menu);
         document.addEventListener("keydown", onKey, true);
         openMenu = { backdrop: backdrop, menu: menu, onKey: onKey };
-        showMain();
+        if (startScreen === "rename") showRename(); else showMain();
         place();
     }
 
@@ -544,9 +708,14 @@
     var $contentHeading = document.getElementById("content-heading");
     var $folderContainer = document.getElementById("folder-container");
     var $empty = document.getElementById("empty-state");
-    var $toggleARevoir = document.getElementById("toggle-a-revoir-btn");
     var $toggleUpdatedAt = document.getElementById("toggle-updated-at-btn");
+    var $searchRow = document.getElementById("search-row");
     var $searchInput = document.getElementById("search-input");
+    var $searchToggleBtn = document.getElementById("search-toggle-btn");
+    var $searchCloseBtn = document.getElementById("search-close-btn");
+    var $statusFilter = document.getElementById("status-filter");
+    var $undoBtn = document.getElementById("undo-btn");
+    var $redoBtn = document.getElementById("redo-btn");
 
     // ---------- largeur réglable du bandeau gauche (ordinateur) ----------
     // Réglage propre à chaque appareil (taille d'écran différente) : gardé en localStorage, pas
@@ -611,15 +780,64 @@
         });
     }
 
+    // ---------- recherche repliable (loupe en haut à droite) ----------
+    function openSearch() {
+        $searchRow.hidden = false;
+        $searchToggleBtn.classList.add("active");
+        $searchInput.focus();
+    }
+    function closeSearch() {
+        $searchRow.hidden = true;
+        $searchToggleBtn.classList.remove("active");
+        clearFilters();
+        render();
+    }
+    if ($searchToggleBtn) {
+        $searchToggleBtn.addEventListener("click", function () {
+            if ($searchRow.hidden) openSearch(); else closeSearch();
+        });
+    }
+    if ($searchCloseBtn) $searchCloseBtn.addEventListener("click", closeSearch);
+    if ($searchInput) {
+        $searchInput.addEventListener("keydown", function (e) {
+            if (e.key === "Escape") closeSearch();
+        });
+    }
+
+    // ---------- filtre par statut (remplace l'ancien bouton "À revoir") ----------
+    // Le choix est gardé dans state.settings.statusFilter : synchronisé et retrouvé tel quel à la
+    // prochaine ouverture de l'appli, sur tous les appareils.
+    if ($statusFilter) {
+        $statusFilter.addEventListener("change", function () {
+            state.settings.statusFilter = $statusFilter.value;
+            if ($statusFilter.value) openSearch();
+            save();
+            render();
+        });
+    }
+
+    if ($undoBtn) $undoBtn.addEventListener("click", undo);
+    if ($redoBtn) $redoBtn.addEventListener("click", redo);
+    document.addEventListener("keydown", function (e) {
+        if (!(e.ctrlKey || e.metaKey)) return;
+        var key = e.key.toLowerCase();
+        if (key === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
+        else if (key === "y" || (key === "z" && e.shiftKey)) { e.preventDefault(); redo(); }
+    });
+    resetHistory();
+
     function render() {
         var inst = getActiveInstrument();
         var path = inst ? getNavPath(inst) : [];
         var rootChapter = inst && path.length ? findById(inst.categories, path[0]) : null;
         document.documentElement.style.setProperty("--chapter-accent", (rootChapter && rootChapter.color) || "#00e676");
+        if ($statusFilter) $statusFilter.value = state.settings.statusFilter || "";
+        if ($searchRow && state.settings.statusFilter && $searchRow.hidden) openSearch();
         renderInstrumentSelect();
         renderChapterBar();
         renderSidebarTree();
         renderMain();
+        updateUndoRedoButtons();
     }
 
     function renderInstrumentSelect() {
@@ -878,7 +1096,7 @@
     function renderMain() {
         var inst = getActiveInstrument();
         $empty.hidden = true;
-        var hasFilter = filterARevoir || !!searchQuery.trim();
+        var hasFilter = !!state.settings.statusFilter || !!searchQuery.trim();
         if (hasFilter) {
             $breadcrumb.hidden = true;
             $breadcrumb.innerHTML = "";
@@ -890,12 +1108,19 @@
         }
     }
 
-    function renderContentHeading(folder) {
+    function renderContentHeading(folder, getParentArray, inst) {
         $contentHeading.innerHTML = "";
         if (!folder) return;
         var h2 = document.createElement("h2");
         h2.textContent = folder.name;
         $contentHeading.appendChild(h2);
+
+        var editBtn = svgIconButton(PENCIL_ICON_SVG, "Renommer ce dossier", function () {
+            var rect = editBtn.getBoundingClientRect();
+            openFolderMenu(rect.left, rect.bottom, getParentArray, folder, inst, "rename");
+        });
+        editBtn.classList.add("heading-edit-btn");
+        $contentHeading.appendChild(editBtn);
     }
 
     function renderBreadcrumb(inst, nodes) {
@@ -941,22 +1166,25 @@
         var currentFolder = nodes[nodes.length - 1];
         var depth = nodes.length;
 
-        renderContentHeading(currentFolder);
+        renderContentHeading(currentFolder, function () { return getParentArrayFor(inst, path.slice(0, -1)); }, inst);
         $folderContainer.innerHTML = "";
 
         // Sous-dossiers du dossier courant, dans le MÊME ordre que l'arborescence de gauche (même
         // tableau de données) : la zone principale reflète exactement la branche sélectionnée.
         if (currentFolder.folders.length) {
+            var foldersGroup = document.createElement("div");
+            foldersGroup.className = "section-group";
             var foldersLabel = document.createElement("div");
             foldersLabel.className = "section-label";
             foldersLabel.textContent = "Sous-dossiers";
-            $folderContainer.appendChild(foldersLabel);
+            foldersGroup.appendChild(foldersLabel);
             var foldersWrap = document.createElement("div");
             foldersWrap.className = "folders-wrap";
             currentFolder.folders.forEach(function (f, idx) {
                 foldersWrap.appendChild(renderFolderRow(inst, currentFolder.folders, f, idx, currentFolder.folders.length, path));
             });
-            $folderContainer.appendChild(foldersWrap);
+            foldersGroup.appendChild(foldersWrap);
+            $folderContainer.appendChild(foldersGroup);
             setupDragReorder(foldersWrap, ".folder-row", function () { return currentFolder.folders; }, "y");
         }
 
@@ -964,20 +1192,22 @@
             $folderContainer.appendChild(renderAddFolderForm(currentFolder));
         }
 
+        var exGroup = document.createElement("div");
+        exGroup.className = "section-group";
         if (currentFolder.folders.length) {
             var exLabel = document.createElement("div");
             exLabel.className = "section-label";
             exLabel.textContent = "Exercices";
-            $folderContainer.appendChild(exLabel);
+            exGroup.appendChild(exLabel);
         }
         var exercisesWrap = document.createElement("div");
         exercisesWrap.className = "exercises-wrap";
         currentFolder.exercises.forEach(function (ex, idx) {
             exercisesWrap.appendChild(renderExercise(currentFolder, ex, idx, currentFolder.exercises.length, true));
         });
-        $folderContainer.appendChild(exercisesWrap);
-
-        $folderContainer.appendChild(renderAddExerciseForm(currentFolder));
+        exGroup.appendChild(exercisesWrap);
+        exGroup.appendChild(renderAddExerciseForm(currentFolder));
+        $folderContainer.appendChild(exGroup);
     }
 
     function renderFolderRow(inst, parentArray, folder, idx, total, path) {
@@ -996,6 +1226,14 @@
         row.appendChild(label);
         row.title = "Clic droit (ordinateur) ou appui long (mobile) : renommer / supprimer";
         bindFolderMenu(row, function () { return parentArray; }, folder, inst);
+
+        var editBtn = svgIconButton(PENCIL_ICON_SVG, "Renommer ce dossier", function (e) {
+            e.stopPropagation();
+            var rect = editBtn.getBoundingClientRect();
+            openFolderMenu(rect.left, rect.bottom, function () { return parentArray; }, folder, inst, "rename");
+        });
+        editBtn.classList.add("folder-edit-btn");
+        row.appendChild(editBtn);
 
         row.addEventListener("click", function (e) {
             if (suppressNextClick) { suppressNextClick = false; return; }
@@ -1032,8 +1270,10 @@
 
     function renderFilteredResults(inst) {
         var query = searchQuery.trim().toLowerCase();
+        var statusFilter = state.settings.statusFilter;
+        var statusLabel = statusFilter && STATUSES.filter(function (s) { return s.value === statusFilter; })[0];
         function matchFn(ex) {
-            if (filterARevoir && ex.status !== "a_revoir") return false;
+            if (statusFilter && ex.status !== statusFilter) return false;
             if (query && ex.title.toLowerCase().indexOf(query) === -1) return false;
             return true;
         }
@@ -1042,10 +1282,10 @@
 
         if (results.length === 0) {
             $empty.hidden = false;
-            $empty.textContent = filterARevoir && query
-                ? "Rien à revoir ne correspond à ta recherche."
-                : filterARevoir
-                    ? "Rien à revoir pour l'instant sur cet instrument."
+            $empty.textContent = statusLabel && query
+                ? "Rien « " + statusLabel.label + " » ne correspond à ta recherche."
+                : statusLabel
+                    ? "Rien « " + statusLabel.label + " » pour l'instant sur cet instrument."
                     : "Aucun exercice ne correspond à ta recherche.";
             return;
         }
@@ -1150,7 +1390,7 @@
             status.dataset.status = ex.status;
             touchExercise(ex);
             save();
-            if (filterARevoir) render();
+            if (state.settings.statusFilter) render();
         });
         row.appendChild(status);
 
@@ -1163,6 +1403,7 @@
 
         var delBtn = iconButton("✕", "Supprimer l'exercice", function () {
             if (!window.confirm("Supprimer « " + ex.title + " » ?")) return;
+            (ex.files || []).forEach(function (f) { deleteFileBlob(f.id); });
             folder.exercises = folder.exercises.filter(function (e) { return e.id !== ex.id; });
             save();
             render();
@@ -1273,7 +1514,116 @@
         addLinkRow.appendChild(addLinkBtn);
         details.appendChild(addLinkRow);
 
+        details.appendChild(renderFilesSection(ex));
+
         return details;
+    }
+
+    function fileKindIcon(mimeOrName) {
+        var isAudio = /audio|\.mp3$/i.test(mimeOrName);
+        return isAudio
+            ? '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>'
+            : '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg>';
+    }
+
+    // ---------- fichiers joints (PDF/MP3) : rendu ----------
+    // Rappel (voir plus haut) : seules les métadonnées (ex.files) sont synchronisées. Le fichier
+    // réel n'existe que dans IndexedDB, sur l'appareil où il a été ajouté.
+    function renderFilesSection(ex) {
+        var wrap = document.createElement("div");
+        wrap.className = "files-section";
+
+        var filesLabel = document.createElement("label");
+        filesLabel.textContent = "Fichiers (PDF, MP3…)";
+        wrap.appendChild(filesLabel);
+
+        var filesList = document.createElement("div");
+        filesList.className = "files-list";
+        (ex.files || []).forEach(function (meta) {
+            var chip = document.createElement("div");
+            chip.className = "file-chip";
+            chip.title = "Fichier stocké seulement sur cet appareil (non synchronisé)";
+
+            var iconSpan = document.createElement("span");
+            iconSpan.className = "link-icon";
+            iconSpan.innerHTML = fileKindIcon(meta.type || meta.name);
+            chip.appendChild(iconSpan);
+
+            var openBtn = document.createElement("button");
+            openBtn.type = "button";
+            openBtn.className = "file-open";
+            openBtn.textContent = meta.name + (meta.size ? " · " + humanFileSize(meta.size) : "");
+            openBtn.addEventListener("click", function () {
+                getFileBlob(meta.id).then(function (blob) {
+                    if (!blob) {
+                        window.alert("Ce fichier n'est disponible que sur l'appareil où il a été ajouté (« " + meta.name + " »).");
+                        return;
+                    }
+                    var url = URL.createObjectURL(blob);
+                    window.open(url, "_blank");
+                    setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+                });
+            });
+            chip.appendChild(openBtn);
+
+            var removeBtn = document.createElement("span");
+            removeBtn.className = "link-remove";
+            removeBtn.textContent = "✕";
+            removeBtn.title = "Retirer ce fichier";
+            removeBtn.addEventListener("click", function () {
+                if (!window.confirm("Retirer « " + meta.name + " » ?")) return;
+                ex.files = ex.files.filter(function (f) { return f.id !== meta.id; });
+                deleteFileBlob(meta.id);
+                touchExercise(ex);
+                save();
+                render();
+            });
+            chip.appendChild(removeBtn);
+
+            filesList.appendChild(chip);
+        });
+        wrap.appendChild(filesList);
+
+        var addFileRow = document.createElement("div");
+        addFileRow.className = "add-file-row";
+        var fileInput = document.createElement("input");
+        fileInput.type = "file";
+        fileInput.className = "add-file-input";
+        fileInput.accept = ".pdf,application/pdf,.mp3,audio/*";
+        fileInput.multiple = true;
+        var fileLabel = document.createElement("button");
+        fileLabel.type = "button";
+        fileLabel.className = "btn-ghost add-file-label";
+        fileLabel.textContent = "+ Fichier (PDF, MP3…)";
+        fileLabel.addEventListener("click", function () { fileInput.click(); });
+        fileInput.addEventListener("change", function () {
+            var files = Array.prototype.slice.call(fileInput.files || []);
+            if (!files.length) return;
+            ex.files = ex.files || [];
+            Promise.all(files.map(function (file) {
+                var id = uid();
+                return storeFileBlob(id, file).then(function () {
+                    ex.files.push({ id: id, name: file.name, type: file.type, size: file.size, addedAt: Date.now() });
+                });
+            })).then(function () {
+                fileInput.value = "";
+                touchExercise(ex);
+                save();
+                render();
+            }).catch(function () {
+                window.alert("Impossible d'enregistrer ce fichier sur cet appareil (stockage plein ou navigateur privé ?).");
+            });
+        });
+        addFileRow.appendChild(fileInput);
+        addFileRow.appendChild(fileLabel);
+        wrap.appendChild(addFileRow);
+
+        var hint = document.createElement("div");
+        hint.className = "files-hint";
+        hint.textContent = "Les fichiers restent sur cet appareil : ils ne sont pas synchronisés avec les autres.";
+        wrap.appendChild(hint);
+
+        return wrap;
     }
 
     // ---------- synchro cloud (Firebase) ----------
@@ -1323,9 +1673,13 @@
 
     function applyRemoteState(remote) {
         if (!remote || !Array.isArray(remote.instruments)) return;
+        // Sauvegarde de secours de ce qu'il y avait sur CET appareil avant de le remplacer par la
+        // version distante : si jamais la version distante ne devait pas gagner, rien n'est perdu.
+        backupSnapshot("Avant remplacement par une version reçue d'un autre appareil", state);
         state = normalizeState(remote);
         if (!state.activeInstrumentId && state.instruments[0]) state.activeInstrumentId = state.instruments[0].id;
         navPaths = {};
+        resetHistory();
         saveLocal();
         render();
     }
@@ -1366,6 +1720,24 @@
             if (isRemoteNewer(remote)) {
                 applyRemoteState(remote);
                 return null;
+            }
+            // L'état local a l'air "plus récent" (horodatage), mais sur un appareil/navigateur
+            // qu'on vient tout juste d'ouvrir, "plus récent" peut juste vouloir dire "vidé, puis
+            // touché il y a 10 secondes" — pas "contient vraiment plus que le cloud". Écraser le
+            // cloud dans ce cas a déjà fait perdre du contenu. Avant de pousser par-dessus une
+            // version distante qui contient sensiblement plus, on garde une sauvegarde de secours
+            // de ce qui va être écrasé, et on demande confirmation.
+            if (remote && totalExerciseCount(remote) > totalExerciseCount(state) + 1) {
+                backupSnapshot("Version cloud sur le point d'être remplacée depuis " + (navigator.userAgent || "cet appareil"), remote);
+                var keepLocal = window.confirm(
+                    "Les données déjà enregistrées en ligne contiennent plus d'exercices (" + totalExerciseCount(remote) +
+                    ") que celles de cet appareil/navigateur (" + totalExerciseCount(state) + ").\n\n" +
+                    "OK = garder les données en ligne (recommandé)\nAnnuler = remplacer quand même par celles de cet appareil"
+                );
+                if (keepLocal) {
+                    applyRemoteState(remote);
+                    return null;
+                }
             }
             return docRef.set(state);
         }).then(function () {
@@ -1448,12 +1820,6 @@
         render();
     });
 
-    $toggleARevoir.addEventListener("click", function () {
-        filterARevoir = !filterARevoir;
-        $toggleARevoir.classList.toggle("active", filterARevoir);
-        render();
-    });
-
     $toggleUpdatedAt.addEventListener("click", function () {
         state.settings.showUpdatedAt = !state.settings.showUpdatedAt;
         $toggleUpdatedAt.classList.toggle("active", state.settings.showUpdatedAt);
@@ -1462,17 +1828,124 @@
     });
     $toggleUpdatedAt.classList.toggle("active", !!state.settings.showUpdatedAt);
 
-    document.getElementById("export-btn").addEventListener("click", function () {
-        var blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+    function downloadJson(obj, filename) {
+        var blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
         var url = URL.createObjectURL(blob);
         var a = document.createElement("a");
         a.href = url;
-        a.download = "trainhub-sauvegarde-" + new Date().toISOString().slice(0, 10) + ".json";
+        a.download = filename;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+    }
+
+    document.getElementById("export-btn").addEventListener("click", function () {
+        downloadJson(state, "trainhub-sauvegarde-" + new Date().toISOString().slice(0, 10) + ".json");
     });
+
+    // ---------- panneau des sauvegardes de secours ----------
+    var $backupsBtn = document.getElementById("backups-btn");
+    if ($backupsBtn) {
+        $backupsBtn.addEventListener("click", openBackupsPanel);
+    }
+
+    function openBackupsPanel() {
+        closeFolderMenu();
+        var backdrop = document.createElement("div");
+        backdrop.className = "ctx-backdrop";
+        var panel = document.createElement("div");
+        panel.className = "backups-panel";
+
+        var title = document.createElement("div");
+        title.className = "backups-title";
+        title.textContent = "Sauvegardes de secours (sur cet appareil)";
+        panel.appendChild(title);
+
+        var intro = document.createElement("div");
+        intro.className = "backups-intro";
+        intro.textContent = "Un instantané est gardé automatiquement avant chaque moment où une synchro ou un import pourrait remplacer des données. Utile en cas d'écrasement inattendu.";
+        panel.appendChild(intro);
+
+        var list = document.createElement("div");
+        list.className = "backups-list";
+        var backups = loadBackups().slice().reverse();
+        if (!backups.length) {
+            var empty = document.createElement("div");
+            empty.className = "backups-empty";
+            empty.textContent = "Aucune sauvegarde de secours pour l'instant.";
+            list.appendChild(empty);
+        }
+        backups.forEach(function (entry) {
+            var row = document.createElement("div");
+            row.className = "backups-row";
+
+            var info = document.createElement("div");
+            info.className = "backups-info";
+            var when = document.createElement("div");
+            when.className = "backups-when";
+            when.textContent = formatUpdatedAt(entry.at) || new Date(entry.at).toLocaleString("fr-FR");
+            info.appendChild(when);
+            var reason = document.createElement("div");
+            reason.className = "backups-reason";
+            reason.textContent = entry.reason + " · " + entry.count + " exercice(s)";
+            info.appendChild(reason);
+            row.appendChild(info);
+
+            var actions = document.createElement("div");
+            actions.className = "backups-actions";
+            var dlBtn = document.createElement("button");
+            dlBtn.type = "button";
+            dlBtn.className = "btn-ghost";
+            dlBtn.textContent = "Télécharger";
+            dlBtn.addEventListener("click", function () {
+                downloadJson(JSON.parse(entry.json), "trainhub-secours-" + entry.at + ".json");
+            });
+            actions.appendChild(dlBtn);
+            var restoreBtn = document.createElement("button");
+            restoreBtn.type = "button";
+            restoreBtn.className = "ctx-danger-solid";
+            restoreBtn.textContent = "Restaurer";
+            restoreBtn.addEventListener("click", function () {
+                if (!window.confirm("Remplacer les données actuelles par cette sauvegarde (" + entry.count + " exercice(s), " + when.textContent + ") ?")) return;
+                backupSnapshot("Avant restauration d'une sauvegarde de secours", state);
+                state = normalizeState(JSON.parse(entry.json));
+                if (!state.activeInstrumentId && state.instruments[0]) state.activeInstrumentId = state.instruments[0].id;
+                navPaths = {};
+                resetHistory();
+                save();
+                render();
+                closeBackupsPanel();
+            });
+            actions.appendChild(restoreBtn);
+            row.appendChild(actions);
+
+            list.appendChild(row);
+        });
+        panel.appendChild(list);
+
+        var closeRow = document.createElement("div");
+        closeRow.className = "backups-close-row";
+        var closeBtn = document.createElement("button");
+        closeBtn.type = "button";
+        closeBtn.className = "btn-ghost";
+        closeBtn.textContent = "Fermer";
+        closeBtn.addEventListener("click", closeBackupsPanel);
+        closeRow.appendChild(closeBtn);
+        panel.appendChild(closeRow);
+
+        function closeBackupsPanel() {
+            backdrop.remove();
+            panel.remove();
+            document.removeEventListener("keydown", onKey, true);
+        }
+        function onKey(e) { if (e.key === "Escape") closeBackupsPanel(); }
+        backdrop.addEventListener("click", closeBackupsPanel);
+        document.addEventListener("keydown", onKey, true);
+
+        document.body.appendChild(backdrop);
+        document.body.appendChild(panel);
+    }
 
     var importInput = document.getElementById("import-input");
     document.getElementById("import-btn").addEventListener("click", function () {
@@ -1487,10 +1960,12 @@
                 var parsed = JSON.parse(reader.result);
                 if (!parsed || !Array.isArray(parsed.instruments)) throw new Error("format invalide");
                 if (!window.confirm("Remplacer les données actuelles par cette sauvegarde ?")) return;
+                backupSnapshot("Avant import d'un fichier JSON", state);
                 state = normalizeState(parsed);
                 if (!state.activeInstrumentId && state.instruments[0]) state.activeInstrumentId = state.instruments[0].id;
                 navPaths = {};
-                save();
+                resetHistory();
+                persist();
                 render();
             } catch (e) {
                 window.alert("Fichier de sauvegarde invalide.");

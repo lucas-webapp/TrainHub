@@ -198,8 +198,22 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 
 .content-heading { display: none; }
 
+.search-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
 .search-row input {
-    width: 100%;
+    flex: 1;
+    min-width: 0;
+}
+.search-row select {
+    flex: none;
+    width: auto;
+}
+@media (max-width: 560px) {
+    .search-row { flex-wrap: wrap; }
+    .search-row input { flex-basis: 100%; }
 }
 
 .updated-at-note {
@@ -291,6 +305,20 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 .folder-row.dragging { opacity: .5; cursor: grabbing; }
 .folder-icon { color: var(--chapter-accent); display: inline-flex; flex: none; }
 .folder-name { font-weight: 700; font-size: var(--fs-base); flex: 1; cursor: default; -webkit-touch-callout: none; }
+.folder-edit-btn {
+    flex: none;
+    opacity: .4;
+    padding: 5px;
+    transition: opacity .12s ease;
+}
+.folder-row:hover .folder-edit-btn,
+.folder-edit-btn:focus-visible { opacity: 1; }
+.folder-edit-btn .icon { width: 14px; height: 14px; }
+/* Pas de survol au doigt : le crayon reste bien visible en permanence sur tactile. */
+@media (hover: none) { .folder-edit-btn { opacity: .7; } }
+
+.heading-edit-btn { flex: none; padding: 6px; margin-left: 2px; }
+.heading-edit-btn .icon { width: 15px; height: 15px; }
 
 /* ---------- résultats de recherche / filtre à revoir ---------- */
 .result-item { display: flex; flex-direction: column; gap: 4px; }
@@ -377,6 +405,46 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 
 .add-link-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .add-link-row input { flex: 1; min-width: 120px; }
+
+/* ---------- fichiers joints (PDF/MP3) ---------- */
+.files-section { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.files-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.file-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255,255,255,.05);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 5px 10px;
+    font-size: var(--fs-xs);
+    max-width: 260px;
+}
+.file-chip .file-open {
+    background: transparent;
+    border: none;
+    color: var(--text-main);
+    padding: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 200px;
+}
+.file-chip .file-open:hover { color: var(--accent); }
+.file-chip .link-remove {
+    color: var(--text-muted);
+    font-weight: 700;
+    border-radius: 50%;
+    width: 16px; height: 16px;
+    display: inline-flex; align-items: center; justify-content: center;
+    flex: none;
+}
+.file-chip .link-remove:hover { color: #ff6b6b; }
+
+.add-file-row { display: flex; align-items: center; }
+.add-file-row .add-file-input { display: none; }
+.add-file-label { font-size: var(--fs-xs); padding: 6px 12px; }
+.files-hint { font-size: var(--fs-2xs); color: var(--text-muted); }
 
 .add-exercise-row { display: flex; gap: 6px; padding: 4px; }
 .add-exercise-row input { flex: 1; }
@@ -530,14 +598,61 @@ body.resizing-sidebar .sidebar-resizer::after { background: var(--chapter-accent
 body.resizing-sidebar { cursor: col-resize; user-select: none; }
 
 /* ---------- titres de section de la zone principale ---------- */
+/* #folder-container est lui-même une colonne flex espacée (voir plus bas) : chaque titre de
+   section n'a donc plus besoin d'une marge négative pour se rapprocher de son contenu, ce qui
+   provoquait un chevauchement avec l'élément précédent (le titre du dossier notamment). */
+#folder-container {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+.section-group { display: flex; flex-direction: column; gap: 8px; }
 .section-label {
     font-size: var(--fs-2xs);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: .07em;
     color: var(--text-muted);
-    margin-bottom: -6px;
 }
+
+/* ---------- panneau des sauvegardes de secours ---------- */
+.backups-panel {
+    position: fixed;
+    z-index: 902;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(480px, calc(100vw - 32px));
+    max-height: min(600px, calc(100vh - 32px));
+    overflow-y: auto;
+    background: var(--card-bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 10px 30px rgba(0,0,0,.5);
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.backups-title { font-size: var(--fs-md); font-weight: 800; }
+.backups-intro { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.4; }
+.backups-list { display: flex; flex-direction: column; gap: 8px; }
+.backups-empty { color: var(--text-muted); font-size: var(--fs-sm); padding: 8px 0; }
+.backups-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    background: rgba(255,255,255,.03);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+}
+.backups-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.backups-when { font-weight: 700; font-size: var(--fs-sm); }
+.backups-reason { font-size: var(--fs-2xs); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.backups-actions { display: flex; gap: 6px; flex: none; }
+.backups-actions button { font-size: var(--fs-2xs); padding: 6px 10px; }
+.backups-close-row { display: flex; justify-content: flex-end; }
 
 /* ---------- menu contextuel (renommer / supprimer) ---------- */
 .ctx-backdrop { position: fixed; inset: 0; z-index: 900; background: transparent; }

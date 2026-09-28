@@ -54,12 +54,20 @@
         <button type="button" id="add-instrument-btn" class="icon-btn btn-ghost" title="Ajouter un instrument" aria-label="Ajouter un instrument">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
         </button>
-        <button type="button" id="toggle-a-revoir-btn" title="Afficher seulement les exercices à revoir">
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20l-1.4-1.3C6 14.6 3 11.9 3 8.6 3 5.9 5.1 4 7.7 4c1.5 0 2.9.7 3.8 1.9.9-1.2 2.3-1.9 3.8-1.9C17.9 4 20 5.9 20 8.6c0 3.3-3 6-8.6 10.1Z"/></svg>
-            <span>À revoir</span>
+        <button type="button" id="undo-btn" class="icon-btn btn-ghost" title="Annuler" aria-label="Annuler" disabled>
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+        </button>
+        <button type="button" id="redo-btn" class="icon-btn btn-ghost" title="Rétablir" aria-label="Rétablir" disabled>
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>
+        </button>
+        <button type="button" id="search-toggle-btn" class="icon-btn btn-ghost" title="Rechercher un exercice" aria-label="Rechercher un exercice">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
         </button>
         <button type="button" id="toggle-updated-at-btn" class="icon-btn btn-ghost" title="Afficher/masquer les dates de modification" aria-label="Afficher/masquer les dates de modification">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+        </button>
+        <button type="button" id="backups-btn" class="icon-btn btn-ghost" title="Sauvegardes de secours" aria-label="Sauvegardes de secours">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"/><path d="M10 13h4"/></svg>
         </button>
         <button type="button" id="export-btn" class="icon-btn btn-ghost" title="Exporter (sauvegarde JSON)" aria-label="Exporter">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3m0 12-4-4m4 4 4-4"/><path d="M4 17v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
@@ -77,8 +85,18 @@
     <aside class="sidebar-tree" id="sidebar-tree" aria-label="Chapitres et dossiers"></aside>
     <div class="sidebar-resizer" id="sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Largeur du bandeau" title="Glisser pour élargir ou rétrécir le bandeau (double-clic : taille par défaut)"></div>
     <div class="main">
-        <div class="search-row">
+        <div class="search-row" id="search-row" hidden>
             <input type="search" id="search-input" placeholder="Rechercher un exercice (tous les dossiers)…" aria-label="Rechercher un exercice">
+            <select id="status-filter" aria-label="Filtrer par statut">
+                <option value="">Tous les statuts</option>
+                <option value="a_faire">À faire</option>
+                <option value="en_cours">En cours</option>
+                <option value="termine">Terminé</option>
+                <option value="a_revoir">À revoir</option>
+            </select>
+            <button type="button" id="search-close-btn" class="icon-btn btn-ghost" title="Fermer la recherche" aria-label="Fermer la recherche">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            </button>
         </div>
         <div class="breadcrumb" id="breadcrumb"></div>
         <div class="content-heading" id="content-heading"></div>
