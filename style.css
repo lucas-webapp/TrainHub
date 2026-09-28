@@ -244,13 +244,6 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     user-select: none;
 }
 .chapter-chip.dragging { opacity: .5; cursor: grabbing; }
-.chapter-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex: none;
-}
-.chapter-chip.active { border-color: var(--chapter-accent); background: color-mix(in srgb, var(--chapter-accent) 12%, transparent); }
 .chapter-chip-label {
     color: var(--text-muted);
     font-weight: 600;
@@ -431,9 +424,8 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     user-select: none;
     transition: background .12s ease;
 }
-.tree-row:hover { background: rgba(255,255,255,.05); }
+.tree-row:hover { background: rgba(255,255,255,.09) !important; }
 .tree-row.dragging { opacity: .45; cursor: grabbing; }
-.tree-row.selected { background: color-mix(in srgb, var(--chapter-accent) 18%, transparent); }
 .tree-row.selected .tree-label { color: var(--chapter-accent); font-weight: 700; }
 
 .tree-twisty {
@@ -455,8 +447,6 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     transition: transform .12s ease;
 }
 .tree-twisty.expanded .icon { transform: rotate(90deg); }
-
-.tree-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 
 .tree-label {
     flex: 1;

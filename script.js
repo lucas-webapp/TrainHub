@@ -434,15 +434,10 @@
             var chip = document.createElement("div");
             chip.className = "chapter-chip" + (isActive ? " active" : "");
             chip.dataset.reorderId = chapter.id;
-            if (isActive) {
-                chip.style.borderColor = chapter.color;
-                chip.style.background = "color-mix(in srgb, " + chapter.color + " 12%, transparent)";
-            }
-
-            var dot = document.createElement("span");
-            dot.className = "chapter-dot";
-            dot.style.background = chapter.color;
-            chip.appendChild(dot);
+            // Encadré fin + fond très léger dans la couleur du chapitre, toujours visible (pas
+            // seulement actif) : remplace le point de couleur, jugé pas assez discret.
+            chip.style.borderColor = chapter.color;
+            chip.style.background = "color-mix(in srgb, " + chapter.color + " " + (isActive ? "16%" : "7%") + ", transparent)";
 
             var label = document.createElement("span");
             label.className = "chapter-chip-label";
@@ -454,7 +449,7 @@
 
             chip.addEventListener("click", function (e) {
                 if (suppressNextClick) { suppressNextClick = false; return; }
-                    clearFilters();
+                clearFilters();
                 setNavPath(inst, [chapter.id]);
                 render();
             });
@@ -572,10 +567,10 @@
         }
         row.appendChild(twisty);
 
-        var dot = document.createElement("span");
-        dot.className = "tree-dot";
-        dot.style.background = rootColor;
-        row.appendChild(dot);
+        // Bordure gauche fine + fond très léger dans la couleur du grand chapitre de la branche
+        // (au lieu d'un point de couleur) : visible sur toute la ligne, discret.
+        row.style.borderLeft = "3px solid " + rootColor;
+        row.style.background = "color-mix(in srgb, " + rootColor + " " + (isSelected ? "16%" : "5%") + ", transparent)";
 
         var label = document.createElement("span");
         label.className = "tree-label";
