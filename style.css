@@ -268,6 +268,14 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 .chapter-chip.active .chapter-chip-label { color: var(--chapter-accent); }
 .chapter-add { display: flex; }
 
+/* Chapitre virtuel "Favoris" : couleur fixe (or), pas de glisser-déposer (exclu de
+   setupDragReorder via :not(.chapter-chip-fixed), voir renderChapterBar). */
+.chapter-chip-fixed { cursor: pointer; touch-action: auto; border-color: #ffd60a; background: color-mix(in srgb, #ffd60a 8%, transparent); }
+.chapter-chip-fixed.active { background: color-mix(in srgb, #ffd60a 18%, transparent); }
+.chapter-chip-fixed .chapter-chip-label { color: #ffd60a; }
+.chapter-chip-star { display: inline-flex; color: #ffd60a; }
+.chapter-chip-star .icon { width: 13px; height: 13px; }
+
 /* ---------- breadcrumb ---------- */
 .breadcrumb {
     display: flex;
@@ -355,17 +363,29 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     min-width: 0;
 }
 .exercise-title:focus { background: rgba(255,255,255,.04); outline: none; border-radius: 6px; }
-.status-select {
-    font-size: var(--fs-2xs);
-    padding: 4px 6px;
-    border-radius: 20px;
-    font-weight: 700;
-    background: rgba(255,255,255,.05);
+
+.exercise-drag-handle {
+    flex: none;
+    display: inline-flex;
+    color: var(--text-muted);
+    cursor: grab;
+    touch-action: none;
+    padding: 4px 2px;
 }
-.status-select[data-status="a_faire"] { color: var(--status-a-faire); border-color: var(--status-a-faire); }
-.status-select[data-status="en_cours"] { color: var(--status-en-cours); border-color: var(--status-en-cours); }
-.status-select[data-status="termine"] { color: var(--status-termine); border-color: var(--status-termine); }
-.status-select[data-status="a_revoir"] { color: var(--status-a-revoir); border-color: var(--status-a-revoir); }
+.exercise-drag-handle:hover { color: var(--text-main); }
+.exercise.dragging { opacity: .5; }
+
+.exercise-favorite-badge { flex: none; display: inline-flex; color: #ffd60a; }
+.exercise-favorite-badge .icon { width: 14px; height: 14px; }
+.exercise-archived-badge {
+    flex: none;
+    font-size: var(--fs-2xs);
+    font-weight: 700;
+    color: var(--text-muted);
+    background: rgba(255,255,255,.06);
+    border-radius: 20px;
+    padding: 3px 9px;
+}
 
 .exercise-details {
     margin-top: 8px;
@@ -491,6 +511,14 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 .tree-row:hover { background: rgba(255,255,255,.09) !important; }
 .tree-row.dragging { opacity: .45; cursor: grabbing; }
 .tree-row.selected .tree-label { color: var(--chapter-accent); font-weight: 700; }
+
+/* Ligne fixe "Favoris" au-dessus de l'arborescence : couleur or fixe, pas de glisser (elle n'est
+   pas dans `.tree-list`, voir renderSidebarTree), pas de crayon/clic droit (rien à renommer). */
+.tree-row-fixed { cursor: pointer; touch-action: auto; margin-bottom: 8px; border-left: 3px solid #ffd60a; background: color-mix(in srgb, #ffd60a 6%, transparent); }
+.tree-row-fixed.selected { background: color-mix(in srgb, #ffd60a 16%, transparent); }
+.tree-row-fixed .tree-label { font-weight: 700; }
+.tree-fixed-icon { width: 18px; height: 18px; flex: none; display: inline-flex; align-items: center; justify-content: center; color: #ffd60a; }
+.tree-fixed-icon .icon { width: 13px; height: 13px; }
 
 /* Les 3 styles ci-dessous distinguent la hiérarchie en plus de l'indentation : seul le grand
    chapitre (niveau 0) garde la couleur du chapitre en permanence (voir renderTreeNode). Les

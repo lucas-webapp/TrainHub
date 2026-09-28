@@ -5,13 +5,11 @@
     var DEFAULT_CATEGORIES = ["Technique", "Gammes", "Improvisation", "Jeu en groupe", "Copie de morceaux"];
     var DEFAULT_INSTRUMENTS = ["Basse", "Guitare", "Piano"];
     var FOLDER_PALETTE = ["#00e676", "#a78bfa", "#f472b6", "#2dd4bf", "#fb923c", "#f87171"];
-    var STATUSES = [
-        { value: "a_faire", label: "À faire" },
-        { value: "en_cours", label: "En cours" },
-        { value: "termine", label: "Terminé" },
-        { value: "a_revoir", label: "À revoir" }
-    ];
     var MAX_FOLDER_DEPTH = 5;
+    // Chapitre virtuel : n'existe dans aucun tableau `categories`, juste une valeur spéciale de
+    // navigation reconnue par render()/renderMain(). Regroupe les exercices marqués favoris de
+    // TOUT l'instrument, où qu'ils soient rangés.
+    var FAVORITES_ID = "__favorites__";
 
     var searchQuery = "";
     var navPaths = {}; // instrumentId -> [folderId, ...] depuis le grand chapitre (non synchronisé, juste la navigation en cours)
@@ -36,7 +34,7 @@
 
     function makeDefaultState() {
         var instruments = DEFAULT_INSTRUMENTS.map(makeInstrument);
-        return { activeInstrumentId: instruments[0].id, instruments: instruments, updatedAt: 0, settings: { showUpdatedAt: false, statusFilter: "" } };
+        return { activeInstrumentId: instruments[0].id, instruments: instruments, updatedAt: 0, settings: { showUpdatedAt: false, archiveFilter: "" } };
     }
 
     function normalizeFolder(f) {
@@ -49,13 +47,17 @@
             // l'état (donc synchronisées) — le contenu réel du fichier vit dans IndexedDB, sur cet
             // appareil uniquement (voir bloc "fichiers joints" plus bas).
             if (!Array.isArray(ex.files)) ex.files = [];
+            // Remplace les statuts (à faire/en cours/terminé/à revoir), jugés trop compliqués au
+            // quotidien : juste deux cases à cocher, accessibles par clic droit/appui long.
+            if (typeof ex.favorite !== "boolean") ex.favorite = false;
+            if (typeof ex.archived !== "boolean") ex.archived = false;
         });
     }
 
     function normalizeState(s) {
-        if (!s.settings || typeof s.settings !== "object") s.settings = { showUpdatedAt: false, statusFilter: "" };
+        if (!s.settings || typeof s.settings !== "object") s.settings = { showUpdatedAt: false, archiveFilter: "" };
         if (typeof s.settings.showUpdatedAt !== "boolean") s.settings.showUpdatedAt = false;
-        if (typeof s.settings.statusFilter !== "string") s.settings.statusFilter = "";
+        if (typeof s.settings.archiveFilter !== "string") s.settings.archiveFilter = "";
         if (!Array.isArray(s.instruments)) s.instruments = [];
         s.instruments.forEach(function (inst) {
             if (!Array.isArray(inst.categories)) inst.categories = [];
@@ -279,9 +281,9 @@
     function clearFilters() {
         searchQuery = "";
         if ($searchInput) $searchInput.value = "";
-        if (state.settings.statusFilter) {
-            state.settings.statusFilter = "";
-            if ($statusFilter) $statusFilter.value = "";
+        if (state.settings.archiveFilter) {
+            state.settings.archiveFilter = "";
+            if ($archiveFilter) $archiveFilter.value = "";
             save();
         }
     }
@@ -327,6 +329,8 @@
     var FOLDER_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>';
     var CHEVRON_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>';
     var PENCIL_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+    var GRIP_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>';
+    var STAR_FILLED_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.7l2.9 6 6.6.7-4.9 4.5 1.3 6.5L12 17.4l-5.9 3 1.3-6.5-4.9-4.5 6.6-.7Z"/></svg>';
 
     function linkIconSvg(label) {
         var l = (label || "").toLowerCase();
@@ -354,15 +358,6 @@
         var opts = { day: "2-digit", month: "2-digit" };
         if (d.getFullYear() !== now.getFullYear()) opts.year = "numeric";
         return d.toLocaleDateString("fr-FR", opts);
-    }
-
-    function moveArrayItem(arr, index, delta) {
-        var newIndex = index + delta;
-        if (newIndex < 0 || newIndex >= arr.length) return false;
-        var tmp = arr[index];
-        arr[index] = arr[newIndex];
-        arr[newIndex] = tmp;
-        return true;
     }
 
     function iconButton(glyph, title, onClick) {
@@ -394,15 +389,22 @@
     var LONG_PRESS_MS = 550;
     var LONG_PRESS_TOLERANCE = 10;
 
-    function bindFolderMenu(el, getParentArray, folder, inst) {
+    // Geste partagé clic droit / appui long, indépendant de ce qu'il ouvre (menu de dossier ou
+    // d'exercice ci-dessous). Sur un champ texte (renommage inline, titre d'exercice), on laisse
+    // le menu natif du navigateur s'ouvrir (copier/coller) plutôt que le nôtre.
+    function bindContextGesture(el, openFn) {
         var triggeredByPress = false;
 
         el.addEventListener("contextmenu", function (e) {
+            // Le titre d'un exercice occupe la majeure partie de la ligne : un clic droit dessus
+            // doit quand même ouvrir CE menu (favoris/archiver), pas le menu natif copier/coller —
+            // sinon le clic droit ne marcherait presque jamais sur cette ligne. Un collage se fait
+            // toujours au clavier (Ctrl+V) une fois le champ ciblé.
             e.preventDefault();
             e.stopPropagation();
             // L'appui long tactile a pu déjà ouvrir le menu via le minuteur ci-dessous.
             if (triggeredByPress) { triggeredByPress = false; return; }
-            openFolderMenu(e.clientX, e.clientY, getParentArray, folder, inst);
+            openFn(e.clientX, e.clientY);
         });
 
         // Safari sur iPhone/iPad ne déclenche pas "contextmenu" sur un appui long : minuteur
@@ -429,7 +431,7 @@
                     document.removeEventListener("pointerup", onUp, true);
                     setTimeout(function () { suppressNextClick = false; }, 60);
                 }, true);
-                openFolderMenu(startX, startY, getParentArray, folder, inst);
+                openFn(startX, startY);
                 setTimeout(function () { triggeredByPress = false; }, 800);
             }, LONG_PRESS_MS);
         });
@@ -439,6 +441,14 @@
         });
         el.addEventListener("pointerup", cancelPress);
         el.addEventListener("pointercancel", cancelPress);
+    }
+
+    function bindFolderMenu(el, getParentArray, folder, inst) {
+        bindContextGesture(el, function (x, y) { openFolderMenu(x, y, getParentArray, folder, inst); });
+    }
+
+    function bindExerciseMenu(el, ex) {
+        bindContextGesture(el, function (x, y) { openExerciseMenu(x, y, ex); });
     }
 
     // ---------- menu contextuel (renommer / supprimer) ----------
@@ -632,6 +642,74 @@
         place();
     }
 
+    // Menu, plus simple, d'un exercice : juste les deux cases "favoris" et "archiver" demandées
+    // (le statu quo avec les statuts à faire/en cours/terminé/à revoir était jugé trop compliqué).
+    function openExerciseMenu(x, y, ex) {
+        closeFolderMenu();
+
+        var backdrop = document.createElement("div");
+        backdrop.className = "ctx-backdrop";
+        backdrop.addEventListener("pointerdown", function (e) { e.preventDefault(); closeFolderMenu(); });
+        backdrop.addEventListener("contextmenu", function (e) { e.preventDefault(); closeFolderMenu(); });
+
+        var menu = document.createElement("div");
+        menu.className = "ctx-menu";
+        menu.setAttribute("role", "menu");
+        menu.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+
+        function menuButton(text, className, onClick) {
+            var b = document.createElement("button");
+            b.type = "button";
+            b.className = "ctx-item" + (className ? " " + className : "");
+            b.textContent = text;
+            var armed = false;
+            b.addEventListener("pointerdown", function () { armed = true; });
+            b.addEventListener("click", function (e) {
+                if (!armed && e.detail !== 0) return;
+                armed = false;
+                onClick();
+            });
+            return b;
+        }
+
+        function place() {
+            var w = menu.offsetWidth || 200;
+            var h = menu.offsetHeight || 100;
+            var left = Math.min(Math.max(8, x + 6), Math.max(8, window.innerWidth - w - 8));
+            var top = Math.min(Math.max(8, y + 6), Math.max(8, window.innerHeight - h - 8));
+            menu.style.left = left + "px";
+            menu.style.top = top + "px";
+        }
+
+        var title = document.createElement("div");
+        title.className = "ctx-title";
+        title.textContent = ex.title;
+        menu.appendChild(title);
+
+        menu.appendChild(menuButton(ex.favorite ? "★ Retirer des favoris" : "☆ Marquer en favori", "", function () {
+            ex.favorite = !ex.favorite;
+            touchExercise(ex);
+            save();
+            closeFolderMenu();
+            render();
+        }));
+        menu.appendChild(menuButton(ex.archived ? "Désarchiver" : "Archiver", "", function () {
+            ex.archived = !ex.archived;
+            touchExercise(ex);
+            save();
+            closeFolderMenu();
+            render();
+        }));
+
+        function onKey(e) { if (e.key === "Escape") closeFolderMenu(); }
+
+        document.body.appendChild(backdrop);
+        document.body.appendChild(menu);
+        document.addEventListener("keydown", onKey, true);
+        openMenu = { backdrop: backdrop, menu: menu, onKey: onKey };
+        place();
+    }
+
     function setupDragReorder(container, itemSelector, getArray, axis) {
         var dragEl = null;
         var startX = 0, startY = 0;
@@ -684,7 +762,16 @@
             if (dragEl && moved) {
                 var arr = getArray();
                 var order = directChildren().map(function (el) { return el.dataset.reorderId; });
-                arr.sort(function (a, b) { return order.indexOf(a.id) - order.indexOf(b.id); });
+                // Un élément absent du DOM (par ex. un exercice archivé, masqué de cette vue) doit
+                // rester à sa place relative en fin de liste, pas être renvoyé en tête : indexOf
+                // renvoyant -1 pour tous, on les glisse explicitement après tout élément trouvé.
+                arr.sort(function (a, b) {
+                    var ia = order.indexOf(a.id), ib = order.indexOf(b.id);
+                    if (ia === -1 && ib === -1) return 0;
+                    if (ia === -1) return 1;
+                    if (ib === -1) return -1;
+                    return ia - ib;
+                });
                 dragEl.classList.remove("dragging");
                 suppressNextClick = true;
                 save();
@@ -713,7 +800,7 @@
     var $searchInput = document.getElementById("search-input");
     var $searchToggleBtn = document.getElementById("search-toggle-btn");
     var $searchCloseBtn = document.getElementById("search-close-btn");
-    var $statusFilter = document.getElementById("status-filter");
+    var $archiveFilter = document.getElementById("status-filter");
     var $undoBtn = document.getElementById("undo-btn");
     var $redoBtn = document.getElementById("redo-btn");
 
@@ -804,13 +891,13 @@
         });
     }
 
-    // ---------- filtre par statut (remplace l'ancien bouton "À revoir") ----------
-    // Le choix est gardé dans state.settings.statusFilter : synchronisé et retrouvé tel quel à la
+    // ---------- filtre archivés/actifs ----------
+    // Le choix est gardé dans state.settings.archiveFilter : synchronisé et retrouvé tel quel à la
     // prochaine ouverture de l'appli, sur tous les appareils.
-    if ($statusFilter) {
-        $statusFilter.addEventListener("change", function () {
-            state.settings.statusFilter = $statusFilter.value;
-            if ($statusFilter.value) openSearch();
+    if ($archiveFilter) {
+        $archiveFilter.addEventListener("change", function () {
+            state.settings.archiveFilter = $archiveFilter.value;
+            if ($archiveFilter.value) openSearch();
             save();
             render();
         });
@@ -830,9 +917,10 @@
         var inst = getActiveInstrument();
         var path = inst ? getNavPath(inst) : [];
         var rootChapter = inst && path.length ? findById(inst.categories, path[0]) : null;
-        document.documentElement.style.setProperty("--chapter-accent", (rootChapter && rootChapter.color) || "#00e676");
-        if ($statusFilter) $statusFilter.value = state.settings.statusFilter || "";
-        if ($searchRow && state.settings.statusFilter && $searchRow.hidden) openSearch();
+        var accent = path[0] === FAVORITES_ID ? "#ffd60a" : ((rootChapter && rootChapter.color) || "#00e676");
+        document.documentElement.style.setProperty("--chapter-accent", accent);
+        if ($archiveFilter) $archiveFilter.value = state.settings.archiveFilter || "";
+        if ($searchRow && state.settings.archiveFilter && $searchRow.hidden) openSearch();
         renderInstrumentSelect();
         renderChapterBar();
         renderSidebarTree();
@@ -876,6 +964,25 @@
         var path = getNavPath(inst);
         var activeId = path[0];
 
+        // Chapitre virtuel "Favoris" : toujours en premier, en dehors du glisser-déposer (il ne
+        // fait pas partie de inst.categories, voir setupDragReorder plus bas qui l'exclut).
+        var favChip = document.createElement("div");
+        favChip.className = "chapter-chip chapter-chip-fixed" + (activeId === FAVORITES_ID ? " active" : "");
+        var favIcon = document.createElement("span");
+        favIcon.className = "chapter-chip-star";
+        favIcon.innerHTML = STAR_FILLED_SVG;
+        favChip.appendChild(favIcon);
+        var favLabel = document.createElement("span");
+        favLabel.className = "chapter-chip-label";
+        favLabel.textContent = "Favoris";
+        favChip.appendChild(favLabel);
+        favChip.addEventListener("click", function () {
+            clearFilters();
+            setNavPath(inst, [FAVORITES_ID]);
+            render();
+        });
+        $chapterBar.appendChild(favChip);
+
         inst.categories.forEach(function (chapter) {
             var isActive = chapter.id === activeId;
             var chip = document.createElement("div");
@@ -904,7 +1011,7 @@
             $chapterBar.appendChild(chip);
         });
 
-        setupDragReorder($chapterBar, ".chapter-chip", function () { return getActiveInstrument().categories; }, "x");
+        setupDragReorder($chapterBar, ".chapter-chip:not(.chapter-chip-fixed)", function () { return getActiveInstrument().categories; }, "x");
 
         var addBtn = iconButton("+ Chapitre", "Ajouter un grand chapitre", function () {
             var name = window.prompt("Nom du nouveau chapitre (ex : Technique, Morceaux, Gammes...) :");
@@ -949,6 +1056,26 @@
         $sidebarTree.appendChild(header);
 
         var path = getNavPath(inst);
+
+        // Chapitre virtuel "Favoris", au-dessus de l'arborescence réelle (pas dans `list` : pas
+        // renommable/supprimable/déplaçable, juste un raccourci vers tous les exercices favoris de
+        // l'instrument).
+        var favRow = document.createElement("div");
+        favRow.className = "tree-row tree-row-fixed tree-row-d0" + (path[0] === FAVORITES_ID ? " selected" : "");
+        var favIcon = document.createElement("span");
+        favIcon.className = "tree-fixed-icon";
+        favIcon.innerHTML = STAR_FILLED_SVG;
+        favRow.appendChild(favIcon);
+        var favLabel = document.createElement("span");
+        favLabel.className = "tree-label";
+        favLabel.textContent = "Favoris";
+        favRow.appendChild(favLabel);
+        favRow.addEventListener("click", function () {
+            clearFilters();
+            setNavPath(inst, [FAVORITES_ID]);
+            render();
+        });
+        $sidebarTree.appendChild(favRow);
 
         var list = document.createElement("div");
         list.className = "tree-list";
@@ -1096,7 +1223,14 @@
     function renderMain() {
         var inst = getActiveInstrument();
         $empty.hidden = true;
-        var hasFilter = !!state.settings.statusFilter || !!searchQuery.trim();
+        var path = getNavPath(inst);
+        if (path[0] === FAVORITES_ID) {
+            $breadcrumb.hidden = true;
+            $breadcrumb.innerHTML = "";
+            renderFavoritesView(inst);
+            return;
+        }
+        var hasFilter = !!state.settings.archiveFilter || !!searchQuery.trim();
         if (hasFilter) {
             $breadcrumb.hidden = true;
             $breadcrumb.innerHTML = "";
@@ -1106,6 +1240,46 @@
             $breadcrumb.hidden = false;
             renderFolderBrowser(inst);
         }
+    }
+
+    // Rendu partagé entre le filtre plein-texte (renderFilteredResults) et les favoris
+    // (renderFavoritesView) : une liste à plat, avec le chemin réel de chaque exercice.
+    function renderResultsList(inst, results, emptyText) {
+        $folderContainer.innerHTML = "";
+        if (results.length === 0) {
+            $empty.hidden = false;
+            $empty.textContent = emptyText;
+            return;
+        }
+        results.forEach(function (r) {
+            var wrap = document.createElement("div");
+            wrap.className = "result-item";
+
+            var pathBtn = document.createElement("button");
+            pathBtn.type = "button";
+            pathBtn.className = "result-path";
+            pathBtn.textContent = r.pathNames.join(" › ");
+            pathBtn.title = "Aller à cet emplacement";
+            pathBtn.addEventListener("click", function () {
+                clearFilters();
+                setNavPath(inst, r.pathIds);
+                render();
+            });
+            wrap.appendChild(pathBtn);
+
+            wrap.appendChild(renderExercise(r.folder, r.ex, false));
+            $folderContainer.appendChild(wrap);
+        });
+    }
+
+    function renderFavoritesView(inst) {
+        $contentHeading.innerHTML = "";
+        var h2 = document.createElement("h2");
+        h2.textContent = "★ Favoris";
+        $contentHeading.appendChild(h2);
+
+        var results = collectExercises(inst, function (ex) { return ex.favorite && !ex.archived; });
+        renderResultsList(inst, results, "Aucun favori pour l'instant. Marque un exercice en favori depuis son menu (clic droit ou appui long dessus).");
     }
 
     function renderContentHeading(folder, getParentArray, inst) {
@@ -1202,10 +1376,14 @@
         }
         var exercisesWrap = document.createElement("div");
         exercisesWrap.className = "exercises-wrap";
-        currentFolder.exercises.forEach(function (ex, idx) {
-            exercisesWrap.appendChild(renderExercise(currentFolder, ex, idx, currentFolder.exercises.length, true));
+        // Les exercices archivés sont rangés hors de la vue normale (voir le filtre "Archivés"
+        // dans la recherche) ; ils restent dans le tableau réel, juste absents de ce rendu — voir
+        // le commentaire dans setupDragReorder() sur les éléments absents du DOM lors d'un glisser.
+        currentFolder.exercises.filter(function (ex) { return !ex.archived; }).forEach(function (ex) {
+            exercisesWrap.appendChild(renderExercise(currentFolder, ex, true));
         });
         exGroup.appendChild(exercisesWrap);
+        setupDragReorder(exercisesWrap, ".exercise", function () { return currentFolder.exercises; }, "y");
         exGroup.appendChild(renderAddExerciseForm(currentFolder));
         $folderContainer.appendChild(exGroup);
     }
@@ -1270,45 +1448,20 @@
 
     function renderFilteredResults(inst) {
         var query = searchQuery.trim().toLowerCase();
-        var statusFilter = state.settings.statusFilter;
-        var statusLabel = statusFilter && STATUSES.filter(function (s) { return s.value === statusFilter; })[0];
+        var archiveFilter = state.settings.archiveFilter;
         function matchFn(ex) {
-            if (statusFilter && ex.status !== statusFilter) return false;
+            // Par défaut, les archivés restent hors de vue (rangés) ; le filtre permet de les
+            // retrouver spécifiquement.
+            if (archiveFilter === "archived") { if (!ex.archived) return false; }
+            else if (ex.archived) return false;
             if (query && ex.title.toLowerCase().indexOf(query) === -1) return false;
             return true;
         }
         var results = collectExercises(inst, matchFn);
-        $folderContainer.innerHTML = "";
-
-        if (results.length === 0) {
-            $empty.hidden = false;
-            $empty.textContent = statusLabel && query
-                ? "Rien « " + statusLabel.label + " » ne correspond à ta recherche."
-                : statusLabel
-                    ? "Rien « " + statusLabel.label + " » pour l'instant sur cet instrument."
-                    : "Aucun exercice ne correspond à ta recherche.";
-            return;
-        }
-
-        results.forEach(function (r) {
-            var wrap = document.createElement("div");
-            wrap.className = "result-item";
-
-            var pathBtn = document.createElement("button");
-            pathBtn.type = "button";
-            pathBtn.className = "result-path";
-            pathBtn.textContent = r.pathNames.join(" › ");
-            pathBtn.title = "Aller à cet emplacement";
-            pathBtn.addEventListener("click", function () {
-                clearFilters();
-                setNavPath(inst, r.pathIds);
-                render();
-            });
-            wrap.appendChild(pathBtn);
-
-            wrap.appendChild(renderExercise(r.folder, r.ex, 0, 1, false));
-            $folderContainer.appendChild(wrap);
-        });
+        var emptyText = archiveFilter === "archived"
+            ? (query ? "Aucun exercice archivé ne correspond à ta recherche." : "Aucun exercice archivé pour l'instant.")
+            : "Aucun exercice ne correspond à ta recherche.";
+        renderResultsList(inst, results, emptyText);
     }
 
     function renderAddExerciseForm(folder) {
@@ -1324,8 +1477,10 @@
                 id: uid(),
                 title: title,
                 notes: "",
-                status: "a_faire",
+                favorite: false,
+                archived: false,
                 links: [],
+                files: [],
                 collapsed: true,
                 updatedAt: Date.now()
             });
@@ -1343,25 +1498,33 @@
         return wrap;
     }
 
-    function renderExercise(folder, ex, idx, total, orderingEnabled) {
+    function renderExercise(folder, ex, orderingEnabled) {
         var el = document.createElement("div");
         el.className = "exercise" + (ex.collapsed ? " collapsed" : "");
+        el.dataset.reorderId = ex.id;
 
         var row = document.createElement("div");
         row.className = "exercise-row";
+        row.title = "Clic droit (ordinateur) ou appui long (mobile) : favoris / archiver";
+        bindExerciseMenu(row, ex);
 
+        // Poignée de glisser-déposer pour réordonner (remplace les flèches ↑/↓) : seulement dans
+        // la vue normale d'un dossier, pas dans les listes à plat (recherche/favoris/archivés) où
+        // les exercices viennent de dossiers différents et n'ont pas d'ordre commun.
         if (orderingEnabled) {
-            var upBtn = iconButton("↑", "Monter l'exercice", function () {
-                if (moveArrayItem(folder.exercises, idx, -1)) { save(); render(); }
-            });
-            if (idx === 0) upBtn.disabled = true;
-            row.appendChild(upBtn);
+            var handle = document.createElement("span");
+            handle.className = "exercise-drag-handle";
+            handle.innerHTML = GRIP_ICON_SVG;
+            handle.title = "Glisser pour réordonner";
+            row.appendChild(handle);
+        }
 
-            var downBtn = iconButton("↓", "Descendre l'exercice", function () {
-                if (moveArrayItem(folder.exercises, idx, 1)) { save(); render(); }
-            });
-            if (idx === total - 1) downBtn.disabled = true;
-            row.appendChild(downBtn);
+        if (ex.favorite) {
+            var favBadge = document.createElement("span");
+            favBadge.className = "exercise-favorite-badge";
+            favBadge.innerHTML = STAR_FILLED_SVG;
+            favBadge.title = "Favori";
+            row.appendChild(favBadge);
         }
 
         var title = document.createElement("input");
@@ -1375,24 +1538,12 @@
         });
         row.appendChild(title);
 
-        var status = document.createElement("select");
-        status.className = "status-select";
-        status.dataset.status = ex.status;
-        STATUSES.forEach(function (s) {
-            var opt = document.createElement("option");
-            opt.value = s.value;
-            opt.textContent = s.label;
-            if (s.value === ex.status) opt.selected = true;
-            status.appendChild(opt);
-        });
-        status.addEventListener("change", function () {
-            ex.status = status.value;
-            status.dataset.status = ex.status;
-            touchExercise(ex);
-            save();
-            if (state.settings.statusFilter) render();
-        });
-        row.appendChild(status);
+        if (ex.archived) {
+            var archBadge = document.createElement("span");
+            archBadge.className = "exercise-archived-badge";
+            archBadge.textContent = "Archivé";
+            row.appendChild(archBadge);
+        }
 
         var expandBtn = iconButton(ex.collapsed ? "▾" : "▴", "Détails (notes, liens)", function () {
             ex.collapsed = !ex.collapsed;
