@@ -481,20 +481,26 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     border-left: 1px solid var(--border);
 }
 
-.tree-add-row { padding: 2px 0 6px; }
+.tree-add-row { display: flex; gap: 6px; padding: 2px 0 6px; }
+.tree-add-input {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--fs-xs);
+    padding: 6px 9px;
+    border-style: dashed;
+}
 .tree-add-btn {
     background: transparent;
     border: 1px dashed var(--border);
     color: var(--text-muted);
-    font-size: var(--fs-xs);
-    font-weight: 600;
-    padding: 6px 10px;
-    width: 100%;
-    justify-content: flex-start;
+    font-size: var(--fs-sm);
+    font-weight: 700;
+    padding: 6px 12px;
+    flex: none;
 }
 .tree-add-btn:hover { color: var(--text-main); border-color: var(--text-muted); }
 
-.sidebar-add-chapter { margin-top: 10px; width: 100%; justify-content: center; }
+.sidebar-add-chapter { margin-top: 10px; padding: 0; }
 
 @media (min-width: 880px) {
     .chapter-bar { display: none; }

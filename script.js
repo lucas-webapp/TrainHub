@@ -229,10 +229,12 @@
     }
 
     // Renommer/déplacer sont des actions rares sur les chapitres/dossiers : plutôt que des boutons
-    // toujours visibles, on utilise clic droit et double-clic sur le nom (souris) pour renommer/
-    // supprimer, et glisser-déposer pour réordonner. `suppressNextClick` évite qu'un clic de
-    // navigation se déclenche juste après un glisser (certains navigateurs émettent quand même un
-    // "click" final).
+    // toujours visibles, on utilise clic droit sur le nom (souris) pour renommer/supprimer, et
+    // glisser-déposer pour réordonner. Pas de double-clic : un simple clic sur le nom navigue
+    // désormais comme le reste de la ligne (un double-clic aurait sinon dû retarder CHAQUE clic
+    // simple pour voir s'il en suit un second — le délai reproché sur mobile). `suppressNextClick`
+    // évite qu'un clic de navigation se déclenche juste après un glisser (certains navigateurs
+    // émettent quand même un "click" final).
     var suppressNextClick = false;
     var LONG_PRESS_MS = 550;
     var LONG_PRESS_TOLERANCE = 10;
@@ -240,10 +242,6 @@
     function bindRenameGestures(nameEl, getParentArray, folder, inst) {
         var triggeredByPress = false;
 
-        nameEl.addEventListener("dblclick", function (e) {
-            e.stopPropagation();
-            renameOrDeleteFolder(getParentArray(), folder, inst);
-        });
         nameEl.addEventListener("contextmenu", function (e) {
             e.preventDefault();
             e.stopPropagation();
@@ -449,15 +447,14 @@
             var label = document.createElement("span");
             label.className = "chapter-chip-label";
             label.textContent = chapter.name;
-            label.title = "Double-clic ou clic droit (appui long sur mobile) pour renommer/supprimer";
+            label.title = "Clic droit (ordinateur) ou appui long (mobile) pour renommer/supprimer";
             if (isActive) label.style.color = chapter.color;
             bindRenameGestures(label, function () { return getActiveInstrument().categories; }, chapter, inst);
             chip.appendChild(label);
 
             chip.addEventListener("click", function (e) {
                 if (suppressNextClick) { suppressNextClick = false; return; }
-                if (e.target === label) return; // le nom gère son propre double-clic/clic droit
-                clearFilters();
+                    clearFilters();
                 setNavPath(inst, [chapter.id]);
                 render();
             });
@@ -519,14 +516,19 @@
         $sidebarTree.appendChild(list);
         setupDragReorder(list, ".tree-node", function () { return getActiveInstrument().categories; }, "y");
 
-        var addChapterBtn = document.createElement("button");
-        addChapterBtn.type = "button";
-        addChapterBtn.className = "tree-add-btn sidebar-add-chapter";
-        addChapterBtn.textContent = "+ Nouveau chapitre";
-        addChapterBtn.addEventListener("click", function () {
-            var name = window.prompt("Nom du nouveau chapitre (ex : Technique, Morceaux, Gammes...) :");
-            if (!name) return;
-            name = name.trim();
+        var addWrap = document.createElement("div");
+        addWrap.className = "tree-add-row sidebar-add-chapter";
+        var addInput = document.createElement("input");
+        addInput.type = "text";
+        addInput.className = "tree-add-input";
+        addInput.placeholder = "Nouveau chapitre…";
+        var addBtn = document.createElement("button");
+        addBtn.type = "button";
+        addBtn.className = "tree-add-btn";
+        addBtn.textContent = "+";
+        addBtn.title = "Ajouter le chapitre";
+        function commitChapter() {
+            var name = addInput.value.trim();
             if (!name) return;
             var chapter = makeFolder(name, FOLDER_PALETTE[inst.categories.length % FOLDER_PALETTE.length]);
             inst.categories.push(chapter);
@@ -534,8 +536,12 @@
             setNavPath(inst, [chapter.id]);
             save();
             render();
-        });
-        $sidebarTree.appendChild(addChapterBtn);
+        }
+        addBtn.addEventListener("click", commitChapter);
+        addInput.addEventListener("keydown", function (e) { if (e.key === "Enter") commitChapter(); });
+        addWrap.appendChild(addInput);
+        addWrap.appendChild(addBtn);
+        $sidebarTree.appendChild(addWrap);
     }
 
     function renderTreeNode(inst, folder, ancestorPath, currentPath, rootColor) {
@@ -574,7 +580,7 @@
         var label = document.createElement("span");
         label.className = "tree-label";
         label.textContent = folder.name;
-        label.title = "Double-clic ou clic droit (appui long sur mobile) pour renommer/supprimer";
+        label.title = "Clic droit (ordinateur) ou appui long (mobile) pour renommer/supprimer";
         row.appendChild(label);
         bindRenameGestures(label, function () { return getParentArrayFor(getActiveInstrument(), ancestorPath); }, folder, inst);
 
@@ -585,7 +591,6 @@
 
         row.addEventListener("click", function (e) {
             if (suppressNextClick) { suppressNextClick = false; return; }
-            if (e.target === label) return; // le nom gère son propre double-clic/clic droit
             clearFilters();
             setNavPath(inst, fullPath);
             render();
@@ -612,19 +617,28 @@
     function renderTreeAddFolder(parentFolder) {
         var wrap = document.createElement("div");
         wrap.className = "tree-add-row";
+        var input = document.createElement("input");
+        input.type = "text";
+        input.className = "tree-add-input";
+        input.placeholder = "Nouveau sous-dossier…";
         var btn = document.createElement("button");
         btn.type = "button";
         btn.className = "tree-add-btn";
-        btn.textContent = "+ Sous-dossier";
-        btn.addEventListener("click", function () {
-            var name = window.prompt("Nom du sous-dossier :");
-            if (!name) return;
-            name = name.trim();
+        btn.textContent = "+";
+        btn.title = "Ajouter le sous-dossier";
+        function commit() {
+            var name = input.value.trim();
             if (!name) return;
             parentFolder.folders.push(makeFolder(name));
             save();
             render();
+        }
+        btn.addEventListener("click", commit);
+        input.addEventListener("keydown", function (e) {
+            e.stopPropagation();
+            if (e.key === "Enter") commit();
         });
+        wrap.appendChild(input);
         wrap.appendChild(btn);
         return wrap;
     }
@@ -739,7 +753,7 @@
         var label = document.createElement("span");
         label.className = "folder-name";
         label.textContent = folder.name;
-        label.title = "Double-clic ou clic droit (appui long sur mobile) pour renommer/supprimer";
+        label.title = "Clic droit (ordinateur) ou appui long (mobile) pour renommer/supprimer";
         row.appendChild(label);
         bindRenameGestures(label, function () { return parentArray; }, folder, inst);
 
@@ -750,7 +764,6 @@
 
         row.addEventListener("click", function (e) {
             if (suppressNextClick) { suppressNextClick = false; return; }
-            if (e.target === label) return; // le nom gère son propre double-clic/clic droit
             setNavPath(inst, path.concat(folder.id));
             render();
         });
