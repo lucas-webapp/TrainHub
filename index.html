@@ -53,6 +53,9 @@
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20l-1.4-1.3C6 14.6 3 11.9 3 8.6 3 5.9 5.1 4 7.7 4c1.5 0 2.9.7 3.8 1.9.9-1.2 2.3-1.9 3.8-1.9C17.9 4 20 5.9 20 8.6c0 3.3-3 6-8.6 10.1Z"/></svg>
             <span>À revoir</span>
         </button>
+        <button type="button" id="toggle-updated-at-btn" class="icon-btn btn-ghost" title="Afficher/masquer les dates de modification" aria-label="Afficher/masquer les dates de modification">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+        </button>
         <button type="button" id="export-btn" class="icon-btn btn-ghost" title="Exporter (sauvegarde JSON)" aria-label="Exporter">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3m0 12-4-4m4 4 4-4"/><path d="M4 17v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
         </button>
@@ -63,11 +66,14 @@
     </div>
 </div>
 
+<div class="chapter-bar" id="chapter-bar"></div>
+
 <div class="main">
     <div class="search-row">
-        <input type="search" id="search-input" placeholder="Rechercher un exercice…" aria-label="Rechercher un exercice">
+        <input type="search" id="search-input" placeholder="Rechercher un exercice (tous les dossiers)…" aria-label="Rechercher un exercice">
     </div>
-    <div id="categories-container"></div>
+    <div class="breadcrumb" id="breadcrumb"></div>
+    <div id="folder-container"></div>
     <div id="empty-state" class="empty-state" hidden>Aucun exercice ici pour l'instant.</div>
 </div>
 

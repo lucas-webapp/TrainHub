@@ -10,27 +10,50 @@
         { value: "termine", label: "Terminé" },
         { value: "a_revoir", label: "À revoir" }
     ];
+    var MAX_FOLDER_DEPTH = 5;
 
-    var state = load() || makeDefaultState();
     var filterARevoir = false;
     var searchQuery = "";
+    var navPaths = {}; // instrumentId -> [folderId, ...] depuis le grand chapitre (non synchronisé, juste la navigation en cours)
 
     function uid() {
         return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     }
 
-    function makeCategory(name) {
-        return { id: uid(), name: name, exercises: [] };
+    function makeFolder(name) {
+        return { id: uid(), name: name, folders: [], exercises: [] };
     }
 
     function makeInstrument(name) {
-        return { id: uid(), name: name, categories: DEFAULT_CATEGORIES.map(makeCategory) };
+        return { id: uid(), name: name, categories: DEFAULT_CATEGORIES.map(makeFolder) };
     }
 
     function makeDefaultState() {
         var instruments = DEFAULT_INSTRUMENTS.map(makeInstrument);
-        return { activeInstrumentId: instruments[0].id, instruments: instruments, updatedAt: 0 };
+        return { activeInstrumentId: instruments[0].id, instruments: instruments, updatedAt: 0, settings: { showUpdatedAt: false } };
     }
+
+    function normalizeFolder(f) {
+        if (!Array.isArray(f.folders)) f.folders = [];
+        if (!Array.isArray(f.exercises)) f.exercises = [];
+        f.folders.forEach(normalizeFolder);
+        f.exercises.forEach(function (ex) {
+            if (!Array.isArray(ex.links)) ex.links = [];
+        });
+    }
+
+    function normalizeState(s) {
+        if (!s.settings || typeof s.settings !== "object") s.settings = { showUpdatedAt: false };
+        if (typeof s.settings.showUpdatedAt !== "boolean") s.settings.showUpdatedAt = false;
+        if (!Array.isArray(s.instruments)) s.instruments = [];
+        s.instruments.forEach(function (inst) {
+            if (!Array.isArray(inst.categories)) inst.categories = [];
+            inst.categories.forEach(normalizeFolder);
+        });
+        return s;
+    }
+
+    var state = normalizeState(load() || makeDefaultState());
 
     function load() {
         try {
@@ -63,6 +86,64 @@
         return found || state.instruments[0];
     }
 
+    function findById(list, id) {
+        return list.filter(function (n) { return n.id === id; })[0];
+    }
+
+    function resolvePath(inst, path) {
+        var nodes = [];
+        var list = inst.categories;
+        for (var i = 0; i < path.length; i++) {
+            var node = findById(list, path[i]);
+            if (!node) break;
+            nodes.push(node);
+            list = node.folders;
+        }
+        return nodes;
+    }
+
+    function getNavPath(inst) {
+        var p = navPaths[inst.id];
+        if (!p || p.length === 0) {
+            p = inst.categories.length ? [inst.categories[0].id] : [];
+            navPaths[inst.id] = p;
+        }
+        return p;
+    }
+
+    function setNavPath(inst, path) {
+        navPaths[inst.id] = path;
+    }
+
+    function clearFilters() {
+        filterARevoir = false;
+        if ($toggleARevoir) $toggleARevoir.classList.remove("active");
+        searchQuery = "";
+        if ($searchInput) $searchInput.value = "";
+    }
+
+    function countAll(folder) {
+        var n = folder.exercises.length;
+        folder.folders.forEach(function (f) { n += countAll(f); });
+        return n;
+    }
+
+    function collectExercises(inst, matchFn) {
+        var results = [];
+        function walk(list, names, ids) {
+            list.forEach(function (folder) {
+                var newNames = names.concat(folder.name);
+                var newIds = ids.concat(folder.id);
+                folder.exercises.forEach(function (ex) {
+                    if (matchFn(ex)) results.push({ ex: ex, folder: folder, pathNames: newNames, pathIds: newIds });
+                });
+                walk(folder.folders, newNames, newIds);
+            });
+        }
+        walk(inst.categories, [], []);
+        return results;
+    }
+
     function guessLinkLabel(url) {
         try {
             var host = new URL(url).hostname.replace(/^www\./, "");
@@ -85,6 +166,7 @@
         audio: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10v4"/><path d="M7 7v10"/><path d="M11 4v16"/><path d="M15 7v10"/><path d="M19 10v4"/></svg>',
         link: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.07 0l2-2a5 5 0 0 0-7.07-7.07l-1 1"/><path d="M14 11a5 5 0 0 0-7.07 0l-2 2a5 5 0 0 0 7.07 7.07l1-1"/></svg>'
     };
+    var FOLDER_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>';
 
     function linkIconSvg(label) {
         var l = (label || "").toLowerCase();
@@ -123,24 +205,57 @@
         return true;
     }
 
+    function iconButton(glyph, title, onClick) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "icon-btn btn-ghost";
+        b.title = title;
+        b.textContent = glyph;
+        b.addEventListener("click", onClick);
+        return b;
+    }
+
+    function renameOrDeleteFolder(parentArray, folder, inst) {
+        var newName = window.prompt("Renommer :", folder.name);
+        if (newName === null) return;
+        newName = newName.trim();
+        if (!newName) {
+            var hasContent = folder.folders.length > 0 || folder.exercises.length > 0;
+            if (!window.confirm("Supprimer « " + folder.name + " »" + (hasContent ? " et tout son contenu" : "") + " ?")) return;
+            var pos = parentArray.indexOf(folder);
+            if (pos !== -1) parentArray.splice(pos, 1);
+            var path = getNavPath(inst);
+            var inPath = path.indexOf(folder.id);
+            if (inPath !== -1) setNavPath(inst, path.slice(0, inPath));
+        } else {
+            folder.name = newName;
+        }
+        save();
+        render();
+    }
+
     // ---------- rendering ----------
 
     var $tabs = document.getElementById("instrument-tabs");
-    var $categories = document.getElementById("categories-container");
+    var $chapterBar = document.getElementById("chapter-bar");
+    var $breadcrumb = document.getElementById("breadcrumb");
+    var $folderContainer = document.getElementById("folder-container");
     var $empty = document.getElementById("empty-state");
     var $toggleARevoir = document.getElementById("toggle-a-revoir-btn");
+    var $toggleUpdatedAt = document.getElementById("toggle-updated-at-btn");
     var $searchInput = document.getElementById("search-input");
 
     if ($searchInput) {
         $searchInput.addEventListener("input", function () {
             searchQuery = $searchInput.value;
-            renderCategories();
+            render();
         });
     }
 
     function render() {
         renderTabs();
-        renderCategories();
+        renderChapterBar();
+        renderMain();
     }
 
     function renderTabs() {
@@ -175,6 +290,7 @@
             if (state.instruments.length <= 1) return;
             if (!window.confirm("Supprimer l'instrument « " + inst.name + " » et tous ses exercices ?")) return;
             state.instruments = state.instruments.filter(function (i) { return i.id !== instrumentId; });
+            delete navPaths[instrumentId];
             if (state.activeInstrumentId === instrumentId) state.activeInstrumentId = state.instruments[0].id;
         } else {
             inst.name = name;
@@ -183,50 +299,210 @@
         render();
     }
 
-    function renderCategories() {
+    function renderChapterBar() {
         var inst = getActiveInstrument();
-        $categories.innerHTML = "";
+        $chapterBar.innerHTML = "";
+        var path = getNavPath(inst);
+        var activeId = path[0];
 
-        var categories = inst.categories;
-        var anyVisible = false;
-        var hasFilter = filterARevoir || !!searchQuery;
-        var orderingEnabled = !hasFilter;
-        var query = searchQuery.trim().toLowerCase();
+        inst.categories.forEach(function (chapter, idx) {
+            var chip = document.createElement("div");
+            chip.className = "chapter-chip" + (chapter.id === activeId ? " active" : "");
 
-        categories.forEach(function (cat, idx) {
-            var exercises = cat.exercises;
-            if (filterARevoir) exercises = exercises.filter(function (ex) { return ex.status === "a_revoir"; });
-            if (query) exercises = exercises.filter(function (ex) { return ex.title.toLowerCase().indexOf(query) !== -1; });
-            if (hasFilter && exercises.length === 0) return;
-            anyVisible = true;
-            $categories.appendChild(renderCategory(inst, cat, exercises, idx, categories.length, orderingEnabled, hasFilter));
+            var btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "chapter-chip-label";
+            btn.textContent = chapter.name;
+            btn.addEventListener("click", function () {
+                clearFilters();
+                setNavPath(inst, [chapter.id]);
+                render();
+            });
+            chip.appendChild(btn);
+
+            var upBtn = iconButton("↑", "Monter le chapitre", function (e) {
+                e.stopPropagation();
+                if (moveArrayItem(inst.categories, idx, -1)) { save(); render(); }
+            });
+            if (idx === 0) upBtn.disabled = true;
+            chip.appendChild(upBtn);
+
+            var downBtn = iconButton("↓", "Descendre le chapitre", function (e) {
+                e.stopPropagation();
+                if (moveArrayItem(inst.categories, idx, 1)) { save(); render(); }
+            });
+            if (idx === inst.categories.length - 1) downBtn.disabled = true;
+            chip.appendChild(downBtn);
+
+            var renameBtn = iconButton("✎", "Renommer / supprimer le chapitre", function (e) {
+                e.stopPropagation();
+                renameOrDeleteFolder(inst.categories, chapter, inst);
+            });
+            chip.appendChild(renameBtn);
+
+            $chapterBar.appendChild(chip);
         });
 
-        if (!hasFilter) {
-            $categories.appendChild(renderAddCategoryForm(inst));
-        }
+        var addBtn = iconButton("+ Chapitre", "Ajouter un grand chapitre", function () {
+            var name = window.prompt("Nom du nouveau chapitre (ex : Technique, Morceaux, Gammes...) :");
+            if (!name) return;
+            name = name.trim();
+            if (!name) return;
+            var chapter = makeFolder(name);
+            inst.categories.push(chapter);
+            clearFilters();
+            setNavPath(inst, [chapter.id]);
+            save();
+            render();
+        });
+        addBtn.className = "btn-ghost";
+        $chapterBar.appendChild(addBtn);
+    }
 
-        $empty.hidden = anyVisible || !hasFilter;
-        if (hasFilter && !anyVisible) {
-            $empty.hidden = false;
-            $empty.textContent = filterARevoir ? "Rien à revoir pour l'instant sur cet instrument." : "Aucun exercice ne correspond à ta recherche.";
+    function renderMain() {
+        var inst = getActiveInstrument();
+        $empty.hidden = true;
+        var hasFilter = filterARevoir || !!searchQuery.trim();
+        if (hasFilter) {
+            $breadcrumb.hidden = true;
+            $breadcrumb.innerHTML = "";
+            renderFilteredResults(inst);
+        } else {
+            $breadcrumb.hidden = false;
+            renderFolderBrowser(inst);
         }
     }
 
-    function renderAddCategoryForm(inst) {
+    function renderBreadcrumb(inst, nodes) {
+        $breadcrumb.innerHTML = "";
+        nodes.forEach(function (node, i) {
+            if (i > 0) {
+                var sep = document.createElement("span");
+                sep.className = "crumb-sep";
+                sep.textContent = "›";
+                $breadcrumb.appendChild(sep);
+            }
+            var btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "crumb" + (i === nodes.length - 1 ? " crumb-current" : "");
+            btn.textContent = node.name;
+            btn.addEventListener("click", function () {
+                setNavPath(inst, nodes.slice(0, i + 1).map(function (n) { return n.id; }));
+                render();
+            });
+            $breadcrumb.appendChild(btn);
+        });
+    }
+
+    function renderFolderBrowser(inst) {
+        var path = getNavPath(inst);
+        var nodes = resolvePath(inst, path);
+        if (nodes.length !== path.length) {
+            path = nodes.map(function (n) { return n.id; });
+            setNavPath(inst, path);
+        }
+
+        if (nodes.length === 0) {
+            $breadcrumb.innerHTML = "";
+            $folderContainer.innerHTML = "";
+            $empty.hidden = false;
+            $empty.textContent = "Crée ton premier grand chapitre ci-dessus (Technique, Morceaux, Gammes…).";
+            return;
+        }
+
+        renderBreadcrumb(inst, nodes);
+
+        var currentFolder = nodes[nodes.length - 1];
+        var depth = nodes.length;
+
+        $folderContainer.innerHTML = "";
+
+        if (currentFolder.folders.length) {
+            var foldersWrap = document.createElement("div");
+            foldersWrap.className = "folders-wrap";
+            currentFolder.folders.forEach(function (f, idx) {
+                foldersWrap.appendChild(renderFolderRow(inst, currentFolder.folders, f, idx, currentFolder.folders.length, path));
+            });
+            $folderContainer.appendChild(foldersWrap);
+        }
+
+        if (depth < MAX_FOLDER_DEPTH) {
+            $folderContainer.appendChild(renderAddFolderForm(currentFolder));
+        }
+
+        var exercisesWrap = document.createElement("div");
+        exercisesWrap.className = "exercises-wrap";
+        currentFolder.exercises.forEach(function (ex, idx) {
+            exercisesWrap.appendChild(renderExercise(currentFolder, ex, idx, currentFolder.exercises.length, true));
+        });
+        $folderContainer.appendChild(exercisesWrap);
+
+        $folderContainer.appendChild(renderAddExerciseForm(currentFolder));
+    }
+
+    function renderFolderRow(inst, parentArray, folder, idx, total, path) {
+        var row = document.createElement("div");
+        row.className = "folder-row";
+
+        var openArea = document.createElement("button");
+        openArea.type = "button";
+        openArea.className = "folder-open";
+        var folderIcon = document.createElement("span");
+        folderIcon.className = "folder-icon";
+        folderIcon.innerHTML = FOLDER_ICON_SVG;
+        openArea.appendChild(folderIcon);
+        var label = document.createElement("span");
+        label.className = "folder-name";
+        label.textContent = folder.name;
+        openArea.appendChild(label);
+        var count = document.createElement("span");
+        count.className = "folder-count";
+        count.textContent = countAll(folder);
+        openArea.appendChild(count);
+        openArea.addEventListener("click", function () {
+            setNavPath(inst, path.concat(folder.id));
+            render();
+        });
+        row.appendChild(openArea);
+
+        var actions = document.createElement("div");
+        actions.className = "folder-actions";
+        var upBtn = iconButton("↑", "Monter", function (e) {
+            e.stopPropagation();
+            if (moveArrayItem(parentArray, idx, -1)) { save(); render(); }
+        });
+        if (idx === 0) upBtn.disabled = true;
+        actions.appendChild(upBtn);
+        var downBtn = iconButton("↓", "Descendre", function (e) {
+            e.stopPropagation();
+            if (moveArrayItem(parentArray, idx, 1)) { save(); render(); }
+        });
+        if (idx === total - 1) downBtn.disabled = true;
+        actions.appendChild(downBtn);
+        var renameBtn = iconButton("✎", "Renommer / supprimer le dossier", function (e) {
+            e.stopPropagation();
+            renameOrDeleteFolder(parentArray, folder, inst);
+        });
+        actions.appendChild(renameBtn);
+        row.appendChild(actions);
+
+        return row;
+    }
+
+    function renderAddFolderForm(currentFolder) {
         var wrap = document.createElement("div");
         wrap.className = "add-category-row";
         var input = document.createElement("input");
         input.type = "text";
-        input.placeholder = "Nouvelle catégorie (ex: Technique, Gammes...)";
+        input.placeholder = "Nouveau sous-dossier…";
         var btn = document.createElement("button");
         btn.type = "button";
         btn.className = "btn-accent";
-        btn.textContent = "+ Catégorie";
+        btn.textContent = "+ Sous-dossier";
         function commit() {
             var name = input.value.trim();
             if (!name) return;
-            inst.categories.push(makeCategory(name));
+            currentFolder.folders.push(makeFolder(name));
             save();
             render();
         }
@@ -237,96 +513,48 @@
         return wrap;
     }
 
-    function renderCategory(inst, cat, exercises, idx, total, orderingEnabled, forceExpand) {
-        var el = document.createElement("div");
-        el.className = "category" + (!forceExpand && cat.collapsed ? " collapsed" : "");
+    function renderFilteredResults(inst) {
+        var query = searchQuery.trim().toLowerCase();
+        function matchFn(ex) {
+            if (filterARevoir && ex.status !== "a_revoir") return false;
+            if (query && ex.title.toLowerCase().indexOf(query) === -1) return false;
+            return true;
+        }
+        var results = collectExercises(inst, matchFn);
+        $folderContainer.innerHTML = "";
 
-        var header = document.createElement("div");
-        header.className = "category-header";
-
-        var chevron = document.createElement("span");
-        chevron.className = "chevron";
-        chevron.innerHTML = "▾";
-        header.appendChild(chevron);
-
-        var name = document.createElement("span");
-        name.className = "category-name";
-        name.textContent = cat.name;
-        header.appendChild(name);
-
-        var count = document.createElement("span");
-        count.className = "category-count";
-        count.textContent = exercises.length;
-        header.appendChild(count);
-
-        var actions = document.createElement("div");
-        actions.className = "category-actions";
-
-        if (orderingEnabled) {
-            var upBtn = iconButton("↑", "Monter la catégorie", function (e) {
-                e.stopPropagation();
-                if (moveArrayItem(inst.categories, idx, -1)) { save(); render(); }
-            });
-            if (idx === 0) upBtn.disabled = true;
-            actions.appendChild(upBtn);
-
-            var downBtn = iconButton("↓", "Descendre la catégorie", function (e) {
-                e.stopPropagation();
-                if (moveArrayItem(inst.categories, idx, 1)) { save(); render(); }
-            });
-            if (idx === total - 1) downBtn.disabled = true;
-            actions.appendChild(downBtn);
+        if (results.length === 0) {
+            $empty.hidden = false;
+            $empty.textContent = filterARevoir && query
+                ? "Rien à revoir ne correspond à ta recherche."
+                : filterARevoir
+                    ? "Rien à revoir pour l'instant sur cet instrument."
+                    : "Aucun exercice ne correspond à ta recherche.";
+            return;
         }
 
-        var renameBtn = iconButton("✎", "Renommer / supprimer la catégorie", function (e) {
-            e.stopPropagation();
-            var newName = window.prompt("Renommer la catégorie :", cat.name);
-            if (newName === null) return;
-            newName = newName.trim();
-            if (!newName) {
-                if (!window.confirm("Supprimer la catégorie « " + cat.name + " » et ses exercices ?")) return;
-                inst.categories = inst.categories.filter(function (c) { return c.id !== cat.id; });
-            } else {
-                cat.name = newName;
-            }
-            save();
-            render();
+        results.forEach(function (r) {
+            var wrap = document.createElement("div");
+            wrap.className = "result-item";
+
+            var pathBtn = document.createElement("button");
+            pathBtn.type = "button";
+            pathBtn.className = "result-path";
+            pathBtn.textContent = r.pathNames.join(" › ");
+            pathBtn.title = "Aller à cet emplacement";
+            pathBtn.addEventListener("click", function () {
+                clearFilters();
+                setNavPath(inst, r.pathIds);
+                render();
+            });
+            wrap.appendChild(pathBtn);
+
+            wrap.appendChild(renderExercise(r.folder, r.ex, 0, 1, false));
+            $folderContainer.appendChild(wrap);
         });
-        actions.appendChild(renameBtn);
-        header.appendChild(actions);
-
-        header.addEventListener("click", function () {
-            cat.collapsed = !cat.collapsed;
-            save();
-            render();
-        });
-
-        el.appendChild(header);
-
-        var body = document.createElement("div");
-        body.className = "category-body";
-
-        exercises.forEach(function (ex, exIdx) {
-            body.appendChild(renderExercise(cat, ex, exIdx, exercises.length, orderingEnabled));
-        });
-
-        if (!forceExpand) body.appendChild(renderAddExerciseForm(cat));
-
-        el.appendChild(body);
-        return el;
     }
 
-    function iconButton(glyph, title, onClick) {
-        var b = document.createElement("button");
-        b.type = "button";
-        b.className = "icon-btn btn-ghost";
-        b.title = title;
-        b.textContent = glyph;
-        b.addEventListener("click", onClick);
-        return b;
-    }
-
-    function renderAddExerciseForm(cat) {
+    function renderAddExerciseForm(folder) {
         var wrap = document.createElement("div");
         wrap.className = "add-exercise-row";
         var input = document.createElement("input");
@@ -335,7 +563,7 @@
         function commit() {
             var title = input.value.trim();
             if (!title) return;
-            cat.exercises.push({
+            folder.exercises.push({
                 id: uid(),
                 title: title,
                 notes: "",
@@ -359,7 +587,7 @@
         return wrap;
     }
 
-    function renderExercise(cat, ex, idx, total, orderingEnabled) {
+    function renderExercise(folder, ex, idx, total, orderingEnabled) {
         var el = document.createElement("div");
         el.className = "exercise" + (ex.collapsed ? " collapsed" : "");
 
@@ -368,13 +596,13 @@
 
         if (orderingEnabled) {
             var upBtn = iconButton("↑", "Monter l'exercice", function () {
-                if (moveArrayItem(cat.exercises, idx, -1)) { save(); render(); }
+                if (moveArrayItem(folder.exercises, idx, -1)) { save(); render(); }
             });
             if (idx === 0) upBtn.disabled = true;
             row.appendChild(upBtn);
 
             var downBtn = iconButton("↓", "Descendre l'exercice", function () {
-                if (moveArrayItem(cat.exercises, idx, 1)) { save(); render(); }
+                if (moveArrayItem(folder.exercises, idx, 1)) { save(); render(); }
             });
             if (idx === total - 1) downBtn.disabled = true;
             row.appendChild(downBtn);
@@ -419,7 +647,7 @@
 
         var delBtn = iconButton("✕", "Supprimer l'exercice", function () {
             if (!window.confirm("Supprimer « " + ex.title + " » ?")) return;
-            cat.exercises = cat.exercises.filter(function (e) { return e.id !== ex.id; });
+            folder.exercises = folder.exercises.filter(function (e) { return e.id !== ex.id; });
             save();
             render();
         });
@@ -438,7 +666,7 @@
         var details = document.createElement("div");
         details.className = "exercise-details";
 
-        if (ex.updatedAt) {
+        if (ex.updatedAt && state.settings.showUpdatedAt) {
             var updatedNote = document.createElement("div");
             updatedNote.className = "updated-at-note";
             updatedNote.textContent = "Modifié " + formatUpdatedAt(ex.updatedAt);
@@ -598,8 +826,9 @@
 
     function applyRemoteState(remote) {
         if (!remote || !Array.isArray(remote.instruments)) return;
-        state = remote;
+        state = normalizeState(remote);
         if (!state.activeInstrumentId && state.instruments[0]) state.activeInstrumentId = state.instruments[0].id;
+        navPaths = {};
         saveLocal();
         render();
     }
@@ -718,6 +947,14 @@
         render();
     });
 
+    $toggleUpdatedAt.addEventListener("click", function () {
+        state.settings.showUpdatedAt = !state.settings.showUpdatedAt;
+        $toggleUpdatedAt.classList.toggle("active", state.settings.showUpdatedAt);
+        save();
+        render();
+    });
+    $toggleUpdatedAt.classList.toggle("active", !!state.settings.showUpdatedAt);
+
     document.getElementById("export-btn").addEventListener("click", function () {
         var blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
         var url = URL.createObjectURL(blob);
@@ -743,8 +980,9 @@
                 var parsed = JSON.parse(reader.result);
                 if (!parsed || !Array.isArray(parsed.instruments)) throw new Error("format invalide");
                 if (!window.confirm("Remplacer les données actuelles par cette sauvegarde ?")) return;
-                state = parsed;
+                state = normalizeState(parsed);
                 if (!state.activeInstrumentId && state.instruments[0]) state.activeInstrumentId = state.instruments[0].id;
+                navPaths = {};
                 save();
                 render();
             } catch (e) {
