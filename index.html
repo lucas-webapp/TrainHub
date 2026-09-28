@@ -73,13 +73,17 @@
 
 <div class="chapter-bar" id="chapter-bar"></div>
 
-<div class="main">
-    <div class="search-row">
-        <input type="search" id="search-input" placeholder="Rechercher un exercice (tous les dossiers)…" aria-label="Rechercher un exercice">
+<div class="layout">
+    <aside class="sidebar-tree" id="sidebar-tree" aria-label="Chapitres et dossiers"></aside>
+    <div class="main">
+        <div class="search-row">
+            <input type="search" id="search-input" placeholder="Rechercher un exercice (tous les dossiers)…" aria-label="Rechercher un exercice">
+        </div>
+        <div class="breadcrumb" id="breadcrumb"></div>
+        <div class="content-heading" id="content-heading"></div>
+        <div id="folder-container"></div>
+        <div id="empty-state" class="empty-state" hidden>Aucun exercice ici pour l'instant.</div>
     </div>
-    <div class="breadcrumb" id="breadcrumb"></div>
-    <div id="folder-container"></div>
-    <div id="empty-state" class="empty-state" hidden>Aucun exercice ici pour l'instant.</div>
 </div>
 
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>

@@ -16,6 +16,7 @@
     var filterARevoir = false;
     var searchQuery = "";
     var navPaths = {}; // instrumentId -> [folderId, ...] depuis le grand chapitre (non synchronisé, juste la navigation en cours)
+    var treeExpanded = {}; // folderId -> bool, replié/déplié dans l'arborescence latérale (non synchronisé, déplié par défaut)
 
     function uid() {
         return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -178,6 +179,7 @@
         link: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.07 0l2-2a5 5 0 0 0-7.07-7.07l-1 1"/><path d="M14 11a5 5 0 0 0-7.07 0l-2 2a5 5 0 0 0 7.07 7.07l1-1"/></svg>'
     };
     var FOLDER_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>';
+    var CHEVRON_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>';
 
     function linkIconSvg(label) {
         var l = (label || "").toLowerCase();
@@ -250,9 +252,13 @@
         var startX = 0, startY = 0;
         var moved = false;
 
+        function directChildren() {
+            return Array.prototype.filter.call(container.children, function (el) { return el.matches(itemSelector); });
+        }
+
         container.addEventListener("pointerdown", function (e) {
             var item = e.target.closest(itemSelector);
-            if (!item || !container.contains(item)) return;
+            if (!item || item.parentNode !== container) return; // seuls les enfants directs de CE niveau sont concernés
             dragEl = item;
             startX = e.clientX;
             startY = e.clientY;
@@ -266,7 +272,7 @@
             if (!moved && Math.abs(delta) < 10) return;
             moved = true;
             dragEl.classList.add("dragging");
-            var siblings = Array.prototype.slice.call(container.querySelectorAll(itemSelector)).filter(function (el) { return el !== dragEl; });
+            var siblings = directChildren().filter(function (el) { return el !== dragEl; });
             for (var i = 0; i < siblings.length; i++) {
                 var rect = siblings[i].getBoundingClientRect();
                 var mid = axis === "x" ? (rect.left + rect.width / 2) : (rect.top + rect.height / 2);
@@ -282,7 +288,7 @@
         function finish() {
             if (dragEl && moved) {
                 var arr = getArray();
-                var order = Array.prototype.slice.call(container.querySelectorAll(itemSelector)).map(function (el) { return el.dataset.reorderId; });
+                var order = directChildren().map(function (el) { return el.dataset.reorderId; });
                 arr.sort(function (a, b) { return order.indexOf(a.id) - order.indexOf(b.id); });
                 dragEl.classList.remove("dragging");
                 suppressNextClick = true;
@@ -321,7 +327,9 @@
     var $instrumentSelect = document.getElementById("instrument-select");
     var $renameInstrumentBtn = document.getElementById("rename-instrument-btn");
     var $chapterBar = document.getElementById("chapter-bar");
+    var $sidebarTree = document.getElementById("sidebar-tree");
     var $breadcrumb = document.getElementById("breadcrumb");
+    var $contentHeading = document.getElementById("content-heading");
     var $folderContainer = document.getElementById("folder-container");
     var $empty = document.getElementById("empty-state");
     var $toggleARevoir = document.getElementById("toggle-a-revoir-btn");
@@ -342,6 +350,7 @@
         document.documentElement.style.setProperty("--chapter-accent", (rootChapter && rootChapter.color) || "#00e676");
         renderInstrumentSelect();
         renderChapterBar();
+        renderSidebarTree();
         renderMain();
     }
 
@@ -433,6 +442,152 @@
         $chapterBar.appendChild(addBtn);
     }
 
+    function getParentArrayFor(inst, ancestorPath) {
+        if (!ancestorPath.length) return inst.categories;
+        var nodes = resolvePath(inst, ancestorPath);
+        var parent = nodes[nodes.length - 1];
+        return parent ? parent.folders : inst.categories;
+    }
+
+    // ---------- arborescence latérale (ordinateur) ----------
+    // Vue complète et permanente du même modèle de données que le bandeau/fil d'Ariane mobiles :
+    // aucune nouvelle notion de navigation, juste une autre façon de l'afficher côte à côte plutôt
+    // qu'un niveau à la fois. `treeExpanded` ne pilote que l'affichage (replié/déplié), jamais les
+    // données elles-mêmes.
+
+    function renderSidebarTree() {
+        var inst = getActiveInstrument();
+        $sidebarTree.innerHTML = "";
+        if (!inst) return;
+
+        var header = document.createElement("div");
+        header.className = "sidebar-header";
+        var title = document.createElement("span");
+        title.className = "sidebar-title";
+        title.textContent = inst.name;
+        header.appendChild(title);
+        $sidebarTree.appendChild(header);
+
+        var path = getNavPath(inst);
+
+        var list = document.createElement("div");
+        list.className = "tree-list";
+        inst.categories.forEach(function (chapter) {
+            list.appendChild(renderTreeNode(inst, chapter, [], path, chapter.color));
+        });
+        $sidebarTree.appendChild(list);
+        setupDragReorder(list, ".tree-node", function () { return getActiveInstrument().categories; }, "y");
+
+        var addChapterBtn = document.createElement("button");
+        addChapterBtn.type = "button";
+        addChapterBtn.className = "tree-add-btn sidebar-add-chapter";
+        addChapterBtn.textContent = "+ Nouveau chapitre";
+        addChapterBtn.addEventListener("click", function () {
+            var name = window.prompt("Nom du nouveau chapitre (ex : Technique, Morceaux, Gammes...) :");
+            if (!name) return;
+            name = name.trim();
+            if (!name) return;
+            var chapter = makeFolder(name, FOLDER_PALETTE[inst.categories.length % FOLDER_PALETTE.length]);
+            inst.categories.push(chapter);
+            clearFilters();
+            setNavPath(inst, [chapter.id]);
+            save();
+            render();
+        });
+        $sidebarTree.appendChild(addChapterBtn);
+    }
+
+    function renderTreeNode(inst, folder, ancestorPath, currentPath, rootColor) {
+        var fullPath = ancestorPath.concat(folder.id);
+        var isSelected = folder.id === currentPath[currentPath.length - 1];
+        var hasChildren = folder.folders.length > 0;
+        var expanded = treeExpanded[folder.id] !== false;
+
+        var wrap = document.createElement("div");
+        wrap.className = "tree-node";
+        wrap.dataset.reorderId = folder.id;
+
+        var row = document.createElement("div");
+        row.className = "tree-row" + (isSelected ? " selected" : "");
+
+        var twisty = document.createElement("button");
+        twisty.type = "button";
+        twisty.className = "tree-twisty" + (hasChildren ? "" : " tree-twisty-empty") + (expanded ? " expanded" : "");
+        twisty.tabIndex = hasChildren ? 0 : -1;
+        twisty.setAttribute("aria-label", expanded ? "Replier" : "Déplier");
+        twisty.innerHTML = CHEVRON_ICON_SVG;
+        if (hasChildren) {
+            twisty.addEventListener("click", function (e) {
+                e.stopPropagation();
+                treeExpanded[folder.id] = !expanded;
+                render();
+            });
+        }
+        row.appendChild(twisty);
+
+        var dot = document.createElement("span");
+        dot.className = "tree-dot";
+        dot.style.background = rootColor;
+        row.appendChild(dot);
+
+        var label = document.createElement("span");
+        label.className = "tree-label";
+        label.textContent = folder.name;
+        label.title = "Double-clic ou clic droit (appui long sur mobile) pour renommer/supprimer";
+        row.appendChild(label);
+        bindRenameGestures(label, function () { return getParentArrayFor(getActiveInstrument(), ancestorPath); }, folder, inst);
+
+        var count = document.createElement("span");
+        count.className = "tree-count";
+        count.textContent = countAll(folder);
+        row.appendChild(count);
+
+        row.addEventListener("click", function (e) {
+            if (suppressNextClick) { suppressNextClick = false; return; }
+            if (e.target === label) return; // le nom gère son propre double-clic/clic droit
+            clearFilters();
+            setNavPath(inst, fullPath);
+            render();
+        });
+
+        wrap.appendChild(row);
+
+        if (expanded && (hasChildren || fullPath.length < MAX_FOLDER_DEPTH)) {
+            var childWrap = document.createElement("div");
+            childWrap.className = "tree-children";
+            folder.folders.forEach(function (child) {
+                childWrap.appendChild(renderTreeNode(inst, child, fullPath, currentPath, rootColor));
+            });
+            if (fullPath.length < MAX_FOLDER_DEPTH) {
+                childWrap.appendChild(renderTreeAddFolder(folder));
+            }
+            wrap.appendChild(childWrap);
+            if (hasChildren) setupDragReorder(childWrap, ".tree-node", function () { return folder.folders; }, "y");
+        }
+
+        return wrap;
+    }
+
+    function renderTreeAddFolder(parentFolder) {
+        var wrap = document.createElement("div");
+        wrap.className = "tree-add-row";
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "tree-add-btn";
+        btn.textContent = "+ Sous-dossier";
+        btn.addEventListener("click", function () {
+            var name = window.prompt("Nom du sous-dossier :");
+            if (!name) return;
+            name = name.trim();
+            if (!name) return;
+            parentFolder.folders.push(makeFolder(name));
+            save();
+            render();
+        });
+        wrap.appendChild(btn);
+        return wrap;
+    }
+
     function renderMain() {
         var inst = getActiveInstrument();
         $empty.hidden = true;
@@ -440,11 +595,24 @@
         if (hasFilter) {
             $breadcrumb.hidden = true;
             $breadcrumb.innerHTML = "";
+            $contentHeading.innerHTML = "";
             renderFilteredResults(inst);
         } else {
             $breadcrumb.hidden = false;
             renderFolderBrowser(inst);
         }
+    }
+
+    function renderContentHeading(folder) {
+        $contentHeading.innerHTML = "";
+        if (!folder) return;
+        var dot = document.createElement("span");
+        dot.className = "heading-dot";
+        dot.style.background = folder.color || "var(--chapter-accent)";
+        $contentHeading.appendChild(dot);
+        var h2 = document.createElement("h2");
+        h2.textContent = folder.name;
+        $contentHeading.appendChild(h2);
     }
 
     function renderBreadcrumb(inst, nodes) {
@@ -478,6 +646,7 @@
 
         if (nodes.length === 0) {
             $breadcrumb.innerHTML = "";
+            $contentHeading.innerHTML = "";
             $folderContainer.innerHTML = "";
             $empty.hidden = false;
             $empty.textContent = "Crée ton premier grand chapitre ci-dessus (Technique, Morceaux, Gammes…).";
@@ -489,6 +658,7 @@
         var currentFolder = nodes[nodes.length - 1];
         var depth = nodes.length;
 
+        renderContentHeading(currentFolder);
         $folderContainer.innerHTML = "";
 
         if (currentFolder.folders.length) {

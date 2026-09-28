@@ -176,6 +176,14 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 .sync-status.syncing { color: var(--status-en-cours); }
 .sync-status.error { color: #ff6b6b; }
 
+/* ---------- layout (bandeau chapitres mobile + arborescence desktop) ---------- */
+.layout {
+    display: flex;
+    align-items: flex-start;
+    width: 100%;
+    flex: 1;
+}
+
 /* ---------- main ---------- */
 .main {
     flex: 1;
@@ -187,6 +195,8 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     flex-direction: column;
     gap: 14px;
 }
+
+.content-heading { display: none; }
 
 .search-row input {
     width: 100%;
@@ -383,6 +393,140 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 
 .add-category-row { display: flex; gap: 8px; }
 .add-category-row input { flex: 1; }
+
+/* ---------- arborescence latérale (ordinateur uniquement) ---------- */
+.sidebar-tree {
+    display: none;
+    flex-direction: column;
+}
+
+.sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 2px 10px 12px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+}
+.sidebar-title {
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--text-muted);
+}
+
+.tree-list { display: flex; flex-direction: column; gap: 1px; }
+.tree-node { display: flex; flex-direction: column; }
+.tree-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 8px;
+    border-radius: 8px;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    transition: background .12s ease;
+}
+.tree-row:hover { background: rgba(255,255,255,.05); }
+.tree-row.dragging { opacity: .45; cursor: grabbing; }
+.tree-row.selected { background: color-mix(in srgb, var(--chapter-accent) 18%, transparent); }
+.tree-row.selected .tree-label { color: var(--chapter-accent); font-weight: 700; }
+
+.tree-twisty {
+    width: 18px;
+    height: 18px;
+    flex: none;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    border-radius: 5px;
+}
+.tree-twisty:hover { background: rgba(255,255,255,.08); color: var(--text-main); }
+.tree-twisty-empty { visibility: hidden; pointer-events: none; }
+.tree-twisty .icon {
+    width: 11px;
+    height: 11px;
+    transition: transform .12s ease;
+}
+.tree-twisty.expanded .icon { transform: rotate(90deg); }
+
+.tree-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+
+.tree-label {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--text-main);
+    cursor: default;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tree-count { font-size: var(--fs-2xs); color: var(--text-muted); flex: none; }
+
+.tree-children {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin-left: 21px;
+    padding-left: 10px;
+    border-left: 1px solid var(--border);
+}
+
+.tree-add-row { padding: 2px 0 6px; }
+.tree-add-btn {
+    background: transparent;
+    border: 1px dashed var(--border);
+    color: var(--text-muted);
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    padding: 6px 10px;
+    width: 100%;
+    justify-content: flex-start;
+}
+.tree-add-btn:hover { color: var(--text-main); border-color: var(--text-muted); }
+
+.sidebar-add-chapter { margin-top: 10px; width: 100%; justify-content: center; }
+
+@media (min-width: 880px) {
+    .chapter-bar { display: none; }
+    .sidebar-tree {
+        display: flex;
+        width: 280px;
+        flex: none;
+        background: var(--card-bg);
+        border-right: 1px solid var(--border);
+        padding: 16px 12px 24px;
+        align-self: stretch;
+    }
+    .main {
+        max-width: none;
+        margin: 0;
+        flex: 1;
+        padding: 28px 32px;
+        gap: 16px;
+    }
+    .folders-wrap { display: none; }
+    #folder-container > .add-category-row { display: none; }
+    .content-heading {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .content-heading .heading-dot { width: 11px; height: 11px; border-radius: 50%; flex: none; }
+    .content-heading h2 {
+        margin: 0;
+        font-size: var(--fs-xl);
+        font-weight: 800;
+        letter-spacing: -.01em;
+    }
+}
 
 @media (max-width: 560px) {
     .top-bar { padding: 8px 10px; }
