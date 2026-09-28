@@ -226,6 +226,77 @@
         return b;
     }
 
+    // Renommer/déplacer sont des actions rares sur les chapitres/dossiers : plutôt que des boutons
+    // toujours visibles, on utilise clic droit (ou appui long, qui déclenche nativement
+    // "contextmenu" sur mobile) et double-clic sur le nom pour renommer/supprimer, et
+    // glisser-déposer pour réordonner. `suppressNextClick` évite qu'un clic de navigation se
+    // déclenche juste après un glisser (certains navigateurs émettent quand même un "click" final).
+    var suppressNextClick = false;
+
+    function bindRenameGestures(nameEl, getParentArray, folder, inst) {
+        nameEl.addEventListener("dblclick", function (e) {
+            e.stopPropagation();
+            renameOrDeleteFolder(getParentArray(), folder, inst);
+        });
+        nameEl.addEventListener("contextmenu", function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            renameOrDeleteFolder(getParentArray(), folder, inst);
+        });
+    }
+
+    function setupDragReorder(container, itemSelector, getArray, axis) {
+        var dragEl = null;
+        var startX = 0, startY = 0;
+        var moved = false;
+
+        container.addEventListener("pointerdown", function (e) {
+            var item = e.target.closest(itemSelector);
+            if (!item || !container.contains(item)) return;
+            dragEl = item;
+            startX = e.clientX;
+            startY = e.clientY;
+            moved = false;
+            try { item.setPointerCapture(e.pointerId); } catch (err) {}
+        });
+
+        container.addEventListener("pointermove", function (e) {
+            if (!dragEl) return;
+            var delta = axis === "x" ? (e.clientX - startX) : (e.clientY - startY);
+            if (!moved && Math.abs(delta) < 10) return;
+            moved = true;
+            dragEl.classList.add("dragging");
+            var siblings = Array.prototype.slice.call(container.querySelectorAll(itemSelector)).filter(function (el) { return el !== dragEl; });
+            for (var i = 0; i < siblings.length; i++) {
+                var rect = siblings[i].getBoundingClientRect();
+                var mid = axis === "x" ? (rect.left + rect.width / 2) : (rect.top + rect.height / 2);
+                var pos = axis === "x" ? e.clientX : e.clientY;
+                if (pos < mid) {
+                    container.insertBefore(dragEl, siblings[i]);
+                    return;
+                }
+            }
+            container.appendChild(dragEl);
+        });
+
+        function finish() {
+            if (dragEl && moved) {
+                var arr = getArray();
+                var order = Array.prototype.slice.call(container.querySelectorAll(itemSelector)).map(function (el) { return el.dataset.reorderId; });
+                arr.sort(function (a, b) { return order.indexOf(a.id) - order.indexOf(b.id); });
+                dragEl.classList.remove("dragging");
+                suppressNextClick = true;
+                save();
+                render();
+            }
+            dragEl = null;
+            moved = false;
+        }
+
+        container.addEventListener("pointerup", finish);
+        container.addEventListener("pointercancel", finish);
+    }
+
     function renameOrDeleteFolder(parentArray, folder, inst) {
         var newName = window.prompt("Renommer :", folder.name);
         if (newName === null) return;
@@ -310,10 +381,11 @@
         var path = getNavPath(inst);
         var activeId = path[0];
 
-        inst.categories.forEach(function (chapter, idx) {
+        inst.categories.forEach(function (chapter) {
             var isActive = chapter.id === activeId;
             var chip = document.createElement("div");
             chip.className = "chapter-chip" + (isActive ? " active" : "");
+            chip.dataset.reorderId = chapter.id;
             if (isActive) {
                 chip.style.borderColor = chapter.color;
                 chip.style.background = "color-mix(in srgb, " + chapter.color + " 12%, transparent)";
@@ -324,40 +396,26 @@
             dot.style.background = chapter.color;
             chip.appendChild(dot);
 
-            var btn = document.createElement("button");
-            btn.type = "button";
-            btn.className = "chapter-chip-label";
-            btn.textContent = chapter.name;
-            if (isActive) btn.style.color = chapter.color;
-            btn.addEventListener("click", function () {
+            var label = document.createElement("span");
+            label.className = "chapter-chip-label";
+            label.textContent = chapter.name;
+            label.title = "Double-clic ou clic droit (appui long sur mobile) pour renommer/supprimer";
+            if (isActive) label.style.color = chapter.color;
+            bindRenameGestures(label, function () { return getActiveInstrument().categories; }, chapter, inst);
+            chip.appendChild(label);
+
+            chip.addEventListener("click", function (e) {
+                if (suppressNextClick) { suppressNextClick = false; return; }
+                if (e.target === label) return; // le nom gère son propre double-clic/clic droit
                 clearFilters();
                 setNavPath(inst, [chapter.id]);
                 render();
             });
-            chip.appendChild(btn);
-
-            var upBtn = iconButton("↑", "Monter le chapitre", function (e) {
-                e.stopPropagation();
-                if (moveArrayItem(inst.categories, idx, -1)) { save(); render(); }
-            });
-            if (idx === 0) upBtn.disabled = true;
-            chip.appendChild(upBtn);
-
-            var downBtn = iconButton("↓", "Descendre le chapitre", function (e) {
-                e.stopPropagation();
-                if (moveArrayItem(inst.categories, idx, 1)) { save(); render(); }
-            });
-            if (idx === inst.categories.length - 1) downBtn.disabled = true;
-            chip.appendChild(downBtn);
-
-            var renameBtn = iconButton("✎", "Renommer / supprimer le chapitre", function (e) {
-                e.stopPropagation();
-                renameOrDeleteFolder(inst.categories, chapter, inst);
-            });
-            chip.appendChild(renameBtn);
 
             $chapterBar.appendChild(chip);
         });
+
+        setupDragReorder($chapterBar, ".chapter-chip", function () { return getActiveInstrument().categories; }, "x");
 
         var addBtn = iconButton("+ Chapitre", "Ajouter un grand chapitre", function () {
             var name = window.prompt("Nom du nouveau chapitre (ex : Technique, Morceaux, Gammes...) :");
@@ -440,6 +498,7 @@
                 foldersWrap.appendChild(renderFolderRow(inst, currentFolder.folders, f, idx, currentFolder.folders.length, path));
             });
             $folderContainer.appendChild(foldersWrap);
+            setupDragReorder(foldersWrap, ".folder-row", function () { return currentFolder.folders; }, "y");
         }
 
         if (depth < MAX_FOLDER_DEPTH) {
@@ -459,48 +518,31 @@
     function renderFolderRow(inst, parentArray, folder, idx, total, path) {
         var row = document.createElement("div");
         row.className = "folder-row";
+        row.dataset.reorderId = folder.id;
 
-        var openArea = document.createElement("button");
-        openArea.type = "button";
-        openArea.className = "folder-open";
         var folderIcon = document.createElement("span");
         folderIcon.className = "folder-icon";
         folderIcon.innerHTML = FOLDER_ICON_SVG;
-        openArea.appendChild(folderIcon);
+        row.appendChild(folderIcon);
+
         var label = document.createElement("span");
         label.className = "folder-name";
         label.textContent = folder.name;
-        openArea.appendChild(label);
+        label.title = "Double-clic ou clic droit (appui long sur mobile) pour renommer/supprimer";
+        row.appendChild(label);
+        bindRenameGestures(label, function () { return parentArray; }, folder, inst);
+
         var count = document.createElement("span");
         count.className = "folder-count";
         count.textContent = countAll(folder);
-        openArea.appendChild(count);
-        openArea.addEventListener("click", function () {
+        row.appendChild(count);
+
+        row.addEventListener("click", function (e) {
+            if (suppressNextClick) { suppressNextClick = false; return; }
+            if (e.target === label) return; // le nom gère son propre double-clic/clic droit
             setNavPath(inst, path.concat(folder.id));
             render();
         });
-        row.appendChild(openArea);
-
-        var actions = document.createElement("div");
-        actions.className = "folder-actions";
-        var upBtn = iconButton("↑", "Monter", function (e) {
-            e.stopPropagation();
-            if (moveArrayItem(parentArray, idx, -1)) { save(); render(); }
-        });
-        if (idx === 0) upBtn.disabled = true;
-        actions.appendChild(upBtn);
-        var downBtn = iconButton("↓", "Descendre", function (e) {
-            e.stopPropagation();
-            if (moveArrayItem(parentArray, idx, 1)) { save(); render(); }
-        });
-        if (idx === total - 1) downBtn.disabled = true;
-        actions.appendChild(downBtn);
-        var renameBtn = iconButton("✎", "Renommer / supprimer le dossier", function (e) {
-            e.stopPropagation();
-            renameOrDeleteFolder(parentArray, folder, inst);
-        });
-        actions.appendChild(renameBtn);
-        row.appendChild(actions);
 
         return row;
     }
