@@ -28,7 +28,7 @@
 
     function makeDefaultState() {
         var instruments = DEFAULT_INSTRUMENTS.map(makeInstrument);
-        return { activeInstrumentId: instruments[0].id, instruments: instruments };
+        return { activeInstrumentId: instruments[0].id, instruments: instruments, updatedAt: 0 };
     }
 
     function load() {
@@ -43,12 +43,18 @@
         }
     }
 
-    function save() {
+    function saveLocal() {
         try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
         } catch (e) {
-            console.error("Sauvegarde impossible", e);
+            console.error("Sauvegarde locale impossible", e);
         }
+    }
+
+    function save() {
+        state.updatedAt = Date.now();
+        saveLocal();
+        scheduleCloudPush();
     }
 
     function getActiveInstrument() {
@@ -450,6 +456,155 @@
 
         return details;
     }
+
+    // ---------- synchro cloud (Firebase) ----------
+
+    var firebaseApp = null;
+    var auth = null;
+    var db = null;
+    var currentUser = null;
+    var docRef = null;
+    var unsubscribeSnapshot = null;
+    var pushTimer = null;
+    var PUSH_DEBOUNCE_MS = 1500;
+
+    var $syncStatus = document.getElementById("sync-status");
+    var $accountInfo = document.getElementById("account-info");
+    var $accountName = document.getElementById("account-name");
+    var $signinBtn = document.getElementById("google-signin-btn");
+    var $signoutBtn = document.getElementById("signout-btn");
+
+    function setSyncStatus(mode) {
+        if (!$syncStatus) return;
+        $syncStatus.classList.remove("synced", "syncing", "error");
+        if (mode) $syncStatus.classList.add(mode);
+        var titles = {
+            synced: "Synchronisé",
+            syncing: "Synchronisation en cours…",
+            error: "Erreur de synchronisation (dernière version conservée en local)"
+        };
+        $syncStatus.title = titles[mode] || "Non synchronisé (hors ligne)";
+    }
+
+    function updateAuthUI(user) {
+        if (user) {
+            $signinBtn.hidden = true;
+            $accountInfo.hidden = false;
+            $accountName.textContent = user.displayName || user.email || "Connecté";
+        } else {
+            $signinBtn.hidden = false;
+            $accountInfo.hidden = true;
+        }
+    }
+
+    function isRemoteNewer(remote) {
+        return !!remote && typeof remote.updatedAt === "number" &&
+            (typeof state.updatedAt !== "number" || remote.updatedAt > state.updatedAt);
+    }
+
+    function applyRemoteState(remote) {
+        if (!remote || !Array.isArray(remote.instruments)) return;
+        state = remote;
+        if (!state.activeInstrumentId && state.instruments[0]) state.activeInstrumentId = state.instruments[0].id;
+        saveLocal();
+        render();
+    }
+
+    function attachSnapshotListener() {
+        if (!docRef) return;
+        unsubscribeSnapshot = docRef.onSnapshot(function (snap) {
+            if (!snap.exists || snap.metadata.hasPendingWrites) return;
+            var remote = snap.data();
+            if (!isRemoteNewer(remote)) {
+                setSyncStatus("synced");
+                return;
+            }
+            applyRemoteState(remote);
+            setSyncStatus("synced");
+        }, function (e) {
+            console.error("Écoute de la synchro interrompue", e);
+            setSyncStatus("error");
+        });
+    }
+
+    function onAuthChanged(user) {
+        currentUser = user;
+        updateAuthUI(user);
+        if (unsubscribeSnapshot) {
+            unsubscribeSnapshot();
+            unsubscribeSnapshot = null;
+        }
+        if (!user) {
+            docRef = null;
+            setSyncStatus(null);
+            return;
+        }
+        docRef = db.collection("users").doc(user.uid).collection("apps").doc(FIREBASE_APP_SLUG);
+        setSyncStatus("syncing");
+        docRef.get().then(function (snap) {
+            var remote = snap.exists ? snap.data() : null;
+            if (isRemoteNewer(remote)) {
+                applyRemoteState(remote);
+                return null;
+            }
+            return docRef.set(state);
+        }).then(function () {
+            setSyncStatus("synced");
+            attachSnapshotListener();
+        }).catch(function (e) {
+            console.error("Synchro initiale impossible", e);
+            setSyncStatus("error");
+            attachSnapshotListener();
+        });
+    }
+
+    function pushToCloud() {
+        if (!currentUser || !docRef) return;
+        docRef.set(state).then(function () {
+            setSyncStatus("synced");
+        }).catch(function (e) {
+            console.error("Envoi vers le cloud impossible", e);
+            setSyncStatus("error");
+        });
+    }
+
+    function scheduleCloudPush() {
+        if (!currentUser || !docRef) return;
+        setSyncStatus("syncing");
+        if (pushTimer) clearTimeout(pushTimer);
+        pushTimer = setTimeout(pushToCloud, PUSH_DEBOUNCE_MS);
+    }
+
+    function initFirebase() {
+        if (typeof firebase === "undefined" || typeof FIREBASE_CONFIG === "undefined") {
+            console.warn("Firebase indisponible : mode local uniquement.");
+            return;
+        }
+        try {
+            firebaseApp = firebase.initializeApp(FIREBASE_CONFIG);
+            auth = firebase.auth();
+            db = firebase.firestore();
+            auth.onAuthStateChanged(onAuthChanged);
+        } catch (e) {
+            console.error("Initialisation Firebase impossible", e);
+        }
+    }
+
+    $signinBtn.addEventListener("click", function () {
+        if (!auth) return;
+        var provider = new firebase.auth.GoogleAuthProvider();
+        auth.signInWithPopup(provider).catch(function (e) {
+            console.error("Connexion impossible", e);
+            window.alert("Connexion impossible : " + (e && e.message ? e.message : "erreur inconnue"));
+        });
+    });
+
+    $signoutBtn.addEventListener("click", function () {
+        if (!auth) return;
+        auth.signOut();
+    });
+
+    initFirebase();
 
     // ---------- top actions ----------
 
