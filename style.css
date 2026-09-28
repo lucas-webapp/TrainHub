@@ -120,6 +120,9 @@ input, textarea, select {
 }
 input:focus, textarea:focus, select:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
 textarea { resize: vertical; min-height: 60px; width: 100%; }
+/* Notes d'exercice : hauteur automatique gérée en JS (autoGrowNotes), pas de poignée de
+   redimensionnement manuelle (elle se battrait avec le recalcul à chaque frappe). */
+.notes-textarea { resize: none; min-height: 0; line-height: 1.45; overflow-y: hidden; }
 
 /* ---------- top bar ---------- */
 .top-bar {
@@ -268,12 +271,15 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 .chapter-chip.active .chapter-chip-label { color: var(--chapter-accent); }
 .chapter-add { display: flex; }
 
-/* Chapitre virtuel "Favoris" : couleur fixe (or), pas de glisser-déposer (exclu de
-   setupDragReorder via :not(.chapter-chip-fixed), voir renderChapterBar). */
-.chapter-chip-fixed { cursor: pointer; touch-action: auto; border-color: #ffd60a; background: color-mix(in srgb, #ffd60a 8%, transparent); }
-.chapter-chip-fixed.active { background: color-mix(in srgb, #ffd60a 18%, transparent); }
-.chapter-chip-fixed .chapter-chip-label { color: #ffd60a; }
-.chapter-chip-star { display: inline-flex; color: #ffd60a; }
+/* Chapitres virtuels "Favoris" (or) et "Archivés" (gris, plus discret) : couleur fixe, mais
+   glissables comme les vrais chapitres (voir pinnedOrder / renderChapterBar). */
+.virtual-favorites { border-color: #ffd60a; background: color-mix(in srgb, #ffd60a 8%, transparent); }
+.virtual-favorites.active { background: color-mix(in srgb, #ffd60a 18%, transparent); }
+.virtual-favorites .chapter-chip-label, .virtual-favorites .chapter-chip-star { color: #ffd60a; }
+.virtual-archived { border-color: #9ca3af; background: color-mix(in srgb, #9ca3af 7%, transparent); }
+.virtual-archived.active { background: color-mix(in srgb, #9ca3af 15%, transparent); }
+.virtual-archived .chapter-chip-label, .virtual-archived .chapter-chip-star { color: #9ca3af; }
+.chapter-chip-star { display: inline-flex; }
 .chapter-chip-star .icon { width: 13px; height: 13px; }
 
 /* ---------- breadcrumb ---------- */
@@ -352,6 +358,9 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     display: flex;
     align-items: center;
     gap: 8px;
+    cursor: pointer;
+    user-select: none;
+    -webkit-touch-callout: none;
 }
 .exercise-title {
     flex: 1;
@@ -514,10 +523,15 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 
 /* Ligne fixe "Favoris" au-dessus de l'arborescence : couleur or fixe, pas de glisser (elle n'est
    pas dans `.tree-list`, voir renderSidebarTree), pas de crayon/clic droit (rien à renommer). */
-.tree-row-fixed { cursor: pointer; touch-action: auto; margin-bottom: 8px; border-left: 3px solid #ffd60a; background: color-mix(in srgb, #ffd60a 6%, transparent); }
-.tree-row-fixed.selected { background: color-mix(in srgb, #ffd60a 16%, transparent); }
+.tree-row-fixed { border-left: 3px solid transparent; }
 .tree-row-fixed .tree-label { font-weight: 700; }
-.tree-fixed-icon { width: 18px; height: 18px; flex: none; display: inline-flex; align-items: center; justify-content: center; color: #ffd60a; }
+.tree-row-fixed.virtual-favorites { border-left-color: #ffd60a; background: color-mix(in srgb, #ffd60a 6%, transparent); }
+.tree-row-fixed.virtual-favorites.selected { background: color-mix(in srgb, #ffd60a 16%, transparent); }
+.tree-row-fixed.virtual-favorites .tree-label, .tree-row-fixed.virtual-favorites .tree-fixed-icon { color: #ffd60a; }
+.tree-row-fixed.virtual-archived { border-left-color: #9ca3af; background: color-mix(in srgb, #9ca3af 5%, transparent); }
+.tree-row-fixed.virtual-archived.selected { background: color-mix(in srgb, #9ca3af 14%, transparent); }
+.tree-row-fixed.virtual-archived .tree-label, .tree-row-fixed.virtual-archived .tree-fixed-icon { color: #9ca3af; }
+.tree-fixed-icon { width: 18px; height: 18px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
 .tree-fixed-icon .icon { width: 13px; height: 13px; }
 
 /* Les 3 styles ci-dessous distinguent la hiérarchie en plus de l'indentation : seul le grand

@@ -6,10 +6,11 @@
     var DEFAULT_INSTRUMENTS = ["Basse", "Guitare", "Piano"];
     var FOLDER_PALETTE = ["#00e676", "#a78bfa", "#f472b6", "#2dd4bf", "#fb923c", "#f87171"];
     var MAX_FOLDER_DEPTH = 5;
-    // Chapitre virtuel : n'existe dans aucun tableau `categories`, juste une valeur spéciale de
-    // navigation reconnue par render()/renderMain(). Regroupe les exercices marqués favoris de
-    // TOUT l'instrument, où qu'ils soient rangés.
+    // Chapitres virtuels : n'existent dans aucun tableau `categories`, juste des valeurs spéciales
+    // de navigation reconnues par render()/renderMain(). Regroupent respectivement les exercices
+    // marqués favoris et les exercices archivés de TOUT l'instrument, où qu'ils soient rangés.
     var FAVORITES_ID = "__favorites__";
+    var ARCHIVED_ID = "__archived__";
 
     var searchQuery = "";
     var navPaths = {}; // instrumentId -> [folderId, ...] depuis le grand chapitre (non synchronisé, juste la navigation en cours)
@@ -34,7 +35,7 @@
 
     function makeDefaultState() {
         var instruments = DEFAULT_INSTRUMENTS.map(makeInstrument);
-        return { activeInstrumentId: instruments[0].id, instruments: instruments, updatedAt: 0, settings: { showUpdatedAt: false, archiveFilter: "" } };
+        return { activeInstrumentId: instruments[0].id, instruments: instruments, updatedAt: 0, settings: { showUpdatedAt: false } };
     }
 
     function normalizeFolder(f) {
@@ -54,10 +55,20 @@
         });
     }
 
+    // Ordre d'affichage des chapitres (bandeau mobile + arborescence), synchronisé : mélange les
+    // vrais chapitres et les chapitres virtuels (Favoris, Archivés), tous glissables ensemble. Par
+    // défaut (ou pour un instrument créé avant cette version), les virtuels sont en tête et les
+    // vrais chapitres suivent dans leur ordre existant — rien ne bouge visuellement.
+    function normalizePinnedOrder(inst) {
+        var validIds = [FAVORITES_ID, ARCHIVED_ID].concat(inst.categories.map(function (c) { return c.id; }));
+        var order = Array.isArray(inst.pinnedOrder) ? inst.pinnedOrder.filter(function (id) { return validIds.indexOf(id) !== -1; }) : [];
+        validIds.forEach(function (id) { if (order.indexOf(id) === -1) order.push(id); });
+        inst.pinnedOrder = order;
+    }
+
     function normalizeState(s) {
-        if (!s.settings || typeof s.settings !== "object") s.settings = { showUpdatedAt: false, archiveFilter: "" };
+        if (!s.settings || typeof s.settings !== "object") s.settings = { showUpdatedAt: false };
         if (typeof s.settings.showUpdatedAt !== "boolean") s.settings.showUpdatedAt = false;
-        if (typeof s.settings.archiveFilter !== "string") s.settings.archiveFilter = "";
         if (!Array.isArray(s.instruments)) s.instruments = [];
         s.instruments.forEach(function (inst) {
             if (!Array.isArray(inst.categories)) inst.categories = [];
@@ -67,6 +78,7 @@
                 if (!cat.color) cat.color = FOLDER_PALETTE[i % FOLDER_PALETTE.length];
             });
             inst.categories.forEach(normalizeFolder);
+            normalizePinnedOrder(inst);
         });
         return s;
     }
@@ -281,11 +293,6 @@
     function clearFilters() {
         searchQuery = "";
         if ($searchInput) $searchInput.value = "";
-        if (state.settings.archiveFilter) {
-            state.settings.archiveFilter = "";
-            if ($archiveFilter) $archiveFilter.value = "";
-            save();
-        }
     }
 
     function collectExercises(inst, matchFn) {
@@ -331,6 +338,7 @@
     var PENCIL_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
     var GRIP_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>';
     var STAR_FILLED_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.7l2.9 6 6.6.7-4.9 4.5 1.3 6.5L12 17.4l-5.9 3 1.3-6.5-4.9-4.5 6.6-.7Z"/></svg>';
+    var ARCHIVE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"/><path d="M10 13h4"/></svg>';
 
     function linkIconSvg(label) {
         var l = (label || "").toLowerCase();
@@ -358,6 +366,38 @@
         var opts = { day: "2-digit", month: "2-digit" };
         if (d.getFullYear() !== now.getFullYear()) opts.year = "numeric";
         return d.toLocaleDateString("fr-FR", opts);
+    }
+
+    // ---------- notes : hauteur automatique ----------
+    // 3 lignes de base, jusqu'à 8 lignes visibles ; au-delà, la zone garde sa taille max et devient
+    // scrollable plutôt que de pousser toute la page.
+    var NOTES_MIN_ROWS = 3;
+    var NOTES_MAX_ROWS = 8;
+
+    function autoGrowNotes(el) {
+        try {
+            el.style.height = "0px"; // force le recalcul de scrollHeight, sans la valeur précédente
+            var cs = window.getComputedStyle(el);
+            var lineHeight = parseFloat(cs.lineHeight) || 20;
+            var vPad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+            if (isNaN(vPad)) vPad = 16;
+            var minH = lineHeight * NOTES_MIN_ROWS + vPad;
+            var maxH = lineHeight * NOTES_MAX_ROWS + vPad;
+            var h = Math.min(Math.max(el.scrollHeight, minH), maxH);
+            el.style.height = h + "px";
+            el.style.overflowY = el.scrollHeight > maxH ? "auto" : "hidden";
+        } catch (e) {}
+    }
+
+    // À appeler après qu'un lot de rendu ait posé les zones de notes dans le DOM réel (pas au
+    // moment de leur construction, où elles ne sont pas encore attachées : scrollHeight vaudrait
+    // toujours 0, ce qui figerait tout le monde à la hauteur minimale).
+    function autoGrowAllNotes() {
+        if (typeof requestAnimationFrame !== "function") return;
+        requestAnimationFrame(function () {
+            var areas = document.querySelectorAll(".notes-textarea");
+            for (var i = 0; i < areas.length; i++) autoGrowNotes(areas[i]);
+        });
     }
 
     function iconButton(glyph, title, onClick) {
@@ -725,6 +765,10 @@
             if (e.target.closest("button, input, textarea, select")) return;
             var item = e.target.closest(itemSelector);
             if (!item || item.parentNode !== container) return; // seuls les enfants directs de CE niveau sont concernés
+            // Empêche la sélection de texte que la souris (ou le doigt) déclenche sinon dès qu'on
+            // bouge un peu avant le seuil des 10 px — le CSS `user-select: none` seul ne suffit pas
+            // toujours (Safari notamment) une fois un vrai geste de glisser commencé.
+            e.preventDefault();
             dragEl = item;
             startX = e.clientX;
             startY = e.clientY;
@@ -758,6 +802,10 @@
             container.appendChild(dragEl);
         });
 
+        // `arr` peut être un tableau d'objets {id, ...} (dossiers, exercices) ou directement un
+        // tableau d'identifiants bruts (l'ordre des chapitres, réels + virtuels — voir pinnedOrder).
+        function idOf(x) { return (x && typeof x === "object") ? x.id : x; }
+
         function finish() {
             if (dragEl && moved) {
                 var arr = getArray();
@@ -766,7 +814,7 @@
                 // rester à sa place relative en fin de liste, pas être renvoyé en tête : indexOf
                 // renvoyant -1 pour tous, on les glisse explicitement après tout élément trouvé.
                 arr.sort(function (a, b) {
-                    var ia = order.indexOf(a.id), ib = order.indexOf(b.id);
+                    var ia = order.indexOf(idOf(a)), ib = order.indexOf(idOf(b));
                     if (ia === -1 && ib === -1) return 0;
                     if (ia === -1) return 1;
                     if (ib === -1) return -1;
@@ -800,7 +848,6 @@
     var $searchInput = document.getElementById("search-input");
     var $searchToggleBtn = document.getElementById("search-toggle-btn");
     var $searchCloseBtn = document.getElementById("search-close-btn");
-    var $archiveFilter = document.getElementById("status-filter");
     var $undoBtn = document.getElementById("undo-btn");
     var $redoBtn = document.getElementById("redo-btn");
 
@@ -891,18 +938,6 @@
         });
     }
 
-    // ---------- filtre archivés/actifs ----------
-    // Le choix est gardé dans state.settings.archiveFilter : synchronisé et retrouvé tel quel à la
-    // prochaine ouverture de l'appli, sur tous les appareils.
-    if ($archiveFilter) {
-        $archiveFilter.addEventListener("change", function () {
-            state.settings.archiveFilter = $archiveFilter.value;
-            if ($archiveFilter.value) openSearch();
-            save();
-            render();
-        });
-    }
-
     if ($undoBtn) $undoBtn.addEventListener("click", undo);
     if ($redoBtn) $redoBtn.addEventListener("click", redo);
     document.addEventListener("keydown", function (e) {
@@ -917,15 +952,14 @@
         var inst = getActiveInstrument();
         var path = inst ? getNavPath(inst) : [];
         var rootChapter = inst && path.length ? findById(inst.categories, path[0]) : null;
-        var accent = path[0] === FAVORITES_ID ? "#ffd60a" : ((rootChapter && rootChapter.color) || "#00e676");
+        var accent = path[0] === FAVORITES_ID ? "#ffd60a" : path[0] === ARCHIVED_ID ? "#9ca3af" : ((rootChapter && rootChapter.color) || "#00e676");
         document.documentElement.style.setProperty("--chapter-accent", accent);
-        if ($archiveFilter) $archiveFilter.value = state.settings.archiveFilter || "";
-        if ($searchRow && state.settings.archiveFilter && $searchRow.hidden) openSearch();
         renderInstrumentSelect();
         renderChapterBar();
         renderSidebarTree();
         renderMain();
         updateUndoRedoButtons();
+        autoGrowAllNotes();
     }
 
     function renderInstrumentSelect() {
@@ -958,60 +992,68 @@
         render();
     }
 
+    // Construit une puce/ligne pour un chapitre VIRTUEL (Favoris, Archivés) : couleur fixe, pas de
+    // renommer/supprimer, mais glissable au même titre que les vrais chapitres (voir pinnedOrder).
+    function virtualChapterMeta(kind) {
+        if (kind === ARCHIVED_ID) return { id: ARCHIVED_ID, name: "Archivés", color: "#9ca3af", icon: ARCHIVE_ICON_SVG, cls: "virtual-archived" };
+        return { id: FAVORITES_ID, name: "Favoris", color: "#ffd60a", icon: STAR_FILLED_SVG, cls: "virtual-favorites" };
+    }
+
+    function orderedChapterItems(inst) {
+        normalizePinnedOrder(inst);
+        return inst.pinnedOrder.map(function (id) {
+            if (id === FAVORITES_ID || id === ARCHIVED_ID) return virtualChapterMeta(id);
+            return findById(inst.categories, id);
+        }).filter(Boolean);
+    }
+
     function renderChapterBar() {
         var inst = getActiveInstrument();
         $chapterBar.innerHTML = "";
         var path = getNavPath(inst);
         var activeId = path[0];
 
-        // Chapitre virtuel "Favoris" : toujours en premier, en dehors du glisser-déposer (il ne
-        // fait pas partie de inst.categories, voir setupDragReorder plus bas qui l'exclut).
-        var favChip = document.createElement("div");
-        favChip.className = "chapter-chip chapter-chip-fixed" + (activeId === FAVORITES_ID ? " active" : "");
-        var favIcon = document.createElement("span");
-        favIcon.className = "chapter-chip-star";
-        favIcon.innerHTML = STAR_FILLED_SVG;
-        favChip.appendChild(favIcon);
-        var favLabel = document.createElement("span");
-        favLabel.className = "chapter-chip-label";
-        favLabel.textContent = "Favoris";
-        favChip.appendChild(favLabel);
-        favChip.addEventListener("click", function () {
-            clearFilters();
-            setNavPath(inst, [FAVORITES_ID]);
-            render();
-        });
-        $chapterBar.appendChild(favChip);
-
-        inst.categories.forEach(function (chapter) {
-            var isActive = chapter.id === activeId;
+        orderedChapterItems(inst).forEach(function (item) {
+            var isVirtual = item.id === FAVORITES_ID || item.id === ARCHIVED_ID;
+            var isActive = item.id === activeId;
             var chip = document.createElement("div");
-            chip.className = "chapter-chip" + (isActive ? " active" : "");
-            chip.dataset.reorderId = chapter.id;
-            // Encadré fin + fond très léger dans la couleur du chapitre, toujours visible (pas
-            // seulement actif) : remplace le point de couleur, jugé pas assez discret.
-            chip.style.borderColor = chapter.color;
-            chip.style.background = "color-mix(in srgb, " + chapter.color + " " + (isActive ? "16%" : "7%") + ", transparent)";
+            chip.className = "chapter-chip" + (isVirtual ? " " + item.cls : "") + (isActive ? " active" : "");
+            chip.dataset.reorderId = item.id;
+
+            if (isVirtual) {
+                var icon = document.createElement("span");
+                icon.className = "chapter-chip-star";
+                icon.innerHTML = item.icon;
+                chip.appendChild(icon);
+            } else {
+                // Encadré fin + fond très léger dans la couleur du chapitre, toujours visible (pas
+                // seulement actif) : remplace le point de couleur, jugé pas assez discret.
+                chip.style.borderColor = item.color;
+                chip.style.background = "color-mix(in srgb, " + item.color + " " + (isActive ? "16%" : "7%") + ", transparent)";
+            }
 
             var label = document.createElement("span");
             label.className = "chapter-chip-label";
-            label.textContent = chapter.name;
-            if (isActive) label.style.color = chapter.color;
+            label.textContent = item.name;
+            if (isActive && !isVirtual) label.style.color = item.color;
             chip.appendChild(label);
-            chip.title = "Clic droit (ordinateur) ou appui long (mobile) : renommer / supprimer";
-            bindFolderMenu(chip, function () { return getActiveInstrument().categories; }, chapter, inst);
+
+            if (!isVirtual) {
+                chip.title = "Clic droit (ordinateur) ou appui long (mobile) : renommer / supprimer";
+                bindFolderMenu(chip, function () { return getActiveInstrument().categories; }, item, inst);
+            }
 
             chip.addEventListener("click", function (e) {
                 if (suppressNextClick) { suppressNextClick = false; return; }
                 clearFilters();
-                setNavPath(inst, [chapter.id]);
+                setNavPath(inst, [item.id]);
                 render();
             });
 
             $chapterBar.appendChild(chip);
         });
 
-        setupDragReorder($chapterBar, ".chapter-chip:not(.chapter-chip-fixed)", function () { return getActiveInstrument().categories; }, "x");
+        setupDragReorder($chapterBar, ".chapter-chip", function () { return getActiveInstrument().pinnedOrder; }, "x");
 
         var addBtn = iconButton("+ Chapitre", "Ajouter un grand chapitre", function () {
             var name = window.prompt("Nom du nouveau chapitre (ex : Technique, Morceaux, Gammes...) :");
@@ -1042,6 +1084,35 @@
     // qu'un niveau à la fois. `treeExpanded` ne pilote que l'affichage (replié/déplié), jamais les
     // données elles-mêmes.
 
+    // Chapitre virtuel dans l'arborescence : même enveloppe `.tree-node` que les vrais chapitres
+    // (dataset.reorderId = son id virtuel) pour glisser dans la même liste, mais pas de sous-
+    // niveau, pas de menu (rien à renommer/supprimer/ajouter dessous).
+    function renderVirtualTreeNode(inst, kind, currentPath) {
+        var meta = virtualChapterMeta(kind);
+        var wrap = document.createElement("div");
+        wrap.className = "tree-node " + meta.cls;
+        wrap.dataset.reorderId = meta.id;
+
+        var row = document.createElement("div");
+        row.className = "tree-row tree-row-fixed tree-row-d0 " + meta.cls + (currentPath[0] === meta.id ? " selected" : "");
+        var icon = document.createElement("span");
+        icon.className = "tree-fixed-icon";
+        icon.innerHTML = meta.icon;
+        row.appendChild(icon);
+        var label = document.createElement("span");
+        label.className = "tree-label";
+        label.textContent = meta.name;
+        row.appendChild(label);
+        row.addEventListener("click", function (e) {
+            if (suppressNextClick) { suppressNextClick = false; return; }
+            clearFilters();
+            setNavPath(inst, [meta.id]);
+            render();
+        });
+        wrap.appendChild(row);
+        return wrap;
+    }
+
     function renderSidebarTree() {
         var inst = getActiveInstrument();
         $sidebarTree.innerHTML = "";
@@ -1057,33 +1128,17 @@
 
         var path = getNavPath(inst);
 
-        // Chapitre virtuel "Favoris", au-dessus de l'arborescence réelle (pas dans `list` : pas
-        // renommable/supprimable/déplaçable, juste un raccourci vers tous les exercices favoris de
-        // l'instrument).
-        var favRow = document.createElement("div");
-        favRow.className = "tree-row tree-row-fixed tree-row-d0" + (path[0] === FAVORITES_ID ? " selected" : "");
-        var favIcon = document.createElement("span");
-        favIcon.className = "tree-fixed-icon";
-        favIcon.innerHTML = STAR_FILLED_SVG;
-        favRow.appendChild(favIcon);
-        var favLabel = document.createElement("span");
-        favLabel.className = "tree-label";
-        favLabel.textContent = "Favoris";
-        favRow.appendChild(favLabel);
-        favRow.addEventListener("click", function () {
-            clearFilters();
-            setNavPath(inst, [FAVORITES_ID]);
-            render();
-        });
-        $sidebarTree.appendChild(favRow);
-
         var list = document.createElement("div");
         list.className = "tree-list";
-        inst.categories.forEach(function (chapter) {
-            list.appendChild(renderTreeNode(inst, chapter, [], path, chapter.color, 0));
+        orderedChapterItems(inst).forEach(function (item) {
+            if (item.id === FAVORITES_ID || item.id === ARCHIVED_ID) {
+                list.appendChild(renderVirtualTreeNode(inst, item.id, path));
+            } else {
+                list.appendChild(renderTreeNode(inst, item, [], path, item.color, 0));
+            }
         });
         $sidebarTree.appendChild(list);
-        setupDragReorder(list, ".tree-node", function () { return getActiveInstrument().categories; }, "y");
+        setupDragReorder(list, ".tree-node", function () { return getActiveInstrument().pinnedOrder; }, "y");
 
         var addWrap = document.createElement("div");
         addWrap.className = "tree-add-row sidebar-add-chapter";
@@ -1224,13 +1279,13 @@
         var inst = getActiveInstrument();
         $empty.hidden = true;
         var path = getNavPath(inst);
-        if (path[0] === FAVORITES_ID) {
+        if (path[0] === FAVORITES_ID || path[0] === ARCHIVED_ID) {
             $breadcrumb.hidden = true;
             $breadcrumb.innerHTML = "";
-            renderFavoritesView(inst);
+            renderVirtualChapterView(inst, path[0]);
             return;
         }
-        var hasFilter = !!state.settings.archiveFilter || !!searchQuery.trim();
+        var hasFilter = !!searchQuery.trim();
         if (hasFilter) {
             $breadcrumb.hidden = true;
             $breadcrumb.innerHTML = "";
@@ -1272,14 +1327,22 @@
         });
     }
 
-    function renderFavoritesView(inst) {
+    // Favoris et Archivés partagent le même rendu : une liste à plat de tout l'instrument, avec le
+    // chemin réel de chaque exercice (voir renderResultsList) — seuls le titre et le critère de
+    // recherche changent.
+    function renderVirtualChapterView(inst, kind) {
         $contentHeading.innerHTML = "";
         var h2 = document.createElement("h2");
-        h2.textContent = "★ Favoris";
+        h2.textContent = kind === ARCHIVED_ID ? "Archivés" : "★ Favoris";
         $contentHeading.appendChild(h2);
 
-        var results = collectExercises(inst, function (ex) { return ex.favorite && !ex.archived; });
-        renderResultsList(inst, results, "Aucun favori pour l'instant. Marque un exercice en favori depuis son menu (clic droit ou appui long dessus).");
+        var results = kind === ARCHIVED_ID
+            ? collectExercises(inst, function (ex) { return ex.archived; })
+            : collectExercises(inst, function (ex) { return ex.favorite && !ex.archived; });
+        var emptyText = kind === ARCHIVED_ID
+            ? "Aucun exercice archivé pour l'instant. Range-en un depuis son menu (clic droit ou appui long dessus)."
+            : "Aucun favori pour l'instant. Marque un exercice en favori depuis son menu (clic droit ou appui long dessus).";
+        renderResultsList(inst, results, emptyText);
     }
 
     function renderContentHeading(folder, getParentArray, inst) {
@@ -1448,20 +1511,14 @@
 
     function renderFilteredResults(inst) {
         var query = searchQuery.trim().toLowerCase();
-        var archiveFilter = state.settings.archiveFilter;
         function matchFn(ex) {
-            // Par défaut, les archivés restent hors de vue (rangés) ; le filtre permet de les
-            // retrouver spécifiquement.
-            if (archiveFilter === "archived") { if (!ex.archived) return false; }
-            else if (ex.archived) return false;
-            if (query && ex.title.toLowerCase().indexOf(query) === -1) return false;
-            return true;
+            // Les archivés restent hors de la recherche classique : on les retrouve dans leur
+            // propre chapitre virtuel "Archivés" (comme les favoris), voir renderVirtualChapterView.
+            if (ex.archived) return false;
+            return !query || ex.title.toLowerCase().indexOf(query) !== -1;
         }
         var results = collectExercises(inst, matchFn);
-        var emptyText = archiveFilter === "archived"
-            ? (query ? "Aucun exercice archivé ne correspond à ta recherche." : "Aucun exercice archivé pour l'instant.")
-            : "Aucun exercice ne correspond à ta recherche.";
-        renderResultsList(inst, results, emptyText);
+        renderResultsList(inst, results, "Aucun exercice ne correspond à ta recherche.");
     }
 
     function renderAddExerciseForm(folder) {
@@ -1505,8 +1562,17 @@
 
         var row = document.createElement("div");
         row.className = "exercise-row";
-        row.title = "Clic droit (ordinateur) ou appui long (mobile) : favoris / archiver";
+        row.title = "Cliquer pour les détails (notes, liens…) · clic droit ou appui long : favoris / archiver";
         bindExerciseMenu(row, ex);
+        row.addEventListener("click", function (e) {
+            if (suppressNextClick) { suppressNextClick = false; return; }
+            // Le titre (et les boutons) gardent leur propre clic : cliquer le reste de la ligne
+            // déplie/replie les détails (remplace le chevron dédié, retiré pour épurer la ligne).
+            if (e.target.closest("button, input, textarea, select")) return;
+            ex.collapsed = !ex.collapsed;
+            save();
+            render();
+        });
 
         // Poignée de glisser-déposer pour réordonner (remplace les flèches ↑/↓) : seulement dans
         // la vue normale d'un dossier, pas dans les listes à plat (recherche/favoris/archivés) où
@@ -1545,13 +1611,6 @@
             row.appendChild(archBadge);
         }
 
-        var expandBtn = iconButton(ex.collapsed ? "▾" : "▴", "Détails (notes, liens)", function () {
-            ex.collapsed = !ex.collapsed;
-            save();
-            render();
-        });
-        row.appendChild(expandBtn);
-
         var delBtn = iconButton("✕", "Supprimer l'exercice", function () {
             if (!window.confirm("Supprimer « " + ex.title + " » ?")) return;
             (ex.files || []).forEach(function (f) { deleteFileBlob(f.id); });
@@ -1585,8 +1644,11 @@
         var notesLabel = document.createElement("label");
         notesLabel.textContent = "Notes";
         var notes = document.createElement("textarea");
+        notes.className = "notes-textarea";
+        notes.rows = NOTES_MIN_ROWS;
         notes.value = ex.notes || "";
         notes.placeholder = "Remarques, points à retravailler…";
+        notes.addEventListener("input", function () { autoGrowNotes(notes); });
         notes.addEventListener("change", function () {
             ex.notes = notes.value;
             touchExercise(ex);
@@ -1805,6 +1867,20 @@
         };
         $syncStatus.title = titles[mode] || "Non synchronisé (hors ligne)";
     }
+
+    // ---------- garde-fou : fermeture pendant une synchro en cours ou en échec ----------
+    // La sauvegarde locale (localStorage) est, elle, toujours faite avant même d'essayer d'envoyer
+    // au cloud (voir persist()) : rien n'est jamais perdu SUR CET appareil en fermant l'onglet. Ce
+    // qui peut manquer, c'est la dernière version côté cloud — gênant seulement si on rouvre
+    // l'appli ailleurs avant que l'envoi n'ait abouti. On prévient dans ce cas précis.
+    window.addEventListener("beforeunload", function (e) {
+        if (!$syncStatus) return;
+        var pending = $syncStatus.classList.contains("syncing") || $syncStatus.classList.contains("error");
+        if (!pending) return;
+        e.preventDefault();
+        e.returnValue = "";
+        return "";
+    });
 
     function updateAuthUI(user) {
         if (user) {
