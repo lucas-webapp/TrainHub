@@ -436,12 +436,10 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 }
 .link-chip .link-remove:hover { color: #ff6b6b; }
 
-.add-link-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.add-link-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .add-link-row input { flex: 1; min-width: 120px; }
 
 /* ---------- fichiers joints (PDF/MP3) ---------- */
-.files-section { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
-.files-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .file-chip {
     display: inline-flex;
     align-items: center;
@@ -474,10 +472,8 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 }
 .file-chip .link-remove:hover { color: #ff6b6b; }
 
-.add-file-row { display: flex; align-items: center; }
+.add-file-row { display: inline-flex; align-items: center; }
 .add-file-row .add-file-input { display: none; }
-.add-file-label { font-size: var(--fs-xs); padding: 6px 12px; }
-.files-hint { font-size: var(--fs-2xs); color: var(--text-muted); }
 
 .add-exercise-row { display: flex; gap: 6px; padding: 4px; }
 .add-exercise-row input { flex: 1; }
@@ -803,3 +799,48 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
 
 /* Appui long = menu renommer/supprimer : pas de bulle système iOS sur les lignes. */
 .tree-row, .folder-row, .chapter-chip { -webkit-touch-callout: none; -webkit-user-select: none; }
+
+/* ---------- métronome ---------- */
+.metronome-panel { align-items: stretch; text-align: center; }
+.metro-bpm-row { display: flex; align-items: center; justify-content: center; gap: 14px; }
+.metro-bpm-value { font-size: var(--fs-xl); font-weight: 800; min-width: 110px; letter-spacing: -.01em; }
+.metro-bpm-slider { width: 100%; }
+.metro-beats-row { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; padding: 4px 0; }
+.metro-beat {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    background: transparent;
+    padding: 0;
+}
+.metro-beat-0 { border-style: dashed; opacity: .5; }
+.metro-beat-1 { background: var(--text-muted); border-color: var(--text-muted); }
+.metro-beat-2 { background: var(--accent); border-color: var(--accent); width: 30px; height: 30px; }
+.metro-beat-current { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent); }
+.metro-fields-row { display: flex; justify-content: center; gap: 18px; flex-wrap: wrap; }
+.metro-field { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+.metro-field input, .metro-field select { font-size: var(--fs-sm); text-align: center; color: var(--text-main); text-transform: none; letter-spacing: normal; }
+.metro-field input[type="number"] { width: 64px; }
+.metro-play-btn { font-size: var(--fs-md); padding: 10px; }
+
+/* ---------- aides : cercle des quintes ---------- */
+.aides-panel { align-items: center; text-align: center; }
+.cof-wrap { display: flex; justify-content: center; }
+.circle-of-fifths { width: min(320px, 80vw); height: min(320px, 80vw); }
+.cof-ring { fill: none; stroke: var(--border); }
+.cof-ring-core { fill: var(--card-bg-2); stroke: none; }
+.cof-sep { stroke: var(--border); stroke-width: 1; }
+.cof-sep-minor { opacity: .6; }
+.cof-major, .cof-minor {
+    font-family: var(--font);
+    text-anchor: middle;
+    dominant-baseline: middle;
+    fill: var(--text-main);
+}
+.cof-major { font-size: 15px; font-weight: 700; }
+.cof-minor { font-size: 11px; fill: var(--text-muted); }
+.cof-legend { font-size: var(--fs-xs); color: var(--text-muted); }
+.cof-legend-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin: 0 3px -1px 0; }
+.cof-legend-major { background: var(--text-main); }
+.cof-legend-minor { background: var(--text-muted); }

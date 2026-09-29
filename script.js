@@ -69,6 +69,7 @@
     function normalizeState(s) {
         if (!s.settings || typeof s.settings !== "object") s.settings = { showUpdatedAt: false };
         if (typeof s.settings.showUpdatedAt !== "boolean") s.settings.showUpdatedAt = false;
+        normalizeMetronomeSettings(s.settings);
         if (!Array.isArray(s.instruments)) s.instruments = [];
         s.instruments.forEach(function (inst) {
             if (!Array.isArray(inst.categories)) inst.categories = [];
@@ -339,6 +340,7 @@
     var GRIP_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>';
     var STAR_FILLED_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.7l2.9 6 6.6.7-4.9 4.5 1.3 6.5L12 17.4l-5.9 3 1.3-6.5-4.9-4.5 6.6-.7Z"/></svg>';
     var ARCHIVE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"/><path d="M10 13h4"/></svg>';
+    var FILE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05 12.25 20.24a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
 
     function linkIconSvg(label) {
         var l = (label || "").toLowerCase();
@@ -1668,7 +1670,8 @@
         }
 
 
-        var notesLabel = document.createElement("label");
+        var notesLabel = document.createElement("div");
+        notesLabel.className = "section-label";
         notesLabel.textContent = "Notes";
         var notes = document.createElement("textarea");
         notes.className = "notes-textarea";
@@ -1684,12 +1687,15 @@
         details.appendChild(notesLabel);
         details.appendChild(notes);
 
-        var linksLabel = document.createElement("label");
-        linksLabel.textContent = "Liens (YouTube, iReal Pro, PDF, backing track…)";
-        details.appendChild(linksLabel);
+        // Liens et fichiers regroupés sous un seul intitulé : un titre plus court, une seule liste
+        // de puces mélangées, une seule ligne d'ajout — moins de texte à l'écran.
+        var resourcesLabel = document.createElement("div");
+        resourcesLabel.className = "section-label";
+        resourcesLabel.textContent = "Liens & fichiers";
+        details.appendChild(resourcesLabel);
 
-        var linksList = document.createElement("div");
-        linksList.className = "links-list";
+        var resourcesList = document.createElement("div");
+        resourcesList.className = "links-list";
         (ex.links || []).forEach(function (link, idx) {
             var chip = document.createElement("a");
             chip.className = "link-chip";
@@ -1717,44 +1723,34 @@
                 render();
             });
             chip.appendChild(removeBtn);
-            linksList.appendChild(chip);
+            resourcesList.appendChild(chip);
         });
-        details.appendChild(linksList);
+        appendFileChips(resourcesList, ex);
+        details.appendChild(resourcesList);
 
         var addLinkRow = document.createElement("div");
         addLinkRow.className = "add-link-row";
         var urlInput = document.createElement("input");
         urlInput.type = "url";
-        urlInput.placeholder = "Coller un lien (YouTube, iReal Pro, PDF…)";
-        var labelInput = document.createElement("input");
-        labelInput.type = "text";
-        labelInput.placeholder = "Nom (optionnel)";
-        labelInput.style.maxWidth = "140px";
-        var addLinkBtn = document.createElement("button");
-        addLinkBtn.type = "button";
-        addLinkBtn.textContent = "+ Lien";
+        urlInput.placeholder = "Coller un lien…";
         function commitLink() {
             var url = urlInput.value.trim();
             if (!url) return;
             if (!/^https?:\/\//i.test(url)) url = "https://" + url;
-            var label = labelInput.value.trim() || guessLinkLabel(url);
             ex.links = ex.links || [];
-            ex.links.push({ label: label, url: url });
+            ex.links.push({ label: guessLinkLabel(url), url: url });
             urlInput.value = "";
-            labelInput.value = "";
             touchExercise(ex);
             save();
             render();
         }
-        addLinkBtn.addEventListener("click", commitLink);
+        var addLinkBtn = iconButton("+", "Ajouter ce lien", commitLink);
+        addLinkBtn.className = "btn-accent icon-btn";
         urlInput.addEventListener("keydown", function (e) { if (e.key === "Enter") commitLink(); });
-        labelInput.addEventListener("keydown", function (e) { if (e.key === "Enter") commitLink(); });
         addLinkRow.appendChild(urlInput);
-        addLinkRow.appendChild(labelInput);
         addLinkRow.appendChild(addLinkBtn);
+        addLinkRow.appendChild(makeAddFileButton(ex));
         details.appendChild(addLinkRow);
-
-        details.appendChild(renderFilesSection(ex));
 
         return details;
     }
@@ -1768,17 +1764,9 @@
 
     // ---------- fichiers joints (PDF/MP3) : rendu ----------
     // Rappel (voir plus haut) : seules les métadonnées (ex.files) sont synchronisées. Le fichier
-    // réel n'existe que dans IndexedDB, sur l'appareil où il a été ajouté.
-    function renderFilesSection(ex) {
-        var wrap = document.createElement("div");
-        wrap.className = "files-section";
-
-        var filesLabel = document.createElement("label");
-        filesLabel.textContent = "Fichiers (PDF, MP3…)";
-        wrap.appendChild(filesLabel);
-
-        var filesList = document.createElement("div");
-        filesList.className = "files-list";
+    // réel n'existe que dans IndexedDB, sur l'appareil où il a été ajouté — d'où le rappel dans le
+    // "title" de chaque puce plutôt qu'un paragraphe permanent (moins de texte à l'écran).
+    function appendFileChips(list, ex) {
         (ex.files || []).forEach(function (meta) {
             var chip = document.createElement("div");
             chip.className = "file-chip";
@@ -1820,22 +1808,20 @@
             });
             chip.appendChild(removeBtn);
 
-            filesList.appendChild(chip);
+            list.appendChild(chip);
         });
-        wrap.appendChild(filesList);
+    }
 
-        var addFileRow = document.createElement("div");
-        addFileRow.className = "add-file-row";
+    function makeAddFileButton(ex) {
+        var wrap = document.createElement("span");
+        wrap.className = "add-file-row";
         var fileInput = document.createElement("input");
         fileInput.type = "file";
         fileInput.className = "add-file-input";
         fileInput.accept = ".pdf,application/pdf,.mp3,audio/*";
         fileInput.multiple = true;
-        var fileLabel = document.createElement("button");
-        fileLabel.type = "button";
-        fileLabel.className = "btn-ghost add-file-label";
-        fileLabel.textContent = "+ Fichier (PDF, MP3…)";
-        fileLabel.addEventListener("click", function () { fileInput.click(); });
+        var fileBtn = svgIconButton(FILE_ICON_SVG, "Ajouter un fichier (PDF, MP3…) — reste sur cet appareil", function () { fileInput.click(); });
+        fileBtn.classList.add("btn-ghost");
         fileInput.addEventListener("change", function () {
             var files = Array.prototype.slice.call(fileInput.files || []);
             if (!files.length) return;
@@ -1854,15 +1840,8 @@
                 window.alert("Impossible d'enregistrer ce fichier sur cet appareil (stockage plein ou navigateur privé ?).");
             });
         });
-        addFileRow.appendChild(fileInput);
-        addFileRow.appendChild(fileLabel);
-        wrap.appendChild(addFileRow);
-
-        var hint = document.createElement("div");
-        hint.className = "files-hint";
-        hint.textContent = "Les fichiers restent sur cet appareil : ils ne sont pas synchronisés avec les autres.";
-        wrap.appendChild(hint);
-
+        wrap.appendChild(fileInput);
+        wrap.appendChild(fileBtn);
         return wrap;
     }
 
@@ -2106,6 +2085,7 @@
 
     function openBackupsPanel() {
         closeFolderMenu();
+        if (closeActiveModal) closeActiveModal();
         var backdrop = document.createElement("div");
         backdrop.className = "ctx-backdrop";
         var panel = document.createElement("div");
@@ -2192,7 +2172,9 @@
             backdrop.remove();
             panel.remove();
             document.removeEventListener("keydown", onKey, true);
+            if (closeActiveModal === closeBackupsPanel) closeActiveModal = null;
         }
+        closeActiveModal = closeBackupsPanel;
         function onKey(e) { if (e.key === "Escape") closeBackupsPanel(); }
         backdrop.addEventListener("click", closeBackupsPanel);
         document.addEventListener("keydown", onKey, true);
@@ -2228,6 +2210,349 @@
         reader.readAsText(file);
         importInput.value = "";
     });
+
+    // ---------- petit modal générique (métronome, aides) ----------
+    // Même habillage que le panneau des sauvegardes (.backups-panel), sans dupliquer sa logique de
+    // fermeture (clic dehors / Échap) à chaque nouvel outil.
+    // `build(panel, close)` peut renvoyer une fonction de nettoyage, appelée à la fermeture (le
+    // métronome s'en sert pour couper le son quand on ferme le panneau). Un seul de ces modals
+    // reste ouvert à la fois : en ouvrir un ferme le précédent (sinon son fond transparent bloque
+    // les clics sur le reste de la page, bouton "Aides"/"Métronome" compris).
+    var closeActiveModal = null;
+
+    function openModal(extraClass, build) {
+        closeFolderMenu();
+        if (closeActiveModal) closeActiveModal();
+        var backdrop = document.createElement("div");
+        backdrop.className = "ctx-backdrop";
+        var panel = document.createElement("div");
+        panel.className = "backups-panel" + (extraClass ? " " + extraClass : "");
+        var onClose = null;
+
+        function close() {
+            if (onClose) onClose();
+            backdrop.remove();
+            panel.remove();
+            document.removeEventListener("keydown", onKey, true);
+            if (closeActiveModal === close) closeActiveModal = null;
+        }
+        function onKey(e) { if (e.key === "Escape") close(); }
+        backdrop.addEventListener("click", close);
+        document.addEventListener("keydown", onKey, true);
+        closeActiveModal = close;
+
+        onClose = build(panel, close) || null;
+
+        var closeRow = document.createElement("div");
+        closeRow.className = "backups-close-row";
+        var closeBtn = document.createElement("button");
+        closeBtn.type = "button";
+        closeBtn.className = "btn-ghost";
+        closeBtn.textContent = "Fermer";
+        closeBtn.addEventListener("click", close);
+        closeRow.appendChild(closeBtn);
+        panel.appendChild(closeRow);
+
+        document.body.appendChild(backdrop);
+        document.body.appendChild(panel);
+        return close;
+    }
+
+    // ---------- métronome ----------
+    // Réglages persistés et synchronisés (state.settings.metronome) : tempo, nombre de temps par
+    // mesure et motif d'accents (0 = silence, 1 = normal, 2 = temps fort), plus une subdivision
+    // (noire/croches/triolet). Le son est généré à la volée (Web Audio API), rien à télécharger.
+    function normalizeMetronomeSettings(settings) {
+        if (!settings.metronome || typeof settings.metronome !== "object") settings.metronome = {};
+        var m = settings.metronome;
+        if (typeof m.bpm !== "number" || isNaN(m.bpm) || m.bpm < 30 || m.bpm > 300) m.bpm = 100;
+        m.bpm = Math.round(m.bpm);
+        if (typeof m.beatsPerMeasure !== "number" || isNaN(m.beatsPerMeasure) || m.beatsPerMeasure < 1 || m.beatsPerMeasure > 12) m.beatsPerMeasure = 4;
+        m.beatsPerMeasure = Math.round(m.beatsPerMeasure);
+        if ([1, 2, 3].indexOf(m.subdivision) === -1) m.subdivision = 1;
+        if (!Array.isArray(m.accents)) m.accents = [];
+        while (m.accents.length < m.beatsPerMeasure) m.accents.push(m.accents.length === 0 ? 2 : 1);
+        m.accents.length = m.beatsPerMeasure;
+        for (var i = 0; i < m.accents.length; i++) {
+            if ([0, 1, 2].indexOf(m.accents[i]) === -1) m.accents[i] = 1;
+        }
+        return m;
+    }
+
+    var metroAudioCtx = null;
+    var metroPlaying = false;
+    var metroTimer = null;
+    var metroNextNoteTime = 0;
+    var metroCurrentBeat = 0;
+    var metroCurrentSub = 0;
+    var metroBeatCallback = null; // met à jour l'affichage (point qui clignote), posé par le panneau ouvert
+    var METRO_LOOKAHEAD_MS = 25;
+    var METRO_SCHEDULE_AHEAD_S = 0.12;
+
+    function metroClick(time, accentLevel) {
+        if (accentLevel === 0) return; // temps rendu muet
+        var ctx = metroAudioCtx;
+        var osc = ctx.createOscillator();
+        var gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = accentLevel >= 2 ? 1500 : 1000;
+        var peak = accentLevel >= 2 ? 0.85 : 0.45;
+        gain.gain.setValueAtTime(peak, time);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.045);
+        osc.start(time);
+        osc.stop(time + 0.05);
+    }
+
+    function metroScheduler() {
+        var m = state.settings.metronome;
+        while (metroNextNoteTime < metroAudioCtx.currentTime + METRO_SCHEDULE_AHEAD_S) {
+            var accentLevel = metroCurrentSub === 0 ? m.accents[metroCurrentBeat] : 1;
+            // Les clics de subdivision (au-delà du 1er de chaque temps) sont toujours discrets,
+            // même quand le temps lui-même est accentué.
+            if (metroCurrentSub !== 0) accentLevel = m.accents[metroCurrentBeat] === 0 ? 0 : 1;
+            metroClick(metroNextNoteTime, accentLevel);
+            if (metroBeatCallback) {
+                var beat = metroCurrentBeat, sub = metroCurrentSub, delayMs = Math.max(0, (metroNextNoteTime - metroAudioCtx.currentTime) * 1000);
+                setTimeout(function () { if (metroPlaying && metroBeatCallback) metroBeatCallback(beat, sub); }, delayMs);
+            }
+            var secondsPerBeat = 60 / m.bpm / m.subdivision;
+            metroNextNoteTime += secondsPerBeat;
+            metroCurrentSub++;
+            if (metroCurrentSub >= m.subdivision) {
+                metroCurrentSub = 0;
+                metroCurrentBeat = (metroCurrentBeat + 1) % m.beatsPerMeasure;
+            }
+        }
+        metroTimer = setTimeout(metroScheduler, METRO_LOOKAHEAD_MS);
+    }
+
+    function startMetronome() {
+        if (metroPlaying) return;
+        if (!metroAudioCtx) metroAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (metroAudioCtx.state === "suspended") metroAudioCtx.resume();
+        metroPlaying = true;
+        metroCurrentBeat = 0;
+        metroCurrentSub = 0;
+        metroNextNoteTime = metroAudioCtx.currentTime + 0.05;
+        metroScheduler();
+    }
+
+    function stopMetronome() {
+        metroPlaying = false;
+        if (metroTimer) { clearTimeout(metroTimer); metroTimer = null; }
+    }
+
+    function openMetronomePanel() {
+        var m = state.settings.metronome;
+
+        openModal("metronome-panel", function (panel, close) {
+            var title = document.createElement("div");
+            title.className = "backups-title";
+            title.textContent = "Métronome";
+            panel.appendChild(title);
+
+            var bpmRow = document.createElement("div");
+            bpmRow.className = "metro-bpm-row";
+            var bpmDown = iconButton("−", "Ralentir", function () { setBpm(m.bpm - 1); });
+            var bpmValue = document.createElement("div");
+            bpmValue.className = "metro-bpm-value";
+            var bpmUp = iconButton("+", "Accélérer", function () { setBpm(m.bpm + 1); });
+            bpmRow.appendChild(bpmDown);
+            bpmRow.appendChild(bpmValue);
+            bpmRow.appendChild(bpmUp);
+            panel.appendChild(bpmRow);
+
+            var bpmSlider = document.createElement("input");
+            bpmSlider.type = "range";
+            bpmSlider.min = "30";
+            bpmSlider.max = "300";
+            bpmSlider.className = "metro-bpm-slider";
+            bpmSlider.addEventListener("input", function () { setBpm(parseInt(bpmSlider.value, 10)); });
+            panel.appendChild(bpmSlider);
+
+            var beatsRow = document.createElement("div");
+            beatsRow.className = "metro-beats-row";
+            panel.appendChild(beatsRow);
+
+            function renderBeats() {
+                beatsRow.innerHTML = "";
+                for (var i = 0; i < m.beatsPerMeasure; i++) {
+                    (function (idx) {
+                        var dot = document.createElement("button");
+                        dot.type = "button";
+                        dot.className = "metro-beat metro-beat-" + m.accents[idx];
+                        dot.title = "Temps " + (idx + 1) + " : clique pour changer (silence / normal / fort)";
+                        dot.addEventListener("click", function () {
+                            m.accents[idx] = (m.accents[idx] + 1) % 3;
+                            save();
+                            renderBeats();
+                        });
+                        beatsRow.appendChild(dot);
+                    })(i);
+                }
+            }
+            renderBeats();
+            metroBeatCallback = function (beat, sub) {
+                if (sub !== 0) return;
+                Array.prototype.forEach.call(beatsRow.children, function (el, i) {
+                    el.classList.toggle("metro-beat-current", i === beat);
+                });
+            };
+
+            var fieldsRow = document.createElement("div");
+            fieldsRow.className = "metro-fields-row";
+
+            var beatsField = document.createElement("label");
+            beatsField.className = "metro-field";
+            beatsField.textContent = "Temps/mesure";
+            var beatsInput = document.createElement("input");
+            beatsInput.type = "number";
+            beatsInput.min = "1";
+            beatsInput.max = "12";
+            beatsInput.value = m.beatsPerMeasure;
+            beatsInput.addEventListener("change", function () {
+                var n = Math.min(12, Math.max(1, parseInt(beatsInput.value, 10) || 4));
+                m.beatsPerMeasure = n;
+                normalizeMetronomeSettings(state.settings);
+                beatsInput.value = m.beatsPerMeasure;
+                metroCurrentBeat = 0;
+                save();
+                renderBeats();
+            });
+            beatsField.appendChild(beatsInput);
+            fieldsRow.appendChild(beatsField);
+
+            var subField = document.createElement("label");
+            subField.className = "metro-field";
+            subField.textContent = "Subdivision";
+            var subSelect = document.createElement("select");
+            [[1, "Noire"], [2, "Croches"], [3, "Triolet"]].forEach(function (opt) {
+                var o = document.createElement("option");
+                o.value = opt[0];
+                o.textContent = opt[1];
+                if (m.subdivision === opt[0]) o.selected = true;
+                subSelect.appendChild(o);
+            });
+            subSelect.addEventListener("change", function () {
+                m.subdivision = parseInt(subSelect.value, 10);
+                save();
+            });
+            subField.appendChild(subSelect);
+            fieldsRow.appendChild(subField);
+
+            panel.appendChild(fieldsRow);
+
+            var playBtn = document.createElement("button");
+            playBtn.type = "button";
+            playBtn.className = "btn-accent metro-play-btn";
+            function refreshPlayBtn() {
+                playBtn.textContent = metroPlaying ? "⏸ Arrêter" : "▶ Jouer";
+            }
+            refreshPlayBtn();
+            playBtn.addEventListener("click", function () {
+                if (metroPlaying) stopMetronome(); else startMetronome();
+                refreshPlayBtn();
+            });
+            panel.appendChild(playBtn);
+
+            function setBpm(v) {
+                v = Math.min(300, Math.max(30, v));
+                m.bpm = v;
+                save();
+                refreshBpmUI();
+            }
+            function refreshBpmUI() {
+                bpmValue.textContent = m.bpm + " BPM";
+                bpmSlider.value = m.bpm;
+            }
+            refreshBpmUI();
+
+            // On arrête le métronome en fermant le panneau : pas de son qui continue en arrière-plan
+            // sans qu'on le voie.
+            return function () {
+                stopMetronome();
+                metroBeatCallback = null;
+            };
+        });
+    }
+
+    // ---------- aides : cercle des quintes ----------
+    var CIRCLE_OF_FIFTHS_MAJOR = ["C", "G", "D", "A", "E", "B", "F♯", "D♭", "A♭", "E♭", "B♭", "F"];
+    var CIRCLE_OF_FIFTHS_MINOR = ["Am", "Em", "Bm", "F♯m", "C♯m", "G♯m", "E♭m", "B♭m", "Fm", "Cm", "Gm", "Dm"];
+
+    function buildCircleOfFifthsSvg() {
+        var size = 320, cx = size / 2, cy = size / 2;
+        var outerR = 148, midR = 98, coreR = 50; // limites des deux anneaux (majeur / mineur)
+        var labelMajorR = 123, labelMinorR = 74; // position du texte dans chaque anneau
+        var ns = "http://www.w3.org/2000/svg";
+        var svg = document.createElementNS(ns, "svg");
+        svg.setAttribute("viewBox", "0 0 " + size + " " + size);
+        svg.setAttribute("class", "circle-of-fifths");
+
+        function el(tag, attrs) {
+            var n = document.createElementNS(ns, tag);
+            for (var k in attrs) n.setAttribute(k, attrs[k]);
+            return n;
+        }
+
+        svg.appendChild(el("circle", { cx: cx, cy: cy, r: outerR, class: "cof-ring cof-ring-outer" }));
+        svg.appendChild(el("circle", { cx: cx, cy: cy, r: midR, class: "cof-ring cof-ring-inner" }));
+
+        for (var i = 0; i < 12; i++) {
+            var angle = (i * 30 - 90) * Math.PI / 180; // 0 en haut, sens horaire
+            // Traits séparateurs entre chaque quinte, sur les deux anneaux.
+            var sepAngle = ((i * 30) - 15 - 90) * Math.PI / 180;
+            var cosS = Math.cos(sepAngle), sinS = Math.sin(sepAngle);
+            svg.appendChild(el("line", {
+                x1: cx + midR * cosS, y1: cy + midR * sinS,
+                x2: cx + outerR * cosS, y2: cy + outerR * sinS,
+                class: "cof-sep"
+            }));
+            svg.appendChild(el("line", {
+                x1: cx + coreR * cosS, y1: cy + coreR * sinS,
+                x2: cx + midR * cosS, y2: cy + midR * sinS,
+                class: "cof-sep cof-sep-minor"
+            }));
+
+            var majorX = cx + labelMajorR * Math.cos(angle), majorY = cy + labelMajorR * Math.sin(angle);
+            var majorText = el("text", { x: majorX, y: majorY, class: "cof-major" });
+            majorText.textContent = CIRCLE_OF_FIFTHS_MAJOR[i];
+            svg.appendChild(majorText);
+
+            var minorX = cx + labelMinorR * Math.cos(angle), minorY = cy + labelMinorR * Math.sin(angle);
+            var minorText = el("text", { x: minorX, y: minorY, class: "cof-minor" });
+            minorText.textContent = CIRCLE_OF_FIFTHS_MINOR[i];
+            svg.appendChild(minorText);
+        }
+
+        svg.appendChild(el("circle", { cx: cx, cy: cy, r: coreR, class: "cof-ring cof-ring-core" }));
+        return svg;
+    }
+
+    function openAidesPanel() {
+        openModal("aides-panel", function (panel) {
+            var title = document.createElement("div");
+            title.className = "backups-title";
+            title.textContent = "Cercle des quintes";
+            panel.appendChild(title);
+
+            var wrap = document.createElement("div");
+            wrap.className = "cof-wrap";
+            wrap.appendChild(buildCircleOfFifthsSvg());
+            panel.appendChild(wrap);
+
+            var legend = document.createElement("div");
+            legend.className = "cof-legend";
+            legend.innerHTML = "<span class=\"cof-legend-dot cof-legend-major\"></span> Majeur &nbsp; <span class=\"cof-legend-dot cof-legend-minor\"></span> Mineur relatif";
+            panel.appendChild(legend);
+        });
+    }
+
+    var $metronomeBtn = document.getElementById("metronome-btn");
+    if ($metronomeBtn) $metronomeBtn.addEventListener("click", openMetronomePanel);
+    var $aidesBtn = document.getElementById("aides-btn");
+    if ($aidesBtn) $aidesBtn.addEventListener("click", openAidesPanel);
 
     // ---------- init ----------
     render();
