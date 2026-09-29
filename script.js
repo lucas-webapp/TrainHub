@@ -678,7 +678,9 @@
         document.body.appendChild(menu);
         document.addEventListener("keydown", onKey, true);
         openMenu = { backdrop: backdrop, menu: menu, onKey: onKey };
-        if (startScreen === "rename") showRename(); else showMain();
+        if (startScreen === "rename") showRename();
+        else if (startScreen === "addSub" && canAddSub) showAddSub();
+        else showMain();
         place();
     }
 
@@ -940,11 +942,28 @@
 
     if ($undoBtn) $undoBtn.addEventListener("click", undo);
     if ($redoBtn) $redoBtn.addEventListener("click", redo);
+    // Comme dans un gestionnaire de fichiers (Ctrl/Cmd+Maj+N) : ajoute un sous-dossier au dossier
+    // actuellement ouvert, sans bouton dédié à l'écran (voir aussi le clic droit/appui long sur le
+    // titre du dossier, qui ouvre le même menu — bindFolderMenu dans renderContentHeading).
+    function addSubfolderToCurrentFolder() {
+        var inst = getActiveInstrument();
+        if (!inst) return;
+        var path = getNavPath(inst);
+        if (path[0] === FAVORITES_ID || path[0] === ARCHIVED_ID) return;
+        var nodes = resolvePath(inst, path);
+        var currentFolder = nodes[nodes.length - 1];
+        if (!currentFolder) return;
+        var ancestorPath = path.slice(0, -1);
+        openFolderMenu(window.innerWidth / 2, window.innerHeight / 2,
+            function () { return getParentArrayFor(inst, ancestorPath); }, currentFolder, inst, "addSub");
+    }
+
     document.addEventListener("keydown", function (e) {
         if (!(e.ctrlKey || e.metaKey)) return;
         var key = e.key.toLowerCase();
         if (key === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
         else if (key === "y" || (key === "z" && e.shiftKey)) { e.preventDefault(); redo(); }
+        else if (key === "n" && e.shiftKey) { e.preventDefault(); addSubfolderToCurrentFolder(); }
     });
     resetHistory();
 
@@ -1055,7 +1074,7 @@
 
         setupDragReorder($chapterBar, ".chapter-chip", function () { return getActiveInstrument().pinnedOrder; }, "x");
 
-        var addBtn = iconButton("+ Chapitre", "Ajouter un grand chapitre", function () {
+        var addBtn = iconButton("+", "Ajouter un grand chapitre", function () {
             var name = window.prompt("Nom du nouveau chapitre (ex : Technique, Morceaux, Gammes...) :");
             if (!name) return;
             name = name.trim();
@@ -1067,7 +1086,6 @@
             save();
             render();
         });
-        addBtn.className = "btn-ghost";
         $chapterBar.appendChild(addBtn);
     }
 
@@ -1350,6 +1368,10 @@
         if (!folder) return;
         var h2 = document.createElement("h2");
         h2.textContent = folder.name;
+        h2.title = "Clic droit (ordinateur) ou appui long (mobile) : nouveau sous-dossier / renommer / supprimer";
+        // Comme pour les lignes de l'arborescence : le menu complet (dont "Nouveau sous-dossier")
+        // reste accessible sur le titre du dossier courant, sans bouton dédié à l'écran.
+        bindFolderMenu(h2, getParentArray, folder, inst);
         $contentHeading.appendChild(h2);
 
         var editBtn = svgIconButton(PENCIL_ICON_SVG, "Renommer ce dossier", function () {
@@ -1485,16 +1507,23 @@
         return row;
     }
 
+    // Discret à dessein (même habillage en pointillés que le "+" de l'arborescence côté
+    // ordinateur) : ajouter un sous-dossier est bien plus rare qu'ajouter un exercice, il ne doit
+    // pas rivaliser visuellement avec le bouton d'ajout d'exercice juste en dessous. Sur ordinateur,
+    // le clic droit/appui long sur le titre du dossier (→ "Nouveau sous-dossier") et le raccourci
+    // Ctrl/Cmd+Maj+N font la même chose sans occuper de place à l'écran.
     function renderAddFolderForm(currentFolder) {
         var wrap = document.createElement("div");
-        wrap.className = "add-category-row";
+        wrap.className = "add-category-row tree-add-row";
         var input = document.createElement("input");
         input.type = "text";
+        input.className = "tree-add-input";
         input.placeholder = "Nouveau sous-dossier…";
         var btn = document.createElement("button");
         btn.type = "button";
-        btn.className = "btn-accent";
-        btn.textContent = "+ Sous-dossier";
+        btn.className = "tree-add-btn";
+        btn.textContent = "+";
+        btn.title = "Ajouter un sous-dossier";
         function commit() {
             var name = input.value.trim();
             if (!name) return;
@@ -1526,7 +1555,7 @@
         wrap.className = "add-exercise-row";
         var input = document.createElement("input");
         input.type = "text";
-        input.placeholder = "+ Ajouter un exercice…";
+        input.placeholder = "Ajouter un exercice…";
         function commit() {
             var title = input.value.trim();
             if (!title) return;
@@ -1545,10 +1574,8 @@
             save();
             render();
         }
-        var btn = document.createElement("button");
-        btn.type = "button";
-        btn.textContent = "Ajouter";
-        btn.addEventListener("click", commit);
+        var btn = iconButton("+", "Ajouter l'exercice", commit);
+        btn.className = "btn-accent icon-btn";
         input.addEventListener("keydown", function (e) { if (e.key === "Enter") commit(); });
         wrap.appendChild(input);
         wrap.appendChild(btn);

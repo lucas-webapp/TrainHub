@@ -256,6 +256,10 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 5px 10px;
+    /* Hauteur fixe : les puces avec icône (Favoris/Archivés) et celles sans (chapitres normaux)
+       doivent rester rigoureusement identiques, la largeur seule varie avec le texte. */
+    box-sizing: border-box;
+    height: 30px;
     cursor: grab;
     touch-action: none;
     user-select: none;
