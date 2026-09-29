@@ -1,6 +1,6 @@
 # TrainHub
 
-Application (PWA) pour structurer l'entraînement musical quotidien (basse, guitare, piano) : catégories libres (technique, gammes, improvisation, jeu en groupe, copie de morceaux…), exercices librement nommés, et surtout des **liens cliquables** (YouTube, iReal Pro, PDF, backing tracks…) attachés à chaque exercice.
+Application (PWA) pour structurer l'entraînement musical quotidien (basse, guitare, piano) : grands chapitres personnalisables (technique, gammes, improvisation, jeu en groupe, copie de morceaux…) avec des sous-dossiers imbriqués si besoin, exercices librement nommés, et surtout des **liens cliquables** (YouTube, iReal Pro, PDF, backing tracks…) attachés à chaque exercice.
 
 ## Utilisation
 
@@ -9,10 +9,12 @@ Ouvrir `index.html` dans un navigateur, ou héberger le dossier statique (aucune
 ## Fonctionnalités v1
 
 - Un espace par instrument (Basse / Guitare / Piano par défaut, ajout/renommage/suppression libres — double-clic sur un onglet).
-- Catégories personnalisables par instrument (ajout, renommage, suppression).
-- Exercices : titre modifiable librement, statut (à faire / en cours / terminé / à revoir), tempo (BPM), notes libres, liens multiples ouverts en un clic.
-- Filtre « À revoir » pour retrouver rapidement les exercices marqués comme intéressants à retravailler plus tard.
-- Sauvegarde locale automatique (`localStorage`), export/import JSON pour transférer les données entre appareils.
+- Bandeau de « grands chapitres » personnalisables par instrument (ajout, renommage, suppression, réorganisation), chacun pouvant contenir des sous-dossiers imbriqués (jusqu'à 5 niveaux, ex. Technique / Elie / Vitesse / Extraits morceaux / Funk), avec fil d'Ariane pour naviguer.
+- Exercices (à n'importe quel niveau) : titre modifiable librement, statut (à faire / en cours / terminé / à revoir), tempo (BPM), notes libres, liens multiples ouverts en un clic, réorganisation manuelle.
+- Recherche par titre dans tout l'instrument (tous chapitres/sous-dossiers confondus), avec le chemin affiché pour chaque résultat.
+- Filtre « À revoir » (tree-wide) pour retrouver rapidement les exercices marqués comme intéressants à retravailler plus tard.
+- Date de dernière modification par exercice, masquée par défaut — activable via le bouton horloge de la barre du haut.
+- Sauvegarde locale automatique (`localStorage`) + synchro cloud optionnelle (connexion Google / Firebase), export/import JSON en secours.
 
 ## Ce qui n'est pas inclus (volontairement)
 

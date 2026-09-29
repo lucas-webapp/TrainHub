@@ -22,6 +22,12 @@
 
     --accent: #00e676;
     --accent-hover: #00c853;
+    /* Couleur d'identité du grand chapitre courant (voir FOLDER_PALETTE dans script.js) : teinte
+       le bandeau de chapitres, les icônes de dossier et le fil d'Ariane pour se repérer d'un coup
+       d'oeil dans l'arborescence, sans toucher aux couleurs de statut (à faire/en cours/terminé/
+       à revoir) qui restent un système séparé. Les 3 instruments partagent la même identité
+       visuelle : --accent reste leur couleur commune, celle du logo et des actions génériques. */
+    --chapter-accent: var(--accent);
     --btn-text: #e9f3ec;
 
     --btn-neutral-1: #262626; --btn-neutral-2: #1a1a1a; --btn-neutral-border: #3a3a3a; --btn-neutral-border-hover: #4a4a4a;
@@ -114,6 +120,9 @@ input, textarea, select {
 }
 input:focus, textarea:focus, select:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
 textarea { resize: vertical; min-height: 60px; width: 100%; }
+/* Notes d'exercice : hauteur automatique gérée en JS (autoGrowNotes), pas de poignée de
+   redimensionnement manuelle (elle se battrait avec le recalcul à chaque frappe). */
+.notes-textarea { resize: none; min-height: 0; line-height: 1.45; overflow-y: hidden; }
 
 /* ---------- top bar ---------- */
 .top-bar {
@@ -132,19 +141,12 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 .logo-mark { color: var(--accent); display: inline-flex; }
 .logo-text { font-weight: 800; font-size: var(--fs-lg); letter-spacing: .2px; }
 
-.instrument-tabs { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
-.instrument-tab {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-muted);
-    border-radius: 20px;
-    padding: 6px 14px;
-    font-weight: 600;
-}
-.instrument-tab.active {
-    background: rgba(0,230,118,.12);
-    border-color: var(--accent);
-    color: var(--accent);
+.instrument-select-wrap { display: flex; align-items: center; gap: 4px; }
+#instrument-select {
+    font-weight: 700;
+    font-size: var(--fs-base);
+    padding: 7px 10px;
+    min-width: 110px;
 }
 .top-actions { display: flex; gap: 6px; margin-left: auto; }
 .top-actions button.active { border-color: #4dabf7; color: #4dabf7; }
@@ -177,6 +179,14 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 .sync-status.syncing { color: var(--status-en-cours); }
 .sync-status.error { color: #ff6b6b; }
 
+/* ---------- layout (bandeau chapitres mobile + arborescence desktop) ---------- */
+.layout {
+    display: flex;
+    align-items: flex-start;
+    width: 100%;
+    flex: 1;
+}
+
 /* ---------- main ---------- */
 .main {
     flex: 1;
@@ -189,8 +199,24 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     gap: 14px;
 }
 
+.content-heading { display: none; }
+
+.search-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
 .search-row input {
-    width: 100%;
+    flex: 1;
+    min-width: 0;
+}
+.search-row select {
+    flex: none;
+    width: auto;
+}
+@media (max-width: 560px) {
+    .search-row { flex-wrap: wrap; }
+    .search-row input { flex-basis: 100%; }
 }
 
 .updated-at-note {
@@ -207,32 +233,119 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     font-size: var(--fs-md);
 }
 
-/* ---------- categories ---------- */
-.category {
-    background: var(--card-bg);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    overflow: hidden;
+/* ---------- chapter bar (grands chapitres) ---------- */
+.chapter-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding: 8px 16px;
+    background: var(--card-bg-2);
+    border-bottom: 1px solid var(--border);
+    border-top: 3px solid var(--chapter-accent);
+    position: sticky;
+    top: 0;
+    z-index: 15;
+    transition: border-top-color .15s ease;
 }
-.category-header {
+.chapter-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 5px 10px;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+}
+.chapter-chip.dragging { opacity: .5; cursor: grabbing; }
+.chapter-chip-label {
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: var(--fs-sm);
+    cursor: default;
+    -webkit-touch-callout: none;
+}
+.chapter-chip.active .chapter-chip-label { color: var(--chapter-accent); }
+.chapter-add { display: flex; }
+
+/* Chapitres virtuels "Favoris" (or) et "Archivés" (gris, plus discret) : couleur fixe, mais
+   glissables comme les vrais chapitres (voir pinnedOrder / renderChapterBar). */
+.virtual-favorites { border-color: #ffd60a; background: color-mix(in srgb, #ffd60a 8%, transparent); }
+.virtual-favorites.active { background: color-mix(in srgb, #ffd60a 18%, transparent); }
+.virtual-favorites .chapter-chip-label, .virtual-favorites .chapter-chip-star { color: #ffd60a; }
+.virtual-archived { border-color: #9ca3af; background: color-mix(in srgb, #9ca3af 7%, transparent); }
+.virtual-archived.active { background: color-mix(in srgb, #9ca3af 15%, transparent); }
+.virtual-archived .chapter-chip-label, .virtual-archived .chapter-chip-star { color: #9ca3af; }
+.chapter-chip-star { display: inline-flex; }
+.chapter-chip-star .icon { width: 13px; height: 13px; }
+
+/* ---------- breadcrumb ---------- */
+.breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+    font-size: var(--fs-sm);
+}
+.crumb {
+    background: transparent;
+    border: none;
+    padding: 3px 6px;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+.crumb:hover { color: var(--chapter-accent); background: rgba(255,255,255,.06); }
+.crumb-current, .crumb-current:hover { color: var(--text-main); background: transparent; cursor: default; }
+.crumb-sep { color: var(--text-muted); opacity: .5; }
+
+/* ---------- folder rows (sous-dossiers) ---------- */
+.folders-wrap { display: flex; flex-direction: column; gap: 6px; }
+.folder-row {
     display: flex;
     align-items: center;
     gap: 8px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
     padding: 10px 12px;
-    cursor: pointer;
+    cursor: grab;
+    touch-action: none;
     user-select: none;
 }
-.category-header .chevron { color: var(--text-muted); transition: transform .15s ease; flex: none; }
-.category.collapsed .chevron { transform: rotate(-90deg); }
-.category-name {
-    font-weight: 700;
-    font-size: var(--fs-md);
-    flex: 1;
+.folder-row:hover { background: rgba(255,255,255,.04); }
+.folder-row.dragging { opacity: .5; cursor: grabbing; }
+.folder-icon { color: var(--chapter-accent); display: inline-flex; flex: none; }
+.folder-name { font-weight: 700; font-size: var(--fs-base); flex: 1; cursor: default; -webkit-touch-callout: none; }
+.folder-edit-btn {
+    flex: none;
+    opacity: .4;
+    padding: 5px;
+    transition: opacity .12s ease;
 }
-.category-count { color: var(--text-muted); font-size: var(--fs-xs); }
-.category-actions { display: flex; gap: 4px; }
-.category-body { border-top: 1px solid var(--border); padding: 8px; display: flex; flex-direction: column; gap: 6px; }
-.category.collapsed .category-body { display: none; }
+.folder-row:hover .folder-edit-btn,
+.folder-edit-btn:focus-visible { opacity: 1; }
+.folder-edit-btn .icon { width: 14px; height: 14px; }
+/* Pas de survol au doigt : le crayon reste bien visible en permanence sur tactile. */
+@media (hover: none) { .folder-edit-btn { opacity: .7; } }
+
+.heading-edit-btn { flex: none; padding: 6px; margin-left: 2px; }
+.heading-edit-btn .icon { width: 15px; height: 15px; }
+
+/* ---------- résultats de recherche / filtre à revoir ---------- */
+.result-item { display: flex; flex-direction: column; gap: 4px; }
+.result-path {
+    align-self: flex-start;
+    background: transparent;
+    border-color: transparent;
+    color: var(--text-muted);
+    font-size: var(--fs-2xs);
+    font-weight: 600;
+    padding: 2px 4px;
+}
+.result-path:hover { color: var(--chapter-accent); background: rgba(255,255,255,.05); }
 
 /* ---------- exercise row ---------- */
 .exercise {
@@ -245,6 +358,9 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     display: flex;
     align-items: center;
     gap: 8px;
+    cursor: pointer;
+    user-select: none;
+    -webkit-touch-callout: none;
 }
 .exercise-title {
     flex: 1;
@@ -256,17 +372,29 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     min-width: 0;
 }
 .exercise-title:focus { background: rgba(255,255,255,.04); outline: none; border-radius: 6px; }
-.status-select {
-    font-size: var(--fs-2xs);
-    padding: 4px 6px;
-    border-radius: 20px;
-    font-weight: 700;
-    background: rgba(255,255,255,.05);
+
+.exercise-drag-handle {
+    flex: none;
+    display: inline-flex;
+    color: var(--text-muted);
+    cursor: grab;
+    touch-action: none;
+    padding: 4px 2px;
 }
-.status-select[data-status="a_faire"] { color: var(--status-a-faire); border-color: var(--status-a-faire); }
-.status-select[data-status="en_cours"] { color: var(--status-en-cours); border-color: var(--status-en-cours); }
-.status-select[data-status="termine"] { color: var(--status-termine); border-color: var(--status-termine); }
-.status-select[data-status="a_revoir"] { color: var(--status-a-revoir); border-color: var(--status-a-revoir); }
+.exercise-drag-handle:hover { color: var(--text-main); }
+.exercise.dragging { opacity: .5; }
+
+.exercise-favorite-badge { flex: none; display: inline-flex; color: #ffd60a; }
+.exercise-favorite-badge .icon { width: 14px; height: 14px; }
+.exercise-archived-badge {
+    flex: none;
+    font-size: var(--fs-2xs);
+    font-weight: 700;
+    color: var(--text-muted);
+    background: rgba(255,255,255,.06);
+    border-radius: 20px;
+    padding: 3px 9px;
+}
 
 .exercise-details {
     margin-top: 8px;
@@ -278,9 +406,6 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 }
 .exercise.collapsed .exercise-details { display: none; }
 
-.field-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.field-row label { font-size: var(--fs-xs); color: var(--text-muted); }
-.tempo-input { width: 80px; }
 
 .links-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .link-chip {
@@ -310,14 +435,367 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 .add-link-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .add-link-row input { flex: 1; min-width: 120px; }
 
+/* ---------- fichiers joints (PDF/MP3) ---------- */
+.files-section { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.files-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.file-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255,255,255,.05);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 5px 10px;
+    font-size: var(--fs-xs);
+    max-width: 260px;
+}
+.file-chip .file-open {
+    background: transparent;
+    border: none;
+    color: var(--text-main);
+    padding: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 200px;
+}
+.file-chip .file-open:hover { color: var(--accent); }
+.file-chip .link-remove {
+    color: var(--text-muted);
+    font-weight: 700;
+    border-radius: 50%;
+    width: 16px; height: 16px;
+    display: inline-flex; align-items: center; justify-content: center;
+    flex: none;
+}
+.file-chip .link-remove:hover { color: #ff6b6b; }
+
+.add-file-row { display: flex; align-items: center; }
+.add-file-row .add-file-input { display: none; }
+.add-file-label { font-size: var(--fs-xs); padding: 6px 12px; }
+.files-hint { font-size: var(--fs-2xs); color: var(--text-muted); }
+
 .add-exercise-row { display: flex; gap: 6px; padding: 4px; }
 .add-exercise-row input { flex: 1; }
 
 .add-category-row { display: flex; gap: 8px; }
 .add-category-row input { flex: 1; }
 
+/* ---------- arborescence latérale (ordinateur uniquement) ---------- */
+.sidebar-tree {
+    display: none;
+    flex-direction: column;
+}
+
+.sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 2px 10px 12px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+}
+.sidebar-title {
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--text-muted);
+}
+
+.tree-list { display: flex; flex-direction: column; gap: 1px; }
+.tree-node { display: flex; flex-direction: column; }
+.tree-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 8px;
+    border-radius: 8px;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    transition: background .12s ease;
+}
+.tree-row:hover { background: rgba(255,255,255,.09) !important; }
+.tree-row.dragging { opacity: .45; cursor: grabbing; }
+.tree-row.selected .tree-label { color: var(--chapter-accent); font-weight: 700; }
+
+/* Ligne fixe "Favoris" au-dessus de l'arborescence : couleur or fixe, pas de glisser (elle n'est
+   pas dans `.tree-list`, voir renderSidebarTree), pas de crayon/clic droit (rien à renommer). */
+.tree-row-fixed { border-left: 3px solid transparent; }
+.tree-row-fixed .tree-label { font-weight: 700; }
+.tree-row-fixed.virtual-favorites { border-left-color: #ffd60a; background: color-mix(in srgb, #ffd60a 6%, transparent); }
+.tree-row-fixed.virtual-favorites.selected { background: color-mix(in srgb, #ffd60a 16%, transparent); }
+.tree-row-fixed.virtual-favorites .tree-label, .tree-row-fixed.virtual-favorites .tree-fixed-icon { color: #ffd60a; }
+.tree-row-fixed.virtual-archived { border-left-color: #9ca3af; background: color-mix(in srgb, #9ca3af 5%, transparent); }
+.tree-row-fixed.virtual-archived.selected { background: color-mix(in srgb, #9ca3af 14%, transparent); }
+.tree-row-fixed.virtual-archived .tree-label, .tree-row-fixed.virtual-archived .tree-fixed-icon { color: #9ca3af; }
+.tree-fixed-icon { width: 18px; height: 18px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+.tree-fixed-icon .icon { width: 13px; height: 13px; }
+
+/* Les 3 styles ci-dessous distinguent la hiérarchie en plus de l'indentation : seul le grand
+   chapitre (niveau 0) garde la couleur du chapitre en permanence (voir renderTreeNode). Les
+   sous-dossiers s'effacent progressivement — texte plus petit, plus discret — pour que la couleur
+   reste un repère de chapitre et non un habillage répété à chaque niveau. */
+.tree-row-d0 .tree-label { font-size: var(--fs-sm); font-weight: 700; }
+
+.tree-row-d1 { padding: 7px 8px; border-radius: 6px; }
+.tree-row-d1 .tree-label { font-weight: 600; }
+
+.tree-row-d2 { padding: 5px 8px; border-radius: 6px; }
+.tree-row-d2 .tree-label { font-size: var(--fs-xs); font-weight: 500; color: var(--text-muted); }
+.tree-row-d2.selected .tree-label { color: var(--chapter-accent); }
+
+.tree-twisty {
+    width: 18px;
+    height: 18px;
+    flex: none;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    border-radius: 5px;
+}
+.tree-twisty:hover { background: rgba(255,255,255,.08); color: var(--text-main); }
+.tree-twisty-empty { visibility: hidden; pointer-events: none; }
+.tree-twisty .icon {
+    width: 11px;
+    height: 11px;
+    transition: transform .12s ease;
+}
+.tree-twisty.expanded .icon { transform: rotate(90deg); }
+
+.tree-label {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--text-main);
+    cursor: default;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    -webkit-touch-callout: none;
+}
+
+.tree-children {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin-left: 21px;
+    padding-left: 10px;
+    border-left: 1px solid var(--border);
+}
+
+.tree-add-row { display: flex; gap: 6px; padding: 2px 0 6px; }
+.tree-add-input {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--fs-xs);
+    padding: 6px 9px;
+    border-style: dashed;
+}
+.tree-add-btn {
+    background: transparent;
+    border: 1px dashed var(--border);
+    color: var(--text-muted);
+    font-size: var(--fs-sm);
+    font-weight: 700;
+    padding: 6px 12px;
+    flex: none;
+}
+.tree-add-btn:hover { color: var(--text-main); border-color: var(--text-muted); }
+
+.sidebar-add-chapter { margin-top: 10px; padding: 0; }
+
+/* ---------- poignée de largeur du bandeau (ordinateur) ---------- */
+.sidebar-resizer {
+    display: none;
+    flex: none;
+    width: 8px;
+    margin-left: -4px;
+    margin-right: -4px;
+    align-self: stretch;
+    cursor: col-resize;
+    position: relative;
+    z-index: 5;
+    touch-action: none;
+}
+.sidebar-resizer::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 3px;
+    width: 2px;
+    background: transparent;
+    transition: background .15s ease;
+}
+.sidebar-resizer:hover::after,
+.sidebar-resizer:focus-visible::after,
+body.resizing-sidebar .sidebar-resizer::after { background: var(--chapter-accent); }
+.sidebar-resizer:focus { outline: none; }
+body.resizing-sidebar { cursor: col-resize; user-select: none; }
+
+/* ---------- titres de section de la zone principale ---------- */
+/* #folder-container est lui-même une colonne flex espacée (voir plus bas) : chaque titre de
+   section n'a donc plus besoin d'une marge négative pour se rapprocher de son contenu, ce qui
+   provoquait un chevauchement avec l'élément précédent (le titre du dossier notamment). */
+#folder-container {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+.section-group { display: flex; flex-direction: column; gap: 8px; }
+.section-label {
+    font-size: var(--fs-2xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--text-muted);
+}
+
+/* ---------- panneau des sauvegardes de secours ---------- */
+.backups-panel {
+    position: fixed;
+    z-index: 902;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(480px, calc(100vw - 32px));
+    max-height: min(600px, calc(100vh - 32px));
+    overflow-y: auto;
+    background: var(--card-bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 10px 30px rgba(0,0,0,.5);
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.backups-title { font-size: var(--fs-md); font-weight: 800; }
+.backups-intro { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.4; }
+.backups-list { display: flex; flex-direction: column; gap: 8px; }
+.backups-empty { color: var(--text-muted); font-size: var(--fs-sm); padding: 8px 0; }
+.backups-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    background: rgba(255,255,255,.03);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+}
+.backups-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.backups-when { font-weight: 700; font-size: var(--fs-sm); }
+.backups-reason { font-size: var(--fs-2xs); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.backups-actions { display: flex; gap: 6px; flex: none; }
+.backups-actions button { font-size: var(--fs-2xs); padding: 6px 10px; }
+.backups-close-row { display: flex; justify-content: flex-end; }
+
+/* ---------- menu contextuel (renommer / supprimer) ---------- */
+.ctx-backdrop { position: fixed; inset: 0; z-index: 900; background: transparent; }
+.ctx-menu {
+    position: fixed;
+    z-index: 901;
+    min-width: 200px;
+    max-width: min(300px, calc(100vw - 16px));
+    background: var(--card-bg-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.5);
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.ctx-title {
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+    padding: 6px 10px 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4px;
+}
+.ctx-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    color: var(--text-main);
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    padding: 9px 10px;
+    border-radius: 7px;
+}
+.ctx-item:hover { background: rgba(255,255,255,.07); }
+.ctx-danger { color: #ff6b6b; }
+.ctx-message { font-size: var(--fs-sm); padding: 8px 10px; line-height: 1.4; }
+.ctx-input { margin: 4px; font-size: var(--fs-sm); }
+.ctx-actions { display: flex; justify-content: flex-end; gap: 6px; padding: 6px 4px 2px; }
+.ctx-actions .ctx-item { width: auto; text-align: center; padding: 7px 12px; }
+.ctx-secondary { color: var(--text-muted); }
+.ctx-primary { background: var(--chapter-accent); color: #000; }
+.ctx-primary:hover { background: var(--chapter-accent); filter: brightness(1.1); }
+.ctx-danger-solid { background: #e5484d; color: #fff; }
+.ctx-danger-solid:hover { background: #f2555a; }
+
+@media (min-width: 880px) {
+    .chapter-bar { display: none; }
+    .sidebar-tree {
+        display: flex;
+        width: var(--sidebar-width, 280px);
+        flex: none;
+        min-width: 0;
+        background: var(--card-bg);
+        border-right: 1px solid var(--border);
+        padding: 16px 12px 24px;
+        align-self: stretch;
+    }
+    .main {
+        max-width: none;
+        margin: 0;
+        flex: 1;
+        padding: 28px 32px;
+        gap: 16px;
+    }
+    .sidebar-resizer { display: block; }
+    /* Sous-dossiers du dossier courant en cartes, dans l'ordre de l'arborescence. L'ajout se
+       fait depuis l'arborescence : pas de doublon ici. */
+    .folders-wrap {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+        gap: 8px;
+    }
+    #folder-container > .add-category-row { display: none; }
+    .content-heading {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .content-heading {
+        border-left: 3px solid var(--chapter-accent);
+        padding-left: 12px;
+    }
+    .content-heading h2 {
+        margin: 0;
+        font-size: var(--fs-xl);
+        font-weight: 800;
+        letter-spacing: -.01em;
+    }
+}
+
 @media (max-width: 560px) {
     .top-bar { padding: 8px 10px; }
     .main { padding: 10px; }
     .logo-text { display: none; }
 }
+
+/* Appui long = menu renommer/supprimer : pas de bulle système iOS sur les lignes. */
+.tree-row, .folder-row, .chapter-chip { -webkit-touch-callout: none; -webkit-user-select: none; }
