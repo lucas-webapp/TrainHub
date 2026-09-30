@@ -4,7 +4,38 @@
     var STORAGE_KEY = "trainhub.v1";
     var DEFAULT_CATEGORIES = ["Technique", "Gammes", "Improvisation", "Jeu en groupe", "Copie de morceaux"];
     var DEFAULT_INSTRUMENTS = ["Basse", "Guitare", "Piano"];
-    var FOLDER_PALETTE = ["#00e676", "#a78bfa", "#f472b6", "#2dd4bf", "#fb923c", "#f87171"];
+    // Jeux de couleurs des chapitres, choisis dans les paramètres généraux (voir
+    // openSettingsPanel) : currentPalette() renvoie toujours le jeu actif, à utiliser à la place
+    // d'une constante fixe partout où une nouvelle couleur de chapitre est choisie.
+    var COLOR_SCHEMES = {
+        default: { label: "Défaut", colors: ["#00e676", "#a78bfa", "#f472b6", "#2dd4bf", "#fb923c", "#f87171"] },
+        flashy: { label: "Flashy", colors: ["#ff2e63", "#08d9d6", "#f8b400", "#ea00ff", "#00ff87", "#ff6f00"] },
+        sobre: { label: "Sobre", colors: ["#8892b0", "#6b8f71", "#a67c52", "#7c93a3", "#9d8189", "#7d7d7d"] },
+        pastel: { label: "Pastel", colors: ["#a3c4f3", "#ffcfd2", "#b9fbc0", "#fde4cf", "#d0bdf4", "#98f5e1"] },
+        contraste: { label: "Contrasté", colors: ["#ffffff", "#ffeb3b", "#00e5ff", "#ff1744", "#76ff03", "#d500f9"] }
+    };
+    // Variante sans dépendre de la variable globale `state` (encore non affectée lors de
+    // normalizeState/makeDefaultState, qui construisent justement cet objet) : on lui passe
+    // directement les `settings` en cours de normalisation.
+    function paletteFor(settings) {
+        var scheme = COLOR_SCHEMES[settings.appearance && settings.appearance.colorScheme];
+        return (scheme || COLOR_SCHEMES.default).colors;
+    }
+    function currentPalette() {
+        return paletteFor(state.settings);
+    }
+    // Change le jeu de couleurs ET recolore les chapitres existants (sinon le réglage ne
+    // s'appliquerait qu'aux nouveaux chapitres créés après coup, pas à ceux déjà là).
+    function applyColorScheme(key) {
+        if (!COLOR_SCHEMES[key]) return;
+        state.settings.appearance.colorScheme = key;
+        var palette = COLOR_SCHEMES[key].colors;
+        state.instruments.forEach(function (inst) {
+            inst.categories.forEach(function (cat, i) { cat.color = palette[i % palette.length]; });
+        });
+        save();
+        render();
+    }
     var MAX_FOLDER_DEPTH = 5;
     // Chapitres virtuels : n'existent dans aucun tableau `categories`, juste des valeurs spéciales
     // de navigation reconnues par render()/renderMain(). Regroupent respectivement les exercices
@@ -26,16 +57,17 @@
         return f;
     }
 
-    function makeInstrument(name) {
+    function makeInstrument(name, palette) {
+        var pal = palette || COLOR_SCHEMES.default.colors;
         var categories = DEFAULT_CATEGORIES.map(function (catName, i) {
-            return makeFolder(catName, FOLDER_PALETTE[i % FOLDER_PALETTE.length]);
+            return makeFolder(catName, pal[i % pal.length]);
         });
         return { id: uid(), name: name, categories: categories };
     }
 
     function makeDefaultState() {
         var instruments = DEFAULT_INSTRUMENTS.map(makeInstrument);
-        return { activeInstrumentId: instruments[0].id, instruments: instruments, updatedAt: 0, settings: { showUpdatedAt: false } };
+        return { activeInstrumentId: instruments[0].id, instruments: instruments, updatedAt: 0, settings: {} };
     }
 
     function normalizeFolder(f) {
@@ -44,6 +76,11 @@
         f.folders.forEach(normalizeFolder);
         f.exercises.forEach(function (ex) {
             if (!Array.isArray(ex.links)) ex.links = [];
+            // Chaque lien a un identifiant stable (les liens créés avant cette version en sont
+            // dépourvus, on le complète ici) : nécessaire pour distinguer "le lien mis en avant"
+            // (ex.pinnedLinkId) du reste, indépendamment de son libellé ou de son URL.
+            ex.links.forEach(function (link) { if (!link.id) link.id = uid(); });
+            if (ex.pinnedLinkId && !ex.links.some(function (l) { return l.id === ex.pinnedLinkId; })) ex.pinnedLinkId = null;
             // Fichiers (PDF/MP3) joints à l'exercice : seules les métadonnées sont stockées dans
             // l'état (donc synchronisées) — le contenu réel du fichier vit dans IndexedDB, sur cet
             // appareil uniquement (voir bloc "fichiers joints" plus bas).
@@ -66,16 +103,52 @@
         inst.pinnedOrder = order;
     }
 
+    var METRO_POSITIONS = ["center", "top", "bottom", "corner"];
+    var MAIN_LAYOUTS = ["vertical", "horizontal"];
+    var DENSITIES = ["compact", "comfortable", "spacious"];
+    var METRO_SIZES = ["small", "medium", "large"];
+    var TREE_FONT_SCALES = [0.85, 1, 1.15, 1.3];
+
+    function normalizeAppearanceSettings(s) {
+        if (!s.settings.appearance || typeof s.settings.appearance !== "object") s.settings.appearance = {};
+        var a = s.settings.appearance;
+        if (!COLOR_SCHEMES[a.colorScheme]) a.colorScheme = "default";
+        if (METRO_POSITIONS.indexOf(a.metronomePosition) === -1) a.metronomePosition = "center";
+        if (METRO_SIZES.indexOf(a.metronomeSize) === -1) a.metronomeSize = "medium";
+        if (TREE_FONT_SCALES.indexOf(a.treeFontScale) === -1) a.treeFontScale = 1;
+        if (MAIN_LAYOUTS.indexOf(a.mainLayout) === -1) a.mainLayout = "vertical";
+        if (DENSITIES.indexOf(a.density) === -1) a.density = "comfortable";
+    }
+
+    // Une session guidée = un enchaînement d'exercices avec un temps alloué à chacun. Les pas
+    // référencent l'exercice par son id (unique dans toute l'appli, voir uid()) plutôt que de
+    // dupliquer son contenu : si l'exercice est supprimé depuis, le pas devient "introuvable"
+    // (voir findExerciseById) et s'affiche/se saute proprement au lieu de planter.
+    function normalizeGuidedSessions(s) {
+        if (!Array.isArray(s.settings.guidedSessions)) s.settings.guidedSessions = [];
+        s.settings.guidedSessions.forEach(function (gs) {
+            if (!gs.id) gs.id = uid();
+            if (typeof gs.name !== "string" || !gs.name.trim()) gs.name = "Session guidée";
+            if (!Array.isArray(gs.steps)) gs.steps = [];
+            gs.steps.forEach(function (step) {
+                if (!step.id) step.id = uid();
+                if (typeof step.minutes !== "number" || isNaN(step.minutes) || step.minutes <= 0) step.minutes = 5;
+            });
+        });
+    }
+
     function normalizeState(s) {
-        if (!s.settings || typeof s.settings !== "object") s.settings = { showUpdatedAt: false };
-        if (typeof s.settings.showUpdatedAt !== "boolean") s.settings.showUpdatedAt = false;
+        if (!s.settings || typeof s.settings !== "object") s.settings = {};
+        normalizeMetronomeSettings(s.settings);
+        normalizeGuidedSessions(s);
+        normalizeAppearanceSettings(s);
         if (!Array.isArray(s.instruments)) s.instruments = [];
         s.instruments.forEach(function (inst) {
             if (!Array.isArray(inst.categories)) inst.categories = [];
             // La couleur se pose sur les grands chapitres (repérage des dossiers/sous-dossiers),
             // pas sur l'instrument : les 3 instruments partagent la même identité visuelle.
             inst.categories.forEach(function (cat, i) {
-                if (!cat.color) cat.color = FOLDER_PALETTE[i % FOLDER_PALETTE.length];
+                if (!cat.color) cat.color = paletteFor(s.settings)[i % paletteFor(s.settings).length];
             });
             inst.categories.forEach(normalizeFolder);
             normalizePinnedOrder(inst);
@@ -311,6 +384,20 @@
         return results;
     }
 
+    // Recherche un exercice par id dans TOUS les instruments (les pas d'une session guidée n'ont
+    // pas besoin de préciser l'instrument : l'id seul suffit, voir normalizeGuidedSessions).
+    function findExerciseById(exerciseId) {
+        for (var i = 0; i < state.instruments.length; i++) {
+            var inst = state.instruments[i];
+            var found = collectExercises(inst, function (ex) { return ex.id === exerciseId; })[0];
+            if (found) {
+                var rootChapter = findById(inst.categories, found.pathIds[0]);
+                return { ex: found.ex, folder: found.folder, inst: inst, pathNames: found.pathNames, chapterColor: (rootChapter && rootChapter.color) || "#00e676" };
+            }
+        }
+        return null;
+    }
+
     function guessLinkLabel(url) {
         try {
             var host = new URL(url).hostname.replace(/^www\./, "");
@@ -339,6 +426,13 @@
     var GRIP_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>';
     var STAR_FILLED_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.7l2.9 6 6.6.7-4.9 4.5 1.3 6.5L12 17.4l-5.9 3 1.3-6.5-4.9-4.5 6.6-.7Z"/></svg>';
     var ARCHIVE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"/><path d="M10 13h4"/></svg>';
+    var FILE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05 12.25 20.24a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
+    var METRONOME_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 21 10 4h4l3 17Z"/><path d="M12 4V2.3"/><path d="M12 18 15.2 6.5"/><circle cx="14.1" cy="10.8" r="1.3" fill="currentColor" stroke="none"/></svg>';
+    var METRO_PLAY_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5Z"/></svg>';
+    var METRO_STOP_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+    var METRO_VOLUME_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v4h4l5 4V6L8 10Z"/><path d="M17 9a4.5 4.5 0 0 1 0 6"/><path d="M19.5 6.5a8.5 8.5 0 0 1 0 11"/></svg>';
+    var METRO_CHRONO_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2h4"/><path d="M12 6v0"/><circle cx="12" cy="14" r="8"/><path d="M12 14V9.5"/><path d="M17.5 5.5l1.5-1.5"/></svg>';
+    var RESET_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>';
 
     function linkIconSvg(label) {
         var l = (label || "").toLowerCase();
@@ -387,6 +481,34 @@
             el.style.height = h + "px";
             el.style.overflowY = el.scrollHeight > maxH ? "auto" : "hidden";
         } catch (e) {}
+    }
+
+    // Ajuste la largeur du champ-titre d'un exercice à celle de son texte (au lieu de remplir
+    // toute la ligne) : le reste de la barre (voir .exercise-row-spacer) redevient une zone
+    // cliquable pour déplier/replier, seul le texte lui-même ouvre l'édition.
+    var exerciseTitleMeasurer = null;
+    function autoSizeExerciseTitle(input) {
+        try {
+            if (!exerciseTitleMeasurer) {
+                exerciseTitleMeasurer = document.createElement("span");
+                exerciseTitleMeasurer.style.position = "fixed";
+                exerciseTitleMeasurer.style.visibility = "hidden";
+                exerciseTitleMeasurer.style.whiteSpace = "pre";
+                exerciseTitleMeasurer.style.left = "-9999px";
+                document.body.appendChild(exerciseTitleMeasurer);
+            }
+            var cs = window.getComputedStyle(input);
+            exerciseTitleMeasurer.style.font = cs.font;
+            exerciseTitleMeasurer.textContent = input.value || input.placeholder || " ";
+            input.style.width = (exerciseTitleMeasurer.offsetWidth + 22) + "px";
+        } catch (e) {}
+    }
+    function autoSizeAllExerciseTitles() {
+        if (typeof requestAnimationFrame !== "function") return;
+        requestAnimationFrame(function () {
+            var inputs = document.querySelectorAll(".exercise-title");
+            for (var i = 0; i < inputs.length; i++) autoSizeExerciseTitle(inputs[i]);
+        });
     }
 
     // À appeler après qu'un lot de rendu ait posé les zones de notes dans le DOM réel (pas au
@@ -678,7 +800,9 @@
         document.body.appendChild(menu);
         document.addEventListener("keydown", onKey, true);
         openMenu = { backdrop: backdrop, menu: menu, onKey: onKey };
-        if (startScreen === "rename") showRename(); else showMain();
+        if (startScreen === "rename") showRename();
+        else if (startScreen === "addSub" && canAddSub) showAddSub();
+        else showMain();
         place();
     }
 
@@ -736,6 +860,72 @@
         menu.appendChild(menuButton(ex.archived ? "Désarchiver" : "Archiver", "", function () {
             ex.archived = !ex.archived;
             touchExercise(ex);
+            save();
+            closeFolderMenu();
+            render();
+        }));
+
+        function onKey(e) { if (e.key === "Escape") closeFolderMenu(); }
+
+        document.body.appendChild(backdrop);
+        document.body.appendChild(menu);
+        document.addEventListener("keydown", onKey, true);
+        openMenu = { backdrop: backdrop, menu: menu, onKey: onKey };
+        place();
+    }
+
+    function bindLinkMenu(el, ex, link) {
+        bindContextGesture(el, function (x, y) { openLinkMenu(x, y, ex, link); });
+    }
+
+    // Clic droit / appui long sur un lien : le désigner comme LE lien mis en avant dans la barre
+    // de l'exercice (voir renderExercise), pour y accéder sans déplier les détails. Sans lien mis
+    // en avant, la barre propose tous les liens regroupés sous un seul bouton.
+    function openLinkMenu(x, y, ex, link) {
+        closeFolderMenu();
+
+        var backdrop = document.createElement("div");
+        backdrop.className = "ctx-backdrop";
+        backdrop.addEventListener("pointerdown", function (e) { e.preventDefault(); closeFolderMenu(); });
+        backdrop.addEventListener("contextmenu", function (e) { e.preventDefault(); closeFolderMenu(); });
+
+        var menu = document.createElement("div");
+        menu.className = "ctx-menu";
+        menu.setAttribute("role", "menu");
+        menu.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+
+        function menuButton(text, className, onClick) {
+            var b = document.createElement("button");
+            b.type = "button";
+            b.className = "ctx-item" + (className ? " " + className : "");
+            b.textContent = text;
+            var armed = false;
+            b.addEventListener("pointerdown", function () { armed = true; });
+            b.addEventListener("click", function (e) {
+                if (!armed && e.detail !== 0) return;
+                armed = false;
+                onClick();
+            });
+            return b;
+        }
+
+        function place() {
+            var w = menu.offsetWidth || 200;
+            var h = menu.offsetHeight || 100;
+            var left = Math.min(Math.max(8, x + 6), Math.max(8, window.innerWidth - w - 8));
+            var top = Math.min(Math.max(8, y + 6), Math.max(8, window.innerHeight - h - 8));
+            menu.style.left = left + "px";
+            menu.style.top = top + "px";
+        }
+
+        var title = document.createElement("div");
+        title.className = "ctx-title";
+        title.textContent = link.label;
+        menu.appendChild(title);
+
+        var isPinned = ex.pinnedLinkId === link.id;
+        menu.appendChild(menuButton(isPinned ? "Ne plus mettre en avant" : "Mettre en avant dans la barre", "", function () {
+            ex.pinnedLinkId = isPinned ? null : link.id;
             save();
             closeFolderMenu();
             render();
@@ -843,7 +1033,6 @@
     var $contentHeading = document.getElementById("content-heading");
     var $folderContainer = document.getElementById("folder-container");
     var $empty = document.getElementById("empty-state");
-    var $toggleUpdatedAt = document.getElementById("toggle-updated-at-btn");
     var $searchRow = document.getElementById("search-row");
     var $searchInput = document.getElementById("search-input");
     var $searchToggleBtn = document.getElementById("search-toggle-btn");
@@ -940,11 +1129,28 @@
 
     if ($undoBtn) $undoBtn.addEventListener("click", undo);
     if ($redoBtn) $redoBtn.addEventListener("click", redo);
+    // Comme dans un gestionnaire de fichiers (Ctrl/Cmd+Maj+N) : ajoute un sous-dossier au dossier
+    // actuellement ouvert, sans bouton dédié à l'écran (voir aussi le clic droit/appui long sur le
+    // titre du dossier, qui ouvre le même menu — bindFolderMenu dans renderContentHeading).
+    function addSubfolderToCurrentFolder() {
+        var inst = getActiveInstrument();
+        if (!inst) return;
+        var path = getNavPath(inst);
+        if (path[0] === FAVORITES_ID || path[0] === ARCHIVED_ID) return;
+        var nodes = resolvePath(inst, path);
+        var currentFolder = nodes[nodes.length - 1];
+        if (!currentFolder) return;
+        var ancestorPath = path.slice(0, -1);
+        openFolderMenu(window.innerWidth / 2, window.innerHeight / 2,
+            function () { return getParentArrayFor(inst, ancestorPath); }, currentFolder, inst, "addSub");
+    }
+
     document.addEventListener("keydown", function (e) {
         if (!(e.ctrlKey || e.metaKey)) return;
         var key = e.key.toLowerCase();
         if (key === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
         else if (key === "y" || (key === "z" && e.shiftKey)) { e.preventDefault(); redo(); }
+        else if (key === "n" && e.shiftKey) { e.preventDefault(); addSubfolderToCurrentFolder(); }
     });
     resetHistory();
 
@@ -954,12 +1160,15 @@
         var rootChapter = inst && path.length ? findById(inst.categories, path[0]) : null;
         var accent = path[0] === FAVORITES_ID ? "#ffd60a" : path[0] === ARCHIVED_ID ? "#9ca3af" : ((rootChapter && rootChapter.color) || "#00e676");
         document.documentElement.style.setProperty("--chapter-accent", accent);
+        document.documentElement.style.setProperty("--tree-font-scale", state.settings.appearance.treeFontScale);
+        DENSITIES.forEach(function (d) { document.documentElement.classList.toggle("density-" + d, state.settings.appearance.density === d); });
         renderInstrumentSelect();
         renderChapterBar();
         renderSidebarTree();
         renderMain();
         updateUndoRedoButtons();
         autoGrowAllNotes();
+        autoSizeAllExerciseTitles();
     }
 
     function renderInstrumentSelect() {
@@ -1055,19 +1264,18 @@
 
         setupDragReorder($chapterBar, ".chapter-chip", function () { return getActiveInstrument().pinnedOrder; }, "x");
 
-        var addBtn = iconButton("+ Chapitre", "Ajouter un grand chapitre", function () {
+        var addBtn = iconButton("+", "Ajouter un grand chapitre", function () {
             var name = window.prompt("Nom du nouveau chapitre (ex : Technique, Morceaux, Gammes...) :");
             if (!name) return;
             name = name.trim();
             if (!name) return;
-            var chapter = makeFolder(name, FOLDER_PALETTE[inst.categories.length % FOLDER_PALETTE.length]);
+            var chapter = makeFolder(name, currentPalette()[inst.categories.length % currentPalette().length]);
             inst.categories.push(chapter);
             clearFilters();
             setNavPath(inst, [chapter.id]);
             save();
             render();
         });
-        addBtn.className = "btn-ghost";
         $chapterBar.appendChild(addBtn);
     }
 
@@ -1154,7 +1362,7 @@
         function commitChapter() {
             var name = addInput.value.trim();
             if (!name) return;
-            var chapter = makeFolder(name, FOLDER_PALETTE[inst.categories.length % FOLDER_PALETTE.length]);
+            var chapter = makeFolder(name, currentPalette()[inst.categories.length % currentPalette().length]);
             inst.categories.push(chapter);
             clearFilters();
             setNavPath(inst, [chapter.id]);
@@ -1227,57 +1435,31 @@
 
         wrap.appendChild(row);
 
-        // Le champ "Nouveau sous-dossier" n'apparaît que sous le dossier sélectionné, pour garder
-        // l'arborescence épurée (ailleurs : clic droit / appui long → "Nouveau sous-dossier").
-        var canAdd = isSelected && fullPath.length < MAX_FOLDER_DEPTH;
-        if (expanded && (hasChildren || canAdd)) {
+        // Pas de champ "Nouveau sous-dossier" en permanence dans l'arborescence : uniquement via
+        // clic droit / appui long (ou Ctrl+Maj+N) sur le dossier, pour garder la barre latérale
+        // épurée.
+        if (expanded && hasChildren) {
             var childWrap = document.createElement("div");
             childWrap.className = "tree-children";
             folder.folders.forEach(function (child) {
                 childWrap.appendChild(renderTreeNode(inst, child, fullPath, currentPath, rootColor, depth + 1));
             });
-            if (canAdd) {
-                childWrap.appendChild(renderTreeAddFolder(folder));
-            }
             wrap.appendChild(childWrap);
-            if (hasChildren) setupDragReorder(childWrap, ".tree-node", function () { return folder.folders; }, "y");
+            setupDragReorder(childWrap, ".tree-node", function () { return folder.folders; }, "y");
         }
 
-        return wrap;
-    }
-
-    function renderTreeAddFolder(parentFolder) {
-        var wrap = document.createElement("div");
-        wrap.className = "tree-add-row";
-        var input = document.createElement("input");
-        input.type = "text";
-        input.className = "tree-add-input";
-        input.placeholder = "Nouveau sous-dossier…";
-        var btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "tree-add-btn";
-        btn.textContent = "+";
-        btn.title = "Ajouter le sous-dossier";
-        function commit() {
-            var name = input.value.trim();
-            if (!name) return;
-            parentFolder.folders.push(makeFolder(name));
-            save();
-            render();
-        }
-        btn.addEventListener("click", commit);
-        input.addEventListener("keydown", function (e) {
-            e.stopPropagation();
-            if (e.key === "Enter") commit();
-        });
-        wrap.appendChild(input);
-        wrap.appendChild(btn);
         return wrap;
     }
 
     function renderMain() {
         var inst = getActiveInstrument();
         $empty.hidden = true;
+        if (guidedSessionViewActive) {
+            $breadcrumb.hidden = true;
+            $breadcrumb.innerHTML = "";
+            renderGuidedSessionMain();
+            return;
+        }
         var path = getNavPath(inst);
         if (path[0] === FAVORITES_ID || path[0] === ARCHIVED_ID) {
             $breadcrumb.hidden = true;
@@ -1350,6 +1532,10 @@
         if (!folder) return;
         var h2 = document.createElement("h2");
         h2.textContent = folder.name;
+        h2.title = "Clic droit (ordinateur) ou appui long (mobile) : nouveau sous-dossier / renommer / supprimer";
+        // Comme pour les lignes de l'arborescence : le menu complet (dont "Nouveau sous-dossier")
+        // reste accessible sur le titre du dossier courant, sans bouton dédié à l'écran.
+        bindFolderMenu(h2, getParentArray, folder, inst);
         $contentHeading.appendChild(h2);
 
         var editBtn = svgIconButton(PENCIL_ICON_SVG, "Renommer ce dossier", function () {
@@ -1394,7 +1580,7 @@
             $contentHeading.innerHTML = "";
             $folderContainer.innerHTML = "";
             $empty.hidden = false;
-            $empty.textContent = "Crée ton premier grand chapitre ci-dessus (Technique, Morceaux, Gammes…).";
+            $empty.textContent = "Crée ton premier chapitre ci-dessus.";
             return;
         }
 
@@ -1408,9 +1594,9 @@
 
         // Sous-dossiers du dossier courant, dans le MÊME ordre que l'arborescence de gauche (même
         // tableau de données) : la zone principale reflète exactement la branche sélectionnée.
+        var foldersGroup = document.createElement("div");
+        foldersGroup.className = "section-group folders-group";
         if (currentFolder.folders.length) {
-            var foldersGroup = document.createElement("div");
-            foldersGroup.className = "section-group";
             var foldersLabel = document.createElement("div");
             foldersLabel.className = "section-label";
             foldersLabel.textContent = "Sous-dossiers";
@@ -1421,16 +1607,14 @@
                 foldersWrap.appendChild(renderFolderRow(inst, currentFolder.folders, f, idx, currentFolder.folders.length, path));
             });
             foldersGroup.appendChild(foldersWrap);
-            $folderContainer.appendChild(foldersGroup);
             setupDragReorder(foldersWrap, ".folder-row", function () { return currentFolder.folders; }, "y");
         }
-
         if (depth < MAX_FOLDER_DEPTH) {
-            $folderContainer.appendChild(renderAddFolderForm(currentFolder));
+            foldersGroup.appendChild(renderAddFolderForm(currentFolder));
         }
 
         var exGroup = document.createElement("div");
-        exGroup.className = "section-group";
+        exGroup.className = "section-group exercises-group";
         if (currentFolder.folders.length) {
             var exLabel = document.createElement("div");
             exLabel.className = "section-label";
@@ -1448,7 +1632,21 @@
         exGroup.appendChild(exercisesWrap);
         setupDragReorder(exercisesWrap, ".exercise", function () { return currentFolder.exercises; }, "y");
         exGroup.appendChild(renderAddExerciseForm(currentFolder));
-        $folderContainer.appendChild(exGroup);
+
+        // Disposition réglable dans les paramètres généraux : verticale (sous-dossiers au-dessus
+        // des exercices, comme avant) ou horizontale façon Finder (sous-dossiers dans une colonne
+        // à droite des exercices).
+        var horizontal = state.settings.appearance.mainLayout === "horizontal";
+        var mainWrap = document.createElement("div");
+        mainWrap.className = "folder-browser " + (horizontal ? "folder-browser-horizontal" : "folder-browser-vertical");
+        if (horizontal) {
+            mainWrap.appendChild(exGroup);
+            mainWrap.appendChild(foldersGroup);
+        } else {
+            mainWrap.appendChild(foldersGroup);
+            mainWrap.appendChild(exGroup);
+        }
+        $folderContainer.appendChild(mainWrap);
     }
 
     function renderFolderRow(inst, parentArray, folder, idx, total, path) {
@@ -1485,16 +1683,23 @@
         return row;
     }
 
+    // Discret à dessein (même habillage en pointillés que le "+" de l'arborescence côté
+    // ordinateur) : ajouter un sous-dossier est bien plus rare qu'ajouter un exercice, il ne doit
+    // pas rivaliser visuellement avec le bouton d'ajout d'exercice juste en dessous. Sur ordinateur,
+    // le clic droit/appui long sur le titre du dossier (→ "Nouveau sous-dossier") et le raccourci
+    // Ctrl/Cmd+Maj+N font la même chose sans occuper de place à l'écran.
     function renderAddFolderForm(currentFolder) {
         var wrap = document.createElement("div");
-        wrap.className = "add-category-row";
+        wrap.className = "add-category-row tree-add-row";
         var input = document.createElement("input");
         input.type = "text";
+        input.className = "tree-add-input";
         input.placeholder = "Nouveau sous-dossier…";
         var btn = document.createElement("button");
         btn.type = "button";
-        btn.className = "btn-accent";
-        btn.textContent = "+ Sous-dossier";
+        btn.className = "tree-add-btn";
+        btn.textContent = "+";
+        btn.title = "Ajouter un sous-dossier";
         function commit() {
             var name = input.value.trim();
             if (!name) return;
@@ -1526,7 +1731,7 @@
         wrap.className = "add-exercise-row";
         var input = document.createElement("input");
         input.type = "text";
-        input.placeholder = "+ Ajouter un exercice…";
+        input.placeholder = "Ajouter un exercice…";
         function commit() {
             var title = input.value.trim();
             if (!title) return;
@@ -1545,10 +1750,8 @@
             save();
             render();
         }
-        var btn = document.createElement("button");
-        btn.type = "button";
-        btn.textContent = "Ajouter";
-        btn.addEventListener("click", commit);
+        var btn = iconButton("+", "Ajouter l'exercice", commit);
+        btn.className = "btn-accent icon-btn";
         input.addEventListener("keydown", function (e) { if (e.key === "Enter") commit(); });
         wrap.appendChild(input);
         wrap.appendChild(btn);
@@ -1597,12 +1800,23 @@
         title.type = "text";
         title.className = "exercise-title";
         title.value = ex.title;
+        title.addEventListener("input", function () { autoSizeExerciseTitle(title); });
         title.addEventListener("change", function () {
             ex.title = title.value.trim() || ex.title;
             touchExercise(ex);
             save();
         });
         row.appendChild(title);
+
+        // Espace vide entre le titre (qui ne prend que la largeur de son texte) et les boutons de
+        // droite : fait partie de la ligne cliquable pour déplier/replier, comme le reste de la
+        // barre. Sans lui, le titre en flex:1 occuperait toute la largeur et rendrait le clic sur
+        // "partout sauf le texte" impossible ailleurs qu'sur la petite poignée.
+        var spacer = document.createElement("span");
+        spacer.className = "exercise-row-spacer";
+        row.appendChild(spacer);
+
+        appendExerciseLinkButtons(row, ex);
 
         if (ex.archived) {
             var archBadge = document.createElement("span");
@@ -1629,19 +1843,119 @@
         return el;
     }
 
+    // ---------- accès rapide aux liens depuis la barre de l'exercice ----------
+    // Sans lien mis en avant (clic droit/appui long sur un lien dans les détails, voir
+    // renderExerciseDetails) : un seul lien -> son bouton directement ; plusieurs liens -> un
+    // bouton groupé qui propose de choisir. Avec un lien mis en avant : uniquement ce dernier.
+    function appendExerciseLinkButtons(row, ex) {
+        var links = ex.links || [];
+        if (!links.length) return;
+        var pinned = ex.pinnedLinkId ? links.filter(function (l) { return l.id === ex.pinnedLinkId; })[0] : null;
+        if (pinned) {
+            row.appendChild(makeQuickLinkButton(pinned));
+        } else if (links.length === 1) {
+            row.appendChild(makeQuickLinkButton(links[0]));
+        } else {
+            var btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "exercise-link-quick exercise-link-quick-multi";
+            btn.title = "Choisir un lien à ouvrir";
+            var icon = document.createElement("span");
+            icon.className = "link-icon";
+            icon.innerHTML = LINK_ICONS.link;
+            btn.appendChild(icon);
+            var label = document.createElement("span");
+            label.className = "exercise-link-quick-label";
+            label.textContent = "Liens (" + links.length + ")";
+            btn.appendChild(label);
+            btn.addEventListener("click", function (e) {
+                e.stopPropagation();
+                var rect = btn.getBoundingClientRect();
+                openLinksQuickMenu(rect.left, rect.bottom, links);
+            });
+            row.appendChild(btn);
+        }
+    }
+
+    function makeQuickLinkButton(link) {
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "exercise-link-quick";
+        btn.title = "Ouvrir : " + link.label;
+        var icon = document.createElement("span");
+        icon.className = "link-icon";
+        icon.innerHTML = linkIconSvg(link.label);
+        btn.appendChild(icon);
+        var label = document.createElement("span");
+        label.className = "exercise-link-quick-label";
+        label.textContent = link.label;
+        btn.appendChild(label);
+        btn.addEventListener("click", function (e) {
+            e.stopPropagation();
+            window.open(link.url, "_blank", "noopener,noreferrer");
+        });
+        return btn;
+    }
+
+    function openLinksQuickMenu(x, y, links) {
+        closeFolderMenu();
+
+        var backdrop = document.createElement("div");
+        backdrop.className = "ctx-backdrop";
+        backdrop.addEventListener("pointerdown", function (e) { e.preventDefault(); closeFolderMenu(); });
+        backdrop.addEventListener("contextmenu", function (e) { e.preventDefault(); closeFolderMenu(); });
+
+        var menu = document.createElement("div");
+        menu.className = "ctx-menu";
+        menu.setAttribute("role", "menu");
+        menu.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+
+        function menuButton(text, onClick) {
+            var b = document.createElement("button");
+            b.type = "button";
+            b.className = "ctx-item";
+            b.textContent = text;
+            var armed = false;
+            b.addEventListener("pointerdown", function () { armed = true; });
+            b.addEventListener("click", function (e) {
+                if (!armed && e.detail !== 0) return;
+                armed = false;
+                onClick();
+            });
+            return b;
+        }
+
+        function place() {
+            var w = menu.offsetWidth || 200;
+            var h = menu.offsetHeight || 100;
+            var left = Math.min(Math.max(8, x), Math.max(8, window.innerWidth - w - 8));
+            var top = Math.min(Math.max(8, y), Math.max(8, window.innerHeight - h - 8));
+            menu.style.left = left + "px";
+            menu.style.top = top + "px";
+        }
+
+        links.forEach(function (link) {
+            menu.appendChild(menuButton(link.label, function () {
+                window.open(link.url, "_blank", "noopener,noreferrer");
+                closeFolderMenu();
+            }));
+        });
+
+        function onKey(e) { if (e.key === "Escape") closeFolderMenu(); }
+
+        document.body.appendChild(backdrop);
+        document.body.appendChild(menu);
+        document.addEventListener("keydown", onKey, true);
+        openMenu = { backdrop: backdrop, menu: menu, onKey: onKey };
+        place();
+    }
+
     function renderExerciseDetails(ex) {
         var details = document.createElement("div");
         details.className = "exercise-details";
 
-        if (ex.updatedAt && state.settings.showUpdatedAt) {
-            var updatedNote = document.createElement("div");
-            updatedNote.className = "updated-at-note";
-            updatedNote.textContent = "Modifié " + formatUpdatedAt(ex.updatedAt);
-            details.appendChild(updatedNote);
-        }
-
-
-        var notesLabel = document.createElement("label");
+        var notesLabel = document.createElement("div");
+        notesLabel.className = "section-label";
         notesLabel.textContent = "Notes";
         var notes = document.createElement("textarea");
         notes.className = "notes-textarea";
@@ -1657,18 +1971,22 @@
         details.appendChild(notesLabel);
         details.appendChild(notes);
 
-        var linksLabel = document.createElement("label");
-        linksLabel.textContent = "Liens (YouTube, iReal Pro, PDF, backing track…)";
-        details.appendChild(linksLabel);
+        // Liens et fichiers regroupés sous un seul intitulé : un titre plus court, une seule liste
+        // de puces mélangées, une seule ligne d'ajout — moins de texte à l'écran.
+        var resourcesLabel = document.createElement("div");
+        resourcesLabel.className = "section-label";
+        resourcesLabel.textContent = "Liens & fichiers";
+        details.appendChild(resourcesLabel);
 
-        var linksList = document.createElement("div");
-        linksList.className = "links-list";
+        var resourcesList = document.createElement("div");
+        resourcesList.className = "links-list";
         (ex.links || []).forEach(function (link, idx) {
             var chip = document.createElement("a");
             chip.className = "link-chip";
             chip.href = link.url;
             chip.target = "_blank";
             chip.rel = "noopener noreferrer";
+            bindLinkMenu(chip, ex, link);
             var iconSpan = document.createElement("span");
             iconSpan.className = "link-icon";
             iconSpan.innerHTML = linkIconSvg(link.label);
@@ -1677,6 +1995,50 @@
             labelSpan.className = "link-label";
             labelSpan.textContent = link.label;
             chip.appendChild(labelSpan);
+
+            function startRenameLink() {
+                var input = document.createElement("input");
+                input.type = "text";
+                input.className = "link-label-input";
+                input.value = link.label;
+                labelSpan.replaceWith(input);
+                input.focus();
+                input.select();
+                var done = false;
+                function commit() {
+                    if (done) return;
+                    done = true;
+                    var name = input.value.trim();
+                    if (name) { link.label = name; labelSpan.textContent = name; }
+                    input.replaceWith(labelSpan);
+                    touchExercise(ex);
+                    save();
+                }
+                function cancel() {
+                    if (done) return;
+                    done = true;
+                    input.replaceWith(labelSpan);
+                }
+                input.addEventListener("keydown", function (e) {
+                    e.stopPropagation();
+                    if (e.key === "Enter") { e.preventDefault(); commit(); }
+                    if (e.key === "Escape") cancel();
+                });
+                input.addEventListener("blur", commit);
+                input.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); });
+            }
+
+            var editBtn = document.createElement("span");
+            editBtn.className = "link-edit";
+            editBtn.innerHTML = PENCIL_ICON_SVG;
+            editBtn.title = "Renommer ce lien";
+            editBtn.addEventListener("click", function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                startRenameLink();
+            });
+            chip.appendChild(editBtn);
+
             var removeBtn = document.createElement("span");
             removeBtn.className = "link-remove";
             removeBtn.textContent = "✕";
@@ -1685,49 +2047,40 @@
                 e.preventDefault();
                 e.stopPropagation();
                 ex.links.splice(idx, 1);
+                if (ex.pinnedLinkId === link.id) ex.pinnedLinkId = null;
                 touchExercise(ex);
                 save();
                 render();
             });
             chip.appendChild(removeBtn);
-            linksList.appendChild(chip);
+            resourcesList.appendChild(chip);
         });
-        details.appendChild(linksList);
+        appendFileChips(resourcesList, ex);
+        details.appendChild(resourcesList);
 
         var addLinkRow = document.createElement("div");
         addLinkRow.className = "add-link-row";
         var urlInput = document.createElement("input");
         urlInput.type = "url";
-        urlInput.placeholder = "Coller un lien (YouTube, iReal Pro, PDF…)";
-        var labelInput = document.createElement("input");
-        labelInput.type = "text";
-        labelInput.placeholder = "Nom (optionnel)";
-        labelInput.style.maxWidth = "140px";
-        var addLinkBtn = document.createElement("button");
-        addLinkBtn.type = "button";
-        addLinkBtn.textContent = "+ Lien";
+        urlInput.placeholder = "Coller un lien…";
         function commitLink() {
             var url = urlInput.value.trim();
             if (!url) return;
             if (!/^https?:\/\//i.test(url)) url = "https://" + url;
-            var label = labelInput.value.trim() || guessLinkLabel(url);
             ex.links = ex.links || [];
-            ex.links.push({ label: label, url: url });
+            ex.links.push({ id: uid(), label: guessLinkLabel(url), url: url });
             urlInput.value = "";
-            labelInput.value = "";
             touchExercise(ex);
             save();
             render();
         }
-        addLinkBtn.addEventListener("click", commitLink);
+        var addLinkBtn = iconButton("+", "Ajouter ce lien", commitLink);
+        addLinkBtn.className = "btn-accent icon-btn";
         urlInput.addEventListener("keydown", function (e) { if (e.key === "Enter") commitLink(); });
-        labelInput.addEventListener("keydown", function (e) { if (e.key === "Enter") commitLink(); });
         addLinkRow.appendChild(urlInput);
-        addLinkRow.appendChild(labelInput);
         addLinkRow.appendChild(addLinkBtn);
+        addLinkRow.appendChild(makeAddFileButton(ex));
         details.appendChild(addLinkRow);
-
-        details.appendChild(renderFilesSection(ex));
 
         return details;
     }
@@ -1741,17 +2094,9 @@
 
     // ---------- fichiers joints (PDF/MP3) : rendu ----------
     // Rappel (voir plus haut) : seules les métadonnées (ex.files) sont synchronisées. Le fichier
-    // réel n'existe que dans IndexedDB, sur l'appareil où il a été ajouté.
-    function renderFilesSection(ex) {
-        var wrap = document.createElement("div");
-        wrap.className = "files-section";
-
-        var filesLabel = document.createElement("label");
-        filesLabel.textContent = "Fichiers (PDF, MP3…)";
-        wrap.appendChild(filesLabel);
-
-        var filesList = document.createElement("div");
-        filesList.className = "files-list";
+    // réel n'existe que dans IndexedDB, sur l'appareil où il a été ajouté — d'où le rappel dans le
+    // "title" de chaque puce plutôt qu'un paragraphe permanent (moins de texte à l'écran).
+    function appendFileChips(list, ex) {
         (ex.files || []).forEach(function (meta) {
             var chip = document.createElement("div");
             chip.className = "file-chip";
@@ -1793,22 +2138,20 @@
             });
             chip.appendChild(removeBtn);
 
-            filesList.appendChild(chip);
+            list.appendChild(chip);
         });
-        wrap.appendChild(filesList);
+    }
 
-        var addFileRow = document.createElement("div");
-        addFileRow.className = "add-file-row";
+    function makeAddFileButton(ex) {
+        var wrap = document.createElement("span");
+        wrap.className = "add-file-row";
         var fileInput = document.createElement("input");
         fileInput.type = "file";
         fileInput.className = "add-file-input";
         fileInput.accept = ".pdf,application/pdf,.mp3,audio/*";
         fileInput.multiple = true;
-        var fileLabel = document.createElement("button");
-        fileLabel.type = "button";
-        fileLabel.className = "btn-ghost add-file-label";
-        fileLabel.textContent = "+ Fichier (PDF, MP3…)";
-        fileLabel.addEventListener("click", function () { fileInput.click(); });
+        var fileBtn = svgIconButton(FILE_ICON_SVG, "Ajouter un fichier (PDF, MP3…) — reste sur cet appareil", function () { fileInput.click(); });
+        fileBtn.classList.add("btn-ghost");
         fileInput.addEventListener("change", function () {
             var files = Array.prototype.slice.call(fileInput.files || []);
             if (!files.length) return;
@@ -1827,15 +2170,8 @@
                 window.alert("Impossible d'enregistrer ce fichier sur cet appareil (stockage plein ou navigateur privé ?).");
             });
         });
-        addFileRow.appendChild(fileInput);
-        addFileRow.appendChild(fileLabel);
-        wrap.appendChild(addFileRow);
-
-        var hint = document.createElement("div");
-        hint.className = "files-hint";
-        hint.textContent = "Les fichiers restent sur cet appareil : ils ne sont pas synchronisés avec les autres.";
-        wrap.appendChild(hint);
-
+        wrap.appendChild(fileInput);
+        wrap.appendChild(fileBtn);
         return wrap;
     }
 
@@ -2040,20 +2376,12 @@
     document.getElementById("add-instrument-btn").addEventListener("click", function () {
         var name = window.prompt("Nom du nouvel instrument :");
         if (!name) return;
-        var inst = makeInstrument(name.trim());
+        var inst = makeInstrument(name.trim(), currentPalette());
         state.instruments.push(inst);
         state.activeInstrumentId = inst.id;
         save();
         render();
     });
-
-    $toggleUpdatedAt.addEventListener("click", function () {
-        state.settings.showUpdatedAt = !state.settings.showUpdatedAt;
-        $toggleUpdatedAt.classList.toggle("active", state.settings.showUpdatedAt);
-        save();
-        render();
-    });
-    $toggleUpdatedAt.classList.toggle("active", !!state.settings.showUpdatedAt);
 
     function downloadJson(obj, filename) {
         var blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
@@ -2079,6 +2407,7 @@
 
     function openBackupsPanel() {
         closeFolderMenu();
+        if (closeActiveModal) closeActiveModal();
         var backdrop = document.createElement("div");
         backdrop.className = "ctx-backdrop";
         var panel = document.createElement("div");
@@ -2091,7 +2420,7 @@
 
         var intro = document.createElement("div");
         intro.className = "backups-intro";
-        intro.textContent = "Un instantané est gardé automatiquement avant chaque moment où une synchro ou un import pourrait remplacer des données. Utile en cas d'écrasement inattendu.";
+        intro.textContent = "Instantanés automatiques avant une synchro ou un import risqué.";
         panel.appendChild(intro);
 
         var list = document.createElement("div");
@@ -2165,11 +2494,15 @@
             backdrop.remove();
             panel.remove();
             document.removeEventListener("keydown", onKey, true);
+            unlockBodyScroll();
+            if (closeActiveModal === closeBackupsPanel) closeActiveModal = null;
         }
+        closeActiveModal = closeBackupsPanel;
         function onKey(e) { if (e.key === "Escape") closeBackupsPanel(); }
         backdrop.addEventListener("click", closeBackupsPanel);
         document.addEventListener("keydown", onKey, true);
 
+        lockBodyScroll();
         document.body.appendChild(backdrop);
         document.body.appendChild(panel);
     }
@@ -2201,6 +2534,1335 @@
         reader.readAsText(file);
         importInput.value = "";
     });
+
+    // ---------- petit modal générique (métronome, aides) ----------
+    // Même habillage que le panneau des sauvegardes (.backups-panel), sans dupliquer sa logique de
+    // fermeture (clic dehors / Échap) à chaque nouvel outil.
+    // `build(panel, close)` peut renvoyer une fonction de nettoyage, appelée à la fermeture (le
+    // métronome s'en sert pour couper le son quand on ferme le panneau). Un seul de ces modals
+    // reste ouvert à la fois : en ouvrir un ferme le précédent (sinon son fond transparent bloque
+    // les clics sur le reste de la page, bouton "Aides"/"Métronome" compris).
+    var closeActiveModal = null;
+
+    // Sans ceci, le fond de page défile sous la fenêtre flottante au doigt sur mobile (le panneau
+    // est en position fixed, mais le corps de la page reste scrollable derrière).
+    function lockBodyScroll() { document.documentElement.classList.add("modal-open"); }
+    function unlockBodyScroll() { document.documentElement.classList.remove("modal-open"); }
+
+    function openModal(extraClass, build) {
+        closeFolderMenu();
+        if (closeActiveModal) closeActiveModal();
+        lockBodyScroll();
+        var backdrop = document.createElement("div");
+        backdrop.className = "ctx-backdrop";
+        var panel = document.createElement("div");
+        panel.className = "backups-panel" + (extraClass ? " " + extraClass : "");
+        var onClose = null;
+
+        function close() {
+            if (onClose) onClose();
+            backdrop.remove();
+            panel.remove();
+            document.removeEventListener("keydown", onKey, true);
+            unlockBodyScroll();
+            if (closeActiveModal === close) closeActiveModal = null;
+        }
+        function onKey(e) { if (e.key === "Escape") close(); }
+        backdrop.addEventListener("click", close);
+        document.addEventListener("keydown", onKey, true);
+        closeActiveModal = close;
+
+        onClose = build(panel, close) || null;
+
+        var closeRow = document.createElement("div");
+        closeRow.className = "backups-close-row";
+        var closeBtn = document.createElement("button");
+        closeBtn.type = "button";
+        closeBtn.className = "btn-ghost";
+        closeBtn.textContent = "Fermer";
+        closeBtn.addEventListener("click", close);
+        closeRow.appendChild(closeBtn);
+        panel.appendChild(closeRow);
+
+        document.body.appendChild(backdrop);
+        document.body.appendChild(panel);
+        return close;
+    }
+
+    // ---------- métronome ----------
+    // Réglages persistés et synchronisés (state.settings.metronome) : tempo, nombre de temps par
+    // mesure et motif d'accents (0 = silence, 1 = normal, 2 = temps fort), plus une subdivision
+    // (noire/croches/triolet). Le son est généré à la volée (Web Audio API), rien à télécharger.
+    function normalizeMetronomeSettings(settings) {
+        if (!settings.metronome || typeof settings.metronome !== "object") settings.metronome = {};
+        var m = settings.metronome;
+        if (typeof m.bpm !== "number" || isNaN(m.bpm) || m.bpm < 30 || m.bpm > 300) m.bpm = 100;
+        m.bpm = Math.round(m.bpm);
+        if (typeof m.volume !== "number" || isNaN(m.volume) || m.volume < 0 || m.volume > 1) m.volume = 0.8;
+        if (typeof m.beatsPerMeasure !== "number" || isNaN(m.beatsPerMeasure) || m.beatsPerMeasure < 1 || m.beatsPerMeasure > 12) m.beatsPerMeasure = 4;
+        m.beatsPerMeasure = Math.round(m.beatsPerMeasure);
+        if ([1, 2, 3, 4].indexOf(m.subdivision) === -1) m.subdivision = 1;
+        var stepCount = m.beatsPerMeasure * m.subdivision;
+        // Ancien format (un seul accent par TEMPS, sans pavé rythmique) : migré vers un motif par PAS
+        // en plaçant chaque ancien accent sur le 1er pas de son temps, le reste muet.
+        if (!Array.isArray(m.pattern) && Array.isArray(m.accents)) {
+            var migrated = [];
+            for (var b = 0; b < m.beatsPerMeasure; b++) {
+                for (var s = 0; s < m.subdivision; s++) migrated.push(s === 0 ? (m.accents[b] != null ? m.accents[b] : 1) : 0);
+            }
+            m.pattern = migrated;
+            delete m.accents;
+        }
+        if (!Array.isArray(m.pattern)) m.pattern = [];
+        while (m.pattern.length < stepCount) {
+            var idx = m.pattern.length;
+            m.pattern.push(idx === 0 ? 2 : (idx % m.subdivision === 0 ? 1 : 0));
+        }
+        m.pattern.length = stepCount;
+        for (var i = 0; i < m.pattern.length; i++) {
+            if ([0, 1, 2].indexOf(m.pattern[i]) === -1) m.pattern[i] = 1;
+        }
+        return m;
+    }
+
+    var metroAudioCtx = null;
+    var metroMasterGain = null; // volume général du métronome (voir la barre de volume du panneau)
+    var metroPlaying = false;
+    var metroTimer = null;
+    var metroNextNoteTime = 0;
+    var metroCurrentStep = 0;
+    var metroBeatCallback = null; // met à jour l'affichage (pas qui clignote), posé par le panneau ouvert
+    var METRO_LOOKAHEAD_MS = 25;
+    var METRO_SCHEDULE_AHEAD_S = 0.12;
+
+    function ensureMetroAudio() {
+        if (!metroAudioCtx) {
+            metroAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            metroMasterGain = metroAudioCtx.createGain();
+            metroMasterGain.gain.value = state.settings.metronome.volume;
+            metroMasterGain.connect(metroAudioCtx.destination);
+        }
+        if (metroAudioCtx.state === "suspended") metroAudioCtx.resume();
+        return metroAudioCtx;
+    }
+
+    function setMetroVolume(v) {
+        state.settings.metronome.volume = v;
+        if (metroMasterGain) metroMasterGain.gain.value = v;
+    }
+
+    // Son plus doux qu'un simple bip : un filtre passe-bas adoucit les harmoniques aiguës, et une
+    // courte montée en volume (linearRamp, quelques ms) avant la décroissance évite le "clic" sec
+    // d'un signal qui démarre net à son maximum.
+    function metroClick(time, level) {
+        if (!level) return; // pas rendu muet
+        var ctx = metroAudioCtx;
+        var osc = ctx.createOscillator();
+        var gain = ctx.createGain();
+        var filter = ctx.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.value = 2000;
+        filter.Q.value = 0.6;
+        osc.type = "sine";
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(metroMasterGain);
+        osc.frequency.value = level >= 2 ? 1100 : 780;
+        var peak = level >= 2 ? 0.75 : 0.38;
+        gain.gain.setValueAtTime(0.0001, time);
+        gain.gain.linearRampToValueAtTime(peak, time + 0.004);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.065);
+        osc.start(time);
+        osc.stop(time + 0.07);
+    }
+
+    function metroScheduler() {
+        var m = state.settings.metronome;
+        var stepCount = m.beatsPerMeasure * m.subdivision;
+        while (metroNextNoteTime < metroAudioCtx.currentTime + METRO_SCHEDULE_AHEAD_S) {
+            metroClick(metroNextNoteTime, m.pattern[metroCurrentStep]);
+            if (metroBeatCallback) {
+                var step = metroCurrentStep, delayMs = Math.max(0, (metroNextNoteTime - metroAudioCtx.currentTime) * 1000);
+                setTimeout(function () { if (metroPlaying && metroBeatCallback) metroBeatCallback(step); }, delayMs);
+            }
+            var secondsPerStep = 60 / m.bpm / m.subdivision;
+            metroNextNoteTime += secondsPerStep;
+            metroCurrentStep = (metroCurrentStep + 1) % stepCount;
+        }
+        metroTimer = setTimeout(metroScheduler, METRO_LOOKAHEAD_MS);
+    }
+
+    function startMetronome() {
+        if (metroPlaying) return;
+        ensureMetroAudio();
+        metroPlaying = true;
+        metroCurrentStep = 0;
+        metroNextNoteTime = metroAudioCtx.currentTime + 0.05;
+        metroScheduler();
+    }
+
+    function stopMetronome() {
+        metroPlaying = false;
+        if (metroTimer) { clearTimeout(metroTimer); metroTimer = null; }
+    }
+
+    function openMetronomePanel() {
+        var m = state.settings.metronome;
+        var a = state.settings.appearance;
+        var extraClass = "metronome-panel metro-pos-" + a.metronomePosition + " metro-size-" + a.metronomeSize;
+
+        openModal(extraClass, function (panel, close) {
+            var title = document.createElement("div");
+            title.className = "backups-title";
+            title.textContent = "Métronome";
+            panel.appendChild(title);
+
+            var bpmRow = document.createElement("div");
+            bpmRow.className = "metro-bpm-row";
+            var bpmDown10 = iconButton("−10", "Ralentir de 10", function () { setBpm(m.bpm - 10); });
+            bpmDown10.classList.add("metro-bpm-btn", "metro-bpm-step10");
+            var bpmDown = iconButton("−", "Ralentir", function () { setBpm(m.bpm - 1); });
+            bpmDown.classList.add("metro-bpm-btn");
+            var bpmValue = document.createElement("button");
+            bpmValue.type = "button";
+            bpmValue.className = "metro-bpm-value";
+            bpmValue.title = "Cliquer pour saisir le BPM au clavier";
+            bpmValue.addEventListener("click", startEditBpm);
+            var bpmUp = iconButton("+", "Accélérer", function () { setBpm(m.bpm + 1); });
+            bpmUp.classList.add("metro-bpm-btn");
+            var bpmUp10 = iconButton("+10", "Accélérer de 10", function () { setBpm(m.bpm + 10); });
+            bpmUp10.classList.add("metro-bpm-btn", "metro-bpm-step10");
+            bpmRow.appendChild(bpmDown10);
+            bpmRow.appendChild(bpmDown);
+            bpmRow.appendChild(bpmValue);
+            bpmRow.appendChild(bpmUp);
+            bpmRow.appendChild(bpmUp10);
+            panel.appendChild(bpmRow);
+
+            function startEditBpm() {
+                var input = document.createElement("input");
+                input.type = "number";
+                input.min = "30";
+                input.max = "300";
+                input.className = "metro-bpm-input";
+                input.value = m.bpm;
+                bpmValue.replaceWith(input);
+                input.focus();
+                input.select();
+                var done = false;
+                function commit() {
+                    if (done) return;
+                    done = true;
+                    var v = parseInt(input.value, 10);
+                    if (!isNaN(v)) setBpm(v); else refreshBpmUI();
+                    input.replaceWith(bpmValue);
+                }
+                function cancel() {
+                    if (done) return;
+                    done = true;
+                    input.replaceWith(bpmValue);
+                }
+                input.addEventListener("keydown", function (e) {
+                    e.stopPropagation();
+                    if (e.key === "Enter") { e.preventDefault(); commit(); }
+                    if (e.key === "Escape") cancel();
+                });
+                input.addEventListener("blur", commit);
+            }
+
+            var bpmSlider = document.createElement("input");
+            bpmSlider.type = "range";
+            bpmSlider.min = "30";
+            bpmSlider.max = "300";
+            bpmSlider.className = "metro-bpm-slider";
+            bpmSlider.addEventListener("input", function () { setBpm(parseInt(bpmSlider.value, 10)); });
+            panel.appendChild(bpmSlider);
+
+            var fieldsRow = document.createElement("div");
+            fieldsRow.className = "metro-fields-row";
+
+            var beatsField = document.createElement("label");
+            beatsField.className = "metro-field";
+            beatsField.textContent = "Temps/mesure";
+            var beatsInput = document.createElement("input");
+            beatsInput.type = "number";
+            beatsInput.min = "1";
+            beatsInput.max = "12";
+            beatsInput.value = m.beatsPerMeasure;
+            beatsInput.addEventListener("change", function () {
+                var n = Math.min(12, Math.max(1, parseInt(beatsInput.value, 10) || 4));
+                m.beatsPerMeasure = n;
+                m.pattern = null; // sera reconstruit par normalizeMetronomeSettings, motif adapté à la nouvelle taille
+                normalizeMetronomeSettings(state.settings);
+                beatsInput.value = m.beatsPerMeasure;
+                save();
+                renderPad();
+            });
+            beatsField.appendChild(beatsInput);
+            fieldsRow.appendChild(beatsField);
+
+            var subField = document.createElement("label");
+            subField.className = "metro-field";
+            subField.textContent = "Subdivision";
+            var subSelect = document.createElement("select");
+            [[1, "Noire"], [2, "Croches"], [3, "Triolet"], [4, "Doubles-croches"]].forEach(function (opt) {
+                var o = document.createElement("option");
+                o.value = opt[0];
+                o.textContent = opt[1];
+                if (m.subdivision === opt[0]) o.selected = true;
+                subSelect.appendChild(o);
+            });
+            subSelect.addEventListener("change", function () {
+                m.subdivision = parseInt(subSelect.value, 10);
+                m.pattern = null;
+                normalizeMetronomeSettings(state.settings);
+                save();
+                renderPad();
+            });
+            subField.appendChild(subSelect);
+            fieldsRow.appendChild(subField);
+
+            // Le réglage de volume est discret : juste une icône, à droite de la subdivision. La
+            // barre ne se déplie (en pleine largeur, sous les champs) que sur clic, sinon elle
+            // serait en permanence visible alors qu'on y touche rarement.
+            var volumeField = document.createElement("div");
+            volumeField.className = "metro-volume-field";
+            var volumeSlider = document.createElement("input");
+            volumeSlider.type = "range";
+            volumeSlider.min = "0";
+            volumeSlider.max = "100";
+            volumeSlider.value = Math.round(m.volume * 100);
+            volumeSlider.className = "metro-volume-slider";
+            volumeSlider.title = "Volume";
+            volumeSlider.addEventListener("input", function () {
+                setMetroVolume(parseInt(volumeSlider.value, 10) / 100);
+                save();
+            });
+            var volumeRow = document.createElement("div");
+            volumeRow.className = "metro-volume-row";
+            var volumeBtn = svgIconButton(METRO_VOLUME_ICON_SVG, "Volume", function () {
+                volumeRow.classList.toggle("metro-volume-expanded");
+                if (volumeRow.classList.contains("metro-volume-expanded")) volumeSlider.focus();
+            });
+            volumeBtn.classList.add("metro-volume-btn");
+            volumeField.appendChild(volumeBtn);
+            fieldsRow.appendChild(volumeField);
+
+            panel.appendChild(fieldsRow);
+
+            volumeRow.appendChild(volumeSlider);
+            panel.appendChild(volumeRow);
+
+            // ---------- pavé rythmique ----------
+            // Un pas par case, groupées par temps : clique une case pour la faire tourner entre
+            // silence / normal / fort. De quoi composer n'importe quel groove (double-croches pour
+            // un shuffle, ne garder que les contretemps pour s'entraîner dessus, etc.), pas
+            // seulement accentuer le 1er temps de la mesure.
+            var padLabel = document.createElement("div");
+            padLabel.className = "section-label metro-pad-label";
+            padLabel.textContent = "Pavé rythmique";
+            panel.appendChild(padLabel);
+
+            var padRow = document.createElement("div");
+            padRow.className = "metro-pad";
+            panel.appendChild(padRow);
+
+            var resetPadBtn = document.createElement("button");
+            resetPadBtn.type = "button";
+            resetPadBtn.className = "btn-ghost metro-pad-reset";
+            resetPadBtn.textContent = "Réinitialiser";
+            resetPadBtn.title = "Revenir au 1er temps accentué";
+            resetPadBtn.addEventListener("click", function () {
+                for (var i = 0; i < m.pattern.length; i++) m.pattern[i] = i === 0 ? 2 : (i % m.subdivision === 0 ? 1 : 0);
+                save();
+                renderPad();
+            });
+            panel.appendChild(resetPadBtn);
+
+            // Le pavé est groupé par temps (un mini-groupe de `subdivision` pas), et ces groupes
+            // sont eux-mêmes répartis en lignes de longueur égale (ex. 4 temps -> 2 en haut, 2 en
+            // bas) plutôt que laissés au retour à la ligne du flex-wrap, qui casserait au milieu
+            // d'un temps et donnerait un rendu asymétrique sur petit écran (doubles-croches...).
+            function renderPad() {
+                padRow.innerHTML = "";
+                var beats = m.beatsPerMeasure;
+                var totalSteps = m.pattern.length;
+                var rows = totalSteps > 8 ? Math.min(beats, Math.ceil(totalSteps / 8)) : 1;
+                var beatsPerRowBase = Math.floor(beats / rows);
+                var extra = beats % rows;
+                var beatIdx = 0;
+                for (var r = 0; r < rows; r++) {
+                    var rowBeats = beatsPerRowBase + (r < extra ? 1 : 0);
+                    var rowEl = document.createElement("div");
+                    rowEl.className = "metro-pad-row";
+                    for (var b = 0; b < rowBeats; b++) {
+                        var groupEl = document.createElement("div");
+                        groupEl.className = "metro-beat-group";
+                        for (var s = 0; s < m.subdivision; s++) {
+                            (function (idx) {
+                                var step = document.createElement("button");
+                                step.type = "button";
+                                step.className = "metro-step metro-step-" + m.pattern[idx];
+                                step.title = (s === 0 ? "Temps " + (beatIdx + 1) : "Pas " + (idx + 1)) + " : silence / normal / fort";
+                                step.addEventListener("click", function () {
+                                    m.pattern[idx] = (m.pattern[idx] + 1) % 3;
+                                    save();
+                                    renderPad();
+                                });
+                                groupEl.appendChild(step);
+                            })(beatIdx * m.subdivision + s);
+                        }
+                        rowEl.appendChild(groupEl);
+                        beatIdx++;
+                    }
+                    padRow.appendChild(rowEl);
+                }
+            }
+            renderPad();
+            metroBeatCallback = function (step) {
+                var steps = padRow.querySelectorAll(".metro-step");
+                for (var i = 0; i < steps.length; i++) steps[i].classList.toggle("metro-step-current", i === step);
+            };
+
+            // ---------- chronomètre ----------
+            // Purement visuel (pas persisté) : s'arrête à la pause et reprend là où il en était à
+            // la relecture, sans jamais se remettre à zéro tout seul (seule la fermeture du
+            // panneau, qui arrête aussi le métronome, le réinitialise).
+            var chronoRow = document.createElement("div");
+            chronoRow.className = "metro-chrono-row";
+            var chronoIcon = document.createElement("span");
+            chronoIcon.className = "metro-chrono-icon";
+            chronoIcon.innerHTML = METRO_CHRONO_ICON_SVG;
+            var chronoValue = document.createElement("span");
+            chronoValue.className = "metro-chrono-value";
+            var chronoResetBtn = svgIconButton(RESET_ICON_SVG, "Réinitialiser le chronomètre", function () {
+                chronoElapsedMs = 0;
+                if (chronoStartTs) chronoStartTs = Date.now();
+                refreshChrono();
+            });
+            chronoResetBtn.classList.add("metro-chrono-reset");
+            chronoRow.appendChild(chronoIcon);
+            chronoRow.appendChild(chronoValue);
+            chronoRow.appendChild(chronoResetBtn);
+            panel.appendChild(chronoRow);
+
+            var chronoElapsedMs = 0;
+            var chronoStartTs = null;
+            var chronoInterval = null;
+            function chronoCurrentMs() {
+                return chronoElapsedMs + (chronoStartTs ? Date.now() - chronoStartTs : 0);
+            }
+            function refreshChrono() {
+                var totalSec = Math.floor(chronoCurrentMs() / 1000);
+                var mm = Math.floor(totalSec / 60), ss = totalSec % 60;
+                chronoValue.textContent = (mm < 10 ? "0" : "") + mm + ":" + (ss < 10 ? "0" : "") + ss;
+            }
+            function startChrono() {
+                chronoStartTs = Date.now();
+                if (chronoInterval) clearInterval(chronoInterval);
+                chronoInterval = setInterval(refreshChrono, 250);
+                refreshChrono();
+            }
+            function stopChrono() {
+                if (chronoStartTs) { chronoElapsedMs += Date.now() - chronoStartTs; chronoStartTs = null; }
+                if (chronoInterval) { clearInterval(chronoInterval); chronoInterval = null; }
+                refreshChrono();
+            }
+            refreshChrono();
+
+            var playBtn = document.createElement("button");
+            playBtn.type = "button";
+            playBtn.className = "metro-play-btn";
+            var playBtnIcon = document.createElement("span");
+            playBtnIcon.className = "metro-play-btn-icon";
+            var playBtnLabel = document.createElement("span");
+            playBtn.appendChild(playBtnIcon);
+            playBtn.appendChild(playBtnLabel);
+            function refreshPlayBtn() {
+                playBtn.classList.toggle("metro-play-btn-active", metroPlaying);
+                playBtnIcon.innerHTML = metroPlaying ? METRO_STOP_ICON_SVG : METRO_PLAY_ICON_SVG;
+                playBtnLabel.textContent = metroPlaying ? "Arrêter" : "Jouer";
+            }
+            refreshPlayBtn();
+            playBtn.addEventListener("click", function () {
+                if (metroPlaying) { stopMetronome(); stopChrono(); } else { startMetronome(); startChrono(); }
+                refreshPlayBtn();
+            });
+            panel.appendChild(playBtn);
+
+            function setBpm(v) {
+                v = Math.min(300, Math.max(30, v));
+                m.bpm = v;
+                save();
+                refreshBpmUI();
+            }
+            function refreshBpmUI() {
+                bpmValue.textContent = m.bpm + " BPM";
+                bpmSlider.value = m.bpm;
+            }
+            refreshBpmUI();
+
+            // On arrête le métronome en fermant le panneau : pas de son qui continue en arrière-plan
+            // sans qu'on le voie.
+            return function () {
+                stopMetronome();
+                if (chronoInterval) clearInterval(chronoInterval);
+                metroBeatCallback = null;
+            };
+        });
+    }
+
+    // ---------- aides : cercle des quintes ----------
+    var CIRCLE_OF_FIFTHS_MAJOR = ["C", "G", "D", "A", "E", "B", "F♯", "D♭", "A♭", "E♭", "B♭", "F"];
+    var CIRCLE_OF_FIFTHS_MINOR = ["Am", "Em", "Bm", "F♯m", "C♯m", "G♯m", "E♭m", "B♭m", "Fm", "Cm", "Gm", "Dm"];
+    var CIRCLE_OF_FIFTHS_ACCIDENTALS = ["0", "1♯", "2♯", "3♯", "4♯", "5♯", "6♯", "5♭", "4♭", "3♭", "2♭", "1♭"];
+
+    function buildCircleOfFifthsSvg() {
+        var size = 320, cx = size / 2, cy = size / 2;
+        // Trois anneaux concentriques : majeur (extérieur), mineur relatif (milieu), altérations (intérieur).
+        var outerR = 150, midR = 106, innerR = 62, coreR = 30;
+        var labelMajorR = 128, labelMinorR = 84, labelAccR = 46; // position du texte dans chaque anneau
+        var ns = "http://www.w3.org/2000/svg";
+        var svg = document.createElementNS(ns, "svg");
+        svg.setAttribute("viewBox", "0 0 " + size + " " + size);
+        svg.setAttribute("class", "circle-of-fifths");
+
+        function el(tag, attrs) {
+            var n = document.createElementNS(ns, tag);
+            for (var k in attrs) n.setAttribute(k, attrs[k]);
+            return n;
+        }
+
+        function polar(r, angleDeg) {
+            var a = (angleDeg - 90) * Math.PI / 180;
+            return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
+        }
+
+        function wedgePath(r1, r2, a0, a1) {
+            var p1 = polar(r2, a0), p2 = polar(r2, a1), p3 = polar(r1, a1), p4 = polar(r1, a0);
+            return "M" + p1.x + "," + p1.y +
+                " A" + r2 + "," + r2 + " 0 0 1 " + p2.x + "," + p2.y +
+                " L" + p3.x + "," + p3.y +
+                " A" + r1 + "," + r1 + " 0 0 0 " + p4.x + "," + p4.y + " Z";
+        }
+
+        // Dégradé de teintes façon "roue des tonalités" : une couleur par quinte.
+        for (var w = 0; w < 12; w++) {
+            var hue = w * 30;
+            var a0 = w * 30 - 15, a1 = w * 30 + 15;
+            svg.appendChild(el("path", {
+                d: wedgePath(midR, outerR, a0, a1),
+                class: "cof-wedge cof-wedge-outer",
+                style: "fill: hsl(" + hue + ", 70%, 55%);"
+            }));
+            svg.appendChild(el("path", {
+                d: wedgePath(innerR, midR, a0, a1),
+                class: "cof-wedge cof-wedge-mid",
+                style: "fill: hsl(" + hue + ", 70%, 55%);"
+            }));
+            svg.appendChild(el("path", {
+                d: wedgePath(coreR, innerR, a0, a1),
+                class: "cof-wedge cof-wedge-core",
+                style: "fill: hsl(" + hue + ", 70%, 55%);"
+            }));
+        }
+
+        svg.appendChild(el("circle", { cx: cx, cy: cy, r: outerR, class: "cof-ring cof-ring-outer" }));
+        svg.appendChild(el("circle", { cx: cx, cy: cy, r: midR, class: "cof-ring cof-ring-inner" }));
+        svg.appendChild(el("circle", { cx: cx, cy: cy, r: innerR, class: "cof-ring cof-ring-acc" }));
+
+        for (var i = 0; i < 12; i++) {
+            var angle = (i * 30 - 90) * Math.PI / 180; // 0 en haut, sens horaire
+            // Traits séparateurs entre chaque quinte, sur les trois anneaux.
+            var sepAngle = ((i * 30) - 15 - 90) * Math.PI / 180;
+            var cosS = Math.cos(sepAngle), sinS = Math.sin(sepAngle);
+            svg.appendChild(el("line", {
+                x1: cx + midR * cosS, y1: cy + midR * sinS,
+                x2: cx + outerR * cosS, y2: cy + outerR * sinS,
+                class: "cof-sep"
+            }));
+            svg.appendChild(el("line", {
+                x1: cx + innerR * cosS, y1: cy + innerR * sinS,
+                x2: cx + midR * cosS, y2: cy + midR * sinS,
+                class: "cof-sep cof-sep-minor"
+            }));
+            svg.appendChild(el("line", {
+                x1: cx + coreR * cosS, y1: cy + coreR * sinS,
+                x2: cx + innerR * cosS, y2: cy + innerR * sinS,
+                class: "cof-sep cof-sep-acc"
+            }));
+
+            var majorX = cx + labelMajorR * Math.cos(angle), majorY = cy + labelMajorR * Math.sin(angle);
+            var majorText = el("text", { x: majorX, y: majorY, class: "cof-major" });
+            majorText.textContent = CIRCLE_OF_FIFTHS_MAJOR[i];
+            svg.appendChild(majorText);
+
+            var minorX = cx + labelMinorR * Math.cos(angle), minorY = cy + labelMinorR * Math.sin(angle);
+            var minorText = el("text", { x: minorX, y: minorY, class: "cof-minor" });
+            minorText.textContent = CIRCLE_OF_FIFTHS_MINOR[i];
+            svg.appendChild(minorText);
+
+            var accX = cx + labelAccR * Math.cos(angle), accY = cy + labelAccR * Math.sin(angle);
+            var accText = el("text", { x: accX, y: accY, class: "cof-acc" });
+            accText.textContent = CIRCLE_OF_FIFTHS_ACCIDENTALS[i];
+            svg.appendChild(accText);
+        }
+
+        svg.appendChild(el("circle", { cx: cx, cy: cy, r: coreR, class: "cof-ring cof-ring-core" }));
+        return svg;
+    }
+
+    function openAidesPanel() {
+        openModal("aides-panel", function (panel) {
+            var title = document.createElement("div");
+            title.className = "backups-title";
+            title.textContent = "Cercle des quintes";
+            panel.appendChild(title);
+
+            var wrap = document.createElement("div");
+            wrap.className = "cof-wrap";
+            wrap.appendChild(buildCircleOfFifthsSvg());
+            panel.appendChild(wrap);
+        });
+    }
+
+    // ---------- paramètres généraux ----------
+    function openSettingsPanel() {
+        openModal("settings-panel", function (panel) {
+            var a = state.settings.appearance;
+
+            var title = document.createElement("div");
+            title.className = "backups-title";
+            title.textContent = "Paramètres";
+            panel.appendChild(title);
+
+            function section(labelText) {
+                var label = document.createElement("div");
+                label.className = "section-label settings-section-label";
+                label.textContent = labelText;
+                panel.appendChild(label);
+            }
+
+            function selectField(labelText, options, value, onChange) {
+                var field = document.createElement("label");
+                field.className = "settings-field";
+                var span = document.createElement("span");
+                span.className = "settings-field-label";
+                span.textContent = labelText;
+                field.appendChild(span);
+                var select = document.createElement("select");
+                options.forEach(function (opt) {
+                    var o = document.createElement("option");
+                    o.value = opt[0];
+                    o.textContent = opt[1];
+                    if (String(opt[0]) === String(value)) o.selected = true;
+                    select.appendChild(o);
+                });
+                select.addEventListener("change", function () { onChange(select.value); });
+                field.appendChild(select);
+                return field;
+            }
+
+            section("Métronome");
+            panel.appendChild(selectField("Position", [
+                ["center", "Centre"], ["top", "Haut"], ["bottom", "Bas"], ["corner", "Coin (bas à droite)"]
+            ], a.metronomePosition, function (v) { a.metronomePosition = v; save(); }));
+            panel.appendChild(selectField("Taille", [
+                ["small", "Petite"], ["medium", "Moyenne"], ["large", "Grande"]
+            ], a.metronomeSize, function (v) { a.metronomeSize = v; save(); }));
+
+            section("Affichage");
+            panel.appendChild(selectField("Couleurs des chapitres", Object.keys(COLOR_SCHEMES).map(function (key) {
+                return [key, COLOR_SCHEMES[key].label];
+            }), a.colorScheme, function (v) { applyColorScheme(v); }));
+            panel.appendChild(selectField("Taille du texte des dossiers", [
+                ["0.85", "Petite"], ["1", "Normale"], ["1.15", "Grande"], ["1.3", "Très grande"]
+            ], a.treeFontScale, function (v) {
+                a.treeFontScale = parseFloat(v);
+                save();
+                render();
+            }));
+            panel.appendChild(selectField("Densité de l'interface", [
+                ["compact", "Compacte"], ["comfortable", "Confortable"], ["spacious", "Spacieuse"]
+            ], a.density, function (v) { a.density = v; save(); render(); }));
+            panel.appendChild(selectField("Disposition de l'écran principal", [
+                ["vertical", "Verticale"], ["horizontal", "Horizontale (façon Finder)"]
+            ], a.mainLayout, function (v) { a.mainLayout = v; save(); render(); }));
+        });
+    }
+
+    // ---------- session guidée ----------
+    // Un enchaînement d'exercices choisis à l'avance, chacun avec un temps alloué : au lancement,
+    // un chrono défile pour savoir quand changer d'exercice, mais reste librement ajustable
+    // (Précédent/Suivant à tout moment, +1/-1 min sur l'exercice en cours) plutôt que de forcer un
+    // minutage rigide. Affichée dans la zone principale (pas une fenêtre flottante) : on garde les
+    // outils flottants (métronome, cercle des quintes) utilisables en même temps.
+    var guidedSessionViewActive = false;
+    var gsScreen = "list"; // "list" | "edit" | "pick" | "run" | "links"
+    var gsEditingSession = null;
+    var gsPickCallback = null;
+    var gsRunSession = null, gsRunStepIndex = 0;
+    var gsRunAllocatedSec = 0, gsRunElapsedMs = 0, gsRunStartTs = null, gsRunPaused = true, gsRunInterval = null;
+    var gsLinksChecked = {}; // clé "link:<id>"/"file:<id>" -> coché ou non, le temps de l'écran
+
+    function sessionTotalMinutes(session) {
+        return session.steps.reduce(function (sum, s) { return sum + s.minutes; }, 0);
+    }
+
+    function gsThemeBadge(pathNames, color) {
+        var badge = document.createElement("span");
+        badge.className = "gs-theme-badge";
+        badge.textContent = pathNames[0];
+        badge.title = pathNames.join(" › ");
+        badge.style.color = color;
+        badge.style.background = "color-mix(in srgb, " + color + " 16%, transparent)";
+        return badge;
+    }
+
+    // Puces de liens/fichiers en lecture seule (pas de renommer/retirer) : juste de quoi cliquer
+    // et ouvrir, depuis l'écran de guidage.
+    function appendReadOnlyResourceChips(container, ex) {
+        (ex.links || []).forEach(function (link) {
+            var chip = document.createElement("a");
+            chip.className = "link-chip gs-resource-chip";
+            chip.href = link.url;
+            chip.target = "_blank";
+            chip.rel = "noopener noreferrer";
+            var iconSpan = document.createElement("span");
+            iconSpan.className = "link-icon";
+            iconSpan.innerHTML = linkIconSvg(link.label);
+            chip.appendChild(iconSpan);
+            var labelSpan = document.createElement("span");
+            labelSpan.className = "link-label";
+            labelSpan.textContent = link.label;
+            chip.appendChild(labelSpan);
+            container.appendChild(chip);
+        });
+        (ex.files || []).forEach(function (meta) {
+            var chip = document.createElement("button");
+            chip.type = "button";
+            chip.className = "file-chip gs-resource-chip";
+            chip.title = "Fichier stocké seulement sur cet appareil (non synchronisé)";
+            var iconSpan = document.createElement("span");
+            iconSpan.className = "link-icon";
+            iconSpan.innerHTML = fileKindIcon(meta.type || meta.name);
+            chip.appendChild(iconSpan);
+            var label = document.createElement("span");
+            label.className = "file-open";
+            label.textContent = meta.name;
+            chip.appendChild(label);
+            chip.addEventListener("click", function () {
+                getFileBlob(meta.id).then(function (blob) {
+                    if (!blob) { window.alert("Ce fichier n'est disponible que sur l'appareil où il a été ajouté (« " + meta.name + " »)."); return; }
+                    var url = URL.createObjectURL(blob);
+                    window.open(url, "_blank");
+                    setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+                });
+            });
+            container.appendChild(chip);
+        });
+    }
+
+    // Ouvre plusieurs liens/fichiers d'un coup dans des onglets séparés. Les onglets sont ouverts
+    // tout de suite, de façon synchrone dans le clic (sinon le navigateur bloque les popups
+    // ouverts depuis un callback asynchrone comme la lecture d'un fichier dans IndexedDB) ; leur
+    // contenu (URL du lien, ou blob du fichier une fois lu) est posé dessus une fois prêt.
+    function gsOpenItems(items) {
+        items.forEach(function (item) {
+            var win = window.open("", "_blank");
+            if (item.type === "link") {
+                if (win) win.location.href = item.url;
+            } else {
+                getFileBlob(item.meta.id).then(function (blob) {
+                    if (!blob) { if (win) win.close(); return; }
+                    var url = URL.createObjectURL(blob);
+                    if (win) win.location.href = url;
+                    setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+                });
+            }
+        });
+    }
+
+    function renderGuidedSessionMain() {
+        $contentHeading.innerHTML = "";
+        var h2 = document.createElement("h2");
+        h2.textContent = "Session guidée";
+        $contentHeading.appendChild(h2);
+
+        $folderContainer.innerHTML = "";
+        var content = document.createElement("div");
+        content.className = "gs-main";
+        $folderContainer.appendChild(content);
+
+        if (gsScreen === "run" && gsRunSession) renderGsRunScreen(content);
+        else if (gsScreen === "links" && gsRunSession) renderGsLinksScreen(content);
+        else if (gsScreen === "pick" && gsEditingSession) renderGsPickScreen(content);
+        else if (gsScreen === "edit" && gsEditingSession) renderGsEditScreen(content);
+        else renderGsListScreen(content);
+    }
+
+    // ---- écran liste ----
+    function renderGsListScreen(content) {
+        var sessions = state.settings.guidedSessions;
+        if (!sessions.length) {
+            var empty = document.createElement("div");
+            empty.className = "gs-empty";
+            empty.textContent = "Aucune session pour l'instant.";
+            content.appendChild(empty);
+        } else {
+            var list = document.createElement("div");
+            list.className = "gs-session-list";
+            sessions.forEach(function (session) {
+                var row = document.createElement("div");
+                row.className = "gs-session-row";
+                row.title = "Cliquer pour modifier les exercices de la session";
+                row.addEventListener("click", function (e) {
+                    if (e.target.closest("button")) return;
+                    gsEditingSession = session;
+                    gsScreen = "edit";
+                    render();
+                });
+                var info = document.createElement("div");
+                info.className = "gs-session-info";
+                var name = document.createElement("div");
+                name.className = "gs-session-name";
+                name.textContent = session.name;
+                var meta = document.createElement("div");
+                meta.className = "gs-session-meta";
+                meta.textContent = session.steps.length + " exercice" + (session.steps.length > 1 ? "s" : "") + " · " + sessionTotalMinutes(session) + " min";
+                info.appendChild(name);
+                info.appendChild(meta);
+                row.appendChild(info);
+
+                var actions = document.createElement("div");
+                actions.className = "gs-session-actions";
+                var playBtn = svgIconButton(METRO_PLAY_ICON_SVG, "Lancer cette session", function () {
+                    if (!session.steps.length) return;
+                    gsStartRun(session);
+                });
+                playBtn.classList.add("gs-session-play-btn");
+                var delBtn = iconButton("✕", "Supprimer cette session", function () {
+                    if (!window.confirm("Supprimer la session « " + session.name + " » ?")) return;
+                    sessions.splice(sessions.indexOf(session), 1);
+                    save();
+                    render();
+                });
+                actions.appendChild(playBtn);
+                actions.appendChild(delBtn);
+                row.appendChild(actions);
+                list.appendChild(row);
+            });
+            content.appendChild(list);
+        }
+
+        var addBtn = document.createElement("button");
+        addBtn.type = "button";
+        addBtn.className = "btn-accent gs-add-session-btn";
+        addBtn.textContent = "+ Nouvelle session";
+        addBtn.addEventListener("click", function () {
+            var session = { id: uid(), name: "Nouvelle session", steps: [] };
+            sessions.push(session);
+            gsEditingSession = session;
+            gsScreen = "edit";
+            save();
+            render();
+        });
+        content.appendChild(addBtn);
+    }
+
+    // ---- écran édition ----
+    function renderGsEditScreen(content) {
+        var session = gsEditingSession;
+
+        var backBtn = document.createElement("button");
+        backBtn.type = "button";
+        backBtn.className = "btn-ghost gs-back-btn";
+        backBtn.textContent = "← Retour à la liste";
+        backBtn.addEventListener("click", function () { gsEditingSession = null; gsScreen = "list"; render(); });
+        content.appendChild(backBtn);
+
+        var nameInput = document.createElement("input");
+        nameInput.type = "text";
+        nameInput.className = "gs-name-input";
+        nameInput.value = session.name;
+        nameInput.placeholder = "Nom de la session";
+        nameInput.addEventListener("change", function () {
+            session.name = nameInput.value.trim() || session.name;
+            save();
+        });
+        content.appendChild(nameInput);
+
+        var stepsLabel = document.createElement("div");
+        stepsLabel.className = "section-label";
+        stepsLabel.textContent = "Exercices de la session";
+        content.appendChild(stepsLabel);
+
+        var stepsList = document.createElement("div");
+        stepsList.className = "gs-steps-list";
+        content.appendChild(stepsList);
+
+        var totalRow = document.createElement("div");
+        totalRow.className = "gs-total-row";
+
+        function refreshTotal() {
+            totalRow.textContent = "Durée totale : " + sessionTotalMinutes(session) + " min";
+        }
+
+        function renderSteps() {
+            stepsList.innerHTML = "";
+            session.steps.forEach(function (step) {
+                var found = findExerciseById(step.exerciseId);
+                var row = document.createElement("div");
+                row.className = "gs-step-row";
+                row.dataset.reorderId = step.id;
+                var handle = document.createElement("span");
+                handle.className = "gs-step-handle";
+                handle.innerHTML = GRIP_ICON_SVG;
+                row.appendChild(handle);
+                if (found) row.appendChild(gsThemeBadge(found.pathNames, found.chapterColor));
+                var label = document.createElement("span");
+                label.className = "gs-step-label" + (found ? "" : " gs-step-missing");
+                label.textContent = found ? found.ex.title : "(exercice supprimé)";
+                row.appendChild(label);
+                var minutesInput = document.createElement("input");
+                minutesInput.type = "number";
+                minutesInput.min = "1";
+                minutesInput.max = "180";
+                minutesInput.className = "gs-step-minutes";
+                minutesInput.value = step.minutes;
+                minutesInput.addEventListener("change", function () {
+                    step.minutes = Math.max(1, parseInt(minutesInput.value, 10) || 5);
+                    minutesInput.value = step.minutes;
+                    save();
+                    refreshTotal();
+                });
+                row.appendChild(minutesInput);
+                var minLabel = document.createElement("span");
+                minLabel.className = "gs-step-min-label";
+                minLabel.textContent = "min";
+                row.appendChild(minLabel);
+                var removeBtn = iconButton("✕", "Retirer cet exercice", function () {
+                    session.steps.splice(session.steps.indexOf(step), 1);
+                    save();
+                    renderSteps();
+                    refreshTotal();
+                });
+                row.appendChild(removeBtn);
+                stepsList.appendChild(row);
+            });
+            setupDragReorder(stepsList, ".gs-step-row", function () { return session.steps; }, "y");
+        }
+        renderSteps();
+        refreshTotal();
+
+        var addStepBtn = document.createElement("button");
+        addStepBtn.type = "button";
+        addStepBtn.className = "btn-ghost gs-add-step-btn";
+        addStepBtn.textContent = "+ Ajouter un exercice";
+        addStepBtn.addEventListener("click", function () {
+            gsPickCallback = function (ex) {
+                session.steps.push({ id: uid(), exerciseId: ex.id, minutes: 5 });
+                save();
+            };
+            gsScreen = "pick";
+            render();
+        });
+        content.appendChild(addStepBtn);
+        content.appendChild(totalRow);
+    }
+
+    // ---- écran choix d'un exercice (instrument actif) ----
+    // Arborescence en lecture seule (mêmes couleurs de chapitre et même logique de pli/dépli —
+    // treeExpanded est partagé avec la barre latérale — que la navigation habituelle) : plus
+    // simple pour choisir un exercice que la liste à plat de tous les exercices mélangés.
+    function renderGsPickTree(container, folders, depth, rootColor) {
+        folders.forEach(function (folder) {
+            var color = depth === 0 ? folder.color : rootColor;
+            var visibleExercises = folder.exercises.filter(function (ex) { return !ex.archived; });
+            var hasContent = folder.folders.length > 0 || visibleExercises.length > 0;
+            var expanded = treeExpanded[folder.id] !== false;
+
+            var node = document.createElement("div");
+            node.className = "gs-pick-node";
+            var row = document.createElement("div");
+            row.className = "gs-pick-tree-row";
+            if (depth === 0) {
+                row.style.borderLeft = "3px solid " + color;
+                row.style.background = "color-mix(in srgb, " + color + " 6%, transparent)";
+            }
+            var twisty = document.createElement("button");
+            twisty.type = "button";
+            twisty.className = "tree-twisty" + (hasContent ? "" : " tree-twisty-empty") + (expanded ? " expanded" : "");
+            twisty.innerHTML = CHEVRON_ICON_SVG;
+            if (hasContent) {
+                twisty.addEventListener("click", function (e) {
+                    e.stopPropagation();
+                    treeExpanded[folder.id] = !expanded;
+                    render();
+                });
+            }
+            row.appendChild(twisty);
+            var label = document.createElement("span");
+            label.className = "tree-label";
+            label.textContent = folder.name;
+            row.appendChild(label);
+            row.addEventListener("click", function () { treeExpanded[folder.id] = !expanded; render(); });
+            node.appendChild(row);
+
+            if (expanded && hasContent) {
+                var childWrap = document.createElement("div");
+                childWrap.className = "gs-pick-tree-children";
+                visibleExercises.forEach(function (ex) {
+                    var exBtn = document.createElement("button");
+                    exBtn.type = "button";
+                    exBtn.className = "gs-pick-exercise-row";
+                    exBtn.textContent = ex.title;
+                    exBtn.addEventListener("click", function () {
+                        gsPickCallback(ex);
+                        gsScreen = "edit";
+                        render();
+                    });
+                    childWrap.appendChild(exBtn);
+                });
+                renderGsPickTree(childWrap, folder.folders, depth + 1, color);
+                node.appendChild(childWrap);
+            }
+            container.appendChild(node);
+        });
+    }
+
+    function renderGsPickScreen(content) {
+        var backBtn = document.createElement("button");
+        backBtn.type = "button";
+        backBtn.className = "btn-ghost gs-back-btn";
+        backBtn.textContent = "← Retour";
+        backBtn.addEventListener("click", function () { gsScreen = "edit"; render(); });
+        content.appendChild(backBtn);
+
+        var searchInput = document.createElement("input");
+        searchInput.type = "text";
+        searchInput.className = "gs-pick-search";
+        searchInput.placeholder = "Rechercher un exercice…";
+        content.appendChild(searchInput);
+
+        var resultsWrap = document.createElement("div");
+        content.appendChild(resultsWrap);
+
+        function refreshResults() {
+            resultsWrap.innerHTML = "";
+            var q = searchInput.value.trim().toLowerCase();
+            var inst = getActiveInstrument();
+
+            // Recherche : liste à plat (peu importe le dossier, on cherche partout). Sans
+            // recherche : l'arborescence complète, comme dans la barre latérale.
+            if (!q) {
+                resultsWrap.className = "gs-pick-tree";
+                renderGsPickTree(resultsWrap, inst.categories, 0, null);
+                return;
+            }
+            resultsWrap.className = "gs-pick-results";
+            var results = collectExercises(inst, function (ex) {
+                return !ex.archived && ex.title.toLowerCase().indexOf(q) !== -1;
+            });
+            if (!results.length) {
+                var empty = document.createElement("div");
+                empty.className = "gs-empty";
+                empty.textContent = "Aucun exercice ne correspond.";
+                resultsWrap.appendChild(empty);
+                return;
+            }
+            results.forEach(function (r) {
+                var btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "gs-pick-result";
+                var head = document.createElement("span");
+                head.className = "gs-pick-result-head";
+                var rootChapter = findById(inst.categories, r.pathIds[0]);
+                head.appendChild(gsThemeBadge(r.pathNames, (rootChapter && rootChapter.color) || "#00e676"));
+                var titleSpan = document.createElement("span");
+                titleSpan.className = "gs-pick-result-title";
+                titleSpan.textContent = r.ex.title;
+                head.appendChild(titleSpan);
+                btn.appendChild(head);
+                btn.addEventListener("click", function () {
+                    gsPickCallback(r.ex);
+                    gsScreen = "edit";
+                    render();
+                });
+                resultsWrap.appendChild(btn);
+            });
+        }
+        searchInput.addEventListener("input", refreshResults);
+        refreshResults();
+        searchInput.focus();
+    }
+
+    // ---- écran de guidage (lecture) ----
+    function gsStartRun(session) {
+        gsRunSession = session;
+        gsRunStepIndex = 0;
+        gsEnterRunStep();
+        gsScreen = "run";
+        render();
+    }
+
+    function gsEnterRunStep() {
+        gsRunAllocatedSec = gsRunSession.steps[gsRunStepIndex].minutes * 60;
+        gsRunElapsedMs = 0;
+        gsRunStartTs = Date.now();
+        gsRunPaused = false;
+    }
+
+    function gsRunElapsedNowMs() {
+        return gsRunElapsedMs + (gsRunPaused ? 0 : Date.now() - gsRunStartTs);
+    }
+
+    function gsPauseRun() {
+        if (gsRunPaused) return;
+        gsRunElapsedMs += Date.now() - gsRunStartTs;
+        gsRunPaused = true;
+    }
+
+    function gsResumeRun() {
+        if (!gsRunPaused) return;
+        gsRunStartTs = Date.now();
+        gsRunPaused = false;
+    }
+
+    function gsEndRun() {
+        if (gsRunInterval) { clearInterval(gsRunInterval); gsRunInterval = null; }
+        gsRunSession = null;
+        gsScreen = "list";
+        render();
+    }
+
+    function renderGsRunScreen(content) {
+        var session = gsRunSession;
+        var step = session.steps[gsRunStepIndex];
+        var found = findExerciseById(step.exerciseId);
+
+        var progress = document.createElement("div");
+        progress.className = "gs-run-progress";
+        progress.textContent = "Exercice " + (gsRunStepIndex + 1) + " / " + session.steps.length;
+        content.appendChild(progress);
+
+        if (found) content.appendChild(gsThemeBadge(found.pathNames, found.chapterColor));
+
+        var exTitle = document.createElement("div");
+        exTitle.className = "gs-run-title";
+        exTitle.textContent = found ? found.ex.title : "(exercice supprimé)";
+        content.appendChild(exTitle);
+
+        // Les liens/fichiers de l'exercice en cours sont visibles tout de suite (pas besoin de
+        // cliquer sur "Ouvrir liens/pièces jointes", qui ne sert qu'à ouvrir d'un coup ceux de
+        // TOUTE la session).
+        if (found) {
+            var resourcesRow = document.createElement("div");
+            resourcesRow.className = "links-list gs-run-resources";
+            appendReadOnlyResourceChips(resourcesRow, found.ex);
+            if (resourcesRow.children.length) content.appendChild(resourcesRow);
+        }
+
+        var timerEl = document.createElement("div");
+        timerEl.className = "gs-run-timer";
+        content.appendChild(timerEl);
+
+        function refreshTimer() {
+            var remaining = gsRunAllocatedSec - Math.floor(gsRunElapsedNowMs() / 1000);
+            var overtime = remaining < 0;
+            var abs = Math.abs(remaining);
+            var mm = Math.floor(abs / 60), ss = abs % 60;
+            timerEl.textContent = (overtime ? "+" : "") + (mm < 10 ? "0" : "") + mm + ":" + (ss < 10 ? "0" : "") + ss;
+            timerEl.classList.toggle("gs-run-timer-overtime", overtime);
+        }
+        refreshTimer();
+        if (gsRunInterval) clearInterval(gsRunInterval);
+        gsRunInterval = setInterval(refreshTimer, 250);
+
+        var adjustRow = document.createElement("div");
+        adjustRow.className = "gs-run-adjust-row";
+        adjustRow.appendChild(iconButton("−1 min", "Retirer une minute à cet exercice (juste pour cette fois)", function () {
+            gsRunAllocatedSec = Math.max(60, gsRunAllocatedSec - 60);
+            refreshTimer();
+        }));
+        adjustRow.appendChild(iconButton("+1 min", "Ajouter une minute à cet exercice (juste pour cette fois)", function () {
+            gsRunAllocatedSec += 60;
+            refreshTimer();
+        }));
+        content.appendChild(adjustRow);
+
+        var pauseStopRow = document.createElement("div");
+        pauseStopRow.className = "gs-run-pausestop-row";
+
+        var pauseBtn = document.createElement("button");
+        pauseBtn.type = "button";
+        pauseBtn.className = "metro-play-btn gs-run-pause-btn";
+        function refreshPauseBtn() {
+            pauseBtn.textContent = gsRunPaused ? "Reprendre" : "Pause";
+            pauseBtn.classList.toggle("metro-play-btn-active", !gsRunPaused);
+        }
+        refreshPauseBtn();
+        pauseBtn.addEventListener("click", function () {
+            if (gsRunPaused) gsResumeRun(); else gsPauseRun();
+            refreshPauseBtn();
+        });
+        pauseStopRow.appendChild(pauseBtn);
+
+        var stopBtn = document.createElement("button");
+        stopBtn.type = "button";
+        stopBtn.className = "btn-ghost gs-run-stop-btn";
+        stopBtn.textContent = "Arrêter";
+        stopBtn.title = "Arrêter la session";
+        stopBtn.addEventListener("click", function () {
+            if (window.confirm("Arrêter la session en cours ?")) gsEndRun();
+        });
+        pauseStopRow.appendChild(stopBtn);
+        content.appendChild(pauseStopRow);
+
+        var toolsRow = document.createElement("div");
+        toolsRow.className = "gs-run-tools-row";
+        // Accès rapide au métronome, très utilisé pendant une session — mais pas besoin qu'il
+        // prenne toute la largeur.
+        var metroBtn = document.createElement("button");
+        metroBtn.type = "button";
+        metroBtn.className = "gs-run-metro-btn";
+        metroBtn.innerHTML = METRONOME_ICON_SVG + "<span>Métronome</span>";
+        metroBtn.addEventListener("click", openMetronomePanel);
+        toolsRow.appendChild(metroBtn);
+
+        var linksBtn = document.createElement("button");
+        linksBtn.type = "button";
+        linksBtn.className = "btn-ghost gs-run-links-btn";
+        linksBtn.textContent = "Liens/PJ de toute la session…";
+        linksBtn.addEventListener("click", function () { gsScreen = "links"; render(); });
+        toolsRow.appendChild(linksBtn);
+        content.appendChild(toolsRow);
+
+        var navRow = document.createElement("div");
+        navRow.className = "gs-run-nav-row";
+        var prevBtn = document.createElement("button");
+        prevBtn.type = "button";
+        prevBtn.className = "btn-ghost";
+        prevBtn.textContent = "← Précédent";
+        prevBtn.disabled = gsRunStepIndex === 0;
+        prevBtn.addEventListener("click", function () {
+            gsRunStepIndex--;
+            gsEnterRunStep();
+            render();
+        });
+        var nextBtn = document.createElement("button");
+        nextBtn.type = "button";
+        nextBtn.className = "btn-accent";
+        nextBtn.textContent = gsRunStepIndex === session.steps.length - 1 ? "Terminer" : "Suivant →";
+        nextBtn.addEventListener("click", function () {
+            if (gsRunStepIndex === session.steps.length - 1) {
+                gsEndRun();
+            } else {
+                gsRunStepIndex++;
+                gsEnterRunStep();
+                render();
+            }
+        });
+        navRow.appendChild(prevBtn);
+        navRow.appendChild(nextBtn);
+        content.appendChild(navRow);
+    }
+
+    // ---- écran "ouvrir des liens/pièces jointes" (tous les exercices de la session) ----
+    function renderGsLinksScreen(content) {
+        var session = gsRunSession;
+
+        var backBtn = document.createElement("button");
+        backBtn.type = "button";
+        backBtn.className = "btn-ghost gs-back-btn";
+        backBtn.textContent = "← Retour au guidage";
+        backBtn.addEventListener("click", function () { gsScreen = "run"; render(); });
+        content.appendChild(backBtn);
+
+        var heading = document.createElement("div");
+        heading.className = "section-label";
+        heading.textContent = "Liens et pièces jointes";
+        content.appendChild(heading);
+
+        var allItems = [];
+        var list = document.createElement("div");
+        list.className = "gs-links-list";
+        session.steps.forEach(function (step) {
+            var found = findExerciseById(step.exerciseId);
+            if (!found) return;
+            var items = [];
+            (found.ex.links || []).forEach(function (link) { items.push({ type: "link", key: "link:" + link.id, label: link.label, url: link.url }); });
+            (found.ex.files || []).forEach(function (meta) { items.push({ type: "file", key: "file:" + meta.id, label: meta.name, meta: meta }); });
+            if (!items.length) return;
+
+            var group = document.createElement("div");
+            group.className = "gs-links-group";
+            var groupTitle = document.createElement("div");
+            groupTitle.className = "gs-links-group-title";
+            groupTitle.textContent = found.ex.title;
+            group.appendChild(groupTitle);
+
+            items.forEach(function (item) {
+                var row = document.createElement("label");
+                row.className = "gs-links-item";
+                var cb = document.createElement("input");
+                cb.type = "checkbox";
+                if (gsLinksChecked[item.key] === undefined) gsLinksChecked[item.key] = true;
+                cb.checked = gsLinksChecked[item.key];
+                cb.addEventListener("change", function () { gsLinksChecked[item.key] = cb.checked; });
+                row.appendChild(cb);
+                var span = document.createElement("span");
+                span.textContent = item.label;
+                row.appendChild(span);
+                group.appendChild(row);
+                allItems.push(item);
+            });
+            list.appendChild(group);
+        });
+
+        if (!allItems.length) {
+            var empty = document.createElement("div");
+            empty.className = "gs-empty";
+            empty.textContent = "Aucun lien ni pièce jointe dans cette session.";
+            content.appendChild(empty);
+            return;
+        }
+        content.appendChild(list);
+
+        var openBtn = document.createElement("button");
+        openBtn.type = "button";
+        openBtn.className = "btn-accent gs-links-open-btn";
+        openBtn.textContent = "Ouvrir la sélection";
+        openBtn.addEventListener("click", function () {
+            gsOpenItems(allItems.filter(function (item) { return gsLinksChecked[item.key]; }));
+        });
+        content.appendChild(openBtn);
+    }
+
+    // Une session en cours ne doit pas continuer à décompter pendant qu'on est ailleurs (un autre
+    // onglet, une appli, l'écran verrouillé) : on la met en pause dès que la page n'est plus
+    // visible. Reprise toujours manuelle (bouton Reprendre), pour ne pas relancer le chrono par
+    // surprise au retour.
+    document.addEventListener("visibilitychange", function () {
+        if (document.hidden && gsRunSession && !gsRunPaused) {
+            gsPauseRun();
+            if (guidedSessionViewActive && gsScreen === "run") render();
+        }
+    });
+
+    var $metronomeBtn = document.getElementById("metronome-btn");
+    if ($metronomeBtn) $metronomeBtn.addEventListener("click", openMetronomePanel);
+    var $aidesBtn = document.getElementById("aides-btn");
+    if ($aidesBtn) $aidesBtn.addEventListener("click", openAidesPanel);
+    var $guidedSessionBtn = document.getElementById("guided-session-btn");
+    if ($guidedSessionBtn) $guidedSessionBtn.addEventListener("click", function () {
+        guidedSessionViewActive = !guidedSessionViewActive;
+        $guidedSessionBtn.classList.toggle("active", guidedSessionViewActive);
+        if (!guidedSessionViewActive && gsRunInterval) { clearInterval(gsRunInterval); gsRunInterval = null; }
+        render();
+    });
+    var $settingsBtn = document.getElementById("settings-btn");
+    if ($settingsBtn) $settingsBtn.addEventListener("click", openSettingsPanel);
 
     // ---------- init ----------
     render();
