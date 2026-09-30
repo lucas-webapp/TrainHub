@@ -341,6 +341,8 @@
     var STAR_FILLED_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.7l2.9 6 6.6.7-4.9 4.5 1.3 6.5L12 17.4l-5.9 3 1.3-6.5-4.9-4.5 6.6-.7Z"/></svg>';
     var ARCHIVE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"/><path d="M10 13h4"/></svg>';
     var FILE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05 12.25 20.24a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
+    var METRO_PLAY_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5Z"/></svg>';
+    var METRO_STOP_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
 
     function linkIconSvg(label) {
         var l = (label || "").toLowerCase();
@@ -389,6 +391,34 @@
             el.style.height = h + "px";
             el.style.overflowY = el.scrollHeight > maxH ? "auto" : "hidden";
         } catch (e) {}
+    }
+
+    // Ajuste la largeur du champ-titre d'un exercice à celle de son texte (au lieu de remplir
+    // toute la ligne) : le reste de la barre (voir .exercise-row-spacer) redevient une zone
+    // cliquable pour déplier/replier, seul le texte lui-même ouvre l'édition.
+    var exerciseTitleMeasurer = null;
+    function autoSizeExerciseTitle(input) {
+        try {
+            if (!exerciseTitleMeasurer) {
+                exerciseTitleMeasurer = document.createElement("span");
+                exerciseTitleMeasurer.style.position = "fixed";
+                exerciseTitleMeasurer.style.visibility = "hidden";
+                exerciseTitleMeasurer.style.whiteSpace = "pre";
+                exerciseTitleMeasurer.style.left = "-9999px";
+                document.body.appendChild(exerciseTitleMeasurer);
+            }
+            var cs = window.getComputedStyle(input);
+            exerciseTitleMeasurer.style.font = cs.font;
+            exerciseTitleMeasurer.textContent = input.value || input.placeholder || " ";
+            input.style.width = (exerciseTitleMeasurer.offsetWidth + 22) + "px";
+        } catch (e) {}
+    }
+    function autoSizeAllExerciseTitles() {
+        if (typeof requestAnimationFrame !== "function") return;
+        requestAnimationFrame(function () {
+            var inputs = document.querySelectorAll(".exercise-title");
+            for (var i = 0; i < inputs.length; i++) autoSizeExerciseTitle(inputs[i]);
+        });
     }
 
     // À appeler après qu'un lot de rendu ait posé les zones de notes dans le DOM réel (pas au
@@ -981,6 +1011,7 @@
         renderMain();
         updateUndoRedoButtons();
         autoGrowAllNotes();
+        autoSizeAllExerciseTitles();
     }
 
     function renderInstrumentSelect() {
@@ -1247,51 +1278,19 @@
 
         wrap.appendChild(row);
 
-        // Le champ "Nouveau sous-dossier" n'apparaît que sous le dossier sélectionné, pour garder
-        // l'arborescence épurée (ailleurs : clic droit / appui long → "Nouveau sous-dossier").
-        var canAdd = isSelected && fullPath.length < MAX_FOLDER_DEPTH;
-        if (expanded && (hasChildren || canAdd)) {
+        // Pas de champ "Nouveau sous-dossier" en permanence dans l'arborescence : uniquement via
+        // clic droit / appui long (ou Ctrl+Maj+N) sur le dossier, pour garder la barre latérale
+        // épurée.
+        if (expanded && hasChildren) {
             var childWrap = document.createElement("div");
             childWrap.className = "tree-children";
             folder.folders.forEach(function (child) {
                 childWrap.appendChild(renderTreeNode(inst, child, fullPath, currentPath, rootColor, depth + 1));
             });
-            if (canAdd) {
-                childWrap.appendChild(renderTreeAddFolder(folder));
-            }
             wrap.appendChild(childWrap);
-            if (hasChildren) setupDragReorder(childWrap, ".tree-node", function () { return folder.folders; }, "y");
+            setupDragReorder(childWrap, ".tree-node", function () { return folder.folders; }, "y");
         }
 
-        return wrap;
-    }
-
-    function renderTreeAddFolder(parentFolder) {
-        var wrap = document.createElement("div");
-        wrap.className = "tree-add-row";
-        var input = document.createElement("input");
-        input.type = "text";
-        input.className = "tree-add-input";
-        input.placeholder = "Nouveau sous-dossier…";
-        var btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "tree-add-btn";
-        btn.textContent = "+";
-        btn.title = "Ajouter le sous-dossier";
-        function commit() {
-            var name = input.value.trim();
-            if (!name) return;
-            parentFolder.folders.push(makeFolder(name));
-            save();
-            render();
-        }
-        btn.addEventListener("click", commit);
-        input.addEventListener("keydown", function (e) {
-            e.stopPropagation();
-            if (e.key === "Enter") commit();
-        });
-        wrap.appendChild(input);
-        wrap.appendChild(btn);
         return wrap;
     }
 
@@ -1626,12 +1625,21 @@
         title.type = "text";
         title.className = "exercise-title";
         title.value = ex.title;
+        title.addEventListener("input", function () { autoSizeExerciseTitle(title); });
         title.addEventListener("change", function () {
             ex.title = title.value.trim() || ex.title;
             touchExercise(ex);
             save();
         });
         row.appendChild(title);
+
+        // Espace vide entre le titre (qui ne prend que la largeur de son texte) et les boutons de
+        // droite : fait partie de la ligne cliquable pour déplier/replier, comme le reste de la
+        // barre. Sans lui, le titre en flex:1 occuperait toute la largeur et rendrait le clic sur
+        // "partout sauf le texte" impossible ailleurs qu'sur la petite poignée.
+        var spacer = document.createElement("span");
+        spacer.className = "exercise-row-spacer";
+        row.appendChild(spacer);
 
         if (ex.archived) {
             var archBadge = document.createElement("span");
@@ -1710,6 +1718,50 @@
             labelSpan.className = "link-label";
             labelSpan.textContent = link.label;
             chip.appendChild(labelSpan);
+
+            function startRenameLink() {
+                var input = document.createElement("input");
+                input.type = "text";
+                input.className = "link-label-input";
+                input.value = link.label;
+                labelSpan.replaceWith(input);
+                input.focus();
+                input.select();
+                var done = false;
+                function commit() {
+                    if (done) return;
+                    done = true;
+                    var name = input.value.trim();
+                    if (name) { link.label = name; labelSpan.textContent = name; }
+                    input.replaceWith(labelSpan);
+                    touchExercise(ex);
+                    save();
+                }
+                function cancel() {
+                    if (done) return;
+                    done = true;
+                    input.replaceWith(labelSpan);
+                }
+                input.addEventListener("keydown", function (e) {
+                    e.stopPropagation();
+                    if (e.key === "Enter") { e.preventDefault(); commit(); }
+                    if (e.key === "Escape") cancel();
+                });
+                input.addEventListener("blur", commit);
+                input.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); });
+            }
+
+            var editBtn = document.createElement("span");
+            editBtn.className = "link-edit";
+            editBtn.innerHTML = PENCIL_ICON_SVG;
+            editBtn.title = "Renommer ce lien";
+            editBtn.addEventListener("click", function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                startRenameLink();
+            });
+            chip.appendChild(editBtn);
+
             var removeBtn = document.createElement("span");
             removeBtn.className = "link-remove";
             removeBtn.textContent = "✕";
@@ -2369,14 +2421,54 @@
 
             var bpmRow = document.createElement("div");
             bpmRow.className = "metro-bpm-row";
+            var bpmDown10 = iconButton("−10", "Ralentir de 10", function () { setBpm(m.bpm - 10); });
+            bpmDown10.classList.add("metro-bpm-step10");
             var bpmDown = iconButton("−", "Ralentir", function () { setBpm(m.bpm - 1); });
-            var bpmValue = document.createElement("div");
+            var bpmValue = document.createElement("button");
+            bpmValue.type = "button";
             bpmValue.className = "metro-bpm-value";
+            bpmValue.title = "Cliquer pour saisir le BPM au clavier";
+            bpmValue.addEventListener("click", startEditBpm);
             var bpmUp = iconButton("+", "Accélérer", function () { setBpm(m.bpm + 1); });
+            var bpmUp10 = iconButton("+10", "Accélérer de 10", function () { setBpm(m.bpm + 10); });
+            bpmUp10.classList.add("metro-bpm-step10");
+            bpmRow.appendChild(bpmDown10);
             bpmRow.appendChild(bpmDown);
             bpmRow.appendChild(bpmValue);
             bpmRow.appendChild(bpmUp);
+            bpmRow.appendChild(bpmUp10);
             panel.appendChild(bpmRow);
+
+            function startEditBpm() {
+                var input = document.createElement("input");
+                input.type = "number";
+                input.min = "30";
+                input.max = "300";
+                input.className = "metro-bpm-input";
+                input.value = m.bpm;
+                bpmValue.replaceWith(input);
+                input.focus();
+                input.select();
+                var done = false;
+                function commit() {
+                    if (done) return;
+                    done = true;
+                    var v = parseInt(input.value, 10);
+                    if (!isNaN(v)) setBpm(v); else refreshBpmUI();
+                    input.replaceWith(bpmValue);
+                }
+                function cancel() {
+                    if (done) return;
+                    done = true;
+                    input.replaceWith(bpmValue);
+                }
+                input.addEventListener("keydown", function (e) {
+                    e.stopPropagation();
+                    if (e.key === "Enter") { e.preventDefault(); commit(); }
+                    if (e.key === "Escape") cancel();
+                });
+                input.addEventListener("blur", commit);
+            }
 
             var bpmSlider = document.createElement("input");
             bpmSlider.type = "range";
@@ -2457,36 +2549,63 @@
             });
             panel.appendChild(resetPadBtn);
 
+            // Le pavé est groupé par temps (un mini-groupe de `subdivision` pas), et ces groupes
+            // sont eux-mêmes répartis en lignes de longueur égale (ex. 4 temps -> 2 en haut, 2 en
+            // bas) plutôt que laissés au retour à la ligne du flex-wrap, qui casserait au milieu
+            // d'un temps et donnerait un rendu asymétrique sur petit écran (doubles-croches...).
             function renderPad() {
                 padRow.innerHTML = "";
-                for (var i = 0; i < m.pattern.length; i++) {
-                    (function (idx) {
-                        var isBeatStart = idx % m.subdivision === 0;
-                        var step = document.createElement("button");
-                        step.type = "button";
-                        step.className = "metro-step metro-step-" + m.pattern[idx] + (isBeatStart ? " metro-step-beat" : "");
-                        step.title = (isBeatStart ? "Temps " + (idx / m.subdivision + 1) : "Pas " + (idx + 1)) + " : silence / normal / fort";
-                        step.addEventListener("click", function () {
-                            m.pattern[idx] = (m.pattern[idx] + 1) % 3;
-                            save();
-                            renderPad();
-                        });
-                        padRow.appendChild(step);
-                    })(i);
+                var beats = m.beatsPerMeasure;
+                var totalSteps = m.pattern.length;
+                var rows = totalSteps > 8 ? Math.min(beats, Math.ceil(totalSteps / 8)) : 1;
+                var beatsPerRowBase = Math.floor(beats / rows);
+                var extra = beats % rows;
+                var beatIdx = 0;
+                for (var r = 0; r < rows; r++) {
+                    var rowBeats = beatsPerRowBase + (r < extra ? 1 : 0);
+                    var rowEl = document.createElement("div");
+                    rowEl.className = "metro-pad-row";
+                    for (var b = 0; b < rowBeats; b++) {
+                        var groupEl = document.createElement("div");
+                        groupEl.className = "metro-beat-group";
+                        for (var s = 0; s < m.subdivision; s++) {
+                            (function (idx) {
+                                var step = document.createElement("button");
+                                step.type = "button";
+                                step.className = "metro-step metro-step-" + m.pattern[idx];
+                                step.title = (s === 0 ? "Temps " + (beatIdx + 1) : "Pas " + (idx + 1)) + " : silence / normal / fort";
+                                step.addEventListener("click", function () {
+                                    m.pattern[idx] = (m.pattern[idx] + 1) % 3;
+                                    save();
+                                    renderPad();
+                                });
+                                groupEl.appendChild(step);
+                            })(beatIdx * m.subdivision + s);
+                        }
+                        rowEl.appendChild(groupEl);
+                        beatIdx++;
+                    }
+                    padRow.appendChild(rowEl);
                 }
             }
             renderPad();
             metroBeatCallback = function (step) {
-                Array.prototype.forEach.call(padRow.children, function (el, i) {
-                    el.classList.toggle("metro-step-current", i === step);
-                });
+                var steps = padRow.querySelectorAll(".metro-step");
+                for (var i = 0; i < steps.length; i++) steps[i].classList.toggle("metro-step-current", i === step);
             };
 
             var playBtn = document.createElement("button");
             playBtn.type = "button";
-            playBtn.className = "btn-accent metro-play-btn";
+            playBtn.className = "metro-play-btn";
+            var playBtnIcon = document.createElement("span");
+            playBtnIcon.className = "metro-play-btn-icon";
+            var playBtnLabel = document.createElement("span");
+            playBtn.appendChild(playBtnIcon);
+            playBtn.appendChild(playBtnLabel);
             function refreshPlayBtn() {
-                playBtn.textContent = metroPlaying ? "⏸ Arrêter" : "▶ Jouer";
+                playBtn.classList.toggle("metro-play-btn-active", metroPlaying);
+                playBtnIcon.innerHTML = metroPlaying ? METRO_STOP_ICON_SVG : METRO_PLAY_ICON_SVG;
+                playBtnLabel.textContent = metroPlaying ? "Arrêter" : "Jouer";
             }
             refreshPlayBtn();
             playBtn.addEventListener("click", function () {
