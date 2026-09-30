@@ -430,6 +430,15 @@ button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--acce
     border-radius: var(--radius-sm);
     padding: 3px 9px;
 }
+.exercise-tag-badge {
+    flex: none;
+    font-size: var(--fs-2xs);
+    font-weight: 700;
+    background: rgba(255,255,255,.05);
+    border: 1px solid;
+    border-radius: var(--radius-sm);
+    padding: 2px 8px;
+}
 
 /* Accès rapide à un lien (ou au choix entre plusieurs) directement depuis la barre de l'exercice,
    sans avoir à déplier les détails. */
@@ -965,6 +974,12 @@ button.metro-volume-btn:hover { border-color: var(--accent); color: var(--accent
 .metro-chrono-value { font-size: var(--fs-md); font-weight: 700; letter-spacing: .02em; }
 .metro-chrono-reset { flex: none; color: var(--text-muted); }
 .metro-chrono-reset .icon { width: 15px; height: 15px; }
+.metro-tap-btn { display: block; margin: 4px auto 0; }
+.metro-progressive-row { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-top: 4px; }
+button.metro-progressive-toggle.metro-progressive-active { color: var(--accent); border-color: var(--accent); }
+.metro-progressive-fields { display: flex; justify-content: center; gap: 18px; }
+.metro-progressive-field { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+.metro-progressive-field input { font-size: var(--fs-sm); text-align: center; color: var(--text-main); text-transform: none; letter-spacing: normal; width: 64px; }
 .metro-fields-row { display: flex; justify-content: center; align-items: flex-end; gap: 18px; }
 .metro-field { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
 .metro-field input, .metro-field select { font-size: var(--fs-sm); text-align: center; color: var(--text-main); text-transform: none; letter-spacing: normal; }

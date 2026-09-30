@@ -89,8 +89,19 @@
             // quotidien : juste deux cases à cocher, accessibles par clic droit/appui long.
             if (typeof ex.favorite !== "boolean") ex.favorite = false;
             if (typeof ex.archived !== "boolean") ex.archived = false;
+            if (!Array.isArray(ex.tags)) ex.tags = [];
+            ex.tags = ex.tags.filter(function (t) { return TAGS.hasOwnProperty(t); });
         });
     }
+
+    // Étiquettes prédéfinies posables sur un exercice (clic droit), simple classification en plus
+    // des dossiers/favoris/archivés — pas de filtre dédié dessus, juste un repère visuel discret.
+    var TAGS = {
+        difficile: { label: "Difficile", color: "#f87171" },
+        prioritaire: { label: "Prioritaire", color: "#fb923c" },
+        termine: { label: "Terminé", color: "#4ade80" },
+        arevoir: { label: "À revoir", color: "#60a5fa" }
+    };
 
     // Ordre d'affichage des chapitres (bandeau mobile + arborescence), synchronisé : mélange les
     // vrais chapitres et les chapitres virtuels (Favoris, Archivés), tous glissables ensemble. Par
@@ -137,10 +148,21 @@
         });
     }
 
+    // Corbeille : garde un exercice/dossier/session supprimé assez longtemps pour être restauré par
+    // erreur, en plus de l'annuler/rétablir (qui, lui, revient en arrière pas à pas et peut être
+    // écrasé par des actions suivantes). Les fichiers joints ne sont réellement effacés
+    // d'IndexedDB qu'à la suppression définitive (purge manuelle ou éviction au-delà de la limite).
+    var TRASH_LIMIT = 50;
+
+    function normalizeTrash(s) {
+        if (!Array.isArray(s.settings.trash)) s.settings.trash = [];
+    }
+
     function normalizeState(s) {
         if (!s.settings || typeof s.settings !== "object") s.settings = {};
         normalizeMetronomeSettings(s.settings);
         normalizeGuidedSessions(s);
+        normalizeTrash(s);
         normalizeAppearanceSettings(s);
         if (!Array.isArray(s.instruments)) s.instruments = [];
         s.instruments.forEach(function (inst) {
@@ -197,7 +219,7 @@
     // l'historique : les versions d'avant/après ne se comparent plus à ce qui vient d'arriver.
     // (Le branchement des boutons et le premier instantané sont plus bas, une fois les éléments
     // du DOM en main — voir "rendering".)
-    var HISTORY_LIMIT = 50;
+    var HISTORY_LIMIT = 200;
     var historyStack = [];
     var historyIndex = -1;
 
@@ -284,6 +306,94 @@
                 tx.onerror = function () { reject(tx.error); };
             });
         }).catch(function () {});
+    }
+
+    // ---------- corbeille ----------
+    // Filet de sécurité en plus d'annuler/rétablir : un élément supprimé (exercice/dossier/session)
+    // reste récupérable ici même après d'autres actions qui auraient fait sortir l'annulation de
+    // portée. Les fichiers joints d'un exercice mis à la corbeille restent en IndexedDB tant qu'il
+    // n'est pas purgé (évincé par la limite ou supprimé définitivement) — sinon les rouvrir après
+    // restauration échouerait.
+    function filesOf(entry) {
+        if (entry.type === "exercise") return entry.data.files || [];
+        if (entry.type === "folder") {
+            var files = [];
+            function walk(f) {
+                (f.exercises || []).forEach(function (ex) { files = files.concat(ex.files || []); });
+                (f.folders || []).forEach(walk);
+            }
+            walk(entry.data);
+            return files;
+        }
+        return [];
+    }
+
+    function purgeTrashEntry(entry) {
+        filesOf(entry).forEach(function (f) { deleteFileBlob(f.id); });
+    }
+
+    function addToTrash(type, data, extra) {
+        var entry = Object.assign({ id: uid(), type: type, data: data, deletedAt: Date.now() }, extra || {});
+        state.settings.trash.unshift(entry);
+        var evicted = state.settings.trash.splice(TRASH_LIMIT);
+        evicted.forEach(purgeTrashEntry);
+    }
+
+    function removeFromTrash(entryId) {
+        var i = state.settings.trash.findIndex(function (e) { return e.id === entryId; });
+        if (i !== -1) state.settings.trash.splice(i, 1);
+    }
+
+    function restoreFromTrash(entryId) {
+        var entry = state.settings.trash.filter(function (e) { return e.id === entryId; })[0];
+        if (!entry) return;
+        if (entry.type === "session") {
+            state.settings.guidedSessions.push(entry.data);
+        } else {
+            var inst = findById(state.instruments, entry.instrumentId) || state.instruments[0];
+            if (entry.type === "exercise") {
+                var folder = entry.parentFolderId ? findFolderById(inst, entry.parentFolderId) : null;
+                (folder || inst.categories[0]).exercises.push(entry.data);
+            } else if (entry.type === "folder") {
+                var parent = entry.parentFolderId ? findFolderById(inst, entry.parentFolderId) : null;
+                if (parent) parent.folders.push(entry.data);
+                else inst.categories.push(entry.data);
+            }
+        }
+        removeFromTrash(entryId);
+        save();
+        render();
+    }
+
+    function purgeFromTrash(entryId) {
+        var entry = state.settings.trash.filter(function (e) { return e.id === entryId; })[0];
+        if (!entry) return;
+        purgeTrashEntry(entry);
+        removeFromTrash(entryId);
+        save();
+        render();
+    }
+
+    function emptyTrash() {
+        state.settings.trash.forEach(purgeTrashEntry);
+        state.settings.trash = [];
+        save();
+        render();
+    }
+
+    // Recherche un dossier (chapitre ou sous-dossier) par id dans TOUT l'instrument, pour retrouver
+    // le parent d'un élément mis à la corbeille (voir restoreFromTrash).
+    function findFolderById(inst, folderId) {
+        var found = null;
+        function walk(list) {
+            list.forEach(function (f) {
+                if (found) return;
+                if (f.id === folderId) { found = f; return; }
+                walk(f.folders);
+            });
+        }
+        walk(inst.categories);
+        return found;
     }
 
     function humanFileSize(bytes) {
@@ -605,12 +715,55 @@
         el.addEventListener("pointercancel", cancelPress);
     }
 
+    // ---------- duplication (exercice / dossier) ----------
+    // Les fichiers joints vivent dans IndexedDB (voir plus haut) : dupliquer un exercice recopie
+    // aussi le blob réel sous un nouvel id, sinon les deux exercices partageraient le même fichier
+    // et le supprimer sur l'un l'effacerait pour l'autre.
+    function cloneLinksForDuplicate(links) {
+        return (links || []).map(function (l) { return { id: uid(), label: l.label, url: l.url }; });
+    }
+
+    function cloneFilesForDuplicate(files) {
+        return (files || []).map(function (f) {
+            var newId = uid();
+            getFileBlob(f.id).then(function (blob) { if (blob) storeFileBlob(newId, blob); });
+            return { id: newId, name: f.name, type: f.type, size: f.size };
+        });
+    }
+
+    function duplicateExercise(ex) {
+        return {
+            id: uid(),
+            title: ex.title + " (copie)",
+            notes: ex.notes || "",
+            favorite: false,
+            archived: false,
+            tags: (ex.tags || []).slice(),
+            links: cloneLinksForDuplicate(ex.links),
+            files: cloneFilesForDuplicate(ex.files),
+            pinnedLinkId: null,
+            collapsed: true,
+            updatedAt: Date.now()
+        };
+    }
+
+    function duplicateFolderDeep(folder) {
+        var copy = {
+            id: uid(),
+            name: folder.name + " (copie)",
+            folders: (folder.folders || []).map(duplicateFolderDeep),
+            exercises: (folder.exercises || []).map(duplicateExercise)
+        };
+        if (folder.color) copy.color = folder.color;
+        return copy;
+    }
+
     function bindFolderMenu(el, getParentArray, folder, inst) {
         bindContextGesture(el, function (x, y) { openFolderMenu(x, y, getParentArray, folder, inst); });
     }
 
-    function bindExerciseMenu(el, ex) {
-        bindContextGesture(el, function (x, y) { openExerciseMenu(x, y, ex); });
+    function bindExerciseMenu(el, ex, folder) {
+        bindContextGesture(el, function (x, y) { openExerciseMenu(x, y, ex, folder); });
     }
 
     // ---------- menu contextuel (renommer / supprimer) ----------
@@ -645,8 +798,11 @@
     }
 
     function deleteFolder(parentArray, folder, inst) {
+        var pathToFolder = findPathTo(inst, folder.id) || [folder.id];
+        var parentFolderId = pathToFolder.length > 1 ? pathToFolder[pathToFolder.length - 2] : null;
         var pos = parentArray.indexOf(folder);
         if (pos !== -1) parentArray.splice(pos, 1);
+        addToTrash("folder", folder, { instrumentId: inst.id, parentFolderId: parentFolderId });
         var path = getNavPath(inst);
         var inPath = path.indexOf(folder.id);
         if (inPath !== -1) setNavPath(inst, path.slice(0, inPath));
@@ -695,6 +851,12 @@
             menu.appendChild(title);
             if (canAddSub) menu.appendChild(menuButton("Nouveau sous-dossier", "", showAddSub));
             menu.appendChild(menuButton("Renommer", "", showRename));
+            menu.appendChild(menuButton("Dupliquer", "", function () {
+                getParentArray().push(duplicateFolderDeep(folder));
+                save();
+                closeFolderMenu();
+                render();
+            }));
             menu.appendChild(menuButton("Supprimer", "ctx-danger", showDelete));
         }
 
@@ -808,7 +970,7 @@
 
     // Menu, plus simple, d'un exercice : juste les deux cases "favoris" et "archiver" demandées
     // (le statu quo avec les statuts à faire/en cours/terminé/à revoir était jugé trop compliqué).
-    function openExerciseMenu(x, y, ex) {
+    function openExerciseMenu(x, y, ex, folder) {
         closeFolderMenu();
 
         var backdrop = document.createElement("div");
@@ -864,6 +1026,31 @@
             closeFolderMenu();
             render();
         }));
+
+        var tagsSep = document.createElement("div");
+        tagsSep.className = "ctx-title";
+        tagsSep.textContent = "Étiquettes";
+        menu.appendChild(tagsSep);
+        Object.keys(TAGS).forEach(function (key) {
+            var active = ex.tags.indexOf(key) !== -1;
+            menu.appendChild(menuButton((active ? "✓ " : "") + TAGS[key].label, "", function () {
+                var i = ex.tags.indexOf(key);
+                if (i === -1) ex.tags.push(key); else ex.tags.splice(i, 1);
+                touchExercise(ex);
+                save();
+                closeFolderMenu();
+                render();
+            }));
+        });
+
+        if (folder) {
+            menu.appendChild(menuButton("Dupliquer", "", function () {
+                folder.exercises.push(duplicateExercise(ex));
+                save();
+                closeFolderMenu();
+                render();
+            }));
+        }
 
         function onKey(e) { if (e.key === "Escape") closeFolderMenu(); }
 
@@ -1720,7 +1907,13 @@
             // Les archivés restent hors de la recherche classique : on les retrouve dans leur
             // propre chapitre virtuel "Archivés" (comme les favoris), voir renderVirtualChapterView.
             if (ex.archived) return false;
-            return !query || ex.title.toLowerCase().indexOf(query) !== -1;
+            if (!query) return true;
+            if (ex.title.toLowerCase().indexOf(query) !== -1) return true;
+            // La recherche trouve aussi un exercice par le nom d'un lien ou d'une pièce jointe
+            // (ex. "Youtube bassless"), pas seulement par le titre de l'exercice.
+            if (ex.links.some(function (l) { return (l.label || "").toLowerCase().indexOf(query) !== -1; })) return true;
+            if (ex.files.some(function (f) { return (f.name || "").toLowerCase().indexOf(query) !== -1; })) return true;
+            return false;
         }
         var results = collectExercises(inst, matchFn);
         renderResultsList(inst, results, "Aucun exercice ne correspond à ta recherche.");
@@ -1741,6 +1934,7 @@
                 notes: "",
                 favorite: false,
                 archived: false,
+                tags: [],
                 links: [],
                 files: [],
                 collapsed: true,
@@ -1766,7 +1960,7 @@
         var row = document.createElement("div");
         row.className = "exercise-row";
         row.title = "Cliquer pour les détails (notes, liens…) · clic droit ou appui long : favoris / archiver";
-        bindExerciseMenu(row, ex);
+        bindExerciseMenu(row, ex, folder);
         row.addEventListener("click", function (e) {
             if (suppressNextClick) { suppressNextClick = false; return; }
             // Le titre (et les boutons) gardent leur propre clic : cliquer le reste de la ligne
@@ -1795,6 +1989,17 @@
             favBadge.title = "Favori";
             row.appendChild(favBadge);
         }
+
+        (ex.tags || []).forEach(function (key) {
+            var tag = TAGS[key];
+            if (!tag) return;
+            var tagBadge = document.createElement("span");
+            tagBadge.className = "exercise-tag-badge";
+            tagBadge.textContent = tag.label;
+            tagBadge.style.color = tag.color;
+            tagBadge.style.borderColor = tag.color;
+            row.appendChild(tagBadge);
+        });
 
         var title = document.createElement("input");
         title.type = "text";
@@ -1827,7 +2032,7 @@
 
         var delBtn = iconButton("✕", "Supprimer l'exercice", function () {
             if (!window.confirm("Supprimer « " + ex.title + " » ?")) return;
-            (ex.files || []).forEach(function (f) { deleteFileBlob(f.id); });
+            addToTrash("exercise", ex, { instrumentId: getActiveInstrument().id, parentFolderId: folder.id });
             folder.exercises = folder.exercises.filter(function (e) { return e.id !== ex.id; });
             save();
             render();
@@ -2507,6 +2712,97 @@
         document.body.appendChild(panel);
     }
 
+    var $trashBtn = document.getElementById("trash-btn");
+    if ($trashBtn) $trashBtn.addEventListener("click", openTrashPanel);
+
+    function trashEntryLabel(entry) {
+        if (entry.type === "exercise") return "Exercice · " + entry.data.title;
+        if (entry.type === "folder") return "Dossier · " + entry.data.name;
+        return "Session guidée · " + entry.data.name;
+    }
+
+    function openTrashPanel() {
+        openModal("trash-panel", function (panel) {
+            var title = document.createElement("div");
+            title.className = "backups-title";
+            title.textContent = "Corbeille";
+            panel.appendChild(title);
+
+            var intro = document.createElement("div");
+            intro.className = "backups-intro";
+            intro.textContent = "Exercices, dossiers et sessions supprimés récemment.";
+            panel.appendChild(intro);
+
+            var list = document.createElement("div");
+            list.className = "backups-list";
+            var trash = state.settings.trash;
+            if (!trash.length) {
+                var empty = document.createElement("div");
+                empty.className = "backups-empty";
+                empty.textContent = "La corbeille est vide.";
+                list.appendChild(empty);
+            }
+            trash.forEach(function (entry) {
+                var row = document.createElement("div");
+                row.className = "backups-row";
+
+                var info = document.createElement("div");
+                info.className = "backups-info";
+                var when = document.createElement("div");
+                when.className = "backups-when";
+                when.textContent = trashEntryLabel(entry);
+                info.appendChild(when);
+                var reason = document.createElement("div");
+                reason.className = "backups-reason";
+                reason.textContent = new Date(entry.deletedAt).toLocaleString("fr-FR");
+                info.appendChild(reason);
+                row.appendChild(info);
+
+                var actions = document.createElement("div");
+                actions.className = "backups-actions";
+                var restoreBtn = document.createElement("button");
+                restoreBtn.type = "button";
+                restoreBtn.className = "btn-ghost";
+                restoreBtn.textContent = "Restaurer";
+                restoreBtn.addEventListener("click", function () {
+                    restoreFromTrash(entry.id);
+                    openTrashPanel();
+                });
+                actions.appendChild(restoreBtn);
+                var purgeBtn = document.createElement("button");
+                purgeBtn.type = "button";
+                purgeBtn.className = "ctx-danger-solid";
+                purgeBtn.textContent = "Supprimer définitivement";
+                purgeBtn.addEventListener("click", function () {
+                    if (!window.confirm("Supprimer définitivement cet élément ? Impossible à annuler.")) return;
+                    purgeFromTrash(entry.id);
+                    openTrashPanel();
+                });
+                actions.appendChild(purgeBtn);
+                row.appendChild(actions);
+
+                list.appendChild(row);
+            });
+            panel.appendChild(list);
+
+            if (trash.length) {
+                var emptyRow = document.createElement("div");
+                emptyRow.className = "backups-close-row";
+                var emptyAllBtn = document.createElement("button");
+                emptyAllBtn.type = "button";
+                emptyAllBtn.className = "ctx-danger-solid";
+                emptyAllBtn.textContent = "Vider la corbeille";
+                emptyAllBtn.addEventListener("click", function () {
+                    if (!window.confirm("Vider définitivement la corbeille ?")) return;
+                    emptyTrash();
+                    openTrashPanel();
+                });
+                emptyRow.appendChild(emptyAllBtn);
+                panel.appendChild(emptyRow);
+            }
+        });
+    }
+
     var importInput = document.getElementById("import-input");
     document.getElementById("import-btn").addEventListener("click", function () {
         importInput.click();
@@ -2622,6 +2918,12 @@
         for (var i = 0; i < m.pattern.length; i++) {
             if ([0, 1, 2].indexOf(m.pattern[i]) === -1) m.pattern[i] = 1;
         }
+        // Tempo progressif (peu utilisé au quotidien, désactivé par défaut) : augmente le BPM tout
+        // seul toutes les N mesures pendant la lecture — voir metroScheduler.
+        if (!m.progressive || typeof m.progressive !== "object") m.progressive = {};
+        if (typeof m.progressive.enabled !== "boolean") m.progressive.enabled = false;
+        if (typeof m.progressive.incrementBpm !== "number" || isNaN(m.progressive.incrementBpm) || m.progressive.incrementBpm <= 0) m.progressive.incrementBpm = 5;
+        if (typeof m.progressive.everyMeasures !== "number" || isNaN(m.progressive.everyMeasures) || m.progressive.everyMeasures <= 0) m.progressive.everyMeasures = 4;
         return m;
     }
 
@@ -2632,6 +2934,7 @@
     var metroNextNoteTime = 0;
     var metroCurrentStep = 0;
     var metroBeatCallback = null; // met à jour l'affichage (pas qui clignote), posé par le panneau ouvert
+    var metroMeasureCallback = null; // prévenu à chaque nouvelle mesure (voir tempo progressif)
     var METRO_LOOKAHEAD_MS = 25;
     var METRO_SCHEDULE_AHEAD_S = 0.12;
 
@@ -2688,6 +2991,7 @@
             var secondsPerStep = 60 / m.bpm / m.subdivision;
             metroNextNoteTime += secondsPerStep;
             metroCurrentStep = (metroCurrentStep + 1) % stepCount;
+            if (metroCurrentStep === 0 && metroMeasureCallback) metroMeasureCallback();
         }
         metroTimer = setTimeout(metroScheduler, METRO_LOOKAHEAD_MS);
     }
@@ -2777,6 +3081,98 @@
             bpmSlider.className = "metro-bpm-slider";
             bpmSlider.addEventListener("input", function () { setBpm(parseInt(bpmSlider.value, 10)); });
             panel.appendChild(bpmSlider);
+
+            // ---------- tap tempo ----------
+            // Taper le rythme au doigt/clic déduit le BPM des écarts entre appuis, plutôt que de le
+            // saisir au clavier. Une pause de plus de 2s entre deux appuis repart de zéro (on a
+            // changé d'idée) au lieu de fausser la moyenne avec un tempo sans rapport.
+            var tapTimes = [];
+            var tapBtn = document.createElement("button");
+            tapBtn.type = "button";
+            tapBtn.className = "btn-ghost metro-tap-btn";
+            tapBtn.textContent = "Tap tempo";
+            tapBtn.title = "Tapoter au tempo souhaité pour régler le BPM";
+            tapBtn.addEventListener("click", function () {
+                var now = Date.now();
+                if (tapTimes.length && now - tapTimes[tapTimes.length - 1] > 2000) tapTimes = [];
+                tapTimes.push(now);
+                if (tapTimes.length > 8) tapTimes.shift();
+                if (tapTimes.length >= 2) {
+                    var intervals = [];
+                    for (var i = 1; i < tapTimes.length; i++) intervals.push(tapTimes[i] - tapTimes[i - 1]);
+                    var avg = intervals.reduce(function (a, b) { return a + b; }, 0) / intervals.length;
+                    setBpm(Math.round(60000 / avg));
+                }
+            });
+            panel.appendChild(tapBtn);
+
+            // ---------- tempo progressif ----------
+            // Peu utilisé au quotidien (voir demande utilisateur) : bouton dédié qui replie/déplie
+            // ses deux réglages plutôt que de les laisser en permanence dans le panneau principal.
+            var progRow = document.createElement("div");
+            progRow.className = "metro-progressive-row";
+            var progToggle = document.createElement("button");
+            progToggle.type = "button";
+            progToggle.className = "btn-ghost metro-progressive-toggle";
+            var progFields = document.createElement("div");
+            progFields.className = "metro-progressive-fields";
+
+            var progIncField = document.createElement("label");
+            progIncField.className = "metro-progressive-field";
+            progIncField.textContent = "+ BPM";
+            var progIncInput = document.createElement("input");
+            progIncInput.type = "number";
+            progIncInput.min = "1";
+            progIncInput.max = "50";
+            progIncInput.value = m.progressive.incrementBpm;
+            progIncInput.addEventListener("change", function () {
+                m.progressive.incrementBpm = Math.max(1, parseInt(progIncInput.value, 10) || 5);
+                progIncInput.value = m.progressive.incrementBpm;
+                save();
+            });
+            progIncField.appendChild(progIncInput);
+            progFields.appendChild(progIncField);
+
+            var progEveryField = document.createElement("label");
+            progEveryField.className = "metro-progressive-field";
+            progEveryField.textContent = "Toutes les X mesures";
+            var progEveryInput = document.createElement("input");
+            progEveryInput.type = "number";
+            progEveryInput.min = "1";
+            progEveryInput.max = "64";
+            progEveryInput.value = m.progressive.everyMeasures;
+            progEveryInput.addEventListener("change", function () {
+                m.progressive.everyMeasures = Math.max(1, parseInt(progEveryInput.value, 10) || 4);
+                progEveryInput.value = m.progressive.everyMeasures;
+                save();
+            });
+            progEveryField.appendChild(progEveryInput);
+            progFields.appendChild(progEveryField);
+
+            function refreshProgToggle() {
+                progToggle.textContent = "Tempo progressif : " + (m.progressive.enabled ? "activé" : "désactivé");
+                progToggle.classList.toggle("metro-progressive-active", m.progressive.enabled);
+                progFields.hidden = !m.progressive.enabled;
+            }
+            progToggle.addEventListener("click", function () {
+                m.progressive.enabled = !m.progressive.enabled;
+                save();
+                refreshProgToggle();
+            });
+            refreshProgToggle();
+            progRow.appendChild(progToggle);
+            progRow.appendChild(progFields);
+            panel.appendChild(progRow);
+
+            var progMeasureCount = 0;
+            metroMeasureCallback = function () {
+                if (!m.progressive.enabled) return;
+                progMeasureCount++;
+                if (progMeasureCount >= m.progressive.everyMeasures) {
+                    progMeasureCount = 0;
+                    setBpm(m.bpm + m.progressive.incrementBpm);
+                }
+            };
 
             var fieldsRow = document.createElement("div");
             fieldsRow.className = "metro-fields-row";
@@ -2985,7 +3381,7 @@
             }
             refreshPlayBtn();
             playBtn.addEventListener("click", function () {
-                if (metroPlaying) { stopMetronome(); stopChrono(); } else { startMetronome(); startChrono(); }
+                if (metroPlaying) { stopMetronome(); stopChrono(); } else { progMeasureCount = 0; startMetronome(); startChrono(); }
                 refreshPlayBtn();
             });
             panel.appendChild(playBtn);
@@ -3008,6 +3404,7 @@
                 stopMetronome();
                 if (chronoInterval) clearInterval(chronoInterval);
                 metroBeatCallback = null;
+                metroMeasureCallback = null;
             };
         });
     }
@@ -3343,6 +3740,7 @@
                 playBtn.classList.add("gs-session-play-btn");
                 var delBtn = iconButton("✕", "Supprimer cette session", function () {
                     if (!window.confirm("Supprimer la session « " + session.name + " » ?")) return;
+                    addToTrash("session", session, {});
                     sessions.splice(sessions.indexOf(session), 1);
                     save();
                     render();
