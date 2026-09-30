@@ -1058,6 +1058,28 @@ button.scales-label-btn.scales-label-btn-active { color: var(--accent); border-c
 .piano-key-root { opacity: 1; }
 .piano-key-label { font-size: 10px; text-anchor: middle; fill: #111; font-weight: 700; }
 .piano-key-label-black { fill: #fff; }
+.tuner-controls-row { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.tuner-controls-row select { font-size: var(--fs-sm); max-width: 220px; }
+.tuner-reference-row { display: flex; justify-content: center; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.tuner-reference-chip { font-size: var(--fs-2xs); font-weight: 700; color: var(--text-muted); background: rgba(255,255,255,.05); border-radius: var(--radius-sm); padding: 2px 8px; }
+button.tuner-start-btn { display: block; margin: 12px auto 0; }
+button.tuner-start-btn-active { background: var(--danger, #ff4d4f); }
+.tuner-display { text-align: center; margin-top: 14px; }
+.tuner-note { font-size: 42px; font-weight: 800; line-height: 1; }
+.tuner-freq { font-size: var(--fs-sm); color: var(--text-muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+.tuner-needle-track { position: relative; width: 200px; height: 60px; margin: 14px auto 0; overflow: hidden; }
+.tuner-needle-center { position: absolute; left: 50%; bottom: 0; width: 2px; height: 100%; background: var(--border); transform: translateX(-50%); }
+.tuner-needle {
+    position: absolute;
+    left: 50%; bottom: 0;
+    width: 3px; height: 54px;
+    background: var(--accent);
+    border-radius: 2px;
+    transform-origin: bottom center;
+    transform: translateX(-50%) rotate(0deg);
+    transition: transform .12s ease-out, background .15s ease;
+}
+.tuner-needle.tuner-needle-in-tune { background: #4ade80; }
 .cof-wrap { display: flex; justify-content: center; }
 .circle-of-fifths {
     width: min(320px, 80vw);

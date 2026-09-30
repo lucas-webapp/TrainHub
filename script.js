@@ -3794,6 +3794,225 @@
         });
     }
 
+    // ---------- accordeur ----------
+    // Un accordeur chromatique classique : n'importe quelle entrée audio (micro OU carte son
+    // branchée en USB) apparaît de la même façon dans navigator.mediaDevices.enumerateDevices() —
+    // le navigateur ne fait pas la différence, donc un simple sélecteur d'entrée suffit à couvrir
+    // les deux cas demandés, sans code spécifique à une interface audio.
+    var TUNER_REFERENCE_TUNINGS = [
+        { key: "guitar", label: "Guitare", midis: [40, 45, 50, 55, 59, 64] },
+        { key: "bass4", label: "Basse (4 cordes)", midis: [28, 33, 38, 43] },
+        { key: "bass5", label: "Basse (5 cordes)", midis: [23, 28, 33, 38, 43] }
+    ];
+
+    function midiNoteName(midi) {
+        return NOTE_NAMES_SHARP[((midi % 12) + 12) % 12];
+    }
+
+    // Détection de fréquence par autocorrélation temporelle (technique standard pour un accordeur :
+    // on cherche le décalage qui fait le mieux correspondre le signal avec lui-même, ce décalage
+    // correspond à la période du son). Renvoie -1 si le signal est trop faible pour être fiable.
+    function autoCorrelateFrequency(buf, sampleRate) {
+        var size = buf.length;
+        var rms = 0;
+        for (var i = 0; i < size; i++) rms += buf[i] * buf[i];
+        rms = Math.sqrt(rms / size);
+        if (rms < 0.01) return -1;
+
+        var threshold = 0.2, start = 0, end = size - 1;
+        for (var a = 0; a < size / 2; a++) { if (Math.abs(buf[a]) >= threshold) { start = a; break; } }
+        for (var b = size - 1; b > size / 2; b--) { if (Math.abs(buf[b]) >= threshold) { end = b; break; } }
+        var trimmed = buf.slice(start, end);
+        var n = trimmed.length;
+        if (n < 8) return -1;
+
+        var corr = new Array(n).fill(0);
+        for (var lag = 0; lag < n; lag++) {
+            for (var j = 0; j < n - lag; j++) corr[lag] += trimmed[j] * trimmed[j + lag];
+        }
+        var d = 0;
+        while (d < n - 1 && corr[d] > corr[d + 1]) d++;
+        var bestLag = -1, bestVal = -1;
+        for (var k = d; k < n; k++) {
+            if (corr[k] > bestVal) { bestVal = corr[k]; bestLag = k; }
+        }
+        if (bestLag <= 0) return -1;
+        // Interpolation parabolique autour du pic pour affiner la période au-delà de la résolution
+        // entière de l'échantillonnage.
+        var x1 = corr[bestLag - 1] || 0, x2 = corr[bestLag], x3 = corr[bestLag + 1] || 0;
+        var a2 = (x1 + x3 - 2 * x2) / 2, b2 = (x3 - x1) / 2;
+        var refinedLag = a2 ? bestLag - b2 / (2 * a2) : bestLag;
+        return sampleRate / refinedLag;
+    }
+
+    function freqToNoteInfo(freq) {
+        var noteNum = 12 * (Math.log(freq / 440) / Math.log(2));
+        var midi = Math.round(69 + noteNum);
+        var cents = Math.round((69 + noteNum - midi) * 100);
+        return { midi: midi, name: midiNoteName(midi), octave: Math.floor(midi / 12) - 1, cents: cents };
+    }
+
+    function openTunerPanel() {
+        openModal("tuner-panel", function (panel, close) {
+            var title = document.createElement("div");
+            title.className = "backups-title";
+            title.textContent = "Accordeur";
+            panel.appendChild(title);
+
+            var intro = document.createElement("div");
+            intro.className = "backups-intro";
+            intro.textContent = "Choisis ton entrée audio (micro ou carte son) puis démarre.";
+            panel.appendChild(intro);
+
+            var controlsRow = document.createElement("div");
+            controlsRow.className = "tuner-controls-row";
+            var deviceSelect = document.createElement("select");
+            deviceSelect.className = "tuner-device-select";
+            deviceSelect.disabled = true;
+            var placeholderOpt = document.createElement("option");
+            placeholderOpt.value = "";
+            placeholderOpt.textContent = "Démarre pour lister les entrées…";
+            deviceSelect.appendChild(placeholderOpt);
+            controlsRow.appendChild(deviceSelect);
+
+            var tuningSelect = document.createElement("select");
+            TUNER_REFERENCE_TUNINGS.forEach(function (t) {
+                var o = document.createElement("option");
+                o.value = t.key;
+                o.textContent = t.label;
+                tuningSelect.appendChild(o);
+            });
+            controlsRow.appendChild(tuningSelect);
+            panel.appendChild(controlsRow);
+
+            var referenceRow = document.createElement("div");
+            referenceRow.className = "tuner-reference-row";
+            panel.appendChild(referenceRow);
+            function refreshReferenceRow() {
+                referenceRow.innerHTML = "";
+                var t = TUNER_REFERENCE_TUNINGS.filter(function (x) { return x.key === tuningSelect.value; })[0];
+                t.midis.slice().reverse().forEach(function (midi) {
+                    var chip = document.createElement("span");
+                    chip.className = "tuner-reference-chip";
+                    chip.textContent = midiNoteName(midi);
+                    referenceRow.appendChild(chip);
+                });
+            }
+            tuningSelect.addEventListener("change", refreshReferenceRow);
+            refreshReferenceRow();
+
+            var startBtn = document.createElement("button");
+            startBtn.type = "button";
+            startBtn.className = "btn-accent tuner-start-btn";
+            startBtn.textContent = "Démarrer";
+            panel.appendChild(startBtn);
+
+            var display = document.createElement("div");
+            display.className = "tuner-display";
+            var noteEl = document.createElement("div");
+            noteEl.className = "tuner-note";
+            noteEl.textContent = "—";
+            var freqEl = document.createElement("div");
+            freqEl.className = "tuner-freq";
+            display.appendChild(noteEl);
+            display.appendChild(freqEl);
+            panel.appendChild(display);
+
+            var needleTrack = document.createElement("div");
+            needleTrack.className = "tuner-needle-track";
+            var needleCenter = document.createElement("div");
+            needleCenter.className = "tuner-needle-center";
+            needleTrack.appendChild(needleCenter);
+            var needle = document.createElement("div");
+            needle.className = "tuner-needle";
+            needleTrack.appendChild(needle);
+            panel.appendChild(needleTrack);
+
+            var audioCtx = null, analyser = null, source = null, currentStream = null, rafId = null;
+
+            function stopAudio() {
+                if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+                if (currentStream) { currentStream.getTracks().forEach(function (t) { t.stop(); }); currentStream = null; }
+                if (source) { source.disconnect(); source = null; }
+                if (audioCtx) { audioCtx.close(); audioCtx = null; }
+                noteEl.textContent = "—";
+                freqEl.textContent = "";
+                needle.style.transform = "translateX(-50%) rotate(0deg)";
+                needle.classList.remove("tuner-needle-in-tune");
+            }
+
+            function connectStream(stream) {
+                if (source) source.disconnect();
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 2048;
+                source = audioCtx.createMediaStreamSource(stream);
+                source.connect(analyser);
+                currentStream = stream;
+                var buf = new Float32Array(analyser.fftSize);
+                function loop() {
+                    analyser.getFloatTimeDomainData(buf);
+                    var freq = autoCorrelateFrequency(buf, audioCtx.sampleRate);
+                    if (freq !== -1 && freq > 25 && freq < 2000) {
+                        var info = freqToNoteInfo(freq);
+                        noteEl.textContent = info.name + info.octave;
+                        freqEl.textContent = freq.toFixed(1) + " Hz · " + (info.cents > 0 ? "+" : "") + info.cents + " cents";
+                        var clamped = Math.max(-50, Math.min(50, info.cents));
+                        needle.style.transform = "translateX(-50%) rotate(" + (clamped * 0.9) + "deg)";
+                        needle.classList.toggle("tuner-needle-in-tune", Math.abs(info.cents) <= 5);
+                    }
+                    rafId = requestAnimationFrame(loop);
+                }
+                loop();
+            }
+
+            function populateDevices(selectedId) {
+                navigator.mediaDevices.enumerateDevices().then(function (devices) {
+                    deviceSelect.innerHTML = "";
+                    devices.filter(function (d) { return d.kind === "audioinput"; }).forEach(function (d, i) {
+                        var o = document.createElement("option");
+                        o.value = d.deviceId;
+                        o.textContent = d.label || ("Entrée audio " + (i + 1));
+                        if (d.deviceId === selectedId) o.selected = true;
+                        deviceSelect.appendChild(o);
+                    });
+                    deviceSelect.disabled = false;
+                });
+            }
+
+            function startWithDevice(deviceId) {
+                var constraints = { audio: deviceId ? { deviceId: { exact: deviceId } } : true };
+                navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
+                    var track = stream.getAudioTracks()[0];
+                    populateDevices(track && track.getSettings ? track.getSettings().deviceId : deviceId);
+                    connectStream(stream);
+                    startBtn.textContent = "Arrêter";
+                    startBtn.classList.add("tuner-start-btn-active");
+                }).catch(function (err) {
+                    window.alert("Accès au micro/à la carte son refusé ou indisponible : " + err.message);
+                });
+            }
+
+            startBtn.addEventListener("click", function () {
+                if (currentStream) {
+                    stopAudio();
+                    startBtn.textContent = "Démarrer";
+                    startBtn.classList.remove("tuner-start-btn-active");
+                } else {
+                    startWithDevice(deviceSelect.value || null);
+                }
+            });
+
+            deviceSelect.addEventListener("change", function () {
+                if (currentStream) startWithDevice(deviceSelect.value);
+            });
+
+            return function () {
+                stopAudio();
+            };
+        });
+    }
+
     // ---------- paramètres généraux ----------
     function openSettingsPanel() {
         openModal("settings-panel", function (panel) {
@@ -4590,6 +4809,8 @@
     if ($aidesBtn) $aidesBtn.addEventListener("click", openAidesPanel);
     var $scalesBtn = document.getElementById("scales-btn");
     if ($scalesBtn) $scalesBtn.addEventListener("click", openScalesPanel);
+    var $tunerBtn = document.getElementById("tuner-btn");
+    if ($tunerBtn) $tunerBtn.addEventListener("click", openTunerPanel);
     var $guidedSessionBtn = document.getElementById("guided-session-btn");
     if ($guidedSessionBtn) $guidedSessionBtn.addEventListener("click", function () {
         guidedSessionViewActive = !guidedSessionViewActive;
