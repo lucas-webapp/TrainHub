@@ -1045,8 +1045,10 @@ button.metro-volume-btn:hover { border-color: var(--accent); color: var(--accent
     stroke-linejoin: round;
 }
 .cof-major { font-size: 16px; font-weight: 700; }
-.cof-minor { font-size: 12px; fill: var(--text-muted); }
-.cof-acc { font-size: 11px; font-weight: 600; fill: var(--text-muted); }
+/* Le voile des anneaux colorés (cof-wedge-mid/core) assombrit le texte : fill plus clair que
+   var(--text-muted) pour que mineurs relatifs et altérations restent bien lisibles dessus. */
+.cof-minor { font-size: 12px; fill: #d8d8d8; }
+.cof-acc { font-size: 11px; font-weight: 700; fill: #d8d8d8; }
 
 /* ---------- session guidée ---------- */
 /* Affichée dans la zone principale (pas une fenêtre flottante), comme le reste du contenu : les
