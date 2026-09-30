@@ -366,6 +366,13 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     border-radius: 10px;
     padding: 8px 10px;
 }
+/* L'exercice déplié se distingue de ceux repliés en dessous (même fond sinon, facile à confondre) :
+   liseré + fond légèrement teintés de la couleur du chapitre courant. */
+.exercise:not(.collapsed) {
+    border-color: color-mix(in srgb, var(--chapter-accent) 55%, var(--border));
+    background: color-mix(in srgb, var(--chapter-accent) 6%, var(--card-bg-2));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--chapter-accent) 25%, transparent);
+}
 .exercise-row {
     display: flex;
     align-items: center;
@@ -411,6 +418,25 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     border-radius: 20px;
     padding: 3px 9px;
 }
+
+/* Accès rapide à un lien (ou au choix entre plusieurs) directement depuis la barre de l'exercice,
+   sans avoir à déplier les détails. */
+.exercise-link-quick {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 140px;
+    background: rgba(255,255,255,.05);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 5px 10px;
+    font-size: var(--fs-xs);
+    color: var(--text-main);
+}
+.exercise-link-quick:hover { border-color: var(--accent); color: var(--accent); }
+.exercise-link-quick-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exercise-link-quick-multi { color: var(--text-muted); }
 
 .exercise-details {
     margin-top: 8px;
@@ -828,7 +854,7 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
 }
 
 /* Appui long = menu renommer/supprimer : pas de bulle système iOS sur les lignes. */
-.tree-row, .folder-row, .chapter-chip { -webkit-touch-callout: none; -webkit-user-select: none; }
+.tree-row, .folder-row, .chapter-chip, .link-chip { -webkit-touch-callout: none; -webkit-user-select: none; }
 
 /* ---------- métronome ---------- */
 .metronome-panel { align-items: stretch; text-align: center; }

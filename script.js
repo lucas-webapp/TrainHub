@@ -44,6 +44,11 @@
         f.folders.forEach(normalizeFolder);
         f.exercises.forEach(function (ex) {
             if (!Array.isArray(ex.links)) ex.links = [];
+            // Chaque lien a un identifiant stable (les liens créés avant cette version en sont
+            // dépourvus, on le complète ici) : nécessaire pour distinguer "le lien mis en avant"
+            // (ex.pinnedLinkId) du reste, indépendamment de son libellé ou de son URL.
+            ex.links.forEach(function (link) { if (!link.id) link.id = uid(); });
+            if (ex.pinnedLinkId && !ex.links.some(function (l) { return l.id === ex.pinnedLinkId; })) ex.pinnedLinkId = null;
             // Fichiers (PDF/MP3) joints à l'exercice : seules les métadonnées sont stockées dans
             // l'état (donc synchronisées) — le contenu réel du fichier vit dans IndexedDB, sur cet
             // appareil uniquement (voir bloc "fichiers joints" plus bas).
@@ -770,6 +775,72 @@
         menu.appendChild(menuButton(ex.archived ? "Désarchiver" : "Archiver", "", function () {
             ex.archived = !ex.archived;
             touchExercise(ex);
+            save();
+            closeFolderMenu();
+            render();
+        }));
+
+        function onKey(e) { if (e.key === "Escape") closeFolderMenu(); }
+
+        document.body.appendChild(backdrop);
+        document.body.appendChild(menu);
+        document.addEventListener("keydown", onKey, true);
+        openMenu = { backdrop: backdrop, menu: menu, onKey: onKey };
+        place();
+    }
+
+    function bindLinkMenu(el, ex, link) {
+        bindContextGesture(el, function (x, y) { openLinkMenu(x, y, ex, link); });
+    }
+
+    // Clic droit / appui long sur un lien : le désigner comme LE lien mis en avant dans la barre
+    // de l'exercice (voir renderExercise), pour y accéder sans déplier les détails. Sans lien mis
+    // en avant, la barre propose tous les liens regroupés sous un seul bouton.
+    function openLinkMenu(x, y, ex, link) {
+        closeFolderMenu();
+
+        var backdrop = document.createElement("div");
+        backdrop.className = "ctx-backdrop";
+        backdrop.addEventListener("pointerdown", function (e) { e.preventDefault(); closeFolderMenu(); });
+        backdrop.addEventListener("contextmenu", function (e) { e.preventDefault(); closeFolderMenu(); });
+
+        var menu = document.createElement("div");
+        menu.className = "ctx-menu";
+        menu.setAttribute("role", "menu");
+        menu.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+
+        function menuButton(text, className, onClick) {
+            var b = document.createElement("button");
+            b.type = "button";
+            b.className = "ctx-item" + (className ? " " + className : "");
+            b.textContent = text;
+            var armed = false;
+            b.addEventListener("pointerdown", function () { armed = true; });
+            b.addEventListener("click", function (e) {
+                if (!armed && e.detail !== 0) return;
+                armed = false;
+                onClick();
+            });
+            return b;
+        }
+
+        function place() {
+            var w = menu.offsetWidth || 200;
+            var h = menu.offsetHeight || 100;
+            var left = Math.min(Math.max(8, x + 6), Math.max(8, window.innerWidth - w - 8));
+            var top = Math.min(Math.max(8, y + 6), Math.max(8, window.innerHeight - h - 8));
+            menu.style.left = left + "px";
+            menu.style.top = top + "px";
+        }
+
+        var title = document.createElement("div");
+        title.className = "ctx-title";
+        title.textContent = link.label;
+        menu.appendChild(title);
+
+        var isPinned = ex.pinnedLinkId === link.id;
+        menu.appendChild(menuButton(isPinned ? "Ne plus mettre en avant" : "Mettre en avant dans la barre", "", function () {
+            ex.pinnedLinkId = isPinned ? null : link.id;
             save();
             closeFolderMenu();
             render();
@@ -1641,6 +1712,8 @@
         spacer.className = "exercise-row-spacer";
         row.appendChild(spacer);
 
+        appendExerciseLinkButtons(row, ex);
+
         if (ex.archived) {
             var archBadge = document.createElement("span");
             archBadge.className = "exercise-archived-badge";
@@ -1664,6 +1737,113 @@
         }
 
         return el;
+    }
+
+    // ---------- accès rapide aux liens depuis la barre de l'exercice ----------
+    // Sans lien mis en avant (clic droit/appui long sur un lien dans les détails, voir
+    // renderExerciseDetails) : un seul lien -> son bouton directement ; plusieurs liens -> un
+    // bouton groupé qui propose de choisir. Avec un lien mis en avant : uniquement ce dernier.
+    function appendExerciseLinkButtons(row, ex) {
+        var links = ex.links || [];
+        if (!links.length) return;
+        var pinned = ex.pinnedLinkId ? links.filter(function (l) { return l.id === ex.pinnedLinkId; })[0] : null;
+        if (pinned) {
+            row.appendChild(makeQuickLinkButton(pinned));
+        } else if (links.length === 1) {
+            row.appendChild(makeQuickLinkButton(links[0]));
+        } else {
+            var btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "exercise-link-quick exercise-link-quick-multi";
+            btn.title = "Choisir un lien à ouvrir";
+            var icon = document.createElement("span");
+            icon.className = "link-icon";
+            icon.innerHTML = LINK_ICONS.link;
+            btn.appendChild(icon);
+            var label = document.createElement("span");
+            label.className = "exercise-link-quick-label";
+            label.textContent = "Liens (" + links.length + ")";
+            btn.appendChild(label);
+            btn.addEventListener("click", function (e) {
+                e.stopPropagation();
+                var rect = btn.getBoundingClientRect();
+                openLinksQuickMenu(rect.left, rect.bottom, links);
+            });
+            row.appendChild(btn);
+        }
+    }
+
+    function makeQuickLinkButton(link) {
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "exercise-link-quick";
+        btn.title = "Ouvrir : " + link.label;
+        var icon = document.createElement("span");
+        icon.className = "link-icon";
+        icon.innerHTML = linkIconSvg(link.label);
+        btn.appendChild(icon);
+        var label = document.createElement("span");
+        label.className = "exercise-link-quick-label";
+        label.textContent = link.label;
+        btn.appendChild(label);
+        btn.addEventListener("click", function (e) {
+            e.stopPropagation();
+            window.open(link.url, "_blank", "noopener,noreferrer");
+        });
+        return btn;
+    }
+
+    function openLinksQuickMenu(x, y, links) {
+        closeFolderMenu();
+
+        var backdrop = document.createElement("div");
+        backdrop.className = "ctx-backdrop";
+        backdrop.addEventListener("pointerdown", function (e) { e.preventDefault(); closeFolderMenu(); });
+        backdrop.addEventListener("contextmenu", function (e) { e.preventDefault(); closeFolderMenu(); });
+
+        var menu = document.createElement("div");
+        menu.className = "ctx-menu";
+        menu.setAttribute("role", "menu");
+        menu.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+
+        function menuButton(text, onClick) {
+            var b = document.createElement("button");
+            b.type = "button";
+            b.className = "ctx-item";
+            b.textContent = text;
+            var armed = false;
+            b.addEventListener("pointerdown", function () { armed = true; });
+            b.addEventListener("click", function (e) {
+                if (!armed && e.detail !== 0) return;
+                armed = false;
+                onClick();
+            });
+            return b;
+        }
+
+        function place() {
+            var w = menu.offsetWidth || 200;
+            var h = menu.offsetHeight || 100;
+            var left = Math.min(Math.max(8, x), Math.max(8, window.innerWidth - w - 8));
+            var top = Math.min(Math.max(8, y), Math.max(8, window.innerHeight - h - 8));
+            menu.style.left = left + "px";
+            menu.style.top = top + "px";
+        }
+
+        links.forEach(function (link) {
+            menu.appendChild(menuButton(link.label, function () {
+                window.open(link.url, "_blank", "noopener,noreferrer");
+                closeFolderMenu();
+            }));
+        });
+
+        function onKey(e) { if (e.key === "Escape") closeFolderMenu(); }
+
+        document.body.appendChild(backdrop);
+        document.body.appendChild(menu);
+        document.addEventListener("keydown", onKey, true);
+        openMenu = { backdrop: backdrop, menu: menu, onKey: onKey };
+        place();
     }
 
     function renderExerciseDetails(ex) {
@@ -1710,6 +1890,7 @@
             chip.href = link.url;
             chip.target = "_blank";
             chip.rel = "noopener noreferrer";
+            bindLinkMenu(chip, ex, link);
             var iconSpan = document.createElement("span");
             iconSpan.className = "link-icon";
             iconSpan.innerHTML = linkIconSvg(link.label);
@@ -1770,6 +1951,7 @@
                 e.preventDefault();
                 e.stopPropagation();
                 ex.links.splice(idx, 1);
+                if (ex.pinnedLinkId === link.id) ex.pinnedLinkId = null;
                 touchExercise(ex);
                 save();
                 render();
@@ -1790,7 +1972,7 @@
             if (!url) return;
             if (!/^https?:\/\//i.test(url)) url = "https://" + url;
             ex.links = ex.links || [];
-            ex.links.push({ label: guessLinkLabel(url), url: url });
+            ex.links.push({ id: uid(), label: guessLinkLabel(url), url: url });
             urlInput.value = "";
             touchExercise(ex);
             save();
