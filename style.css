@@ -1034,6 +1034,30 @@ button.metro-progressive-toggle.metro-progressive-active { color: var(--accent);
 
 /* ---------- aides : cercle des quintes ---------- */
 .aides-panel { align-items: center; text-align: center; }
+.scales-panel { width: min(820px, calc(100vw - 24px)); max-height: min(720px, calc(100vh - 24px)); }
+.scales-controls-row { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.scales-controls-row select { font-size: var(--fs-sm); }
+.scales-label-mode-row { display: flex; justify-content: center; gap: 8px; margin-top: 8px; }
+button.scales-label-btn.scales-label-btn-active { color: var(--accent); border-color: var(--accent); }
+.scales-diagrams { display: flex; flex-direction: column; gap: 16px; margin-top: 14px; }
+.scales-section .section-label { text-align: center; margin-bottom: 6px; }
+.fretboard-scroll { overflow-x: auto; display: flex; justify-content: flex-start; }
+.fretboard-svg { flex: none; }
+.fretboard-nut { fill: #e8e8e8; }
+.fretboard-fret { stroke: #888; stroke-width: 1; }
+.fretboard-string { stroke: #888; stroke-width: 1; }
+.fretboard-inlay { fill: #3a3a3a; }
+.fretboard-fret-label { font-size: 8px; fill: var(--text-muted); text-anchor: middle; }
+.fretboard-note { fill: var(--card-bg-2); stroke: var(--accent); stroke-width: 1.5; }
+.fretboard-note-root { stroke: none; fill: var(--accent); }
+.fretboard-note-label { font-size: 8px; text-anchor: middle; dominant-baseline: middle; fill: var(--text-main); pointer-events: none; }
+.piano-scale-svg { flex: none; }
+.piano-key-white { fill: #f2ead9; stroke: #2a2a2a; stroke-width: .7; }
+.piano-key-black { fill: #171310; stroke: #000; stroke-width: .6; }
+.piano-key-active { fill: var(--accent); opacity: .55; }
+.piano-key-root { opacity: 1; }
+.piano-key-label { font-size: 10px; text-anchor: middle; fill: #111; font-weight: 700; }
+.piano-key-label-black { fill: #fff; }
 .cof-wrap { display: flex; justify-content: center; }
 .circle-of-fifths {
     width: min(320px, 80vw);
