@@ -104,6 +104,8 @@
     }
 
     var METRO_POSITIONS = ["center", "top", "bottom", "corner"];
+    var MAIN_LAYOUTS = ["vertical", "horizontal"];
+    var DENSITIES = ["compact", "comfortable", "spacious"];
     var METRO_SIZES = ["small", "medium", "large"];
     var TREE_FONT_SCALES = [0.85, 1, 1.15, 1.3];
 
@@ -114,6 +116,8 @@
         if (METRO_POSITIONS.indexOf(a.metronomePosition) === -1) a.metronomePosition = "center";
         if (METRO_SIZES.indexOf(a.metronomeSize) === -1) a.metronomeSize = "medium";
         if (TREE_FONT_SCALES.indexOf(a.treeFontScale) === -1) a.treeFontScale = 1;
+        if (MAIN_LAYOUTS.indexOf(a.mainLayout) === -1) a.mainLayout = "vertical";
+        if (DENSITIES.indexOf(a.density) === -1) a.density = "comfortable";
     }
 
     // Une session guidée = un enchaînement d'exercices avec un temps alloué à chacun. Les pas
@@ -386,7 +390,10 @@
         for (var i = 0; i < state.instruments.length; i++) {
             var inst = state.instruments[i];
             var found = collectExercises(inst, function (ex) { return ex.id === exerciseId; })[0];
-            if (found) return { ex: found.ex, folder: found.folder, inst: inst, pathNames: found.pathNames };
+            if (found) {
+                var rootChapter = findById(inst.categories, found.pathIds[0]);
+                return { ex: found.ex, folder: found.folder, inst: inst, pathNames: found.pathNames, chapterColor: (rootChapter && rootChapter.color) || "#00e676" };
+            }
         }
         return null;
     }
@@ -1154,6 +1161,7 @@
         var accent = path[0] === FAVORITES_ID ? "#ffd60a" : path[0] === ARCHIVED_ID ? "#9ca3af" : ((rootChapter && rootChapter.color) || "#00e676");
         document.documentElement.style.setProperty("--chapter-accent", accent);
         document.documentElement.style.setProperty("--tree-font-scale", state.settings.appearance.treeFontScale);
+        DENSITIES.forEach(function (d) { document.documentElement.classList.toggle("density-" + d, state.settings.appearance.density === d); });
         renderInstrumentSelect();
         renderChapterBar();
         renderSidebarTree();
@@ -1572,7 +1580,7 @@
             $contentHeading.innerHTML = "";
             $folderContainer.innerHTML = "";
             $empty.hidden = false;
-            $empty.textContent = "Crée ton premier grand chapitre ci-dessus (Technique, Morceaux, Gammes…).";
+            $empty.textContent = "Crée ton premier chapitre ci-dessus.";
             return;
         }
 
@@ -1586,9 +1594,9 @@
 
         // Sous-dossiers du dossier courant, dans le MÊME ordre que l'arborescence de gauche (même
         // tableau de données) : la zone principale reflète exactement la branche sélectionnée.
+        var foldersGroup = document.createElement("div");
+        foldersGroup.className = "section-group folders-group";
         if (currentFolder.folders.length) {
-            var foldersGroup = document.createElement("div");
-            foldersGroup.className = "section-group";
             var foldersLabel = document.createElement("div");
             foldersLabel.className = "section-label";
             foldersLabel.textContent = "Sous-dossiers";
@@ -1599,16 +1607,14 @@
                 foldersWrap.appendChild(renderFolderRow(inst, currentFolder.folders, f, idx, currentFolder.folders.length, path));
             });
             foldersGroup.appendChild(foldersWrap);
-            $folderContainer.appendChild(foldersGroup);
             setupDragReorder(foldersWrap, ".folder-row", function () { return currentFolder.folders; }, "y");
         }
-
         if (depth < MAX_FOLDER_DEPTH) {
-            $folderContainer.appendChild(renderAddFolderForm(currentFolder));
+            foldersGroup.appendChild(renderAddFolderForm(currentFolder));
         }
 
         var exGroup = document.createElement("div");
-        exGroup.className = "section-group";
+        exGroup.className = "section-group exercises-group";
         if (currentFolder.folders.length) {
             var exLabel = document.createElement("div");
             exLabel.className = "section-label";
@@ -1626,7 +1632,21 @@
         exGroup.appendChild(exercisesWrap);
         setupDragReorder(exercisesWrap, ".exercise", function () { return currentFolder.exercises; }, "y");
         exGroup.appendChild(renderAddExerciseForm(currentFolder));
-        $folderContainer.appendChild(exGroup);
+
+        // Disposition réglable dans les paramètres généraux : verticale (sous-dossiers au-dessus
+        // des exercices, comme avant) ou horizontale façon Finder (sous-dossiers dans une colonne
+        // à droite des exercices).
+        var horizontal = state.settings.appearance.mainLayout === "horizontal";
+        var mainWrap = document.createElement("div");
+        mainWrap.className = "folder-browser " + (horizontal ? "folder-browser-horizontal" : "folder-browser-vertical");
+        if (horizontal) {
+            mainWrap.appendChild(exGroup);
+            mainWrap.appendChild(foldersGroup);
+        } else {
+            mainWrap.appendChild(foldersGroup);
+            mainWrap.appendChild(exGroup);
+        }
+        $folderContainer.appendChild(mainWrap);
     }
 
     function renderFolderRow(inst, parentArray, folder, idx, total, path) {
@@ -2400,7 +2420,7 @@
 
         var intro = document.createElement("div");
         intro.className = "backups-intro";
-        intro.textContent = "Un instantané est gardé automatiquement avant chaque moment où une synchro ou un import pourrait remplacer des données. Utile en cas d'écrasement inattendu.";
+        intro.textContent = "Instantanés automatiques avant une synchro ou un import risqué.";
         panel.appendChild(intro);
 
         var list = document.createElement("div");
@@ -2474,6 +2494,7 @@
             backdrop.remove();
             panel.remove();
             document.removeEventListener("keydown", onKey, true);
+            unlockBodyScroll();
             if (closeActiveModal === closeBackupsPanel) closeActiveModal = null;
         }
         closeActiveModal = closeBackupsPanel;
@@ -2481,6 +2502,7 @@
         backdrop.addEventListener("click", closeBackupsPanel);
         document.addEventListener("keydown", onKey, true);
 
+        lockBodyScroll();
         document.body.appendChild(backdrop);
         document.body.appendChild(panel);
     }
@@ -2522,9 +2544,15 @@
     // les clics sur le reste de la page, bouton "Aides"/"Métronome" compris).
     var closeActiveModal = null;
 
+    // Sans ceci, le fond de page défile sous la fenêtre flottante au doigt sur mobile (le panneau
+    // est en position fixed, mais le corps de la page reste scrollable derrière).
+    function lockBodyScroll() { document.documentElement.classList.add("modal-open"); }
+    function unlockBodyScroll() { document.documentElement.classList.remove("modal-open"); }
+
     function openModal(extraClass, build) {
         closeFolderMenu();
         if (closeActiveModal) closeActiveModal();
+        lockBodyScroll();
         var backdrop = document.createElement("div");
         backdrop.className = "ctx-backdrop";
         var panel = document.createElement("div");
@@ -2536,6 +2564,7 @@
             backdrop.remove();
             panel.remove();
             document.removeEventListener("keydown", onKey, true);
+            unlockBodyScroll();
             if (closeActiveModal === close) closeActiveModal = null;
         }
         function onKey(e) { if (e.key === "Escape") close(); }
@@ -2841,7 +2870,8 @@
             var resetPadBtn = document.createElement("button");
             resetPadBtn.type = "button";
             resetPadBtn.className = "btn-ghost metro-pad-reset";
-            resetPadBtn.textContent = "Réinitialiser (1er temps accentué)";
+            resetPadBtn.textContent = "Réinitialiser";
+            resetPadBtn.title = "Revenir au 1er temps accentué";
             resetPadBtn.addEventListener("click", function () {
                 for (var i = 0; i < m.pattern.length; i++) m.pattern[i] = i === 0 ? 2 : (i % m.subdivision === 0 ? 1 : 0);
                 save();
@@ -3093,11 +3123,6 @@
             wrap.className = "cof-wrap";
             wrap.appendChild(buildCircleOfFifthsSvg());
             panel.appendChild(wrap);
-
-            var legend = document.createElement("div");
-            legend.className = "cof-legend";
-            legend.innerHTML = "Anneau extérieur : tonalité majeure &nbsp;·&nbsp; anneau du milieu : mineur relatif &nbsp;·&nbsp; anneau intérieur : nombre d'altérations (♯/♭)";
-            panel.appendChild(legend);
         });
     }
 
@@ -3146,43 +3171,23 @@
                 ["small", "Petite"], ["medium", "Moyenne"], ["large", "Grande"]
             ], a.metronomeSize, function (v) { a.metronomeSize = v; save(); }));
 
-            section("Couleurs des chapitres");
-            var schemeGrid = document.createElement("div");
-            schemeGrid.className = "settings-scheme-grid";
-            Object.keys(COLOR_SCHEMES).forEach(function (key) {
-                var scheme = COLOR_SCHEMES[key];
-                var btn = document.createElement("button");
-                btn.type = "button";
-                btn.className = "settings-scheme-btn" + (a.colorScheme === key ? " settings-scheme-active" : "");
-                var dots = document.createElement("span");
-                dots.className = "settings-scheme-dots";
-                scheme.colors.forEach(function (c) {
-                    var dot = document.createElement("span");
-                    dot.className = "settings-scheme-dot";
-                    dot.style.background = c;
-                    dots.appendChild(dot);
-                });
-                btn.appendChild(dots);
-                var name = document.createElement("span");
-                name.textContent = scheme.label;
-                btn.appendChild(name);
-                btn.addEventListener("click", function () {
-                    applyColorScheme(key);
-                    Array.prototype.forEach.call(schemeGrid.children, function (b) { b.classList.remove("settings-scheme-active"); });
-                    btn.classList.add("settings-scheme-active");
-                });
-                schemeGrid.appendChild(btn);
-            });
-            panel.appendChild(schemeGrid);
-
-            section("Texte des dossiers et sous-dossiers");
-            panel.appendChild(selectField("Taille du texte", [
+            section("Affichage");
+            panel.appendChild(selectField("Couleurs des chapitres", Object.keys(COLOR_SCHEMES).map(function (key) {
+                return [key, COLOR_SCHEMES[key].label];
+            }), a.colorScheme, function (v) { applyColorScheme(v); }));
+            panel.appendChild(selectField("Taille du texte des dossiers", [
                 ["0.85", "Petite"], ["1", "Normale"], ["1.15", "Grande"], ["1.3", "Très grande"]
             ], a.treeFontScale, function (v) {
                 a.treeFontScale = parseFloat(v);
                 save();
                 render();
             }));
+            panel.appendChild(selectField("Densité de l'interface", [
+                ["compact", "Compacte"], ["comfortable", "Confortable"], ["spacious", "Spacieuse"]
+            ], a.density, function (v) { a.density = v; save(); render(); }));
+            panel.appendChild(selectField("Disposition de l'écran principal", [
+                ["vertical", "Verticale"], ["horizontal", "Horizontale (façon Finder)"]
+            ], a.mainLayout, function (v) { a.mainLayout = v; save(); render(); }));
         });
     }
 
@@ -3204,11 +3209,13 @@
         return session.steps.reduce(function (sum, s) { return sum + s.minutes; }, 0);
     }
 
-    function gsThemeBadge(pathNames) {
+    function gsThemeBadge(pathNames, color) {
         var badge = document.createElement("span");
         badge.className = "gs-theme-badge";
         badge.textContent = pathNames[0];
         badge.title = pathNames.join(" › ");
+        badge.style.color = color;
+        badge.style.background = "color-mix(in srgb, " + color + " 16%, transparent)";
         return badge;
     }
 
@@ -3300,7 +3307,7 @@
         if (!sessions.length) {
             var empty = document.createElement("div");
             empty.className = "gs-empty";
-            empty.textContent = "Aucune session pour l'instant : crée-en une avec les exercices et le temps que tu veux y consacrer.";
+            empty.textContent = "Aucune session pour l'instant.";
             content.appendChild(empty);
         } else {
             var list = document.createElement("div");
@@ -3308,6 +3315,13 @@
             sessions.forEach(function (session) {
                 var row = document.createElement("div");
                 row.className = "gs-session-row";
+                row.title = "Cliquer pour modifier les exercices de la session";
+                row.addEventListener("click", function (e) {
+                    if (e.target.closest("button")) return;
+                    gsEditingSession = session;
+                    gsScreen = "edit";
+                    render();
+                });
                 var info = document.createElement("div");
                 info.className = "gs-session-info";
                 var name = document.createElement("div");
@@ -3326,11 +3340,7 @@
                     if (!session.steps.length) return;
                     gsStartRun(session);
                 });
-                var editBtn = svgIconButton(PENCIL_ICON_SVG, "Modifier", function () {
-                    gsEditingSession = session;
-                    gsScreen = "edit";
-                    render();
-                });
+                playBtn.classList.add("gs-session-play-btn");
                 var delBtn = iconButton("✕", "Supprimer cette session", function () {
                     if (!window.confirm("Supprimer la session « " + session.name + " » ?")) return;
                     sessions.splice(sessions.indexOf(session), 1);
@@ -3338,7 +3348,6 @@
                     render();
                 });
                 actions.appendChild(playBtn);
-                actions.appendChild(editBtn);
                 actions.appendChild(delBtn);
                 row.appendChild(actions);
                 list.appendChild(row);
@@ -3410,7 +3419,7 @@
                 handle.className = "gs-step-handle";
                 handle.innerHTML = GRIP_ICON_SVG;
                 row.appendChild(handle);
-                if (found) row.appendChild(gsThemeBadge(found.pathNames));
+                if (found) row.appendChild(gsThemeBadge(found.pathNames, found.chapterColor));
                 var label = document.createElement("span");
                 label.className = "gs-step-label" + (found ? "" : " gs-step-missing");
                 label.textContent = found ? found.ex.title : "(exercice supprimé)";
@@ -3568,7 +3577,8 @@
                 btn.className = "gs-pick-result";
                 var head = document.createElement("span");
                 head.className = "gs-pick-result-head";
-                head.appendChild(gsThemeBadge(r.pathNames));
+                var rootChapter = findById(inst.categories, r.pathIds[0]);
+                head.appendChild(gsThemeBadge(r.pathNames, (rootChapter && rootChapter.color) || "#00e676"));
                 var titleSpan = document.createElement("span");
                 titleSpan.className = "gs-pick-result-title";
                 titleSpan.textContent = r.ex.title;
@@ -3636,7 +3646,7 @@
         progress.textContent = "Exercice " + (gsRunStepIndex + 1) + " / " + session.steps.length;
         content.appendChild(progress);
 
-        if (found) content.appendChild(gsThemeBadge(found.pathNames));
+        if (found) content.appendChild(gsThemeBadge(found.pathNames, found.chapterColor));
 
         var exTitle = document.createElement("div");
         exTitle.className = "gs-run-title";
@@ -3681,6 +3691,9 @@
         }));
         content.appendChild(adjustRow);
 
+        var pauseStopRow = document.createElement("div");
+        pauseStopRow.className = "gs-run-pausestop-row";
+
         var pauseBtn = document.createElement("button");
         pauseBtn.type = "button";
         pauseBtn.className = "metro-play-btn gs-run-pause-btn";
@@ -3693,7 +3706,18 @@
             if (gsRunPaused) gsResumeRun(); else gsPauseRun();
             refreshPauseBtn();
         });
-        content.appendChild(pauseBtn);
+        pauseStopRow.appendChild(pauseBtn);
+
+        var stopBtn = document.createElement("button");
+        stopBtn.type = "button";
+        stopBtn.className = "btn-ghost gs-run-stop-btn";
+        stopBtn.textContent = "Arrêter";
+        stopBtn.title = "Arrêter la session";
+        stopBtn.addEventListener("click", function () {
+            if (window.confirm("Arrêter la session en cours ?")) gsEndRun();
+        });
+        pauseStopRow.appendChild(stopBtn);
+        content.appendChild(pauseStopRow);
 
         var toolsRow = document.createElement("div");
         toolsRow.className = "gs-run-tools-row";
@@ -3709,7 +3733,7 @@
         var linksBtn = document.createElement("button");
         linksBtn.type = "button";
         linksBtn.className = "btn-ghost gs-run-links-btn";
-        linksBtn.textContent = "Ouvrir les liens/PJ de toute la session…";
+        linksBtn.textContent = "Liens/PJ de toute la session…";
         linksBtn.addEventListener("click", function () { gsScreen = "links"; render(); });
         toolsRow.appendChild(linksBtn);
         content.appendChild(toolsRow);
@@ -3742,13 +3766,6 @@
         navRow.appendChild(prevBtn);
         navRow.appendChild(nextBtn);
         content.appendChild(navRow);
-
-        var stopBtn = document.createElement("button");
-        stopBtn.type = "button";
-        stopBtn.className = "btn-ghost gs-run-stop-btn";
-        stopBtn.textContent = "Arrêter la session";
-        stopBtn.addEventListener("click", gsEndRun);
-        content.appendChild(stopBtn);
     }
 
     // ---- écran "ouvrir des liens/pièces jointes" (tous les exercices de la session) ----
@@ -3764,7 +3781,7 @@
 
         var heading = document.createElement("div");
         heading.className = "section-label";
-        heading.textContent = "Ouvrir des liens et pièces jointes";
+        heading.textContent = "Liens et pièces jointes";
         content.appendChild(heading);
 
         var allItems = [];
@@ -3806,7 +3823,7 @@
         if (!allItems.length) {
             var empty = document.createElement("div");
             empty.className = "gs-empty";
-            empty.textContent = "Aucun lien ni pièce jointe dans les exercices de cette session.";
+            empty.textContent = "Aucun lien ni pièce jointe dans cette session.";
             content.appendChild(empty);
             return;
         }

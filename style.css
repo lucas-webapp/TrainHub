@@ -29,6 +29,14 @@
        visuelle : --accent reste leur couleur commune, celle du logo et des actions génériques. */
     --chapter-accent: var(--accent);
     --btn-text: #e9f3ec;
+    /* Rayon d'arrondi partagé par les petits éléments (puces, badges, boutons compacts) : un seul
+       niveau d'arrondi léger dans toute l'app plutôt que des pilules à moitié rondes ici et des
+       coins presque droits ailleurs. */
+    --radius-sm: 8px;
+    /* Densité de l'interface, réglable dans les paramètres généraux : multiplie le padding
+       vertical des lignes (dossiers, exercices, arborescence) pour en voir plus ou moins à
+       l'écran. */
+    --density-scale: 1;
     /* Taille du texte des dossiers/sous-dossiers (barre latérale + cartes), réglable depuis les
        paramètres généraux (voir openSettingsPanel dans script.js). */
     --tree-font-scale: 1;
@@ -66,6 +74,12 @@ body {
     flex-direction: column;
     min-height: 100vh;
 }
+/* Empêche le fond de la page de défiler sous une fenêtre flottante (métronome, aides…) sur mobile
+   : sans ça, le panneau reste fixe mais le corps de page en dessous continue à répondre au doigt. */
+html.modal-open, html.modal-open body { overflow: hidden; height: 100%; }
+html.density-compact { --density-scale: 0.65; }
+html.density-comfortable { --density-scale: 1; }
+html.density-spacious { --density-scale: 1.5; }
 
 .icon {
     width: 15px;
@@ -177,7 +191,7 @@ button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--acce
     gap: 8px;
     background: var(--card-bg-2);
     border: 1px solid var(--border);
-    border-radius: 20px;
+    border-radius: var(--radius-sm);
     padding: 4px 6px 4px 12px;
 }
 .account-name { font-size: var(--fs-xs); color: var(--text-muted); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -320,7 +334,7 @@ button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--acce
     background: var(--card-bg);
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 10px 12px;
+    padding: calc(10px * var(--density-scale, 1)) 12px;
     cursor: grab;
     touch-action: none;
     user-select: none;
@@ -362,7 +376,7 @@ button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--acce
     background: var(--card-bg-2);
     border: 1px solid var(--border);
     border-radius: 10px;
-    padding: 8px 10px;
+    padding: calc(8px * var(--density-scale, 1)) 10px;
 }
 /* L'exercice déplié se distingue de ceux repliés en dessous (même fond sinon, facile à confondre) :
    liseré + fond légèrement teintés de la couleur du chapitre courant. */
@@ -413,7 +427,7 @@ button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--acce
     font-weight: 700;
     color: var(--text-muted);
     background: rgba(255,255,255,.06);
-    border-radius: 20px;
+    border-radius: var(--radius-sm);
     padding: 3px 9px;
 }
 
@@ -427,7 +441,7 @@ button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--acce
     max-width: 140px;
     background: rgba(255,255,255,.05);
     border: 1px solid var(--border);
-    border-radius: 20px;
+    border-radius: var(--radius-sm);
     padding: 5px 10px;
     font-size: var(--fs-xs);
     color: var(--text-main);
@@ -454,7 +468,7 @@ button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--acce
     gap: 6px;
     background: rgba(255,255,255,.05);
     border: 1px solid var(--border);
-    border-radius: 20px;
+    border-radius: var(--radius-sm);
     padding: 5px 10px;
     font-size: var(--fs-xs);
     color: var(--text-main);
@@ -500,7 +514,7 @@ button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--acce
     gap: 6px;
     background: rgba(255,255,255,.05);
     border: 1px solid var(--border);
-    border-radius: 20px;
+    border-radius: var(--radius-sm);
     padding: 5px 10px;
     font-size: var(--fs-xs);
     max-width: 260px;
@@ -564,7 +578,7 @@ button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--acce
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 9px 8px;
+    padding: calc(9px * var(--density-scale, 1)) 8px;
     border-radius: 8px;
     cursor: grab;
     touch-action: none;
@@ -594,10 +608,10 @@ button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--acce
    reste un repère de chapitre et non un habillage répété à chaque niveau. */
 .tree-row-d0 .tree-label { font-size: calc(var(--fs-sm) * var(--tree-font-scale, 1)); font-weight: 700; }
 
-.tree-row-d1 { padding: 7px 8px; border-radius: 6px; }
+.tree-row-d1 { padding: calc(7px * var(--density-scale, 1)) 8px; border-radius: 6px; }
 .tree-row-d1 .tree-label { font-weight: 600; }
 
-.tree-row-d2 { padding: 5px 8px; border-radius: 6px; }
+.tree-row-d2 { padding: calc(5px * var(--density-scale, 1)) 8px; border-radius: 6px; }
 .tree-row-d2 .tree-label { font-size: calc(var(--fs-xs) * var(--tree-font-scale, 1)); font-weight: 500; color: var(--text-muted); }
 .tree-row-d2.selected .tree-label { color: var(--chapter-accent); }
 
@@ -702,7 +716,18 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
     flex-direction: column;
     gap: 18px;
 }
-.section-group { display: flex; flex-direction: column; gap: 8px; }
+.section-group { display: flex; flex-direction: column; gap: calc(8px * var(--density-scale, 1)); }
+/* Disposition de l'écran principal (réglable dans les paramètres) : verticale, comme avant
+   (sous-dossiers au-dessus des exercices), ou horizontale façon Finder (sous-dossiers dans une
+   colonne à droite). */
+.folder-browser-vertical { display: flex; flex-direction: column; gap: 18px; }
+.folder-browser-horizontal { display: flex; gap: 22px; align-items: flex-start; }
+.folder-browser-horizontal .exercises-group { flex: 1; min-width: 0; }
+.folder-browser-horizontal .folders-group { flex: 0 0 220px; }
+@media (max-width: 700px) {
+    .folder-browser-horizontal { flex-direction: column; gap: 18px; }
+    .folder-browser-horizontal .folders-group { flex: none; width: 100%; }
+}
 .section-label {
     font-size: var(--fs-2xs);
     font-weight: 700;
@@ -829,7 +854,7 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
         grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
         gap: 8px;
     }
-    #folder-container > .add-category-row { display: none; }
+    #folder-container .add-category-row { display: none; }
     .content-heading {
         display: flex;
         align-items: center;
@@ -940,10 +965,19 @@ button.metro-volume-btn:hover { border-color: var(--accent); color: var(--accent
 .metro-chrono-value { font-size: var(--fs-md); font-weight: 700; letter-spacing: .02em; }
 .metro-chrono-reset { flex: none; color: var(--text-muted); }
 .metro-chrono-reset .icon { width: 15px; height: 15px; }
-.metro-fields-row { display: flex; justify-content: center; gap: 18px; flex-wrap: wrap; }
+.metro-fields-row { display: flex; justify-content: center; align-items: flex-end; gap: 18px; }
 .metro-field { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
 .metro-field input, .metro-field select { font-size: var(--fs-sm); text-align: center; color: var(--text-main); text-transform: none; letter-spacing: normal; }
 .metro-field input[type="number"] { width: 64px; }
+/* Sur téléphone, le volume tout seul sur sa propre ligne (retour à la ligne du flex-wrap normal)
+   avait l'air égaré : temps/mesure et subdivision se partagent la largeur à égalité, le volume
+   passe sciemment en dessous sur toute la largeur, plutôt que de renvoyer à la ligne au hasard. */
+@media (max-width: 420px) {
+    .metro-fields-row { flex-wrap: wrap; }
+    .metro-field { flex: 1 1 0; min-width: 0; }
+    .metro-field select { width: 100%; }
+    .metro-volume-field { flex: 0 0 100%; order: 3; margin-top: 8px; }
+}
 
 .metro-pad-label { margin-top: 4px; }
 /* Le pavé est une pile de lignes (une par groupe de temps réparti symétriquement, voir renderPad
@@ -1013,7 +1047,6 @@ button.metro-volume-btn:hover { border-color: var(--accent); color: var(--accent
 .cof-major { font-size: 16px; font-weight: 700; }
 .cof-minor { font-size: 12px; fill: var(--text-muted); }
 .cof-acc { font-size: 11px; font-weight: 600; fill: var(--text-muted); }
-.cof-legend { font-size: var(--fs-xs); color: var(--text-muted); max-width: 320px; margin: 0 auto; }
 
 /* ---------- session guidée ---------- */
 /* Affichée dans la zone principale (pas une fenêtre flottante), comme le reste du contenu : les
@@ -1027,9 +1060,7 @@ button.metro-volume-btn:hover { border-color: var(--accent); color: var(--accent
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: .04em;
-    color: var(--chapter-accent);
-    background: color-mix(in srgb, var(--chapter-accent) 14%, transparent);
-    border-radius: 20px;
+    border-radius: var(--radius-sm);
     padding: 2px 8px;
     flex: none;
 }
@@ -1044,7 +1075,9 @@ button.metro-volume-btn:hover { border-color: var(--accent); color: var(--accent
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 10px 12px;
+    cursor: pointer;
 }
+.gs-session-row:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
 .gs-session-info { min-width: 0; }
 .gs-session-name { font-weight: 700; font-size: var(--fs-base); }
 .gs-session-meta { font-size: var(--fs-xs); color: var(--text-muted); }
@@ -1053,6 +1086,14 @@ button.metro-volume-btn:hover { border-color: var(--accent); color: var(--accent
    sur fond transparent (.btn-ghost), on ne voit pas que ce sont des boutons cliquables. */
 .gs-session-actions .icon-btn { border: 1px solid var(--border); border-radius: 8px; }
 .gs-session-actions .icon-btn:hover { border-color: var(--accent); color: var(--accent); }
+/* Lancer une session est l'action principale de cette liste : on la distingue nettement des
+   actions secondaires (supprimer). */
+button.gs-session-play-btn {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+button.gs-session-play-btn:hover { background: color-mix(in srgb, var(--accent) 28%, transparent); }
 .gs-add-session-btn { margin-top: 12px; width: 100%; height: 42px; }
 
 button.gs-back-btn { margin-bottom: 10px; border: 1px solid var(--border); height: 36px; padding: 0 12px; }
@@ -1134,14 +1175,18 @@ button.gs-add-step-btn { margin-top: 10px; width: 100%; height: 42px; border: 1p
 .gs-run-adjust-row { display: flex; justify-content: center; gap: 10px; margin-bottom: 12px; }
 /* Toutes les commandes de l'écran de guidage partagent la même hauteur, pour un rendu homogène
    (avant : le bouton métronome prenait toute la largeur et les hauteurs variaient). */
-.gs-run-pause-btn, .gs-run-metro-btn, .gs-run-links-btn, .gs-run-nav-row button {
+.gs-run-metro-btn, .gs-run-links-btn, .gs-run-nav-row button {
     height: 44px;
     padding: 0 14px;
     display: flex;
     align-items: center;
     justify-content: center;
 }
-.gs-run-pause-btn { width: 100%; font-size: var(--fs-md); margin-bottom: 10px; }
+/* Pause à gauche (l'action principale pendant le guidage, mais pas besoin qu'elle occupe toute la
+   largeur) et Arrêter, plus discret, à sa droite. */
+.gs-run-pausestop-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.gs-run-pause-btn { flex: 1; height: 40px; font-size: var(--fs-sm); }
+.gs-run-stop-btn { flex: none; height: 40px; padding: 0 14px; font-size: var(--fs-xs); color: var(--text-muted); }
 .gs-run-tools-row { display: flex; gap: 8px; margin-bottom: 12px; }
 .gs-run-metro-btn {
     flex: none;
@@ -1157,7 +1202,6 @@ button.gs-add-step-btn { margin-top: 10px; width: 100%; height: 42px; border: 1p
 .gs-run-links-btn { flex: 1; font-size: var(--fs-xs); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gs-run-nav-row { display: flex; gap: 8px; }
 .gs-run-nav-row button { flex: 1; }
-.gs-run-stop-btn { margin-top: 10px; width: 100%; font-size: var(--fs-2xs); color: var(--text-muted); }
 
 .gs-links-list { display: flex; flex-direction: column; gap: 14px; }
 .gs-links-group-title { font-weight: 700; font-size: var(--fs-sm); margin-bottom: 6px; }
@@ -1170,20 +1214,3 @@ button.gs-add-step-btn { margin-top: 10px; width: 100%; height: 42px; border: 1p
 .settings-field { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; }
 .settings-field-label { font-size: var(--fs-sm); color: var(--text-muted); }
 .settings-field select { min-width: 160px; }
-.settings-scheme-grid { display: flex; flex-direction: column; gap: 6px; }
-.settings-scheme-btn {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    text-align: left;
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 8px 10px;
-    color: var(--text-main);
-    font-size: var(--fs-sm);
-}
-.settings-scheme-btn:hover { border-color: var(--accent); }
-.settings-scheme-btn.settings-scheme-active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); font-weight: 700; }
-.settings-scheme-dots { display: flex; gap: 3px; flex: none; }
-.settings-scheme-dot { width: 12px; height: 12px; border-radius: 50%; }
