@@ -2269,12 +2269,26 @@
         m.bpm = Math.round(m.bpm);
         if (typeof m.beatsPerMeasure !== "number" || isNaN(m.beatsPerMeasure) || m.beatsPerMeasure < 1 || m.beatsPerMeasure > 12) m.beatsPerMeasure = 4;
         m.beatsPerMeasure = Math.round(m.beatsPerMeasure);
-        if ([1, 2, 3].indexOf(m.subdivision) === -1) m.subdivision = 1;
-        if (!Array.isArray(m.accents)) m.accents = [];
-        while (m.accents.length < m.beatsPerMeasure) m.accents.push(m.accents.length === 0 ? 2 : 1);
-        m.accents.length = m.beatsPerMeasure;
-        for (var i = 0; i < m.accents.length; i++) {
-            if ([0, 1, 2].indexOf(m.accents[i]) === -1) m.accents[i] = 1;
+        if ([1, 2, 3, 4].indexOf(m.subdivision) === -1) m.subdivision = 1;
+        var stepCount = m.beatsPerMeasure * m.subdivision;
+        // Ancien format (un seul accent par TEMPS, sans pavé rythmique) : migré vers un motif par PAS
+        // en plaçant chaque ancien accent sur le 1er pas de son temps, le reste muet.
+        if (!Array.isArray(m.pattern) && Array.isArray(m.accents)) {
+            var migrated = [];
+            for (var b = 0; b < m.beatsPerMeasure; b++) {
+                for (var s = 0; s < m.subdivision; s++) migrated.push(s === 0 ? (m.accents[b] != null ? m.accents[b] : 1) : 0);
+            }
+            m.pattern = migrated;
+            delete m.accents;
+        }
+        if (!Array.isArray(m.pattern)) m.pattern = [];
+        while (m.pattern.length < stepCount) {
+            var idx = m.pattern.length;
+            m.pattern.push(idx === 0 ? 2 : (idx % m.subdivision === 0 ? 1 : 0));
+        }
+        m.pattern.length = stepCount;
+        for (var i = 0; i < m.pattern.length; i++) {
+            if ([0, 1, 2].indexOf(m.pattern[i]) === -1) m.pattern[i] = 1;
         }
         return m;
     }
@@ -2283,46 +2297,48 @@
     var metroPlaying = false;
     var metroTimer = null;
     var metroNextNoteTime = 0;
-    var metroCurrentBeat = 0;
-    var metroCurrentSub = 0;
-    var metroBeatCallback = null; // met à jour l'affichage (point qui clignote), posé par le panneau ouvert
+    var metroCurrentStep = 0;
+    var metroBeatCallback = null; // met à jour l'affichage (pas qui clignote), posé par le panneau ouvert
     var METRO_LOOKAHEAD_MS = 25;
     var METRO_SCHEDULE_AHEAD_S = 0.12;
 
-    function metroClick(time, accentLevel) {
-        if (accentLevel === 0) return; // temps rendu muet
+    // Son plus doux qu'un simple bip : un filtre passe-bas adoucit les harmoniques aiguës, et une
+    // courte montée en volume (linearRamp, quelques ms) avant la décroissance évite le "clic" sec
+    // d'un signal qui démarre net à son maximum.
+    function metroClick(time, level) {
+        if (!level) return; // pas rendu muet
         var ctx = metroAudioCtx;
         var osc = ctx.createOscillator();
         var gain = ctx.createGain();
-        osc.connect(gain);
+        var filter = ctx.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.value = 2000;
+        filter.Q.value = 0.6;
+        osc.type = "sine";
+        osc.connect(filter);
+        filter.connect(gain);
         gain.connect(ctx.destination);
-        osc.frequency.value = accentLevel >= 2 ? 1500 : 1000;
-        var peak = accentLevel >= 2 ? 0.85 : 0.45;
-        gain.gain.setValueAtTime(peak, time);
-        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.045);
+        osc.frequency.value = level >= 2 ? 1100 : 780;
+        var peak = level >= 2 ? 0.75 : 0.38;
+        gain.gain.setValueAtTime(0.0001, time);
+        gain.gain.linearRampToValueAtTime(peak, time + 0.004);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.065);
         osc.start(time);
-        osc.stop(time + 0.05);
+        osc.stop(time + 0.07);
     }
 
     function metroScheduler() {
         var m = state.settings.metronome;
+        var stepCount = m.beatsPerMeasure * m.subdivision;
         while (metroNextNoteTime < metroAudioCtx.currentTime + METRO_SCHEDULE_AHEAD_S) {
-            var accentLevel = metroCurrentSub === 0 ? m.accents[metroCurrentBeat] : 1;
-            // Les clics de subdivision (au-delà du 1er de chaque temps) sont toujours discrets,
-            // même quand le temps lui-même est accentué.
-            if (metroCurrentSub !== 0) accentLevel = m.accents[metroCurrentBeat] === 0 ? 0 : 1;
-            metroClick(metroNextNoteTime, accentLevel);
+            metroClick(metroNextNoteTime, m.pattern[metroCurrentStep]);
             if (metroBeatCallback) {
-                var beat = metroCurrentBeat, sub = metroCurrentSub, delayMs = Math.max(0, (metroNextNoteTime - metroAudioCtx.currentTime) * 1000);
-                setTimeout(function () { if (metroPlaying && metroBeatCallback) metroBeatCallback(beat, sub); }, delayMs);
+                var step = metroCurrentStep, delayMs = Math.max(0, (metroNextNoteTime - metroAudioCtx.currentTime) * 1000);
+                setTimeout(function () { if (metroPlaying && metroBeatCallback) metroBeatCallback(step); }, delayMs);
             }
-            var secondsPerBeat = 60 / m.bpm / m.subdivision;
-            metroNextNoteTime += secondsPerBeat;
-            metroCurrentSub++;
-            if (metroCurrentSub >= m.subdivision) {
-                metroCurrentSub = 0;
-                metroCurrentBeat = (metroCurrentBeat + 1) % m.beatsPerMeasure;
-            }
+            var secondsPerStep = 60 / m.bpm / m.subdivision;
+            metroNextNoteTime += secondsPerStep;
+            metroCurrentStep = (metroCurrentStep + 1) % stepCount;
         }
         metroTimer = setTimeout(metroScheduler, METRO_LOOKAHEAD_MS);
     }
@@ -2332,8 +2348,7 @@
         if (!metroAudioCtx) metroAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
         if (metroAudioCtx.state === "suspended") metroAudioCtx.resume();
         metroPlaying = true;
-        metroCurrentBeat = 0;
-        metroCurrentSub = 0;
+        metroCurrentStep = 0;
         metroNextNoteTime = metroAudioCtx.currentTime + 0.05;
         metroScheduler();
     }
@@ -2371,35 +2386,6 @@
             bpmSlider.addEventListener("input", function () { setBpm(parseInt(bpmSlider.value, 10)); });
             panel.appendChild(bpmSlider);
 
-            var beatsRow = document.createElement("div");
-            beatsRow.className = "metro-beats-row";
-            panel.appendChild(beatsRow);
-
-            function renderBeats() {
-                beatsRow.innerHTML = "";
-                for (var i = 0; i < m.beatsPerMeasure; i++) {
-                    (function (idx) {
-                        var dot = document.createElement("button");
-                        dot.type = "button";
-                        dot.className = "metro-beat metro-beat-" + m.accents[idx];
-                        dot.title = "Temps " + (idx + 1) + " : clique pour changer (silence / normal / fort)";
-                        dot.addEventListener("click", function () {
-                            m.accents[idx] = (m.accents[idx] + 1) % 3;
-                            save();
-                            renderBeats();
-                        });
-                        beatsRow.appendChild(dot);
-                    })(i);
-                }
-            }
-            renderBeats();
-            metroBeatCallback = function (beat, sub) {
-                if (sub !== 0) return;
-                Array.prototype.forEach.call(beatsRow.children, function (el, i) {
-                    el.classList.toggle("metro-beat-current", i === beat);
-                });
-            };
-
             var fieldsRow = document.createElement("div");
             fieldsRow.className = "metro-fields-row";
 
@@ -2414,11 +2400,11 @@
             beatsInput.addEventListener("change", function () {
                 var n = Math.min(12, Math.max(1, parseInt(beatsInput.value, 10) || 4));
                 m.beatsPerMeasure = n;
+                m.pattern = null; // sera reconstruit par normalizeMetronomeSettings, motif adapté à la nouvelle taille
                 normalizeMetronomeSettings(state.settings);
                 beatsInput.value = m.beatsPerMeasure;
-                metroCurrentBeat = 0;
                 save();
-                renderBeats();
+                renderPad();
             });
             beatsField.appendChild(beatsInput);
             fieldsRow.appendChild(beatsField);
@@ -2427,7 +2413,7 @@
             subField.className = "metro-field";
             subField.textContent = "Subdivision";
             var subSelect = document.createElement("select");
-            [[1, "Noire"], [2, "Croches"], [3, "Triolet"]].forEach(function (opt) {
+            [[1, "Noire"], [2, "Croches"], [3, "Triolet"], [4, "Doubles-croches"]].forEach(function (opt) {
                 var o = document.createElement("option");
                 o.value = opt[0];
                 o.textContent = opt[1];
@@ -2436,12 +2422,65 @@
             });
             subSelect.addEventListener("change", function () {
                 m.subdivision = parseInt(subSelect.value, 10);
+                m.pattern = null;
+                normalizeMetronomeSettings(state.settings);
                 save();
+                renderPad();
             });
             subField.appendChild(subSelect);
             fieldsRow.appendChild(subField);
 
             panel.appendChild(fieldsRow);
+
+            // ---------- pavé rythmique ----------
+            // Un pas par case, groupées par temps : clique une case pour la faire tourner entre
+            // silence / normal / fort. De quoi composer n'importe quel groove (double-croches pour
+            // un shuffle, ne garder que les contretemps pour s'entraîner dessus, etc.), pas
+            // seulement accentuer le 1er temps de la mesure.
+            var padLabel = document.createElement("div");
+            padLabel.className = "section-label metro-pad-label";
+            padLabel.textContent = "Pavé rythmique";
+            panel.appendChild(padLabel);
+
+            var padRow = document.createElement("div");
+            padRow.className = "metro-pad";
+            panel.appendChild(padRow);
+
+            var resetPadBtn = document.createElement("button");
+            resetPadBtn.type = "button";
+            resetPadBtn.className = "btn-ghost metro-pad-reset";
+            resetPadBtn.textContent = "Réinitialiser (1er temps accentué)";
+            resetPadBtn.addEventListener("click", function () {
+                for (var i = 0; i < m.pattern.length; i++) m.pattern[i] = i === 0 ? 2 : (i % m.subdivision === 0 ? 1 : 0);
+                save();
+                renderPad();
+            });
+            panel.appendChild(resetPadBtn);
+
+            function renderPad() {
+                padRow.innerHTML = "";
+                for (var i = 0; i < m.pattern.length; i++) {
+                    (function (idx) {
+                        var isBeatStart = idx % m.subdivision === 0;
+                        var step = document.createElement("button");
+                        step.type = "button";
+                        step.className = "metro-step metro-step-" + m.pattern[idx] + (isBeatStart ? " metro-step-beat" : "");
+                        step.title = (isBeatStart ? "Temps " + (idx / m.subdivision + 1) : "Pas " + (idx + 1)) + " : silence / normal / fort";
+                        step.addEventListener("click", function () {
+                            m.pattern[idx] = (m.pattern[idx] + 1) % 3;
+                            save();
+                            renderPad();
+                        });
+                        padRow.appendChild(step);
+                    })(i);
+                }
+            }
+            renderPad();
+            metroBeatCallback = function (step) {
+                Array.prototype.forEach.call(padRow.children, function (el, i) {
+                    el.classList.toggle("metro-step-current", i === step);
+                });
+            };
 
             var playBtn = document.createElement("button");
             playBtn.type = "button";
@@ -2480,11 +2519,13 @@
     // ---------- aides : cercle des quintes ----------
     var CIRCLE_OF_FIFTHS_MAJOR = ["C", "G", "D", "A", "E", "B", "F♯", "D♭", "A♭", "E♭", "B♭", "F"];
     var CIRCLE_OF_FIFTHS_MINOR = ["Am", "Em", "Bm", "F♯m", "C♯m", "G♯m", "E♭m", "B♭m", "Fm", "Cm", "Gm", "Dm"];
+    var CIRCLE_OF_FIFTHS_ACCIDENTALS = ["0", "1♯", "2♯", "3♯", "4♯", "5♯", "6♯", "5♭", "4♭", "3♭", "2♭", "1♭"];
 
     function buildCircleOfFifthsSvg() {
         var size = 320, cx = size / 2, cy = size / 2;
-        var outerR = 148, midR = 98, coreR = 50; // limites des deux anneaux (majeur / mineur)
-        var labelMajorR = 123, labelMinorR = 74; // position du texte dans chaque anneau
+        // Trois anneaux concentriques : majeur (extérieur), mineur relatif (milieu), altérations (intérieur).
+        var outerR = 150, midR = 106, innerR = 62, coreR = 30;
+        var labelMajorR = 128, labelMinorR = 84, labelAccR = 46; // position du texte dans chaque anneau
         var ns = "http://www.w3.org/2000/svg";
         var svg = document.createElementNS(ns, "svg");
         svg.setAttribute("viewBox", "0 0 " + size + " " + size);
@@ -2496,12 +2537,47 @@
             return n;
         }
 
+        function polar(r, angleDeg) {
+            var a = (angleDeg - 90) * Math.PI / 180;
+            return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
+        }
+
+        function wedgePath(r1, r2, a0, a1) {
+            var p1 = polar(r2, a0), p2 = polar(r2, a1), p3 = polar(r1, a1), p4 = polar(r1, a0);
+            return "M" + p1.x + "," + p1.y +
+                " A" + r2 + "," + r2 + " 0 0 1 " + p2.x + "," + p2.y +
+                " L" + p3.x + "," + p3.y +
+                " A" + r1 + "," + r1 + " 0 0 0 " + p4.x + "," + p4.y + " Z";
+        }
+
+        // Dégradé de teintes façon "roue des tonalités" : une couleur par quinte.
+        for (var w = 0; w < 12; w++) {
+            var hue = w * 30;
+            var a0 = w * 30 - 15, a1 = w * 30 + 15;
+            svg.appendChild(el("path", {
+                d: wedgePath(midR, outerR, a0, a1),
+                class: "cof-wedge cof-wedge-outer",
+                style: "fill: hsl(" + hue + ", 70%, 55%);"
+            }));
+            svg.appendChild(el("path", {
+                d: wedgePath(innerR, midR, a0, a1),
+                class: "cof-wedge cof-wedge-mid",
+                style: "fill: hsl(" + hue + ", 70%, 55%);"
+            }));
+            svg.appendChild(el("path", {
+                d: wedgePath(coreR, innerR, a0, a1),
+                class: "cof-wedge cof-wedge-core",
+                style: "fill: hsl(" + hue + ", 70%, 55%);"
+            }));
+        }
+
         svg.appendChild(el("circle", { cx: cx, cy: cy, r: outerR, class: "cof-ring cof-ring-outer" }));
         svg.appendChild(el("circle", { cx: cx, cy: cy, r: midR, class: "cof-ring cof-ring-inner" }));
+        svg.appendChild(el("circle", { cx: cx, cy: cy, r: innerR, class: "cof-ring cof-ring-acc" }));
 
         for (var i = 0; i < 12; i++) {
             var angle = (i * 30 - 90) * Math.PI / 180; // 0 en haut, sens horaire
-            // Traits séparateurs entre chaque quinte, sur les deux anneaux.
+            // Traits séparateurs entre chaque quinte, sur les trois anneaux.
             var sepAngle = ((i * 30) - 15 - 90) * Math.PI / 180;
             var cosS = Math.cos(sepAngle), sinS = Math.sin(sepAngle);
             svg.appendChild(el("line", {
@@ -2510,9 +2586,14 @@
                 class: "cof-sep"
             }));
             svg.appendChild(el("line", {
-                x1: cx + coreR * cosS, y1: cy + coreR * sinS,
+                x1: cx + innerR * cosS, y1: cy + innerR * sinS,
                 x2: cx + midR * cosS, y2: cy + midR * sinS,
                 class: "cof-sep cof-sep-minor"
+            }));
+            svg.appendChild(el("line", {
+                x1: cx + coreR * cosS, y1: cy + coreR * sinS,
+                x2: cx + innerR * cosS, y2: cy + innerR * sinS,
+                class: "cof-sep cof-sep-acc"
             }));
 
             var majorX = cx + labelMajorR * Math.cos(angle), majorY = cy + labelMajorR * Math.sin(angle);
@@ -2524,6 +2605,11 @@
             var minorText = el("text", { x: minorX, y: minorY, class: "cof-minor" });
             minorText.textContent = CIRCLE_OF_FIFTHS_MINOR[i];
             svg.appendChild(minorText);
+
+            var accX = cx + labelAccR * Math.cos(angle), accY = cy + labelAccR * Math.sin(angle);
+            var accText = el("text", { x: accX, y: accY, class: "cof-acc" });
+            accText.textContent = CIRCLE_OF_FIFTHS_ACCIDENTALS[i];
+            svg.appendChild(accText);
         }
 
         svg.appendChild(el("circle", { cx: cx, cy: cy, r: coreR, class: "cof-ring cof-ring-core" }));
@@ -2544,7 +2630,7 @@
 
             var legend = document.createElement("div");
             legend.className = "cof-legend";
-            legend.innerHTML = "<span class=\"cof-legend-dot cof-legend-major\"></span> Majeur &nbsp; <span class=\"cof-legend-dot cof-legend-minor\"></span> Mineur relatif";
+            legend.innerHTML = "Anneau extérieur : tonalité majeure &nbsp;·&nbsp; anneau du milieu : mineur relatif &nbsp;·&nbsp; anneau intérieur : nombre d'altérations (♯/♭)";
             panel.appendChild(legend);
         });
     }
