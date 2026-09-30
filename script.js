@@ -3877,6 +3877,64 @@
         return session.steps.reduce(function (sum, s) { return sum + s.minutes; }, 0);
     }
 
+    // ---------- export PDF d'une session guidée ----------
+    // Vectoriel (texte jsPDF direct, pas de html2canvas) : le contenu n'est que du texte, un PDF
+    // rastérisé serait plus lourd et moins net pour rien. "Enregistrer sous PDF" plutôt
+    // qu'"Imprimer" : un fichier généré et téléchargé directement (pdf.save), sans dépendre d'un
+    // pilote d'impression système qui se comporte différemment selon l'appareil.
+    function exportSessionPdf(session) {
+        var jsPDFcls = window.jspdf && window.jspdf.jsPDF;
+        if (!jsPDFcls) { window.alert("Export PDF indisponible."); return; }
+        var pdf = new jsPDFcls({ unit: "mm", format: "a4", orientation: "portrait" });
+        var marginLeft = 18, marginRight = 18, y = 20;
+        var pageWidth = pdf.internal.pageSize.getWidth();
+        var pageHeight = pdf.internal.pageSize.getHeight();
+        var maxWidth = pageWidth - marginLeft - marginRight;
+
+        function ensureSpace(needed) {
+            if (y + needed > pageHeight - 16) { pdf.addPage(); y = 20; }
+        }
+        function writeLines(text, fontSize, style, lineGap) {
+            pdf.setFont("helvetica", style || "normal");
+            pdf.setFontSize(fontSize);
+            var lines = pdf.splitTextToSize(text, maxWidth);
+            lines.forEach(function (line) {
+                ensureSpace(lineGap || 6);
+                pdf.text(line, marginLeft, y);
+                y += lineGap || 6;
+            });
+        }
+
+        pdf.setTextColor(20, 20, 20);
+        writeLines(session.name || "Session guidée", 18, "bold", 8);
+        writeLines("Durée totale : " + sessionTotalMinutes(session) + " min · " + session.steps.length + " exercice(s)", 10, "normal", 7);
+        y += 2;
+
+        session.steps.forEach(function (step, i) {
+            var found = findExerciseById(step.exerciseId);
+            ensureSpace(12);
+            pdf.setDrawColor(210, 210, 210);
+            pdf.line(marginLeft, y, pageWidth - marginRight, y);
+            y += 6;
+            var title = found ? found.ex.title : "(exercice supprimé)";
+            writeLines((i + 1) + ". " + title + " — " + step.minutes + " min", 13, "bold", 7);
+            if (found) {
+                writeLines(found.pathNames.join(" › "), 9, "italic", 5.5);
+                if (found.ex.notes && found.ex.notes.trim()) writeLines(found.ex.notes.trim(), 10, "normal", 5.5);
+                (found.ex.links || []).forEach(function (link) {
+                    writeLines("Lien : " + link.label + " — " + link.url, 9, "normal", 5.5);
+                });
+                (found.ex.files || []).forEach(function (f) {
+                    writeLines("Pièce jointe : " + f.name, 9, "normal", 5.5);
+                });
+            }
+            y += 3;
+        });
+
+        var fileName = "session-" + (session.name || "guidee").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") + ".pdf";
+        pdf.save(fileName);
+    }
+
     function gsThemeBadge(pathNames, color) {
         var badge = document.createElement("span");
         badge.className = "gs-theme-badge";
@@ -4060,6 +4118,13 @@
             save();
         });
         content.appendChild(nameInput);
+
+        var pdfBtn = document.createElement("button");
+        pdfBtn.type = "button";
+        pdfBtn.className = "btn-ghost gs-pdf-btn";
+        pdfBtn.textContent = "Enregistrer sous PDF";
+        pdfBtn.addEventListener("click", function () { exportSessionPdf(session); });
+        content.appendChild(pdfBtn);
 
         var stepsLabel = document.createElement("div");
         stepsLabel.className = "section-label";
