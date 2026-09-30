@@ -4,7 +4,38 @@
     var STORAGE_KEY = "trainhub.v1";
     var DEFAULT_CATEGORIES = ["Technique", "Gammes", "Improvisation", "Jeu en groupe", "Copie de morceaux"];
     var DEFAULT_INSTRUMENTS = ["Basse", "Guitare", "Piano"];
-    var FOLDER_PALETTE = ["#00e676", "#a78bfa", "#f472b6", "#2dd4bf", "#fb923c", "#f87171"];
+    // Jeux de couleurs des chapitres, choisis dans les paramètres généraux (voir
+    // openSettingsPanel) : currentPalette() renvoie toujours le jeu actif, à utiliser à la place
+    // d'une constante fixe partout où une nouvelle couleur de chapitre est choisie.
+    var COLOR_SCHEMES = {
+        default: { label: "Défaut", colors: ["#00e676", "#a78bfa", "#f472b6", "#2dd4bf", "#fb923c", "#f87171"] },
+        flashy: { label: "Flashy", colors: ["#ff2e63", "#08d9d6", "#f8b400", "#ea00ff", "#00ff87", "#ff6f00"] },
+        sobre: { label: "Sobre", colors: ["#8892b0", "#6b8f71", "#a67c52", "#7c93a3", "#9d8189", "#7d7d7d"] },
+        pastel: { label: "Pastel", colors: ["#a3c4f3", "#ffcfd2", "#b9fbc0", "#fde4cf", "#d0bdf4", "#98f5e1"] },
+        contraste: { label: "Contrasté", colors: ["#ffffff", "#ffeb3b", "#00e5ff", "#ff1744", "#76ff03", "#d500f9"] }
+    };
+    // Variante sans dépendre de la variable globale `state` (encore non affectée lors de
+    // normalizeState/makeDefaultState, qui construisent justement cet objet) : on lui passe
+    // directement les `settings` en cours de normalisation.
+    function paletteFor(settings) {
+        var scheme = COLOR_SCHEMES[settings.appearance && settings.appearance.colorScheme];
+        return (scheme || COLOR_SCHEMES.default).colors;
+    }
+    function currentPalette() {
+        return paletteFor(state.settings);
+    }
+    // Change le jeu de couleurs ET recolore les chapitres existants (sinon le réglage ne
+    // s'appliquerait qu'aux nouveaux chapitres créés après coup, pas à ceux déjà là).
+    function applyColorScheme(key) {
+        if (!COLOR_SCHEMES[key]) return;
+        state.settings.appearance.colorScheme = key;
+        var palette = COLOR_SCHEMES[key].colors;
+        state.instruments.forEach(function (inst) {
+            inst.categories.forEach(function (cat, i) { cat.color = palette[i % palette.length]; });
+        });
+        save();
+        render();
+    }
     var MAX_FOLDER_DEPTH = 5;
     // Chapitres virtuels : n'existent dans aucun tableau `categories`, juste des valeurs spéciales
     // de navigation reconnues par render()/renderMain(). Regroupent respectivement les exercices
@@ -26,9 +57,10 @@
         return f;
     }
 
-    function makeInstrument(name) {
+    function makeInstrument(name, palette) {
+        var pal = palette || COLOR_SCHEMES.default.colors;
         var categories = DEFAULT_CATEGORIES.map(function (catName, i) {
-            return makeFolder(catName, FOLDER_PALETTE[i % FOLDER_PALETTE.length]);
+            return makeFolder(catName, pal[i % pal.length]);
         });
         return { id: uid(), name: name, categories: categories };
     }
@@ -71,6 +103,19 @@
         inst.pinnedOrder = order;
     }
 
+    var METRO_POSITIONS = ["center", "top", "bottom", "corner"];
+    var METRO_SIZES = ["small", "medium", "large"];
+    var TREE_FONT_SCALES = [0.85, 1, 1.15, 1.3];
+
+    function normalizeAppearanceSettings(s) {
+        if (!s.settings.appearance || typeof s.settings.appearance !== "object") s.settings.appearance = {};
+        var a = s.settings.appearance;
+        if (!COLOR_SCHEMES[a.colorScheme]) a.colorScheme = "default";
+        if (METRO_POSITIONS.indexOf(a.metronomePosition) === -1) a.metronomePosition = "center";
+        if (METRO_SIZES.indexOf(a.metronomeSize) === -1) a.metronomeSize = "medium";
+        if (TREE_FONT_SCALES.indexOf(a.treeFontScale) === -1) a.treeFontScale = 1;
+    }
+
     // Une session guidée = un enchaînement d'exercices avec un temps alloué à chacun. Les pas
     // référencent l'exercice par son id (unique dans toute l'appli, voir uid()) plutôt que de
     // dupliquer son contenu : si l'exercice est supprimé depuis, le pas devient "introuvable"
@@ -92,13 +137,14 @@
         if (!s.settings || typeof s.settings !== "object") s.settings = {};
         normalizeMetronomeSettings(s.settings);
         normalizeGuidedSessions(s);
+        normalizeAppearanceSettings(s);
         if (!Array.isArray(s.instruments)) s.instruments = [];
         s.instruments.forEach(function (inst) {
             if (!Array.isArray(inst.categories)) inst.categories = [];
             // La couleur se pose sur les grands chapitres (repérage des dossiers/sous-dossiers),
             // pas sur l'instrument : les 3 instruments partagent la même identité visuelle.
             inst.categories.forEach(function (cat, i) {
-                if (!cat.color) cat.color = FOLDER_PALETTE[i % FOLDER_PALETTE.length];
+                if (!cat.color) cat.color = paletteFor(s.settings)[i % paletteFor(s.settings).length];
             });
             inst.categories.forEach(normalizeFolder);
             normalizePinnedOrder(inst);
@@ -1107,6 +1153,7 @@
         var rootChapter = inst && path.length ? findById(inst.categories, path[0]) : null;
         var accent = path[0] === FAVORITES_ID ? "#ffd60a" : path[0] === ARCHIVED_ID ? "#9ca3af" : ((rootChapter && rootChapter.color) || "#00e676");
         document.documentElement.style.setProperty("--chapter-accent", accent);
+        document.documentElement.style.setProperty("--tree-font-scale", state.settings.appearance.treeFontScale);
         renderInstrumentSelect();
         renderChapterBar();
         renderSidebarTree();
@@ -1214,7 +1261,7 @@
             if (!name) return;
             name = name.trim();
             if (!name) return;
-            var chapter = makeFolder(name, FOLDER_PALETTE[inst.categories.length % FOLDER_PALETTE.length]);
+            var chapter = makeFolder(name, currentPalette()[inst.categories.length % currentPalette().length]);
             inst.categories.push(chapter);
             clearFilters();
             setNavPath(inst, [chapter.id]);
@@ -1307,7 +1354,7 @@
         function commitChapter() {
             var name = addInput.value.trim();
             if (!name) return;
-            var chapter = makeFolder(name, FOLDER_PALETTE[inst.categories.length % FOLDER_PALETTE.length]);
+            var chapter = makeFolder(name, currentPalette()[inst.categories.length % currentPalette().length]);
             inst.categories.push(chapter);
             clearFilters();
             setNavPath(inst, [chapter.id]);
@@ -2309,7 +2356,7 @@
     document.getElementById("add-instrument-btn").addEventListener("click", function () {
         var name = window.prompt("Nom du nouvel instrument :");
         if (!name) return;
-        var inst = makeInstrument(name.trim());
+        var inst = makeInstrument(name.trim(), currentPalette());
         state.instruments.push(inst);
         state.activeInstrumentId = inst.id;
         save();
@@ -2632,8 +2679,10 @@
 
     function openMetronomePanel() {
         var m = state.settings.metronome;
+        var a = state.settings.appearance;
+        var extraClass = "metronome-panel metro-pos-" + a.metronomePosition + " metro-size-" + a.metronomeSize;
 
-        openModal("metronome-panel", function (panel, close) {
+        openModal(extraClass, function (panel, close) {
             var title = document.createElement("div");
             title.className = "backups-title";
             title.textContent = "Métronome";
@@ -2700,30 +2749,6 @@
             bpmSlider.addEventListener("input", function () { setBpm(parseInt(bpmSlider.value, 10)); });
             panel.appendChild(bpmSlider);
 
-            // Le réglage de volume est discret : juste une icône, la barre ne se déplie que sur clic
-            // (sinon elle est en permanence visible alors qu'on y touche rarement).
-            var volumeRow = document.createElement("div");
-            volumeRow.className = "metro-volume-row";
-            var volumeSlider = document.createElement("input");
-            volumeSlider.type = "range";
-            volumeSlider.min = "0";
-            volumeSlider.max = "100";
-            volumeSlider.value = Math.round(m.volume * 100);
-            volumeSlider.className = "metro-volume-slider";
-            volumeSlider.title = "Volume";
-            volumeSlider.addEventListener("input", function () {
-                setMetroVolume(parseInt(volumeSlider.value, 10) / 100);
-                save();
-            });
-            var volumeBtn = svgIconButton(METRO_VOLUME_ICON_SVG, "Volume", function () {
-                volumeRow.classList.toggle("metro-volume-expanded");
-                if (volumeRow.classList.contains("metro-volume-expanded")) volumeSlider.focus();
-            });
-            volumeBtn.classList.add("metro-volume-btn");
-            volumeRow.appendChild(volumeBtn);
-            volumeRow.appendChild(volumeSlider);
-            panel.appendChild(volumeRow);
-
             var fieldsRow = document.createElement("div");
             fieldsRow.className = "metro-fields-row";
 
@@ -2768,7 +2793,36 @@
             subField.appendChild(subSelect);
             fieldsRow.appendChild(subField);
 
+            // Le réglage de volume est discret : juste une icône, à droite de la subdivision. La
+            // barre ne se déplie (en pleine largeur, sous les champs) que sur clic, sinon elle
+            // serait en permanence visible alors qu'on y touche rarement.
+            var volumeField = document.createElement("div");
+            volumeField.className = "metro-volume-field";
+            var volumeSlider = document.createElement("input");
+            volumeSlider.type = "range";
+            volumeSlider.min = "0";
+            volumeSlider.max = "100";
+            volumeSlider.value = Math.round(m.volume * 100);
+            volumeSlider.className = "metro-volume-slider";
+            volumeSlider.title = "Volume";
+            volumeSlider.addEventListener("input", function () {
+                setMetroVolume(parseInt(volumeSlider.value, 10) / 100);
+                save();
+            });
+            var volumeRow = document.createElement("div");
+            volumeRow.className = "metro-volume-row";
+            var volumeBtn = svgIconButton(METRO_VOLUME_ICON_SVG, "Volume", function () {
+                volumeRow.classList.toggle("metro-volume-expanded");
+                if (volumeRow.classList.contains("metro-volume-expanded")) volumeSlider.focus();
+            });
+            volumeBtn.classList.add("metro-volume-btn");
+            volumeField.appendChild(volumeBtn);
+            fieldsRow.appendChild(volumeField);
+
             panel.appendChild(fieldsRow);
+
+            volumeRow.appendChild(volumeSlider);
+            panel.appendChild(volumeRow);
 
             // ---------- pavé rythmique ----------
             // Un pas par case, groupées par temps : clique une case pour la faire tourner entre
@@ -3044,6 +3098,91 @@
             legend.className = "cof-legend";
             legend.innerHTML = "Anneau extérieur : tonalité majeure &nbsp;·&nbsp; anneau du milieu : mineur relatif &nbsp;·&nbsp; anneau intérieur : nombre d'altérations (♯/♭)";
             panel.appendChild(legend);
+        });
+    }
+
+    // ---------- paramètres généraux ----------
+    function openSettingsPanel() {
+        openModal("settings-panel", function (panel) {
+            var a = state.settings.appearance;
+
+            var title = document.createElement("div");
+            title.className = "backups-title";
+            title.textContent = "Paramètres";
+            panel.appendChild(title);
+
+            function section(labelText) {
+                var label = document.createElement("div");
+                label.className = "section-label settings-section-label";
+                label.textContent = labelText;
+                panel.appendChild(label);
+            }
+
+            function selectField(labelText, options, value, onChange) {
+                var field = document.createElement("label");
+                field.className = "settings-field";
+                var span = document.createElement("span");
+                span.className = "settings-field-label";
+                span.textContent = labelText;
+                field.appendChild(span);
+                var select = document.createElement("select");
+                options.forEach(function (opt) {
+                    var o = document.createElement("option");
+                    o.value = opt[0];
+                    o.textContent = opt[1];
+                    if (String(opt[0]) === String(value)) o.selected = true;
+                    select.appendChild(o);
+                });
+                select.addEventListener("change", function () { onChange(select.value); });
+                field.appendChild(select);
+                return field;
+            }
+
+            section("Métronome");
+            panel.appendChild(selectField("Position", [
+                ["center", "Centre"], ["top", "Haut"], ["bottom", "Bas"], ["corner", "Coin (bas à droite)"]
+            ], a.metronomePosition, function (v) { a.metronomePosition = v; save(); }));
+            panel.appendChild(selectField("Taille", [
+                ["small", "Petite"], ["medium", "Moyenne"], ["large", "Grande"]
+            ], a.metronomeSize, function (v) { a.metronomeSize = v; save(); }));
+
+            section("Couleurs des chapitres");
+            var schemeGrid = document.createElement("div");
+            schemeGrid.className = "settings-scheme-grid";
+            Object.keys(COLOR_SCHEMES).forEach(function (key) {
+                var scheme = COLOR_SCHEMES[key];
+                var btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "settings-scheme-btn" + (a.colorScheme === key ? " settings-scheme-active" : "");
+                var dots = document.createElement("span");
+                dots.className = "settings-scheme-dots";
+                scheme.colors.forEach(function (c) {
+                    var dot = document.createElement("span");
+                    dot.className = "settings-scheme-dot";
+                    dot.style.background = c;
+                    dots.appendChild(dot);
+                });
+                btn.appendChild(dots);
+                var name = document.createElement("span");
+                name.textContent = scheme.label;
+                btn.appendChild(name);
+                btn.addEventListener("click", function () {
+                    applyColorScheme(key);
+                    Array.prototype.forEach.call(schemeGrid.children, function (b) { b.classList.remove("settings-scheme-active"); });
+                    btn.classList.add("settings-scheme-active");
+                });
+                schemeGrid.appendChild(btn);
+            });
+            panel.appendChild(schemeGrid);
+
+            section("Texte des dossiers et sous-dossiers");
+            panel.appendChild(selectField("Taille du texte", [
+                ["0.85", "Petite"], ["1", "Normale"], ["1.15", "Grande"], ["1.3", "Très grande"]
+            ], a.treeFontScale, function (v) {
+                a.treeFontScale = parseFloat(v);
+                save();
+                render();
+            }));
         });
     }
 
@@ -3324,6 +3463,65 @@
     }
 
     // ---- écran choix d'un exercice (instrument actif) ----
+    // Arborescence en lecture seule (mêmes couleurs de chapitre et même logique de pli/dépli —
+    // treeExpanded est partagé avec la barre latérale — que la navigation habituelle) : plus
+    // simple pour choisir un exercice que la liste à plat de tous les exercices mélangés.
+    function renderGsPickTree(container, folders, depth, rootColor) {
+        folders.forEach(function (folder) {
+            var color = depth === 0 ? folder.color : rootColor;
+            var visibleExercises = folder.exercises.filter(function (ex) { return !ex.archived; });
+            var hasContent = folder.folders.length > 0 || visibleExercises.length > 0;
+            var expanded = treeExpanded[folder.id] !== false;
+
+            var node = document.createElement("div");
+            node.className = "gs-pick-node";
+            var row = document.createElement("div");
+            row.className = "gs-pick-tree-row";
+            if (depth === 0) {
+                row.style.borderLeft = "3px solid " + color;
+                row.style.background = "color-mix(in srgb, " + color + " 6%, transparent)";
+            }
+            var twisty = document.createElement("button");
+            twisty.type = "button";
+            twisty.className = "tree-twisty" + (hasContent ? "" : " tree-twisty-empty") + (expanded ? " expanded" : "");
+            twisty.innerHTML = CHEVRON_ICON_SVG;
+            if (hasContent) {
+                twisty.addEventListener("click", function (e) {
+                    e.stopPropagation();
+                    treeExpanded[folder.id] = !expanded;
+                    render();
+                });
+            }
+            row.appendChild(twisty);
+            var label = document.createElement("span");
+            label.className = "tree-label";
+            label.textContent = folder.name;
+            row.appendChild(label);
+            row.addEventListener("click", function () { treeExpanded[folder.id] = !expanded; render(); });
+            node.appendChild(row);
+
+            if (expanded && hasContent) {
+                var childWrap = document.createElement("div");
+                childWrap.className = "gs-pick-tree-children";
+                visibleExercises.forEach(function (ex) {
+                    var exBtn = document.createElement("button");
+                    exBtn.type = "button";
+                    exBtn.className = "gs-pick-exercise-row";
+                    exBtn.textContent = ex.title;
+                    exBtn.addEventListener("click", function () {
+                        gsPickCallback(ex);
+                        gsScreen = "edit";
+                        render();
+                    });
+                    childWrap.appendChild(exBtn);
+                });
+                renderGsPickTree(childWrap, folder.folders, depth + 1, color);
+                node.appendChild(childWrap);
+            }
+            container.appendChild(node);
+        });
+    }
+
     function renderGsPickScreen(content) {
         var backBtn = document.createElement("button");
         backBtn.type = "button";
@@ -3338,22 +3536,30 @@
         searchInput.placeholder = "Rechercher un exercice…";
         content.appendChild(searchInput);
 
-        var resultsList = document.createElement("div");
-        resultsList.className = "gs-pick-results";
-        content.appendChild(resultsList);
+        var resultsWrap = document.createElement("div");
+        content.appendChild(resultsWrap);
 
         function refreshResults() {
-            resultsList.innerHTML = "";
+            resultsWrap.innerHTML = "";
             var q = searchInput.value.trim().toLowerCase();
             var inst = getActiveInstrument();
+
+            // Recherche : liste à plat (peu importe le dossier, on cherche partout). Sans
+            // recherche : l'arborescence complète, comme dans la barre latérale.
+            if (!q) {
+                resultsWrap.className = "gs-pick-tree";
+                renderGsPickTree(resultsWrap, inst.categories, 0, null);
+                return;
+            }
+            resultsWrap.className = "gs-pick-results";
             var results = collectExercises(inst, function (ex) {
-                return !ex.archived && (!q || ex.title.toLowerCase().indexOf(q) !== -1);
+                return !ex.archived && ex.title.toLowerCase().indexOf(q) !== -1;
             });
             if (!results.length) {
                 var empty = document.createElement("div");
                 empty.className = "gs-empty";
                 empty.textContent = "Aucun exercice ne correspond.";
-                resultsList.appendChild(empty);
+                resultsWrap.appendChild(empty);
                 return;
             }
             results.forEach(function (r) {
@@ -3373,7 +3579,7 @@
                     gsScreen = "edit";
                     render();
                 });
-                resultsList.appendChild(btn);
+                resultsWrap.appendChild(btn);
             });
         }
         searchInput.addEventListener("input", refreshResults);
@@ -3437,6 +3643,16 @@
         exTitle.textContent = found ? found.ex.title : "(exercice supprimé)";
         content.appendChild(exTitle);
 
+        // Les liens/fichiers de l'exercice en cours sont visibles tout de suite (pas besoin de
+        // cliquer sur "Ouvrir liens/pièces jointes", qui ne sert qu'à ouvrir d'un coup ceux de
+        // TOUTE la session).
+        if (found) {
+            var resourcesRow = document.createElement("div");
+            resourcesRow.className = "links-list gs-run-resources";
+            appendReadOnlyResourceChips(resourcesRow, found.ex);
+            if (resourcesRow.children.length) content.appendChild(resourcesRow);
+        }
+
         var timerEl = document.createElement("div");
         timerEl.className = "gs-run-timer";
         content.appendChild(timerEl);
@@ -3479,33 +3695,24 @@
         });
         content.appendChild(pauseBtn);
 
-        // Accès rapide au métronome (bouton volontairement gros : très utilisé pendant une
-        // session) et, si l'exercice a des liens/fichiers, on peut les ouvrir sans quitter le
-        // guidage.
+        var toolsRow = document.createElement("div");
+        toolsRow.className = "gs-run-tools-row";
+        // Accès rapide au métronome, très utilisé pendant une session — mais pas besoin qu'il
+        // prenne toute la largeur.
         var metroBtn = document.createElement("button");
         metroBtn.type = "button";
         metroBtn.className = "gs-run-metro-btn";
         metroBtn.innerHTML = METRONOME_ICON_SVG + "<span>Métronome</span>";
         metroBtn.addEventListener("click", openMetronomePanel);
-        content.appendChild(metroBtn);
-
-        if (found && ((found.ex.links && found.ex.links.length) || (found.ex.files && found.ex.files.length))) {
-            var resourcesLabel = document.createElement("div");
-            resourcesLabel.className = "section-label gs-run-resources-label";
-            resourcesLabel.textContent = "Liens & fichiers de cet exercice";
-            content.appendChild(resourcesLabel);
-            var resourcesRow = document.createElement("div");
-            resourcesRow.className = "links-list gs-run-resources";
-            appendReadOnlyResourceChips(resourcesRow, found.ex);
-            content.appendChild(resourcesRow);
-        }
+        toolsRow.appendChild(metroBtn);
 
         var linksBtn = document.createElement("button");
         linksBtn.type = "button";
         linksBtn.className = "btn-ghost gs-run-links-btn";
-        linksBtn.textContent = "Ouvrir des liens/pièces jointes de la session…";
+        linksBtn.textContent = "Ouvrir les liens/PJ de toute la session…";
         linksBtn.addEventListener("click", function () { gsScreen = "links"; render(); });
-        content.appendChild(linksBtn);
+        toolsRow.appendChild(linksBtn);
+        content.appendChild(toolsRow);
 
         var navRow = document.createElement("div");
         navRow.className = "gs-run-nav-row";
@@ -3637,6 +3844,8 @@
         if (!guidedSessionViewActive && gsRunInterval) { clearInterval(gsRunInterval); gsRunInterval = null; }
         render();
     });
+    var $settingsBtn = document.getElementById("settings-btn");
+    if ($settingsBtn) $settingsBtn.addEventListener("click", openSettingsPanel);
 
     // ---------- init ----------
     render();

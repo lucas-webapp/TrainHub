@@ -29,6 +29,9 @@
        visuelle : --accent reste leur couleur commune, celle du logo et des actions génériques. */
     --chapter-accent: var(--accent);
     --btn-text: #e9f3ec;
+    /* Taille du texte des dossiers/sous-dossiers (barre latérale + cartes), réglable depuis les
+       paramètres généraux (voir openSettingsPanel dans script.js). */
+    --tree-font-scale: 1;
 
     --btn-neutral-1: #262626; --btn-neutral-2: #1a1a1a; --btn-neutral-border: #3a3a3a; --btn-neutral-border-hover: #4a4a4a;
     --btn-green-1: #234534; --btn-green-2: #17301f; --btn-green-border: #2f5b40; --btn-green-border-hover: #3d7a54;
@@ -148,15 +151,15 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     padding: 7px 10px;
     min-width: 110px;
 }
-.top-actions { display: flex; gap: 6px; margin-left: auto; }
+.top-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-left: auto; }
 .top-actions button.active { border-color: #4dabf7; color: #4dabf7; }
 /* Le métronome est utilisé très souvent : on le distingue visuellement des autres icônes. */
-.metronome-btn-highlight {
+button.metronome-btn-highlight {
     color: var(--accent);
     border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
     background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
-.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
 .metronome-btn-highlight .icon { width: 22px; height: 22px; }
 
 /* ---------- auth / synchro ---------- */
@@ -325,7 +328,7 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 .folder-row:hover { background: rgba(255,255,255,.04); }
 .folder-row.dragging { opacity: .5; cursor: grabbing; }
 .folder-icon { color: var(--chapter-accent); display: inline-flex; flex: none; }
-.folder-name { font-weight: 700; font-size: var(--fs-base); flex: 1; cursor: default; -webkit-touch-callout: none; }
+.folder-name { font-weight: 700; font-size: calc(var(--fs-base) * var(--tree-font-scale, 1)); flex: 1; cursor: default; -webkit-touch-callout: none; }
 .folder-edit-btn {
     flex: none;
     opacity: .4;
@@ -589,13 +592,13 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
    chapitre (niveau 0) garde la couleur du chapitre en permanence (voir renderTreeNode). Les
    sous-dossiers s'effacent progressivement — texte plus petit, plus discret — pour que la couleur
    reste un repère de chapitre et non un habillage répété à chaque niveau. */
-.tree-row-d0 .tree-label { font-size: var(--fs-sm); font-weight: 700; }
+.tree-row-d0 .tree-label { font-size: calc(var(--fs-sm) * var(--tree-font-scale, 1)); font-weight: 700; }
 
 .tree-row-d1 { padding: 7px 8px; border-radius: 6px; }
 .tree-row-d1 .tree-label { font-weight: 600; }
 
 .tree-row-d2 { padding: 5px 8px; border-radius: 6px; }
-.tree-row-d2 .tree-label { font-size: var(--fs-xs); font-weight: 500; color: var(--text-muted); }
+.tree-row-d2 .tree-label { font-size: calc(var(--fs-xs) * var(--tree-font-scale, 1)); font-weight: 500; color: var(--text-muted); }
 .tree-row-d2.selected .tree-label { color: var(--chapter-accent); }
 
 .tree-twisty {
@@ -621,7 +624,7 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 .tree-label {
     flex: 1;
     min-width: 0;
-    font-size: var(--fs-sm);
+    font-size: calc(var(--fs-sm) * var(--tree-font-scale, 1));
     font-weight: 600;
     color: var(--text-main);
     cursor: default;
@@ -717,6 +720,8 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
     width: min(480px, calc(100vw - 32px));
     max-height: min(600px, calc(100vh - 32px));
     overflow-y: auto;
+    overflow-x: hidden;
+    box-sizing: border-box;
     background: var(--card-bg-2);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -853,6 +858,12 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
 
 /* ---------- métronome ---------- */
 .metronome-panel { align-items: stretch; text-align: center; }
+/* Position et taille réglables depuis les paramètres généraux (state.settings.appearance). */
+.metronome-panel.metro-pos-top { top: 84px; transform: translateX(-50%); }
+.metronome-panel.metro-pos-bottom { top: auto; bottom: 16px; transform: translateX(-50%); }
+.metronome-panel.metro-pos-corner { top: auto; left: auto; right: 16px; bottom: 16px; transform: none; }
+.metronome-panel.metro-size-small { width: min(320px, calc(100vw - 32px)); }
+.metronome-panel.metro-size-large { width: min(560px, calc(100vw - 32px)); }
 .metro-bpm-row { display: flex; align-items: center; justify-content: center; gap: 8px; }
 .metro-bpm-value {
     font-size: var(--fs-xl);
@@ -874,25 +885,38 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
     text-align: center;
     letter-spacing: -.01em;
 }
-.metro-bpm-btn {
+button.metro-bpm-btn {
     box-sizing: border-box;
     min-width: 36px;
     height: 36px;
     padding: 0 8px;
     border: 1px solid var(--border);
     border-radius: 8px;
-    background: rgba(255,255,255,.03);
+    background: rgba(255,255,255,.04);
     color: var(--text-main);
     font-weight: 700;
+    font-size: var(--fs-lg);
     display: inline-flex;
     align-items: center;
     justify-content: center;
 }
-.metro-bpm-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(255,255,255,.06); }
-.metro-bpm-step10 { min-width: 42px; font-size: var(--fs-2xs); }
+button.metro-bpm-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(255,255,255,.07); }
+button.metro-bpm-step10 { min-width: 42px; font-size: var(--fs-xs); }
 .metro-bpm-slider { width: 100%; }
-.metro-volume-row { display: flex; align-items: center; justify-content: center; gap: 10px; }
-.metro-volume-btn { flex: none; }
+.metro-volume-field { display: flex; align-items: center; justify-content: center; }
+button.metro-volume-btn {
+    width: 40px;
+    height: 40px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+button.metro-volume-btn:hover { border-color: var(--accent); color: var(--accent); }
+.metro-volume-btn .icon { width: 20px; height: 20px; }
+.metro-volume-row { display: flex; justify-content: center; margin-top: 10px; }
 .metro-volume-slider {
     width: 0;
     padding: 0;
@@ -1024,10 +1048,14 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
 .gs-session-info { min-width: 0; }
 .gs-session-name { font-weight: 700; font-size: var(--fs-base); }
 .gs-session-meta { font-size: var(--fs-xs); color: var(--text-muted); }
-.gs-session-actions { display: flex; gap: 2px; flex: none; }
-.gs-add-session-btn { margin-top: 12px; width: 100%; padding: 10px; }
+.gs-session-actions { display: flex; gap: 4px; flex: none; }
+/* Icônes d'action (lancer/modifier/supprimer) avec un encadré visible en permanence : sans lui,
+   sur fond transparent (.btn-ghost), on ne voit pas que ce sont des boutons cliquables. */
+.gs-session-actions .icon-btn { border: 1px solid var(--border); border-radius: 8px; }
+.gs-session-actions .icon-btn:hover { border-color: var(--accent); color: var(--accent); }
+.gs-add-session-btn { margin-top: 12px; width: 100%; height: 42px; }
 
-.gs-back-btn { margin-bottom: 10px; }
+button.gs-back-btn { margin-bottom: 10px; border: 1px solid var(--border); height: 36px; padding: 0 12px; }
 .gs-name-input { width: 100%; font-size: var(--fs-base); font-weight: 700; padding: 8px 10px; margin-bottom: 12px; }
 
 .gs-steps-list { display: flex; flex-direction: column; gap: 6px; }
@@ -1046,7 +1074,7 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
 .gs-step-missing { color: var(--text-muted); font-style: italic; }
 .gs-step-minutes { width: 52px; text-align: center; flex: none; }
 .gs-step-min-label { flex: none; font-size: var(--fs-2xs); color: var(--text-muted); }
-.gs-add-step-btn { margin-top: 10px; width: 100%; padding: 8px; }
+button.gs-add-step-btn { margin-top: 10px; width: 100%; height: 42px; border: 1px solid var(--border); }
 .gs-total-row { margin-top: 10px; font-size: var(--fs-sm); color: var(--text-muted); text-align: center; }
 
 .gs-pick-search { width: 100%; margin-bottom: 10px; }
@@ -1064,44 +1092,98 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
 .gs-pick-result-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .gs-pick-result-title { font-weight: 600; font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Arborescence de choix (sans recherche) : reprend les couleurs de chapitre et le pli/dépli de la
+   barre latérale, plutôt qu'une liste à plat de tous les exercices mélangés. */
+.gs-pick-tree { display: flex; flex-direction: column; gap: 1px; }
+.gs-pick-tree-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+.gs-pick-tree-row:hover { background: rgba(255,255,255,.09); }
+.gs-pick-tree-children { margin-left: 20px; padding-left: 10px; border-left: 1px dashed var(--border); display: flex; flex-direction: column; gap: 1px; }
+.gs-pick-exercise-row {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    padding: 7px 8px;
+    border-radius: 6px;
+    font-size: var(--fs-sm);
+    color: var(--text-main);
+}
+.gs-pick-exercise-row:hover { background: rgba(255,255,255,.09); color: var(--accent); }
+
 .gs-run-progress { text-align: center; font-size: var(--fs-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
 .gs-main .gs-theme-badge { display: block; width: max-content; margin: 8px auto 0; }
 .gs-run-title { text-align: center; font-size: var(--fs-lg); font-weight: 800; margin-top: 6px; }
+.gs-run-resources { justify-content: center; margin: 10px 0 0; }
 .gs-run-timer {
     text-align: center;
-    font-size: 48px;
+    font-size: 36px;
     font-weight: 800;
     letter-spacing: -.02em;
     font-variant-numeric: tabular-nums;
-    margin: 16px 0;
+    margin: 14px 0;
 }
 .gs-run-timer-overtime { color: #ff6b6b; }
 .gs-run-adjust-row { display: flex; justify-content: center; gap: 10px; margin-bottom: 12px; }
-.gs-run-pause-btn { width: 100%; font-size: var(--fs-md); padding: 10px; margin-bottom: 10px; }
-.gs-run-metro-btn {
-    width: 100%;
+/* Toutes les commandes de l'écran de guidage partagent la même hauteur, pour un rendu homogène
+   (avant : le bouton métronome prenait toute la largeur et les hauteurs variaient). */
+.gs-run-pause-btn, .gs-run-metro-btn, .gs-run-links-btn, .gs-run-nav-row button {
+    height: 44px;
+    padding: 0 14px;
     display: flex;
     align-items: center;
     justify-content: center;
+}
+.gs-run-pause-btn { width: 100%; font-size: var(--fs-md); margin-bottom: 10px; }
+.gs-run-tools-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.gs-run-metro-btn {
+    flex: none;
     gap: 8px;
-    padding: 12px;
-    margin-bottom: 12px;
-    font-size: var(--fs-md);
+    font-size: var(--fs-sm);
     font-weight: 700;
-    border-radius: 12px;
+    border-radius: 10px;
     color: var(--accent);
     border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
     background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
-.gs-run-metro-btn .icon { width: 22px; height: 22px; }
-.gs-run-resources-label { text-align: center; }
-.gs-run-resources { justify-content: center; margin-bottom: 8px; }
-.gs-run-links-btn { width: 100%; font-size: var(--fs-xs); margin-bottom: 12px; }
+.gs-run-metro-btn .icon { width: 20px; height: 20px; }
+.gs-run-links-btn { flex: 1; font-size: var(--fs-xs); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gs-run-nav-row { display: flex; gap: 8px; }
-.gs-run-nav-row button { flex: 1; padding: 10px; }
+.gs-run-nav-row button { flex: 1; }
 .gs-run-stop-btn { margin-top: 10px; width: 100%; font-size: var(--fs-2xs); color: var(--text-muted); }
 
 .gs-links-list { display: flex; flex-direction: column; gap: 14px; }
 .gs-links-group-title { font-weight: 700; font-size: var(--fs-sm); margin-bottom: 6px; }
 .gs-links-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: var(--fs-sm); cursor: pointer; }
 .gs-links-open-btn { width: 100%; padding: 10px; margin-top: 12px; }
+
+/* ---------- paramètres généraux ---------- */
+.settings-panel { text-align: left; }
+.settings-section-label { margin-top: 4px; }
+.settings-field { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; }
+.settings-field-label { font-size: var(--fs-sm); color: var(--text-muted); }
+.settings-field select { min-width: 160px; }
+.settings-scheme-grid { display: flex; flex-direction: column; gap: 6px; }
+.settings-scheme-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-align: left;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: var(--text-main);
+    font-size: var(--fs-sm);
+}
+.settings-scheme-btn:hover { border-color: var(--accent); }
+.settings-scheme-btn.settings-scheme-active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); font-weight: 700; }
+.settings-scheme-dots { display: flex; gap: 3px; flex: none; }
+.settings-scheme-dot { width: 12px; height: 12px; border-radius: 50%; }
