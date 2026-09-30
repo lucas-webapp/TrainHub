@@ -35,7 +35,7 @@
 
     function makeDefaultState() {
         var instruments = DEFAULT_INSTRUMENTS.map(makeInstrument);
-        return { activeInstrumentId: instruments[0].id, instruments: instruments, updatedAt: 0, settings: { showUpdatedAt: false } };
+        return { activeInstrumentId: instruments[0].id, instruments: instruments, updatedAt: 0, settings: {} };
     }
 
     function normalizeFolder(f) {
@@ -71,10 +71,27 @@
         inst.pinnedOrder = order;
     }
 
+    // Une session guidée = un enchaînement d'exercices avec un temps alloué à chacun. Les pas
+    // référencent l'exercice par son id (unique dans toute l'appli, voir uid()) plutôt que de
+    // dupliquer son contenu : si l'exercice est supprimé depuis, le pas devient "introuvable"
+    // (voir findExerciseById) et s'affiche/se saute proprement au lieu de planter.
+    function normalizeGuidedSessions(s) {
+        if (!Array.isArray(s.settings.guidedSessions)) s.settings.guidedSessions = [];
+        s.settings.guidedSessions.forEach(function (gs) {
+            if (!gs.id) gs.id = uid();
+            if (typeof gs.name !== "string" || !gs.name.trim()) gs.name = "Session guidée";
+            if (!Array.isArray(gs.steps)) gs.steps = [];
+            gs.steps.forEach(function (step) {
+                if (!step.id) step.id = uid();
+                if (typeof step.minutes !== "number" || isNaN(step.minutes) || step.minutes <= 0) step.minutes = 5;
+            });
+        });
+    }
+
     function normalizeState(s) {
-        if (!s.settings || typeof s.settings !== "object") s.settings = { showUpdatedAt: false };
-        if (typeof s.settings.showUpdatedAt !== "boolean") s.settings.showUpdatedAt = false;
+        if (!s.settings || typeof s.settings !== "object") s.settings = {};
         normalizeMetronomeSettings(s.settings);
+        normalizeGuidedSessions(s);
         if (!Array.isArray(s.instruments)) s.instruments = [];
         s.instruments.forEach(function (inst) {
             if (!Array.isArray(inst.categories)) inst.categories = [];
@@ -317,6 +334,17 @@
         return results;
     }
 
+    // Recherche un exercice par id dans TOUS les instruments (les pas d'une session guidée n'ont
+    // pas besoin de préciser l'instrument : l'id seul suffit, voir normalizeGuidedSessions).
+    function findExerciseById(exerciseId) {
+        for (var i = 0; i < state.instruments.length; i++) {
+            var inst = state.instruments[i];
+            var found = collectExercises(inst, function (ex) { return ex.id === exerciseId; })[0];
+            if (found) return { ex: found.ex, folder: found.folder, inst: inst, pathNames: found.pathNames };
+        }
+        return null;
+    }
+
     function guessLinkLabel(url) {
         try {
             var host = new URL(url).hostname.replace(/^www\./, "");
@@ -348,6 +376,8 @@
     var FILE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05 12.25 20.24a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
     var METRO_PLAY_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5Z"/></svg>';
     var METRO_STOP_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+    var METRO_VOLUME_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v4h4l5 4V6L8 10Z"/><path d="M17 9a4.5 4.5 0 0 1 0 6"/><path d="M19.5 6.5a8.5 8.5 0 0 1 0 11"/></svg>';
+    var METRO_CHRONO_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2h4"/><path d="M12 6v0"/><circle cx="12" cy="14" r="8"/><path d="M12 14V9.5"/><path d="M17.5 5.5l1.5-1.5"/></svg>';
 
     function linkIconSvg(label) {
         var l = (label || "").toLowerCase();
@@ -948,7 +978,6 @@
     var $contentHeading = document.getElementById("content-heading");
     var $folderContainer = document.getElementById("folder-container");
     var $empty = document.getElementById("empty-state");
-    var $toggleUpdatedAt = document.getElementById("toggle-updated-at-btn");
     var $searchRow = document.getElementById("search-row");
     var $searchInput = document.getElementById("search-input");
     var $searchToggleBtn = document.getElementById("search-toggle-btn");
@@ -1850,14 +1879,6 @@
         var details = document.createElement("div");
         details.className = "exercise-details";
 
-        if (ex.updatedAt && state.settings.showUpdatedAt) {
-            var updatedNote = document.createElement("div");
-            updatedNote.className = "updated-at-note";
-            updatedNote.textContent = "Modifié " + formatUpdatedAt(ex.updatedAt);
-            details.appendChild(updatedNote);
-        }
-
-
         var notesLabel = document.createElement("div");
         notesLabel.className = "section-label";
         notesLabel.textContent = "Notes";
@@ -2287,14 +2308,6 @@
         render();
     });
 
-    $toggleUpdatedAt.addEventListener("click", function () {
-        state.settings.showUpdatedAt = !state.settings.showUpdatedAt;
-        $toggleUpdatedAt.classList.toggle("active", state.settings.showUpdatedAt);
-        save();
-        render();
-    });
-    $toggleUpdatedAt.classList.toggle("active", !!state.settings.showUpdatedAt);
-
     function downloadJson(obj, filename) {
         var blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
         var url = URL.createObjectURL(blob);
@@ -2501,6 +2514,7 @@
         var m = settings.metronome;
         if (typeof m.bpm !== "number" || isNaN(m.bpm) || m.bpm < 30 || m.bpm > 300) m.bpm = 100;
         m.bpm = Math.round(m.bpm);
+        if (typeof m.volume !== "number" || isNaN(m.volume) || m.volume < 0 || m.volume > 1) m.volume = 0.8;
         if (typeof m.beatsPerMeasure !== "number" || isNaN(m.beatsPerMeasure) || m.beatsPerMeasure < 1 || m.beatsPerMeasure > 12) m.beatsPerMeasure = 4;
         m.beatsPerMeasure = Math.round(m.beatsPerMeasure);
         if ([1, 2, 3, 4].indexOf(m.subdivision) === -1) m.subdivision = 1;
@@ -2528,6 +2542,7 @@
     }
 
     var metroAudioCtx = null;
+    var metroMasterGain = null; // volume général du métronome (voir la barre de volume du panneau)
     var metroPlaying = false;
     var metroTimer = null;
     var metroNextNoteTime = 0;
@@ -2535,6 +2550,22 @@
     var metroBeatCallback = null; // met à jour l'affichage (pas qui clignote), posé par le panneau ouvert
     var METRO_LOOKAHEAD_MS = 25;
     var METRO_SCHEDULE_AHEAD_S = 0.12;
+
+    function ensureMetroAudio() {
+        if (!metroAudioCtx) {
+            metroAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            metroMasterGain = metroAudioCtx.createGain();
+            metroMasterGain.gain.value = state.settings.metronome.volume;
+            metroMasterGain.connect(metroAudioCtx.destination);
+        }
+        if (metroAudioCtx.state === "suspended") metroAudioCtx.resume();
+        return metroAudioCtx;
+    }
+
+    function setMetroVolume(v) {
+        state.settings.metronome.volume = v;
+        if (metroMasterGain) metroMasterGain.gain.value = v;
+    }
 
     // Son plus doux qu'un simple bip : un filtre passe-bas adoucit les harmoniques aiguës, et une
     // courte montée en volume (linearRamp, quelques ms) avant la décroissance évite le "clic" sec
@@ -2551,7 +2582,7 @@
         osc.type = "sine";
         osc.connect(filter);
         filter.connect(gain);
-        gain.connect(ctx.destination);
+        gain.connect(metroMasterGain);
         osc.frequency.value = level >= 2 ? 1100 : 780;
         var peak = level >= 2 ? 0.75 : 0.38;
         gain.gain.setValueAtTime(0.0001, time);
@@ -2579,8 +2610,7 @@
 
     function startMetronome() {
         if (metroPlaying) return;
-        if (!metroAudioCtx) metroAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        if (metroAudioCtx.state === "suspended") metroAudioCtx.resume();
+        ensureMetroAudio();
         metroPlaying = true;
         metroCurrentStep = 0;
         metroNextNoteTime = metroAudioCtx.currentTime + 0.05;
@@ -2659,6 +2689,26 @@
             bpmSlider.className = "metro-bpm-slider";
             bpmSlider.addEventListener("input", function () { setBpm(parseInt(bpmSlider.value, 10)); });
             panel.appendChild(bpmSlider);
+
+            var volumeRow = document.createElement("div");
+            volumeRow.className = "metro-volume-row";
+            var volumeIcon = document.createElement("span");
+            volumeIcon.className = "metro-volume-icon";
+            volumeIcon.innerHTML = METRO_VOLUME_ICON_SVG;
+            var volumeSlider = document.createElement("input");
+            volumeSlider.type = "range";
+            volumeSlider.min = "0";
+            volumeSlider.max = "100";
+            volumeSlider.value = Math.round(m.volume * 100);
+            volumeSlider.className = "metro-volume-slider";
+            volumeSlider.title = "Volume";
+            volumeSlider.addEventListener("input", function () {
+                setMetroVolume(parseInt(volumeSlider.value, 10) / 100);
+                save();
+            });
+            volumeRow.appendChild(volumeIcon);
+            volumeRow.appendChild(volumeSlider);
+            panel.appendChild(volumeRow);
 
             var fieldsRow = document.createElement("div");
             fieldsRow.className = "metro-fields-row";
@@ -2776,6 +2826,45 @@
                 for (var i = 0; i < steps.length; i++) steps[i].classList.toggle("metro-step-current", i === step);
             };
 
+            // ---------- chronomètre ----------
+            // Purement visuel (pas persisté) : s'arrête à la pause et reprend là où il en était à
+            // la relecture, sans jamais se remettre à zéro tout seul (seule la fermeture du
+            // panneau, qui arrête aussi le métronome, le réinitialise).
+            var chronoRow = document.createElement("div");
+            chronoRow.className = "metro-chrono-row";
+            var chronoIcon = document.createElement("span");
+            chronoIcon.className = "metro-chrono-icon";
+            chronoIcon.innerHTML = METRO_CHRONO_ICON_SVG;
+            var chronoValue = document.createElement("span");
+            chronoValue.className = "metro-chrono-value";
+            chronoRow.appendChild(chronoIcon);
+            chronoRow.appendChild(chronoValue);
+            panel.appendChild(chronoRow);
+
+            var chronoElapsedMs = 0;
+            var chronoStartTs = null;
+            var chronoInterval = null;
+            function chronoCurrentMs() {
+                return chronoElapsedMs + (chronoStartTs ? Date.now() - chronoStartTs : 0);
+            }
+            function refreshChrono() {
+                var totalSec = Math.floor(chronoCurrentMs() / 1000);
+                var mm = Math.floor(totalSec / 60), ss = totalSec % 60;
+                chronoValue.textContent = (mm < 10 ? "0" : "") + mm + ":" + (ss < 10 ? "0" : "") + ss;
+            }
+            function startChrono() {
+                chronoStartTs = Date.now();
+                if (chronoInterval) clearInterval(chronoInterval);
+                chronoInterval = setInterval(refreshChrono, 250);
+                refreshChrono();
+            }
+            function stopChrono() {
+                if (chronoStartTs) { chronoElapsedMs += Date.now() - chronoStartTs; chronoStartTs = null; }
+                if (chronoInterval) { clearInterval(chronoInterval); chronoInterval = null; }
+                refreshChrono();
+            }
+            refreshChrono();
+
             var playBtn = document.createElement("button");
             playBtn.type = "button";
             playBtn.className = "metro-play-btn";
@@ -2791,7 +2880,7 @@
             }
             refreshPlayBtn();
             playBtn.addEventListener("click", function () {
-                if (metroPlaying) stopMetronome(); else startMetronome();
+                if (metroPlaying) { stopMetronome(); stopChrono(); } else { startMetronome(); startChrono(); }
                 refreshPlayBtn();
             });
             panel.appendChild(playBtn);
@@ -2812,6 +2901,7 @@
             // sans qu'on le voie.
             return function () {
                 stopMetronome();
+                if (chronoInterval) clearInterval(chronoInterval);
                 metroBeatCallback = null;
             };
         });
@@ -2936,10 +3026,414 @@
         });
     }
 
+    // ---------- session guidée ----------
+    // Un enchaînement d'exercices choisis à l'avance, chacun avec un temps alloué : au lancement,
+    // un chrono défile pour savoir quand changer d'exercice, mais reste librement ajustable
+    // (Précédent/Suivant à tout moment, +1/-1 min sur l'exercice en cours) plutôt que de forcer un
+    // minutage rigide.
+    function openGuidedSessionPanel() {
+        openModal("guided-session-panel", function (panel) {
+            var title = document.createElement("div");
+            title.className = "backups-title";
+            title.textContent = "Session guidée";
+            panel.appendChild(title);
+
+            var content = document.createElement("div");
+            panel.appendChild(content);
+
+            var screen = "list"; // "list" | "edit" | "pick" | "run"
+            var editingSession = null;
+            var pickCallback = null;
+            var runSession = null, runStepIndex = 0;
+            var runAllocatedSec = 0, runElapsedMs = 0, runStartTs = null, runPaused = true, runInterval = null;
+
+            function renderScreen() {
+                content.innerHTML = "";
+                if (screen === "run") renderRunScreen();
+                else if (screen === "pick") renderPickScreen();
+                else if (screen === "edit") renderEditScreen();
+                else renderListScreen();
+            }
+
+            function sessionTotalMinutes(session) {
+                return session.steps.reduce(function (sum, s) { return sum + s.minutes; }, 0);
+            }
+
+            // ---- écran liste ----
+            function renderListScreen() {
+                var sessions = state.settings.guidedSessions;
+                if (!sessions.length) {
+                    var empty = document.createElement("div");
+                    empty.className = "gs-empty";
+                    empty.textContent = "Aucune session pour l'instant : crée-en une avec les exercices et le temps que tu veux y consacrer.";
+                    content.appendChild(empty);
+                } else {
+                    var list = document.createElement("div");
+                    list.className = "gs-session-list";
+                    sessions.forEach(function (session) {
+                        var row = document.createElement("div");
+                        row.className = "gs-session-row";
+                        var info = document.createElement("div");
+                        info.className = "gs-session-info";
+                        var name = document.createElement("div");
+                        name.className = "gs-session-name";
+                        name.textContent = session.name;
+                        var meta = document.createElement("div");
+                        meta.className = "gs-session-meta";
+                        meta.textContent = session.steps.length + " exercice" + (session.steps.length > 1 ? "s" : "") + " · " + sessionTotalMinutes(session) + " min";
+                        info.appendChild(name);
+                        info.appendChild(meta);
+                        row.appendChild(info);
+
+                        var actions = document.createElement("div");
+                        actions.className = "gs-session-actions";
+                        var playBtn = svgIconButton(METRO_PLAY_ICON_SVG, "Lancer cette session", function () {
+                            if (!session.steps.length) return;
+                            startRun(session);
+                        });
+                        var editBtn = svgIconButton(PENCIL_ICON_SVG, "Modifier", function () {
+                            editingSession = session;
+                            screen = "edit";
+                            renderScreen();
+                        });
+                        var delBtn = iconButton("✕", "Supprimer cette session", function () {
+                            if (!window.confirm("Supprimer la session « " + session.name + " » ?")) return;
+                            sessions.splice(sessions.indexOf(session), 1);
+                            save();
+                            renderScreen();
+                        });
+                        actions.appendChild(playBtn);
+                        actions.appendChild(editBtn);
+                        actions.appendChild(delBtn);
+                        row.appendChild(actions);
+                        list.appendChild(row);
+                    });
+                    content.appendChild(list);
+                }
+
+                var addBtn = document.createElement("button");
+                addBtn.type = "button";
+                addBtn.className = "btn-accent gs-add-session-btn";
+                addBtn.textContent = "+ Nouvelle session";
+                addBtn.addEventListener("click", function () {
+                    var session = { id: uid(), name: "Nouvelle session", steps: [] };
+                    sessions.push(session);
+                    editingSession = session;
+                    screen = "edit";
+                    save();
+                    renderScreen();
+                });
+                content.appendChild(addBtn);
+            }
+
+            // ---- écran édition ----
+            function renderEditScreen() {
+                var session = editingSession;
+
+                var backBtn = document.createElement("button");
+                backBtn.type = "button";
+                backBtn.className = "btn-ghost gs-back-btn";
+                backBtn.textContent = "← Retour à la liste";
+                backBtn.addEventListener("click", function () { editingSession = null; screen = "list"; renderScreen(); });
+                content.appendChild(backBtn);
+
+                var nameInput = document.createElement("input");
+                nameInput.type = "text";
+                nameInput.className = "gs-name-input";
+                nameInput.value = session.name;
+                nameInput.placeholder = "Nom de la session";
+                nameInput.addEventListener("change", function () {
+                    session.name = nameInput.value.trim() || session.name;
+                    save();
+                });
+                content.appendChild(nameInput);
+
+                var stepsLabel = document.createElement("div");
+                stepsLabel.className = "section-label";
+                stepsLabel.textContent = "Exercices de la session";
+                content.appendChild(stepsLabel);
+
+                var stepsList = document.createElement("div");
+                stepsList.className = "gs-steps-list";
+                content.appendChild(stepsList);
+
+                var totalRow = document.createElement("div");
+                totalRow.className = "gs-total-row";
+
+                function refreshTotal() {
+                    totalRow.textContent = "Durée totale : " + sessionTotalMinutes(session) + " min";
+                }
+
+                function renderSteps() {
+                    stepsList.innerHTML = "";
+                    session.steps.forEach(function (step) {
+                        var found = findExerciseById(step.exerciseId);
+                        var row = document.createElement("div");
+                        row.className = "gs-step-row";
+                        row.dataset.reorderId = step.id;
+                        var handle = document.createElement("span");
+                        handle.className = "gs-step-handle";
+                        handle.innerHTML = GRIP_ICON_SVG;
+                        row.appendChild(handle);
+                        var label = document.createElement("span");
+                        label.className = "gs-step-label" + (found ? "" : " gs-step-missing");
+                        label.textContent = found ? found.ex.title : "(exercice supprimé)";
+                        row.appendChild(label);
+                        var minutesInput = document.createElement("input");
+                        minutesInput.type = "number";
+                        minutesInput.min = "1";
+                        minutesInput.max = "180";
+                        minutesInput.className = "gs-step-minutes";
+                        minutesInput.value = step.minutes;
+                        minutesInput.addEventListener("change", function () {
+                            step.minutes = Math.max(1, parseInt(minutesInput.value, 10) || 5);
+                            minutesInput.value = step.minutes;
+                            save();
+                            refreshTotal();
+                        });
+                        row.appendChild(minutesInput);
+                        var minLabel = document.createElement("span");
+                        minLabel.className = "gs-step-min-label";
+                        minLabel.textContent = "min";
+                        row.appendChild(minLabel);
+                        var removeBtn = iconButton("✕", "Retirer cet exercice", function () {
+                            session.steps.splice(session.steps.indexOf(step), 1);
+                            save();
+                            renderSteps();
+                            refreshTotal();
+                        });
+                        row.appendChild(removeBtn);
+                        stepsList.appendChild(row);
+                    });
+                    setupDragReorder(stepsList, ".gs-step-row", function () { return session.steps; }, "y");
+                }
+                renderSteps();
+                refreshTotal();
+
+                var addStepBtn = document.createElement("button");
+                addStepBtn.type = "button";
+                addStepBtn.className = "btn-ghost gs-add-step-btn";
+                addStepBtn.textContent = "+ Ajouter un exercice";
+                addStepBtn.addEventListener("click", function () {
+                    pickCallback = function (ex) {
+                        session.steps.push({ id: uid(), exerciseId: ex.id, minutes: 5 });
+                        save();
+                        renderSteps();
+                        refreshTotal();
+                    };
+                    screen = "pick";
+                    renderScreen();
+                });
+                content.appendChild(addStepBtn);
+                content.appendChild(totalRow);
+            }
+
+            // ---- écran choix d'un exercice (instrument actif) ----
+            function renderPickScreen() {
+                var backBtn = document.createElement("button");
+                backBtn.type = "button";
+                backBtn.className = "btn-ghost gs-back-btn";
+                backBtn.textContent = "← Retour";
+                backBtn.addEventListener("click", function () { screen = "edit"; renderScreen(); });
+                content.appendChild(backBtn);
+
+                var searchInput = document.createElement("input");
+                searchInput.type = "text";
+                searchInput.className = "gs-pick-search";
+                searchInput.placeholder = "Rechercher un exercice…";
+                content.appendChild(searchInput);
+
+                var resultsList = document.createElement("div");
+                resultsList.className = "gs-pick-results";
+                content.appendChild(resultsList);
+
+                function refreshResults() {
+                    resultsList.innerHTML = "";
+                    var q = searchInput.value.trim().toLowerCase();
+                    var inst = getActiveInstrument();
+                    var results = collectExercises(inst, function (ex) {
+                        return !ex.archived && (!q || ex.title.toLowerCase().indexOf(q) !== -1);
+                    });
+                    if (!results.length) {
+                        var empty = document.createElement("div");
+                        empty.className = "gs-empty";
+                        empty.textContent = "Aucun exercice ne correspond.";
+                        resultsList.appendChild(empty);
+                        return;
+                    }
+                    results.forEach(function (r) {
+                        var btn = document.createElement("button");
+                        btn.type = "button";
+                        btn.className = "gs-pick-result";
+                        var titleSpan = document.createElement("span");
+                        titleSpan.className = "gs-pick-result-title";
+                        titleSpan.textContent = r.ex.title;
+                        var pathSpan = document.createElement("span");
+                        pathSpan.className = "gs-pick-result-path";
+                        pathSpan.textContent = r.pathNames.join(" › ");
+                        btn.appendChild(titleSpan);
+                        btn.appendChild(pathSpan);
+                        btn.addEventListener("click", function () {
+                            pickCallback(r.ex);
+                            screen = "edit";
+                            renderScreen();
+                        });
+                        resultsList.appendChild(btn);
+                    });
+                }
+                searchInput.addEventListener("input", refreshResults);
+                refreshResults();
+                searchInput.focus();
+            }
+
+            // ---- écran de guidage (lecture) ----
+            function startRun(session) {
+                runSession = session;
+                runStepIndex = 0;
+                enterRunStep();
+                screen = "run";
+                renderScreen();
+            }
+
+            function enterRunStep() {
+                runAllocatedSec = runSession.steps[runStepIndex].minutes * 60;
+                runElapsedMs = 0;
+                runStartTs = Date.now();
+                runPaused = false;
+            }
+
+            function runElapsedNowMs() {
+                return runElapsedMs + (runPaused ? 0 : Date.now() - runStartTs);
+            }
+
+            function endRun() {
+                if (runInterval) { clearInterval(runInterval); runInterval = null; }
+                runSession = null;
+                screen = "list";
+                renderScreen();
+            }
+
+            function renderRunScreen() {
+                var session = runSession;
+                var step = session.steps[runStepIndex];
+                var found = findExerciseById(step.exerciseId);
+
+                var progress = document.createElement("div");
+                progress.className = "gs-run-progress";
+                progress.textContent = "Exercice " + (runStepIndex + 1) + " / " + session.steps.length;
+                content.appendChild(progress);
+
+                var exTitle = document.createElement("div");
+                exTitle.className = "gs-run-title";
+                exTitle.textContent = found ? found.ex.title : "(exercice supprimé)";
+                content.appendChild(exTitle);
+
+                if (found) {
+                    var pathEl = document.createElement("div");
+                    pathEl.className = "gs-run-path";
+                    pathEl.textContent = found.pathNames.join(" › ");
+                    content.appendChild(pathEl);
+                }
+
+                var timerEl = document.createElement("div");
+                timerEl.className = "gs-run-timer";
+                content.appendChild(timerEl);
+
+                function refreshTimer() {
+                    var remaining = runAllocatedSec - Math.floor(runElapsedNowMs() / 1000);
+                    var overtime = remaining < 0;
+                    var abs = Math.abs(remaining);
+                    var mm = Math.floor(abs / 60), ss = abs % 60;
+                    timerEl.textContent = (overtime ? "+" : "") + (mm < 10 ? "0" : "") + mm + ":" + (ss < 10 ? "0" : "") + ss;
+                    timerEl.classList.toggle("gs-run-timer-overtime", overtime);
+                }
+                refreshTimer();
+                if (runInterval) clearInterval(runInterval);
+                runInterval = setInterval(refreshTimer, 250);
+
+                var adjustRow = document.createElement("div");
+                adjustRow.className = "gs-run-adjust-row";
+                adjustRow.appendChild(iconButton("−1 min", "Retirer une minute à cet exercice (juste pour cette fois)", function () {
+                    runAllocatedSec = Math.max(60, runAllocatedSec - 60);
+                    refreshTimer();
+                }));
+                adjustRow.appendChild(iconButton("+1 min", "Ajouter une minute à cet exercice (juste pour cette fois)", function () {
+                    runAllocatedSec += 60;
+                    refreshTimer();
+                }));
+                content.appendChild(adjustRow);
+
+                var pauseBtn = document.createElement("button");
+                pauseBtn.type = "button";
+                pauseBtn.className = "metro-play-btn gs-run-pause-btn";
+                function refreshPauseBtn() {
+                    pauseBtn.textContent = runPaused ? "Reprendre" : "Pause";
+                    pauseBtn.classList.toggle("metro-play-btn-active", !runPaused);
+                }
+                refreshPauseBtn();
+                pauseBtn.addEventListener("click", function () {
+                    if (runPaused) {
+                        runStartTs = Date.now();
+                        runPaused = false;
+                    } else {
+                        runElapsedMs += Date.now() - runStartTs;
+                        runPaused = true;
+                    }
+                    refreshPauseBtn();
+                });
+                content.appendChild(pauseBtn);
+
+                var navRow = document.createElement("div");
+                navRow.className = "gs-run-nav-row";
+                var prevBtn = document.createElement("button");
+                prevBtn.type = "button";
+                prevBtn.className = "btn-ghost";
+                prevBtn.textContent = "← Précédent";
+                prevBtn.disabled = runStepIndex === 0;
+                prevBtn.addEventListener("click", function () {
+                    runStepIndex--;
+                    enterRunStep();
+                    renderScreen();
+                });
+                var nextBtn = document.createElement("button");
+                nextBtn.type = "button";
+                nextBtn.className = "btn-accent";
+                nextBtn.textContent = runStepIndex === session.steps.length - 1 ? "Terminer" : "Suivant →";
+                nextBtn.addEventListener("click", function () {
+                    if (runStepIndex === session.steps.length - 1) {
+                        endRun();
+                    } else {
+                        runStepIndex++;
+                        enterRunStep();
+                        renderScreen();
+                    }
+                });
+                navRow.appendChild(prevBtn);
+                navRow.appendChild(nextBtn);
+                content.appendChild(navRow);
+
+                var stopBtn = document.createElement("button");
+                stopBtn.type = "button";
+                stopBtn.className = "btn-ghost gs-run-stop-btn";
+                stopBtn.textContent = "Arrêter la session";
+                stopBtn.addEventListener("click", endRun);
+                content.appendChild(stopBtn);
+            }
+
+            renderScreen();
+
+            return function () {
+                if (runInterval) clearInterval(runInterval);
+            };
+        });
+    }
+
     var $metronomeBtn = document.getElementById("metronome-btn");
     if ($metronomeBtn) $metronomeBtn.addEventListener("click", openMetronomePanel);
     var $aidesBtn = document.getElementById("aides-btn");
     if ($aidesBtn) $aidesBtn.addEventListener("click", openAidesPanel);
+    var $guidedSessionBtn = document.getElementById("guided-session-btn");
+    if ($guidedSessionBtn) $guidedSessionBtn.addEventListener("click", openGuidedSessionPanel);
 
     // ---------- init ----------
     render();
