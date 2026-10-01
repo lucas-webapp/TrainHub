@@ -1043,6 +1043,11 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
     flex-direction: column;
     align-items: center;
     justify-content: center;
+    /* Se règle directement : glisser verticalement ou la molette change le tempo (voir script.js). */
+    cursor: ns-resize;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
 }
 .metro-dial-value {
     background: transparent;
@@ -1163,29 +1168,25 @@ button.metro-mini-btn-icon.metro-volume-expanded { color: var(--accent); border-
 .metro-step-2 { background: var(--accent); border-color: var(--accent); }
 .metro-step-current { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent); }
 
-/* -- pied de panneau : réinitialiser le pavé et le chrono sur la même ligne (gagner en hauteur) -- */
-.metro-footer-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
-.metro-pad-actions-row { display: flex; justify-content: flex-start; gap: 8px; flex-wrap: wrap; }
+/* -- pied de panneau : chronomètre -- */
+.metro-footer-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
 .metro-chrono-row {
     display: flex;
     align-items: center;
-    justify-content: flex-end;
+    justify-content: center;
     gap: 6px;
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
-    flex: none;
-    margin-left: auto;
 }
 .metro-chrono-icon { display: inline-flex; }
 .metro-chrono-icon .icon { width: 16px; height: 16px; }
 .metro-chrono-value { font-size: var(--fs-md); font-weight: 700; letter-spacing: .02em; }
 .metro-chrono-reset { flex: none; color: var(--text-muted); }
 .metro-chrono-reset .icon { width: 15px; height: 15px; }
-@media (max-width: 420px) {
-    .metro-footer-row { justify-content: center; }
-    .metro-pad-actions-row { justify-content: center; }
-    .metro-chrono-row { margin-left: 0; justify-content: center; }
-}
+
+/* -- formules rythmiques courantes + résolution du pavé : même pastille que les autres bascules -- */
+.metro-formulas-row, .metro-resolution-row { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+button.metro-resolution-btn.metro-progressive-active { color: var(--accent); border-color: var(--accent); }
 
 /* ---------- aides : cercle des quintes ---------- */
 .aides-panel { align-items: center; text-align: center; display: flex; flex-direction: column; }

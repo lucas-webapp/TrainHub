@@ -3405,8 +3405,13 @@
 
     // ---------- métronome ----------
     // Réglages persistés et synchronisés (state.settings.metronome) : tempo, nombre de temps par
-    // mesure et motif d'accents (0 = silence, 1 = normal, 2 = temps fort), plus une subdivision
-    // (noire/croches/triolet). Le son est généré à la volée (Web Audio API), rien à télécharger.
+    // mesure et motif d'accents (0 = silence, 1 = normal, 2 = temps fort), plus une subdivision -
+    // le nombre de pas de pavé par temps (0.5 = blanche, un pas tous les 2 temps ; 1 = noire ; 2 =
+    // croches ; 3 = triolet ; 4 = doubles-croches). Le son est généré à la volée (Web Audio API),
+    // rien à télécharger.
+    // Un "groupe" de pavé correspond à un temps pour une subdivision >= 1 (ex. 2 pas en croches) et
+    // à un seul pas pour la blanche (0.5), où un pas couvre justement 2 temps à lui seul.
+    function metroGroupSize(subdivision) { return subdivision >= 1 ? subdivision : 1; }
     function normalizeMetronomeSettings(settings) {
         if (!settings.metronome || typeof settings.metronome !== "object") settings.metronome = {};
         var m = settings.metronome;
@@ -3415,14 +3420,16 @@
         if (typeof m.volume !== "number" || isNaN(m.volume) || m.volume < 0 || m.volume > 1) m.volume = 0.8;
         if (typeof m.beatsPerMeasure !== "number" || isNaN(m.beatsPerMeasure) || m.beatsPerMeasure < 1 || m.beatsPerMeasure > 12) m.beatsPerMeasure = 4;
         m.beatsPerMeasure = Math.round(m.beatsPerMeasure);
-        if ([1, 2, 3, 4].indexOf(m.subdivision) === -1) m.subdivision = 1;
-        var stepCount = m.beatsPerMeasure * m.subdivision;
+        if ([0.5, 1, 2, 3, 4].indexOf(m.subdivision) === -1) m.subdivision = 1;
+        if (typeof m.rhythmLabel !== "string") m.rhythmLabel = null;
+        var groupSize = metroGroupSize(m.subdivision);
+        var stepCount = Math.max(1, Math.round(m.beatsPerMeasure * m.subdivision));
         // Ancien format (un seul accent par TEMPS, sans pavé rythmique) : migré vers un motif par PAS
         // en plaçant chaque ancien accent sur le 1er pas de son temps, le reste muet.
         if (!Array.isArray(m.pattern) && Array.isArray(m.accents)) {
             var migrated = [];
             for (var b = 0; b < m.beatsPerMeasure; b++) {
-                for (var s = 0; s < m.subdivision; s++) migrated.push(s === 0 ? (m.accents[b] != null ? m.accents[b] : 1) : 0);
+                for (var s = 0; s < groupSize; s++) migrated.push(s === 0 ? (m.accents[b] != null ? m.accents[b] : 1) : 0);
             }
             m.pattern = migrated;
             delete m.accents;
@@ -3430,7 +3437,7 @@
         if (!Array.isArray(m.pattern)) m.pattern = [];
         while (m.pattern.length < stepCount) {
             var idx = m.pattern.length;
-            m.pattern.push(idx === 0 ? 2 : (idx % m.subdivision === 0 ? 1 : 0));
+            m.pattern.push(idx === 0 ? 2 : (idx % groupSize === 0 ? 1 : 0));
         }
         m.pattern.length = stepCount;
         for (var i = 0; i < m.pattern.length; i++) {
@@ -3499,7 +3506,7 @@
 
     function metroScheduler() {
         var m = state.settings.metronome;
-        var stepCount = m.beatsPerMeasure * m.subdivision;
+        var stepCount = Math.max(1, Math.round(m.beatsPerMeasure * m.subdivision));
         while (metroNextNoteTime < metroAudioCtx.currentTime + METRO_SCHEDULE_AHEAD_S) {
             metroClick(metroNextNoteTime, m.pattern[metroCurrentStep]);
             if (metroBeatCallback) {
@@ -3559,6 +3566,39 @@
             dial.appendChild(bpmUnit);
             dialWrap.appendChild(dial);
             panel.appendChild(dialWrap);
+
+            // Le cadran se règle directement : glisser verticalement dessus (comme une molette)
+            // change le tempo, et la molette de la souris l'affine d'un cran à la fois. Un simple
+            // clic (sans déplacement) ne déclenche pas de réglage : il laisse passer le clic sur le
+            // chiffre, qui ouvre la saisie au clavier.
+            // Un simple clic (sans dépasser le seuil) ne déclenche aucun réglage et laisse le clic
+            // natif atteindre le chiffre (ouvre la saisie au clavier) : pas besoin d'exclure la zone
+            // du chiffre du geste de glisser, qui fonctionne donc sur tout le cadran. Écoute sur
+            // `window` (comme makePanelDraggable) plutôt que setPointerCapture sur le cadran, qui
+            // empêchait le clic natif d'atteindre le bouton du chiffre dans certains navigateurs.
+            var dialDragging = false, dialMoved = false, dialStartY = 0, dialStartBpm = 0;
+            function onDialPointerDown(e) {
+                dialDragging = true;
+                dialMoved = false;
+                dialStartY = e.clientY;
+                dialStartBpm = m.bpm;
+            }
+            function onDialPointerMove(e) {
+                if (!dialDragging) return;
+                var dy = dialStartY - e.clientY;
+                if (!dialMoved && Math.abs(dy) < 4) return;
+                dialMoved = true;
+                setBpm(dialStartBpm + Math.round(dy / 4));
+            }
+            function onDialPointerUp() { dialDragging = false; }
+            dial.addEventListener("pointerdown", onDialPointerDown);
+            window.addEventListener("pointermove", onDialPointerMove);
+            window.addEventListener("pointerup", onDialPointerUp);
+            dial.addEventListener("wheel", function (e) {
+                e.preventDefault();
+                setBpm(m.bpm + (e.deltaY < 0 ? 1 : -1));
+            }, { passive: false });
+            dial.title = "Glisser verticalement ou molette pour régler le tempo";
 
             function startEditBpm() {
                 var input = document.createElement("input");
@@ -3658,6 +3698,44 @@
             rhythmBtn.title = "Temps par mesure et subdivision";
             toolsRow.appendChild(rhythmBtn);
 
+            // -- formules rythmiques courantes : un clic règle temps/mesure + subdivision + motif --
+            // Le 1er temps est accentué par défaut sur chaque formule, sauf "1/4" (une seule pulsation
+            // par mesure) qui sert justement à n'avoir aucun temps accentué (demandé explicitement).
+            var formulasRow = document.createElement("div");
+            formulasRow.className = "metro-formulas-row";
+            var METRO_FORMULAS = [
+                { label: "1/4", beats: 1, subdivision: 1, noAccent: true },
+                { label: "2/4", beats: 2, subdivision: 1 },
+                { label: "3/4", beats: 3, subdivision: 1 },
+                { label: "4/4", beats: 4, subdivision: 1 },
+                { label: "6/8", beats: 6, subdivision: 1 }
+            ];
+            METRO_FORMULAS.forEach(function (f) {
+                var btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "metro-mini-btn metro-formula-btn";
+                btn.textContent = f.label;
+                btn.title = "Formule " + f.label;
+                btn.addEventListener("click", function () {
+                    m.beatsPerMeasure = f.beats;
+                    m.subdivision = f.subdivision;
+                    m.rhythmLabel = f.label;
+                    var groupSize = metroGroupSize(m.subdivision);
+                    var stepCount = Math.max(1, Math.round(f.beats * f.subdivision));
+                    m.pattern = [];
+                    for (var i = 0; i < stepCount; i++) m.pattern.push(i === 0 ? (f.noAccent ? 1 : 2) : (i % groupSize === 0 ? 1 : 0));
+                    normalizeMetronomeSettings(state.settings);
+                    beatsInput.value = m.beatsPerMeasure;
+                    subSelect.value = m.subdivision;
+                    save();
+                    renderPad();
+                    refreshRhythmBtn();
+                    refreshResolutionRow();
+                });
+                formulasRow.appendChild(btn);
+            });
+            panel.appendChild(formulasRow);
+
             var rhythmFields = document.createElement("div");
             rhythmFields.className = "metro-rhythm-fields";
             rhythmFields.hidden = true;
@@ -3673,6 +3751,7 @@
             beatsInput.addEventListener("change", function () {
                 var n = Math.min(12, Math.max(1, parseInt(beatsInput.value, 10) || 4));
                 m.beatsPerMeasure = n;
+                m.rhythmLabel = null; // réglage manuel : on quitte toute formule prédéfinie
                 m.pattern = null; // sera reconstruit par normalizeMetronomeSettings, motif adapté à la nouvelle taille
                 normalizeMetronomeSettings(state.settings);
                 beatsInput.value = m.beatsPerMeasure;
@@ -3687,8 +3766,7 @@
             subField.className = "metro-field";
             subField.textContent = "Subdivision";
             var subSelect = document.createElement("select");
-            var SUBDIVISION_LABELS = { 1: "Noire", 2: "Croches", 3: "Triolet", 4: "Doubles-croches" };
-            [[1, "Noire"], [2, "Croches"], [3, "Triolet"], [4, "Doubles-croches"]].forEach(function (opt) {
+            [[0.5, "Blanche"], [1, "Noire"], [2, "Croches"], [3, "Triolet"], [4, "Doubles-croches"]].forEach(function (opt) {
                 var o = document.createElement("option");
                 o.value = opt[0];
                 o.textContent = opt[1];
@@ -3696,21 +3774,25 @@
                 subSelect.appendChild(o);
             });
             subSelect.addEventListener("change", function () {
-                m.subdivision = parseInt(subSelect.value, 10);
+                m.subdivision = parseFloat(subSelect.value);
+                m.rhythmLabel = null; // réglage manuel : on quitte toute formule prédéfinie
                 m.pattern = null;
                 normalizeMetronomeSettings(state.settings);
                 save();
                 renderPad();
                 refreshRhythmBtn();
+                refreshResolutionRow();
             });
             subField.appendChild(subSelect);
             rhythmFields.appendChild(subField);
             panel.appendChild(rhythmFields);
 
-            // Affiche "4/4", "6/8"… à partir des temps/mesure et de la subdivision choisie : une
-            // notation familière plutôt que deux champs nus côte à côte (demandé explicitement).
-            var SUBDIVISION_DENOM = { 1: 4, 2: 8, 3: 4, 4: 16 };
+            // Affiche "4/4", "6/8"… à partir des temps/mesure et de la subdivision choisie (ou la
+            // formule choisie telle quelle, voir m.rhythmLabel) plutôt que deux champs nus côte à
+            // côte (demandé explicitement).
+            var SUBDIVISION_DENOM = { 0.5: 2, 1: 4, 2: 8, 3: 4, 4: 16 };
             function refreshRhythmBtn() {
+                if (m.rhythmLabel) { rhythmBtn.textContent = m.rhythmLabel; return; }
                 var denom = SUBDIVISION_DENOM[m.subdivision] || 4;
                 rhythmBtn.textContent = m.beatsPerMeasure + "/" + denom + (m.subdivision === 3 ? " (triolet)" : "");
             }
@@ -3822,78 +3904,84 @@
             padRow.className = "metro-pad";
             panel.appendChild(padRow);
 
-            var padActionsRow = document.createElement("div");
-            padActionsRow.className = "metro-pad-actions-row";
-
-            var resetPadBtn = document.createElement("button");
-            resetPadBtn.type = "button";
-            resetPadBtn.className = "metro-mini-btn metro-pad-reset";
-            resetPadBtn.textContent = "1er temps fort";
-            resetPadBtn.title = "Revenir au 1er temps accentué";
-            resetPadBtn.addEventListener("click", function () {
-                for (var i = 0; i < m.pattern.length; i++) m.pattern[i] = i === 0 ? 2 : (i % m.subdivision === 0 ? 1 : 0);
-                save();
-                renderPad();
+            // -- résolution du pavé : blanches / noires / croches / doubles-croches --
+            // Change la finesse des pas sans toucher au nombre de temps, pour ensuite composer à la
+            // main un groove (rock, funk, reggae…) sur le pavé, qui reste modifiable case par case
+            // comme avant. Remet le 1er pas en accent par défaut à chaque changement de résolution.
+            var resolutionRow = document.createElement("div");
+            resolutionRow.className = "metro-resolution-row";
+            [[0.5, "Blanches"], [1, "Noires"], [2, "Croches"], [4, "Doubles-croches"]].forEach(function (opt) {
+                var btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "metro-mini-btn metro-resolution-btn";
+                btn.textContent = opt[1];
+                btn.addEventListener("click", function () {
+                    m.subdivision = opt[0];
+                    m.rhythmLabel = null;
+                    var groupSize = metroGroupSize(m.subdivision);
+                    var stepCount = Math.max(1, Math.round(m.beatsPerMeasure * m.subdivision));
+                    m.pattern = [];
+                    for (var i = 0; i < stepCount; i++) m.pattern.push(i === 0 ? 2 : (i % groupSize === 0 ? 1 : 0));
+                    normalizeMetronomeSettings(state.settings);
+                    subSelect.value = m.subdivision;
+                    save();
+                    renderPad();
+                    refreshRhythmBtn();
+                    refreshResolutionRow();
+                });
+                resolutionRow.appendChild(btn);
             });
-            padActionsRow.appendChild(resetPadBtn);
+            panel.appendChild(resolutionRow);
+            function refreshResolutionRow() {
+                var btns = resolutionRow.querySelectorAll(".metro-resolution-btn");
+                var opts = [0.5, 1, 2, 4];
+                for (var i = 0; i < btns.length; i++) btns[i].classList.toggle("metro-progressive-active", opts[i] === m.subdivision);
+            }
+            refreshResolutionRow();
 
-            // Demandé explicitement : un clic rapide vers un métronome "de base", sans accent sur le
-            // 1er temps ni sur aucun autre — tous les temps sonnent pareil.
-            var noAccentBtn = document.createElement("button");
-            noAccentBtn.type = "button";
-            noAccentBtn.className = "metro-mini-btn metro-pad-reset";
-            noAccentBtn.textContent = "Aucun accent";
-            noAccentBtn.title = "Tous les temps au même volume, sans accent";
-            noAccentBtn.addEventListener("click", function () {
-                for (var i = 0; i < m.pattern.length; i++) m.pattern[i] = (i % m.subdivision === 0) ? 1 : 0;
-                save();
-                renderPad();
-            });
-            padActionsRow.appendChild(noAccentBtn);
-
-            // Réinitialiser le pavé et le chrono se retrouvent sur la même ligne (gagne une ligne de
-            // hauteur) : ce sont deux actions secondaires de même poids, pas de raison de les
-            // empiler.
             var footerRow = document.createElement("div");
             footerRow.className = "metro-footer-row";
-            footerRow.appendChild(padActionsRow);
             panel.appendChild(footerRow);
 
-            // Le pavé est groupé par temps (un mini-groupe de `subdivision` pas), et ces groupes
-            // sont eux-mêmes répartis en lignes de longueur égale (ex. 4 temps -> 2 en haut, 2 en
-            // bas) plutôt que laissés au retour à la ligne du flex-wrap, qui casserait au milieu
-            // d'un temps et donnerait un rendu asymétrique sur petit écran (doubles-croches...).
+            // Le pavé est groupé par "groupe" (un temps pour une subdivision >= 1, ex. 2 pas en
+            // croches ; un seul pas pour la blanche, qui couvre justement 2 temps à lui seul — voir
+            // metroGroupSize), et ces groupes sont eux-mêmes répartis en lignes de longueur égale
+            // (ex. 4 temps -> 2 en haut, 2 en bas) plutôt que laissés au retour à la ligne du
+            // flex-wrap, qui casserait un groupe en deux et donnerait un rendu asymétrique sur petit
+            // écran (doubles-croches...).
             function renderPad() {
                 padRow.innerHTML = "";
-                var beats = m.beatsPerMeasure;
+                var groupSize = metroGroupSize(m.subdivision);
                 var totalSteps = m.pattern.length;
-                var rows = totalSteps > 8 ? Math.min(beats, Math.ceil(totalSteps / 8)) : 1;
-                var beatsPerRowBase = Math.floor(beats / rows);
-                var extra = beats % rows;
-                var beatIdx = 0;
+                var groupCount = Math.max(1, Math.round(totalSteps / groupSize));
+                var rows = totalSteps > 8 ? Math.min(groupCount, Math.ceil(totalSteps / 8)) : 1;
+                var groupsPerRowBase = Math.floor(groupCount / rows);
+                var extraGroups = groupCount % rows;
+                var stepIdx = 0, groupIdx = 0;
                 for (var r = 0; r < rows; r++) {
-                    var rowBeats = beatsPerRowBase + (r < extra ? 1 : 0);
+                    var rowGroups = groupsPerRowBase + (r < extraGroups ? 1 : 0);
                     var rowEl = document.createElement("div");
                     rowEl.className = "metro-pad-row";
-                    for (var b = 0; b < rowBeats; b++) {
+                    for (var g = 0; g < rowGroups; g++) {
                         var groupEl = document.createElement("div");
                         groupEl.className = "metro-beat-group";
-                        for (var s = 0; s < m.subdivision; s++) {
-                            (function (idx) {
+                        for (var s = 0; s < groupSize; s++) {
+                            (function (idx, isFirstOfGroup, groupNum) {
                                 var step = document.createElement("button");
                                 step.type = "button";
                                 step.className = "metro-step metro-step-" + m.pattern[idx];
-                                step.title = (s === 0 ? "Temps " + (beatIdx + 1) : "Pas " + (idx + 1)) + " : silence / normal / fort";
+                                step.title = (isFirstOfGroup ? "Temps " + (groupNum + 1) : "Pas " + (idx + 1)) + " : silence / normal / fort";
                                 step.addEventListener("click", function () {
                                     m.pattern[idx] = (m.pattern[idx] + 1) % 3;
                                     save();
                                     renderPad();
                                 });
                                 groupEl.appendChild(step);
-                            })(beatIdx * m.subdivision + s);
+                            })(stepIdx, s === 0, groupIdx);
+                            stepIdx++;
                         }
                         rowEl.appendChild(groupEl);
-                        beatIdx++;
+                        groupIdx++;
                     }
                     padRow.appendChild(rowEl);
                 }
@@ -3968,6 +4056,8 @@
                 if (chronoInterval) clearInterval(chronoInterval);
                 metroBeatCallback = null;
                 metroMeasureCallback = null;
+                window.removeEventListener("pointermove", onDialPointerMove);
+                window.removeEventListener("pointerup", onDialPointerUp);
             };
         });
     }
