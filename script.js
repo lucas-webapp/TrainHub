@@ -2964,8 +2964,9 @@
             var stored = loadPanelPositions()["backups-panel"];
             var left, top;
             if (stored) {
-                left = Math.min(Math.max(8, stored.left), Math.max(8, window.innerWidth - w - 8));
-                top = Math.min(Math.max(8, stored.top), Math.max(8, window.innerHeight - h - 8));
+                var restored = clampPanelPosition(stored.left, stored.top, w);
+                left = restored.left;
+                top = restored.top;
             } else {
                 left = Math.max(8, (window.innerWidth - w) / 2);
                 top = Math.max(8, (window.innerHeight - h) / 2);
@@ -3156,6 +3157,16 @@
         return PANEL_BASE_MIN_SIZE[kind] || { w: 280, h: 180 };
     }
 
+    // Comme une vraie fenêtre : elle peut dépasser en partie des bords de l'écran (sinon une fenêtre
+    // aussi haute que l'écran ne pouvait plus bouger qu'à l'horizontale) ; seule sa barre du haut
+    // reste toujours à l'écran, pour pouvoir la reprendre. Même règle au glisser et à la réouverture.
+    function clampPanelPosition(left, top, width) {
+        return {
+            left: Math.min(Math.max(-(width - 120), left), window.innerWidth - 120),
+            top: Math.min(Math.max(0, top), window.innerHeight - 48)
+        };
+    }
+
     // Permet de faire glisser `panel` à la souris/au doigt depuis `handle` — comme une vraie fenêtre
     // de bureau. Désactivé sur téléphone (le panneau y prend tout l'écran, voir CSS).
     function makePanelDraggable(panel, kind, handle) {
@@ -3172,13 +3183,9 @@
         }
         function onMove(e) {
             if (!dragging) return;
-            var w = panel.offsetWidth, h = panel.offsetHeight;
-            var left = startLeft + (e.clientX - startX);
-            var top = startTop + (e.clientY - startY);
-            left = Math.min(Math.max(8, left), Math.max(8, window.innerWidth - w - 8));
-            top = Math.min(Math.max(8, top), Math.max(8, window.innerHeight - h - 8));
-            panel.style.left = left + "px";
-            panel.style.top = top + "px";
+            var pos = clampPanelPosition(startLeft + (e.clientX - startX), startTop + (e.clientY - startY), panel.offsetWidth);
+            panel.style.left = pos.left + "px";
+            panel.style.top = pos.top + "px";
         }
         function onUp() {
             if (!dragging) return;
@@ -3214,31 +3221,67 @@
         var neededW = panel.scrollWidth;
         var fb = panel.querySelector(".fretboard-scroll");
         if (fb && fb.scrollWidth > fb.clientWidth) neededW += (fb.scrollWidth - fb.clientWidth);
-        // Le pavé rythmique du métronome (flex-wrap) ne tient sur une seule ligne que si la fenêtre
-        // est assez large pour ça : on mesure la largeur qu'il demanderait sans retour à la ligne
-        // (somme des groupes + espacements) pour que la fenêtre grandisse en conséquence, et ne le
-        // laisse revenir à la ligne que si l'écran est réellement trop petit (limite haute ci-après).
-        var pad = panel.querySelector(".metro-pad");
-        if (pad && !pad.hidden && pad.children.length) {
-            var padGapPx = parseFloat(getComputedStyle(pad).columnGap || getComputedStyle(pad).gap) || 0;
-            var padNeeded = 0;
-            for (var gi = 0; gi < pad.children.length; gi++) padNeeded += pad.children[gi].offsetWidth;
-            padNeeded += padGapPx * Math.max(0, pad.children.length - 1);
-            padNeeded += panel.offsetWidth - pad.clientWidth; // marge/bordures du panneau autour du pad
-            neededW = Math.max(neededW, padNeeded);
-        }
         neededW = Math.min(neededW, maxW);
         var w = Math.max(baseMinW, neededW) + "px";
         var h = Math.max(baseMinH, neededH) + "px";
         if (panel.style.minWidth !== w) panel.style.minWidth = w;
         if (panel.style.minHeight !== h) panel.style.minHeight = h;
     }
+    // ---------- fenêtres "à contenu ajustable" (métronome) ----------
+    // La taille de la fenêtre reste libre (poignée de redimensionnement, minimum fixé en CSS) et
+    // c'est le contenu qui s'adapte à la place disponible : un zoom CSS uniforme (jamais au-delà de
+    // 100 %) le réduit juste assez pour tout montrer, au lieu de bloquer la fenêtre à la taille du
+    // contenu (impossible alors de la réduire) ou de faire apparaître un ascenseur. Tant qu'on ne l'a
+    // pas redimensionnée à la main, la fenêtre suit d'elle-même la taille du contenu, bornée à l'écran.
+    //
+    // Le débordement se lit sur `box` (parent sans zoom, overflow hidden) : ses scrollWidth/Height
+    // reflètent la taille réellement occupée par le contenu zoomé, quel que soit le navigateur —
+    // les mesures de l'élément zoomé lui-même ne sont pas exprimées pareil partout.
+    var PANEL_FIT_MIN_ZOOM = 0.3;
+    function fitPanelContentZoom(box, inner) {
+        if (!box.clientHeight || !box.clientWidth) return 1;
+        function fitsAt(z) {
+            inner.style.zoom = z >= 1 ? "" : String(z);
+            return box.scrollHeight <= box.clientHeight + 1 && box.scrollWidth <= box.clientWidth + 1;
+        }
+        if (fitsAt(1)) return 1;
+        var lo = PANEL_FIT_MIN_ZOOM, hi = 1;
+        for (var i = 0; i < 9; i++) {
+            var mid = (lo + hi) / 2;
+            if (fitsAt(mid)) lo = mid; else hi = mid;
+        }
+        fitsAt(lo);
+        return lo;
+    }
+    // Taille "naturelle" (zoom 100 %) d'une fenêtre à contenu ajustable : largeur par défaut de la
+    // feuille de style, élargie si besoin pour que le pavé rythmique tienne sur une ligne, et
+    // hauteur du contenu — le tout borné à l'écran.
+    function autoSizeFitPanel(panel, inner) {
+        inner.style.zoom = "";
+        panel.style.width = "";
+        panel.style.height = "";
+        var w = panel.offsetWidth;
+        var pad = inner.querySelector(".metro-pad");
+        if (pad && !pad.hidden && pad.children.length) {
+            var padGap = parseFloat(getComputedStyle(pad).columnGap) || 0;
+            var padNeeded = 0;
+            for (var gi = 0; gi < pad.children.length; gi++) padNeeded += pad.children[gi].offsetWidth;
+            padNeeded += padGap * (pad.children.length - 1) + (panel.offsetWidth - pad.clientWidth);
+            w = Math.max(w, Math.ceil(padNeeded));
+        }
+        w = Math.min(w, window.innerWidth - 16);
+        panel.style.width = w + "px";
+        var h = Math.min(panel.offsetHeight, window.innerHeight - 16);
+        panel.style.height = h + "px";
+        return { w: w, h: h };
+    }
+
     // Rend `panel` redimensionnable (voir resize:both en CSS sur .backups-panel) et persiste la
     // taille choisie. Pas de ResizeObserver générique : il se déclencherait aussi pour des
     // changements de taille dus au CONTENU (déplier le volume, changer d'onglet…), pas seulement à
     // un vrai redimensionnement manuel — on ne retient donc que les redimensionnements commencés
     // depuis le coin bas-droit (la poignée native du navigateur).
-    function makePanelResizable(panel, kind) {
+    function makePanelResizable(panel, kind, onResizeStart) {
         var stored = loadPanelSizes()[kind];
         if (stored) {
             panel.style.width = stored.width + "px";
@@ -3248,7 +3291,10 @@
         var HANDLE_ZONE = 24;
         function onPointerDown(e) {
             var rect = panel.getBoundingClientRect();
-            if (e.clientX > rect.right - HANDLE_ZONE && e.clientY > rect.bottom - HANDLE_ZONE) resizing = true;
+            if (e.clientX > rect.right - HANDLE_ZONE && e.clientY > rect.bottom - HANDLE_ZONE) {
+                resizing = true;
+                if (onResizeStart) onResizeStart();
+            }
         }
         function onPointerUp() {
             if (!resizing) return;
@@ -3263,17 +3309,23 @@
         };
     }
 
-    function openModal(extraClass, build) {
+    // `opts.fitContent` : fenêtre à contenu ajustable (voir fitPanelContentZoom) — réservé au
+    // métronome pour l'instant ; les autres outils gardent un contenu qui fixe leur taille minimale.
+    function openModal(extraClass, build, opts) {
         closeFolderMenu();
         if (closeActiveModal) closeActiveModal();
         lockBodyScroll();
+        var fitContent = !!(opts && opts.fitContent);
         var backdrop = document.createElement("div");
         backdrop.className = "ctx-backdrop";
         var panel = document.createElement("div");
-        panel.className = "backups-panel" + (extraClass ? " " + extraClass : "");
+        panel.className = "backups-panel" + (extraClass ? " " + extraClass : "") + (fitContent ? " panel-fit-content" : "");
         var panelKind = extraClass ? extraClass.split(" ")[0] : "modal";
         var baseMin = basePanelMinSize(panelKind);
-        var cleanupResize = makePanelResizable(panel, panelKind);
+        // Redimensionnée à la main (maintenant ou lors d'une ouverture précédente) : la fenêtre garde
+        // la taille choisie au lieu de suivre celle du contenu.
+        var userSized = !!loadPanelSizes()[panelKind];
+        var cleanupResize = makePanelResizable(panel, panelKind, function () { userSized = true; });
 
         var dragHandle = document.createElement("div");
         dragHandle.className = "panel-drag-handle";
@@ -3284,6 +3336,8 @@
 
         var onClose = null;
         var fitTimer = null;
+        var fitBox = null, fitInner = null;
+        var resizeObs = null, mutationObs = null, fitFrame = null;
 
         function close() {
             if (onClose) onClose();
@@ -3291,6 +3345,9 @@
             cleanupDrag();
             if (cleanupTitleDrag) cleanupTitleDrag();
             if (fitTimer) clearInterval(fitTimer);
+            if (resizeObs) resizeObs.disconnect();
+            if (mutationObs) mutationObs.disconnect();
+            if (fitFrame) cancelAnimationFrame(fitFrame);
             backdrop.remove();
             panel.remove();
             document.removeEventListener("keydown", onKey, true);
@@ -3323,21 +3380,71 @@
         closeRow.appendChild(closeBtn);
         panel.appendChild(closeRow);
 
+        // Contenu ajustable : tout sauf la poignée passe dans une boîte (taille dispo, sans zoom) qui
+        // contient le contenu zoomé — voir fitPanelContentZoom.
+        if (fitContent) {
+            fitBox = document.createElement("div");
+            fitBox.className = "panel-fit-box";
+            fitInner = document.createElement("div");
+            fitInner.className = "panel-fit-inner";
+            Array.prototype.slice.call(panel.children).forEach(function (child) {
+                if (child !== dragHandle) fitInner.appendChild(child);
+            });
+            fitBox.appendChild(fitInner);
+            panel.appendChild(fitBox);
+        }
+
+        function refit() {
+            if (!fitContent) { recalcPanelFit(panel, baseMin.w, baseMin.h); return; }
+            if (!userSized && !isMobilePanelLayout() && panel.isConnected) {
+                var prevH = panel.offsetHeight, prevW = panel.offsetWidth;
+                var size = autoSizeFitPanel(panel, fitInner);
+                // Le contenu a grandi (ex. "…" déplié) : on remonte/décale la fenêtre si elle sort
+                // maintenant de l'écran — seulement à ce moment-là, pour ne pas contrarier une fenêtre
+                // qu'on a volontairement poussée en partie hors de l'écran.
+                if (panel.style.visibility !== "hidden" && (size.h > prevH + 1 || size.w > prevW + 1)) {
+                    var rect = panel.getBoundingClientRect();
+                    if (rect.bottom > window.innerHeight - 8) panel.style.top = Math.max(8, window.innerHeight - 8 - size.h) + "px";
+                    if (rect.right > window.innerWidth - 8) panel.style.left = Math.max(8, window.innerWidth - 8 - size.w) + "px";
+                }
+            }
+            fitPanelContentZoom(fitBox, fitInner);
+        }
+        function scheduleRefit() {
+            if (fitFrame) return;
+            fitFrame = requestAnimationFrame(function () { fitFrame = null; refit(); });
+        }
+
         panel.style.visibility = "hidden";
         document.body.appendChild(backdrop);
         document.body.appendChild(panel);
 
+        if (fitContent) {
+            // Redimensionnement à la main : le zoom suit en direct. Changement de contenu (pavé
+            // redessiné, réglages dépliés…) : la fenêtre et le zoom se réajustent tout de suite,
+            // sans attendre le prochain passage de l'intervalle ci-dessous.
+            if (typeof ResizeObserver !== "undefined") {
+                resizeObs = new ResizeObserver(scheduleRefit);
+                resizeObs.observe(panel);
+            }
+            if (typeof MutationObserver !== "undefined") {
+                mutationObs = new MutationObserver(scheduleRefit);
+                mutationObs.observe(fitInner, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden"] });
+            }
+        }
+
         // Position initiale : taille/position mémorisées si on a déjà ouvert cet outil, sinon centré
         // — posée en px une fois le panneau mesurable, pour ne jamais voir le saut depuis (0,0).
         requestAnimationFrame(function () {
-            recalcPanelFit(panel, baseMin.w, baseMin.h);
+            refit();
             var rect = panel.getBoundingClientRect();
             var w = rect.width, h = rect.height;
             var stored = loadPanelPositions()[panelKind];
             var left, top;
             if (stored) {
-                left = Math.min(Math.max(8, stored.left), Math.max(8, window.innerWidth - w - 8));
-                top = Math.min(Math.max(8, stored.top), Math.max(8, window.innerHeight - h - 8));
+                var restored = clampPanelPosition(stored.left, stored.top, w);
+                left = restored.left;
+                top = restored.top;
             } else if (panelKind === "metronome-panel") {
                 // Pas encore déplacé à la main : on part du point de départ choisi dans les réglages
                 // (centre/haut/bas/coin) plutôt que du centre pur.
@@ -3355,7 +3462,9 @@
             panel.style.top = top + "px";
             panel.style.visibility = "visible";
         });
-        fitTimer = setInterval(function () { recalcPanelFit(panel, baseMin.w, baseMin.h); }, 400);
+        // Filet de sécurité (changements que les observateurs ne voient pas : classe qui change une
+        // marge, taille de l'écran…) ; pour une fenêtre déjà ajustée, ne refait rien de visible.
+        fitTimer = setInterval(refit, 400);
 
         return close;
     }
@@ -3479,6 +3588,23 @@
         for (var i = 0; i < m.pattern.length; i++) {
             if ([0, 1, 2].indexOf(m.pattern[i]) === -1) m.pattern[i] = 1;
         }
+        // Deux couches distinctes : le pavé simple (un pas par temps, ce que montre la formule
+        // rythmique : 4/4 = 4 cases) et le pavé détaillé (subdivision + motif ci-dessus), qui ne sert
+        // que quand "…" est activé (m.advanced). Chacune garde son propre motif : refermer "…" revient
+        // aux temps de la formule sans perdre le rythme composé, qu'on retrouve en rouvrant "…".
+        if (typeof m.advanced !== "boolean") m.advanced = m.subdivision !== 1; // réglages d'avant : ne pas changer ce qui se jouait
+        if (!Array.isArray(m.beatPattern)) {
+            m.beatPattern = [];
+            for (var bp = 0; bp < m.beatsPerMeasure; bp++) {
+                var fromPattern = m.subdivision >= 1 ? m.pattern[bp * m.subdivision] : null;
+                m.beatPattern.push([0, 1, 2].indexOf(fromPattern) !== -1 ? fromPattern : (bp === 0 ? 2 : 1));
+            }
+        }
+        while (m.beatPattern.length < m.beatsPerMeasure) m.beatPattern.push(m.beatPattern.length === 0 ? 2 : 1);
+        m.beatPattern.length = m.beatsPerMeasure;
+        for (var j = 0; j < m.beatPattern.length; j++) {
+            if ([0, 1, 2].indexOf(m.beatPattern[j]) === -1) m.beatPattern[j] = 1;
+        }
         // Tempo progressif (peu utilisé au quotidien, désactivé par défaut) : augmente le BPM tout
         // seul toutes les N mesures pendant la lecture — voir metroScheduler.
         if (!m.progressive || typeof m.progressive !== "object") m.progressive = {};
@@ -3540,16 +3666,27 @@
         osc.stop(time + 0.07);
     }
 
+    // Ce qui se joue (et s'affiche dans le pavé) : le pavé détaillé seulement quand "…" est activé,
+    // sinon les simples temps de la formule rythmique (un pas par temps).
+    function metroActiveLayer(m) {
+        if (m.advanced && m.rhythmLabel !== "None") return { subdivision: m.subdivision, pattern: m.pattern };
+        return { subdivision: 1, pattern: m.beatPattern };
+    }
+
     function metroScheduler() {
         var m = state.settings.metronome;
-        var stepCount = Math.max(1, Math.round(m.beatsPerMeasure * m.subdivision));
         while (metroNextNoteTime < metroAudioCtx.currentTime + METRO_SCHEDULE_AHEAD_S) {
-            metroClick(metroNextNoteTime, m.pattern[metroCurrentStep]);
+            // Relu à chaque pas : changer de formule ou basculer "…" pendant la lecture prend effet
+            // tout de suite, sans pas fantôme au-delà de la nouvelle longueur de motif.
+            var layer = metroActiveLayer(m);
+            var stepCount = Math.max(1, layer.pattern.length);
+            if (metroCurrentStep >= stepCount) metroCurrentStep = 0;
+            metroClick(metroNextNoteTime, layer.pattern[metroCurrentStep]);
             if (metroBeatCallback) {
                 var step = metroCurrentStep, delayMs = Math.max(0, (metroNextNoteTime - metroAudioCtx.currentTime) * 1000);
                 setTimeout(function () { if (metroPlaying && metroBeatCallback) metroBeatCallback(step); }, delayMs);
             }
-            var secondsPerStep = 60 / m.bpm / m.subdivision;
+            var secondsPerStep = 60 / m.bpm / layer.subdivision;
             metroNextNoteTime += secondsPerStep;
             metroCurrentStep = (metroCurrentStep + 1) % stepCount;
             if (metroCurrentStep === 0 && metroMeasureCallback) metroMeasureCallback();
@@ -3745,18 +3882,18 @@
             });
             toolsRow.appendChild(tapBtn);
 
-            // -- formules rythmiques courantes : un clic règle temps/mesure + subdivision + motif --
+            // -- formules rythmiques courantes : un clic règle le nombre de temps et remet le motif --
             // "None" (sur la gauche) sert justement à n'avoir aucun temps accentué et masque le pavé
             // (demandé explicitement) ; les autres accentuent le 1er temps par défaut. Le bouton "…"
-            // (à droite, voir plus bas) ouvre les formules moins courantes / le réglage libre.
+            // (à droite, voir plus bas) ouvre les formules moins courantes et le pavé détaillé.
             var formulasRow = document.createElement("div");
             formulasRow.className = "metro-formulas-row";
             var METRO_FORMULAS = [
-                { label: "None", beats: 1, subdivision: 1, noAccent: true },
-                { label: "2/4", beats: 2, subdivision: 1 },
-                { label: "3/4", beats: 3, subdivision: 1 },
-                { label: "4/4", beats: 4, subdivision: 1 },
-                { label: "6/8", beats: 6, subdivision: 1 }
+                { label: "None", beats: 1, noAccent: true },
+                { label: "2/4", beats: 2 },
+                { label: "3/4", beats: 3 },
+                { label: "4/4", beats: 4 },
+                { label: "6/8", beats: 6 }
             ];
             var formulaBtns = [];
             METRO_FORMULAS.forEach(function (f) {
@@ -3767,43 +3904,47 @@
                 btn.title = f.label === "None" ? "Aucun temps accentué" : "Formule " + f.label;
                 btn.addEventListener("click", function () {
                     m.beatsPerMeasure = f.beats;
-                    m.subdivision = f.subdivision;
                     m.rhythmLabel = f.label;
-                    var groupSize = metroGroupSize(m.subdivision);
-                    var stepCount = Math.max(1, Math.round(f.beats * f.subdivision));
-                    m.pattern = [];
-                    for (var i = 0; i < stepCount; i++) m.pattern.push(i === 0 ? (f.noAccent ? 1 : 2) : (i % groupSize === 0 ? 1 : 0));
+                    m.beatPattern = [];
+                    for (var i = 0; i < f.beats; i++) m.beatPattern.push(i === 0 && !f.noAccent ? 2 : 1);
+                    // Le pavé détaillé garde sa subdivision mais repart d'un motif par défaut à la
+                    // nouvelle taille ; "None" (métronome tout simple, sans pavé) quitte le mode "…".
+                    m.pattern = null;
+                    if (f.noAccent) m.advanced = false;
                     normalizeMetronomeSettings(state.settings);
                     beatsInput.value = m.beatsPerMeasure;
-                    subSelect.value = m.subdivision;
                     save();
-                    renderPad();
-                    refreshFormulaButtons();
+                    refreshRhythmMode();
                 });
                 formulaBtns.push(btn);
                 formulasRow.appendChild(btn);
             });
 
-            // -- "plus" : formules moins courantes / réglage libre (temps/mesure + subdivision) --
+            // -- "plus" : formules moins courantes + pavé détaillé (temps/mesure + subdivision) --
+            // C'est un mode : activé, il déplie les réglages et montre/joue le pavé détaillé ; refermé,
+            // on revient aux simples temps de la formule (le rythme composé est gardé pour la suite).
             var rhythmBtn = document.createElement("button");
             rhythmBtn.type = "button";
             rhythmBtn.className = "metro-mini-btn metro-mini-btn-icon metro-rhythm-btn";
             rhythmBtn.innerHTML = METRO_MORE_ICON_SVG;
-            rhythmBtn.setAttribute("aria-label", "Formules moins courantes et réglage libre");
-            rhythmBtn.title = "Formules moins courantes et réglage libre";
+            rhythmBtn.setAttribute("aria-label", "Formules moins courantes et pavé détaillé");
+            rhythmBtn.title = "Formules moins courantes et pavé détaillé";
             formulasRow.appendChild(rhythmBtn);
             panel.appendChild(formulasRow);
 
-            function refreshFormulaButtons() {
+            function refreshRhythmMode() {
                 formulaBtns.forEach(function (btn, i) {
                     btn.classList.toggle("metro-progressive-active", m.rhythmLabel === METRO_FORMULAS[i].label);
                 });
-                rhythmBtn.classList.toggle("metro-progressive-active", !m.rhythmLabel && !rhythmFields.hidden);
+                rhythmBtn.classList.toggle("metro-progressive-active", m.advanced);
+                rhythmBtn.setAttribute("aria-pressed", m.advanced ? "true" : "false");
+                rhythmFields.hidden = !m.advanced;
+                renderPad();
             }
 
             var rhythmFields = document.createElement("div");
             rhythmFields.className = "metro-rhythm-fields";
-            rhythmFields.hidden = true;
+            rhythmFields.hidden = !m.advanced;
 
             var beatsField = document.createElement("label");
             beatsField.className = "metro-field";
@@ -3817,12 +3958,12 @@
                 var n = Math.min(12, Math.max(1, parseInt(beatsInput.value, 10) || 4));
                 m.beatsPerMeasure = n;
                 m.rhythmLabel = null; // réglage manuel : on quitte toute formule prédéfinie
-                m.pattern = null; // sera reconstruit par normalizeMetronomeSettings, motif adapté à la nouvelle taille
+                // Les deux motifs sont seulement rallongés/raccourcis (normalizeMetronomeSettings) :
+                // passer de 4 à 5 temps garde le rythme déjà composé sur les 4 premiers.
                 normalizeMetronomeSettings(state.settings);
                 beatsInput.value = m.beatsPerMeasure;
                 save();
-                renderPad();
-                refreshFormulaButtons();
+                refreshRhythmMode();
             });
             beatsField.appendChild(beatsInput);
             rhythmFields.appendChild(beatsField);
@@ -3839,21 +3980,24 @@
                 subSelect.appendChild(o);
             });
             subSelect.addEventListener("change", function () {
+                // La subdivision ne change pas la formule (4/4 reste 4/4) : seul le pavé détaillé
+                // repart d'un motif par défaut à la nouvelle finesse.
                 m.subdivision = parseFloat(subSelect.value);
-                m.rhythmLabel = null; // réglage manuel : on quitte toute formule prédéfinie
                 m.pattern = null;
                 normalizeMetronomeSettings(state.settings);
                 save();
-                renderPad();
-                refreshFormulaButtons();
+                refreshRhythmMode();
             });
             subField.appendChild(subSelect);
             rhythmFields.appendChild(subField);
             panel.appendChild(rhythmFields);
-            refreshFormulaButtons();
             rhythmBtn.addEventListener("click", function () {
-                rhythmFields.hidden = !rhythmFields.hidden;
-                refreshFormulaButtons();
+                m.advanced = !m.advanced;
+                // Depuis "None" (pas de pavé du tout), ouvrir "…" revient à vouloir composer : on
+                // sort de "None" pour que le pavé détaillé apparaisse.
+                if (m.advanced && m.rhythmLabel === "None") m.rhythmLabel = null;
+                save();
+                refreshRhythmMode();
             });
 
             // -- tempo progressif --
@@ -3921,13 +4065,10 @@
             };
 
             // ---------- pavé rythmique ----------
-            // Un pas par case, groupées par temps : clique une case pour la faire tourner entre
-            // silence / normal / fort. De quoi composer n'importe quel groove (double-croches pour
-            // un shuffle, ne garder que les contretemps pour s'entraîner dessus, etc.), pas
-            // seulement accentuer le 1er temps de la mesure. Pas d'intitulé ni de réglage de
-            // résolution à côté : on voit juste le nombre de temps, la finesse (croches, doubles-
-            // croches…) se règle dans "…" (voir plus haut) et ne s'affiche donc que si on la demande.
-            // Masqué entièrement en mode "None" (aucun temps accentué, voir refreshFormulaButtons).
+            // Sans "…" : une case par temps de la formule (4/4 = 4 cases, 6/8 = 6 cases). Avec "…" :
+            // le pavé détaillé, une case par pas de la subdivision, groupées par temps. Dans les deux
+            // cas, un clic fait tourner la case entre vide (silence), gris (normal) et vert (fort).
+            // Masqué entièrement en mode "None" (aucun temps accentué).
             var padRow = document.createElement("div");
             padRow.className = "metro-pad";
             panel.appendChild(padRow);
@@ -3936,50 +4077,76 @@
             footerRow.className = "metro-footer-row";
             panel.appendChild(footerRow);
 
-            // Le pavé est groupé par "groupe" (un temps pour une subdivision >= 1, ex. 2 pas en
-            // croches ; un seul pas pour la blanche, qui couvre justement 2 temps à lui seul — voir
-            // metroGroupSize). Les groupes sont posés dans un simple conteneur flex-wrap : ça tient
+            // Les groupes (un temps chacun) sont posés dans un simple conteneur flex-wrap : ça tient
             // sur une seule ligne tant que la fenêtre est assez large, et ne revient à la ligne (par
-            // groupe entier, jamais coupé en deux) que si la largeur manque vraiment — pas de calcul
-            // manuel de lignes qui forcerait un retour à la ligne prématuré.
-            //
-            // Chaque case se règle directement par zone plutôt qu'en la cliquant plusieurs fois de
-            // suite pour boucler silence -> normal -> fort : cliquer en haut met l'accent fort, au
-            // milieu un temps normal, en bas le silence — un seul clic suffit pour n'importe quel
-            // état, ce qui change tout pour composer un rythme en doubles-croches (demandé
-            // explicitement, "il faut cliquer beaucoup de fois avant d'arriver à son objectif").
+            // groupe entier, jamais coupé en deux) que si la largeur manque vraiment.
             function renderPad() {
                 padRow.innerHTML = "";
-                // Mode "None" (aucun temps accentué) : pas de pavé du tout, rien à composer.
                 padRow.hidden = m.rhythmLabel === "None";
                 if (padRow.hidden) return;
-                var groupSize = metroGroupSize(m.subdivision);
-                var totalSteps = m.pattern.length;
+                var layer = metroActiveLayer(m);
+                var groupSize = metroGroupSize(layer.subdivision);
+                var pattern = layer.pattern;
                 var groupIdx = 0;
-                for (var i = 0; i < totalSteps; i += groupSize) {
+                for (var i = 0; i < pattern.length; i += groupSize) {
                     var groupEl = document.createElement("div");
                     groupEl.className = "metro-beat-group";
-                    for (var s = 0; s < groupSize && i + s < totalSteps; s++) {
-                        (function (idx, isFirstOfGroup, groupNum) {
-                            var step = document.createElement("button");
-                            step.type = "button";
-                            step.className = "metro-step metro-step-" + m.pattern[idx];
-                            step.title = (isFirstOfGroup ? "Temps " + (groupNum + 1) : "Pas " + (idx + 1)) + " : clique en haut (fort), au milieu (normal) ou en bas (silence)";
-                            step.addEventListener("click", function (e) {
-                                var rect = step.getBoundingClientRect();
-                                var relY = (e.clientY - rect.top) / rect.height;
-                                m.pattern[idx] = relY < 1 / 3 ? 2 : (relY < 2 / 3 ? 1 : 0);
-                                save();
-                                renderPad();
-                            });
-                            groupEl.appendChild(step);
-                        })(i + s, s === 0, groupIdx);
+                    for (var s = 0; s < groupSize && i + s < pattern.length; s++) {
+                        var step = document.createElement("button");
+                        step.type = "button";
+                        step.className = "metro-step metro-step-" + pattern[i + s];
+                        step.dataset.idx = i + s;
+                        step.title = (s === 0 ? "Temps " + (groupIdx + 1) : "Pas " + (i + s + 1)) + " : clic = vide / normal / fort (glisser pour en remplir plusieurs)";
+                        groupEl.appendChild(step);
                     }
                     padRow.appendChild(groupEl);
                     groupIdx++;
                 }
             }
-            renderPad();
+
+            function setPadStep(stepEl, value) {
+                var idx = parseInt(stepEl.dataset.idx, 10);
+                metroActiveLayer(m).pattern[idx] = value;
+                stepEl.classList.remove("metro-step-0", "metro-step-1", "metro-step-2");
+                stepEl.classList.add("metro-step-" + value);
+            }
+
+            // Appuyer sur une case la fait tourner d'un cran (comme un clic) ; garder le bouton
+            // enfoncé et glisser sur les cases voisines leur donne le même état — de quoi remplir
+            // toute une série de doubles-croches d'un seul geste au lieu de les cliquer une à une.
+            // Les classes sont mises à jour sur place (pas de nouveau rendu pendant le geste).
+            var padPaintValue = null;
+            padRow.addEventListener("pointerdown", function (e) {
+                var stepEl = e.target.closest ? e.target.closest(".metro-step") : null;
+                if (!stepEl || (e.button !== undefined && e.button !== 0)) return;
+                e.preventDefault();
+                var current = metroActiveLayer(m).pattern[parseInt(stepEl.dataset.idx, 10)];
+                padPaintValue = (current + 1) % 3;
+                setPadStep(stepEl, padPaintValue);
+            });
+            function onPadPointerMove(e) {
+                if (padPaintValue === null) return;
+                var el = document.elementFromPoint(e.clientX, e.clientY);
+                var stepEl = el && el.closest ? el.closest(".metro-step") : null;
+                if (stepEl && padRow.contains(stepEl) && !stepEl.classList.contains("metro-step-" + padPaintValue)) setPadStep(stepEl, padPaintValue);
+            }
+            function onPadPointerUp() {
+                if (padPaintValue === null) return;
+                padPaintValue = null;
+                save();
+            }
+            window.addEventListener("pointermove", onPadPointerMove);
+            window.addEventListener("pointerup", onPadPointerUp);
+            window.addEventListener("pointercancel", onPadPointerUp);
+            // Clavier (Entrée/Espace sur une case) : pas de pointerdown, juste un clic (detail = 0).
+            padRow.addEventListener("click", function (e) {
+                var stepEl = e.target.closest ? e.target.closest(".metro-step") : null;
+                if (!stepEl || e.detail !== 0) return;
+                setPadStep(stepEl, (metroActiveLayer(m).pattern[parseInt(stepEl.dataset.idx, 10)] + 1) % 3);
+                save();
+            });
+
+            refreshRhythmMode();
             metroBeatCallback = function (step) {
                 var steps = padRow.querySelectorAll(".metro-step");
                 for (var i = 0; i < steps.length; i++) steps[i].classList.toggle("metro-step-current", i === step);
@@ -4075,8 +4242,11 @@
                 metroMeasureCallback = null;
                 window.removeEventListener("pointermove", onDialPointerMove);
                 window.removeEventListener("pointerup", onDialPointerUp);
+                window.removeEventListener("pointermove", onPadPointerMove);
+                window.removeEventListener("pointerup", onPadPointerUp);
+                window.removeEventListener("pointercancel", onPadPointerUp);
             };
-        });
+        }, { fitContent: true });
     }
 
     // ---------- aides : cercle des quintes ----------

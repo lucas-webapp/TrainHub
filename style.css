@@ -902,6 +902,12 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
     .panel-drag-handle { display: none; }
     .panel-drag-by-title { cursor: inherit !important; touch-action: auto !important; }
 }
+/* Fenêtres à contenu ajustable (métronome, voir fitPanelContentZoom dans script.js) : la taille de
+   la fenêtre est libre et c'est le contenu qui se met à l'échelle pour tenir dedans — jamais
+   d'ascenseur, et on peut la réduire bien en dessous de la taille "naturelle" du contenu. */
+.backups-panel.panel-fit-content { overflow: hidden; max-height: calc(100vh - 16px); max-width: calc(100vw - 16px); }
+.panel-fit-box { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.panel-fit-inner { flex: none; display: flex; flex-direction: column; gap: 12px; }
 .backups-title { font-size: var(--fs-md); font-weight: 800; }
 /* Le titre lui-même est aussi une poignée de déplacement (voir openModal) : plus facile à repérer
    que la seule bande du dessus. */
@@ -1038,6 +1044,9 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
    script.js). Les boutons reprennent les bords légèrement arrondis du reste de l'appli (--radius /
    --radius-sm) plutôt que la forme pilule utilisée dans une itération précédente. */
 .metronome-panel { align-items: stretch; text-align: center; }
+/* Plancher de redimensionnement à la main : en dessous, le contenu (mis à l'échelle pour tenir
+   dans la fenêtre) deviendrait illisible. */
+.backups-panel.metronome-panel { min-width: 260px; min-height: 340px; }
 /* Taille réglable depuis les paramètres généraux (state.settings.appearance). La position de
    départ (centre/haut/bas/coin) est, elle, posée en JS par openModal (voir metronomePosition dans
    script.js) : la fenêtre étant désormais librement déplaçable à la souris, un simple point de
@@ -1180,32 +1189,25 @@ button.metro-mini-btn.metro-mini-btn-icon .icon { width: 20px; height: 20px; }
 
 /* Le pavé est un simple conteneur flex-wrap de groupes (un groupe = un temps, voir renderPad dans
    script.js) : tient sur une seule ligne tant que la largeur le permet, et ne revient à la ligne
-   qu'un groupe entier à la fois (jamais coupé en deux) si l'espace manque vraiment. Pas d'intitulé :
-   juste le nombre de temps, masqué entièrement en mode "None" (voir renderPad). */
-.metro-pad { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; padding: 4px 0; margin-top: 12px; }
+   qu'un groupe entier à la fois (jamais coupé en deux) si l'espace manque vraiment. Pas d'intitulé,
+   masqué entièrement en mode "None". touch-action: none pour pouvoir glisser d'une case à l'autre au
+   doigt (remplissage de plusieurs cases d'un geste) sans que le navigateur ne le prenne pour un
+   défilement. */
+.metro-pad { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; padding: 4px 0; margin-top: 12px; touch-action: none; }
 .metro-beat-group { display: flex; gap: 4px; }
-/* Chaque case se règle par zone (haut = fort, milieu = normal, bas = silence) plutôt qu'en la
-   cliquant plusieurs fois pour boucler les 3 états : les deux lignes fines marquent ces zones. */
 .metro-step {
-    width: 32px;
-    height: 48px;
+    width: 30px;
+    height: 30px;
     border-radius: var(--radius-sm);
     border: 2px solid var(--border);
-    background:
-        linear-gradient(var(--border), var(--border)) left 33% / 100% 1px no-repeat,
-        linear-gradient(var(--border), var(--border)) left 66% / 100% 1px no-repeat,
-        transparent;
-    background-origin: content-box;
+    background: transparent;
     padding: 0;
     cursor: pointer;
 }
 .metro-step-0 { border-style: dashed; opacity: .45; }
-.metro-step-1 { background-color: var(--text-muted); border-color: var(--text-muted); }
-.metro-step-2 { background-color: var(--accent); border-color: var(--accent); }
+.metro-step-1 { background: var(--text-muted); border-color: var(--text-muted); }
+.metro-step-2 { background: var(--accent); border-color: var(--accent); }
 .metro-step-current { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent); }
-@media (max-width: 360px) {
-    .metro-step { width: 28px; height: 42px; }
-}
 
 /* -- pied de panneau : chronomètre -- */
 .metro-footer-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
