@@ -89,8 +89,19 @@
             // quotidien : juste deux cases à cocher, accessibles par clic droit/appui long.
             if (typeof ex.favorite !== "boolean") ex.favorite = false;
             if (typeof ex.archived !== "boolean") ex.archived = false;
+            if (!Array.isArray(ex.tags)) ex.tags = [];
+            ex.tags = ex.tags.filter(function (t) { return TAGS.hasOwnProperty(t); });
         });
     }
+
+    // Étiquettes prédéfinies posables sur un exercice (clic droit), simple classification en plus
+    // des dossiers/favoris/archivés — pas de filtre dédié dessus, juste un repère visuel discret.
+    var TAGS = {
+        difficile: { label: "Difficile", color: "#f87171" },
+        prioritaire: { label: "Prioritaire", color: "#fb923c" },
+        termine: { label: "Terminé", color: "#4ade80" },
+        arevoir: { label: "À revoir", color: "#60a5fa" }
+    };
 
     // Ordre d'affichage des chapitres (bandeau mobile + arborescence), synchronisé : mélange les
     // vrais chapitres et les chapitres virtuels (Favoris, Archivés), tous glissables ensemble. Par
@@ -137,10 +148,21 @@
         });
     }
 
+    // Corbeille : garde un exercice/dossier/session supprimé assez longtemps pour être restauré par
+    // erreur, en plus de l'annuler/rétablir (qui, lui, revient en arrière pas à pas et peut être
+    // écrasé par des actions suivantes). Les fichiers joints ne sont réellement effacés
+    // d'IndexedDB qu'à la suppression définitive (purge manuelle ou éviction au-delà de la limite).
+    var TRASH_LIMIT = 50;
+
+    function normalizeTrash(s) {
+        if (!Array.isArray(s.settings.trash)) s.settings.trash = [];
+    }
+
     function normalizeState(s) {
         if (!s.settings || typeof s.settings !== "object") s.settings = {};
         normalizeMetronomeSettings(s.settings);
         normalizeGuidedSessions(s);
+        normalizeTrash(s);
         normalizeAppearanceSettings(s);
         if (!Array.isArray(s.instruments)) s.instruments = [];
         s.instruments.forEach(function (inst) {
@@ -197,7 +219,7 @@
     // l'historique : les versions d'avant/après ne se comparent plus à ce qui vient d'arriver.
     // (Le branchement des boutons et le premier instantané sont plus bas, une fois les éléments
     // du DOM en main — voir "rendering".)
-    var HISTORY_LIMIT = 50;
+    var HISTORY_LIMIT = 200;
     var historyStack = [];
     var historyIndex = -1;
 
@@ -284,6 +306,94 @@
                 tx.onerror = function () { reject(tx.error); };
             });
         }).catch(function () {});
+    }
+
+    // ---------- corbeille ----------
+    // Filet de sécurité en plus d'annuler/rétablir : un élément supprimé (exercice/dossier/session)
+    // reste récupérable ici même après d'autres actions qui auraient fait sortir l'annulation de
+    // portée. Les fichiers joints d'un exercice mis à la corbeille restent en IndexedDB tant qu'il
+    // n'est pas purgé (évincé par la limite ou supprimé définitivement) — sinon les rouvrir après
+    // restauration échouerait.
+    function filesOf(entry) {
+        if (entry.type === "exercise") return entry.data.files || [];
+        if (entry.type === "folder") {
+            var files = [];
+            function walk(f) {
+                (f.exercises || []).forEach(function (ex) { files = files.concat(ex.files || []); });
+                (f.folders || []).forEach(walk);
+            }
+            walk(entry.data);
+            return files;
+        }
+        return [];
+    }
+
+    function purgeTrashEntry(entry) {
+        filesOf(entry).forEach(function (f) { deleteFileBlob(f.id); });
+    }
+
+    function addToTrash(type, data, extra) {
+        var entry = Object.assign({ id: uid(), type: type, data: data, deletedAt: Date.now() }, extra || {});
+        state.settings.trash.unshift(entry);
+        var evicted = state.settings.trash.splice(TRASH_LIMIT);
+        evicted.forEach(purgeTrashEntry);
+    }
+
+    function removeFromTrash(entryId) {
+        var i = state.settings.trash.findIndex(function (e) { return e.id === entryId; });
+        if (i !== -1) state.settings.trash.splice(i, 1);
+    }
+
+    function restoreFromTrash(entryId) {
+        var entry = state.settings.trash.filter(function (e) { return e.id === entryId; })[0];
+        if (!entry) return;
+        if (entry.type === "session") {
+            state.settings.guidedSessions.push(entry.data);
+        } else {
+            var inst = findById(state.instruments, entry.instrumentId) || state.instruments[0];
+            if (entry.type === "exercise") {
+                var folder = entry.parentFolderId ? findFolderById(inst, entry.parentFolderId) : null;
+                (folder || inst.categories[0]).exercises.push(entry.data);
+            } else if (entry.type === "folder") {
+                var parent = entry.parentFolderId ? findFolderById(inst, entry.parentFolderId) : null;
+                if (parent) parent.folders.push(entry.data);
+                else inst.categories.push(entry.data);
+            }
+        }
+        removeFromTrash(entryId);
+        save();
+        render();
+    }
+
+    function purgeFromTrash(entryId) {
+        var entry = state.settings.trash.filter(function (e) { return e.id === entryId; })[0];
+        if (!entry) return;
+        purgeTrashEntry(entry);
+        removeFromTrash(entryId);
+        save();
+        render();
+    }
+
+    function emptyTrash() {
+        state.settings.trash.forEach(purgeTrashEntry);
+        state.settings.trash = [];
+        save();
+        render();
+    }
+
+    // Recherche un dossier (chapitre ou sous-dossier) par id dans TOUT l'instrument, pour retrouver
+    // le parent d'un élément mis à la corbeille (voir restoreFromTrash).
+    function findFolderById(inst, folderId) {
+        var found = null;
+        function walk(list) {
+            list.forEach(function (f) {
+                if (found) return;
+                if (f.id === folderId) { found = f; return; }
+                walk(f.folders);
+            });
+        }
+        walk(inst.categories);
+        return found;
     }
 
     function humanFileSize(bytes) {
@@ -605,12 +715,55 @@
         el.addEventListener("pointercancel", cancelPress);
     }
 
+    // ---------- duplication (exercice / dossier) ----------
+    // Les fichiers joints vivent dans IndexedDB (voir plus haut) : dupliquer un exercice recopie
+    // aussi le blob réel sous un nouvel id, sinon les deux exercices partageraient le même fichier
+    // et le supprimer sur l'un l'effacerait pour l'autre.
+    function cloneLinksForDuplicate(links) {
+        return (links || []).map(function (l) { return { id: uid(), label: l.label, url: l.url }; });
+    }
+
+    function cloneFilesForDuplicate(files) {
+        return (files || []).map(function (f) {
+            var newId = uid();
+            getFileBlob(f.id).then(function (blob) { if (blob) storeFileBlob(newId, blob); });
+            return { id: newId, name: f.name, type: f.type, size: f.size };
+        });
+    }
+
+    function duplicateExercise(ex) {
+        return {
+            id: uid(),
+            title: ex.title + " (copie)",
+            notes: ex.notes || "",
+            favorite: false,
+            archived: false,
+            tags: (ex.tags || []).slice(),
+            links: cloneLinksForDuplicate(ex.links),
+            files: cloneFilesForDuplicate(ex.files),
+            pinnedLinkId: null,
+            collapsed: true,
+            updatedAt: Date.now()
+        };
+    }
+
+    function duplicateFolderDeep(folder) {
+        var copy = {
+            id: uid(),
+            name: folder.name + " (copie)",
+            folders: (folder.folders || []).map(duplicateFolderDeep),
+            exercises: (folder.exercises || []).map(duplicateExercise)
+        };
+        if (folder.color) copy.color = folder.color;
+        return copy;
+    }
+
     function bindFolderMenu(el, getParentArray, folder, inst) {
         bindContextGesture(el, function (x, y) { openFolderMenu(x, y, getParentArray, folder, inst); });
     }
 
-    function bindExerciseMenu(el, ex) {
-        bindContextGesture(el, function (x, y) { openExerciseMenu(x, y, ex); });
+    function bindExerciseMenu(el, ex, folder) {
+        bindContextGesture(el, function (x, y) { openExerciseMenu(x, y, ex, folder); });
     }
 
     // ---------- menu contextuel (renommer / supprimer) ----------
@@ -645,8 +798,11 @@
     }
 
     function deleteFolder(parentArray, folder, inst) {
+        var pathToFolder = findPathTo(inst, folder.id) || [folder.id];
+        var parentFolderId = pathToFolder.length > 1 ? pathToFolder[pathToFolder.length - 2] : null;
         var pos = parentArray.indexOf(folder);
         if (pos !== -1) parentArray.splice(pos, 1);
+        addToTrash("folder", folder, { instrumentId: inst.id, parentFolderId: parentFolderId });
         var path = getNavPath(inst);
         var inPath = path.indexOf(folder.id);
         if (inPath !== -1) setNavPath(inst, path.slice(0, inPath));
@@ -695,6 +851,12 @@
             menu.appendChild(title);
             if (canAddSub) menu.appendChild(menuButton("Nouveau sous-dossier", "", showAddSub));
             menu.appendChild(menuButton("Renommer", "", showRename));
+            menu.appendChild(menuButton("Dupliquer", "", function () {
+                getParentArray().push(duplicateFolderDeep(folder));
+                save();
+                closeFolderMenu();
+                render();
+            }));
             menu.appendChild(menuButton("Supprimer", "ctx-danger", showDelete));
         }
 
@@ -808,7 +970,7 @@
 
     // Menu, plus simple, d'un exercice : juste les deux cases "favoris" et "archiver" demandées
     // (le statu quo avec les statuts à faire/en cours/terminé/à revoir était jugé trop compliqué).
-    function openExerciseMenu(x, y, ex) {
+    function openExerciseMenu(x, y, ex, folder) {
         closeFolderMenu();
 
         var backdrop = document.createElement("div");
@@ -864,6 +1026,31 @@
             closeFolderMenu();
             render();
         }));
+
+        var tagsSep = document.createElement("div");
+        tagsSep.className = "ctx-title";
+        tagsSep.textContent = "Étiquettes";
+        menu.appendChild(tagsSep);
+        Object.keys(TAGS).forEach(function (key) {
+            var active = ex.tags.indexOf(key) !== -1;
+            menu.appendChild(menuButton((active ? "✓ " : "") + TAGS[key].label, "", function () {
+                var i = ex.tags.indexOf(key);
+                if (i === -1) ex.tags.push(key); else ex.tags.splice(i, 1);
+                touchExercise(ex);
+                save();
+                closeFolderMenu();
+                render();
+            }));
+        });
+
+        if (folder) {
+            menu.appendChild(menuButton("Dupliquer", "", function () {
+                folder.exercises.push(duplicateExercise(ex));
+                save();
+                closeFolderMenu();
+                render();
+            }));
+        }
 
         function onKey(e) { if (e.key === "Escape") closeFolderMenu(); }
 
@@ -1720,7 +1907,13 @@
             // Les archivés restent hors de la recherche classique : on les retrouve dans leur
             // propre chapitre virtuel "Archivés" (comme les favoris), voir renderVirtualChapterView.
             if (ex.archived) return false;
-            return !query || ex.title.toLowerCase().indexOf(query) !== -1;
+            if (!query) return true;
+            if (ex.title.toLowerCase().indexOf(query) !== -1) return true;
+            // La recherche trouve aussi un exercice par le nom d'un lien ou d'une pièce jointe
+            // (ex. "Youtube bassless"), pas seulement par le titre de l'exercice.
+            if (ex.links.some(function (l) { return (l.label || "").toLowerCase().indexOf(query) !== -1; })) return true;
+            if (ex.files.some(function (f) { return (f.name || "").toLowerCase().indexOf(query) !== -1; })) return true;
+            return false;
         }
         var results = collectExercises(inst, matchFn);
         renderResultsList(inst, results, "Aucun exercice ne correspond à ta recherche.");
@@ -1741,6 +1934,7 @@
                 notes: "",
                 favorite: false,
                 archived: false,
+                tags: [],
                 links: [],
                 files: [],
                 collapsed: true,
@@ -1766,7 +1960,7 @@
         var row = document.createElement("div");
         row.className = "exercise-row";
         row.title = "Cliquer pour les détails (notes, liens…) · clic droit ou appui long : favoris / archiver";
-        bindExerciseMenu(row, ex);
+        bindExerciseMenu(row, ex, folder);
         row.addEventListener("click", function (e) {
             if (suppressNextClick) { suppressNextClick = false; return; }
             // Le titre (et les boutons) gardent leur propre clic : cliquer le reste de la ligne
@@ -1795,6 +1989,17 @@
             favBadge.title = "Favori";
             row.appendChild(favBadge);
         }
+
+        (ex.tags || []).forEach(function (key) {
+            var tag = TAGS[key];
+            if (!tag) return;
+            var tagBadge = document.createElement("span");
+            tagBadge.className = "exercise-tag-badge";
+            tagBadge.textContent = tag.label;
+            tagBadge.style.color = tag.color;
+            tagBadge.style.borderColor = tag.color;
+            row.appendChild(tagBadge);
+        });
 
         var title = document.createElement("input");
         title.type = "text";
@@ -1827,7 +2032,7 @@
 
         var delBtn = iconButton("✕", "Supprimer l'exercice", function () {
             if (!window.confirm("Supprimer « " + ex.title + " » ?")) return;
-            (ex.files || []).forEach(function (f) { deleteFileBlob(f.id); });
+            addToTrash("exercise", ex, { instrumentId: getActiveInstrument().id, parentFolderId: folder.id });
             folder.exercises = folder.exercises.filter(function (e) { return e.id !== ex.id; });
             save();
             render();
@@ -2507,6 +2712,97 @@
         document.body.appendChild(panel);
     }
 
+    var $trashBtn = document.getElementById("trash-btn");
+    if ($trashBtn) $trashBtn.addEventListener("click", openTrashPanel);
+
+    function trashEntryLabel(entry) {
+        if (entry.type === "exercise") return "Exercice · " + entry.data.title;
+        if (entry.type === "folder") return "Dossier · " + entry.data.name;
+        return "Session guidée · " + entry.data.name;
+    }
+
+    function openTrashPanel() {
+        openModal("trash-panel", function (panel) {
+            var title = document.createElement("div");
+            title.className = "backups-title";
+            title.textContent = "Corbeille";
+            panel.appendChild(title);
+
+            var intro = document.createElement("div");
+            intro.className = "backups-intro";
+            intro.textContent = "Exercices, dossiers et sessions supprimés récemment.";
+            panel.appendChild(intro);
+
+            var list = document.createElement("div");
+            list.className = "backups-list";
+            var trash = state.settings.trash;
+            if (!trash.length) {
+                var empty = document.createElement("div");
+                empty.className = "backups-empty";
+                empty.textContent = "La corbeille est vide.";
+                list.appendChild(empty);
+            }
+            trash.forEach(function (entry) {
+                var row = document.createElement("div");
+                row.className = "backups-row";
+
+                var info = document.createElement("div");
+                info.className = "backups-info";
+                var when = document.createElement("div");
+                when.className = "backups-when";
+                when.textContent = trashEntryLabel(entry);
+                info.appendChild(when);
+                var reason = document.createElement("div");
+                reason.className = "backups-reason";
+                reason.textContent = new Date(entry.deletedAt).toLocaleString("fr-FR");
+                info.appendChild(reason);
+                row.appendChild(info);
+
+                var actions = document.createElement("div");
+                actions.className = "backups-actions";
+                var restoreBtn = document.createElement("button");
+                restoreBtn.type = "button";
+                restoreBtn.className = "btn-ghost";
+                restoreBtn.textContent = "Restaurer";
+                restoreBtn.addEventListener("click", function () {
+                    restoreFromTrash(entry.id);
+                    openTrashPanel();
+                });
+                actions.appendChild(restoreBtn);
+                var purgeBtn = document.createElement("button");
+                purgeBtn.type = "button";
+                purgeBtn.className = "ctx-danger-solid";
+                purgeBtn.textContent = "Supprimer définitivement";
+                purgeBtn.addEventListener("click", function () {
+                    if (!window.confirm("Supprimer définitivement cet élément ? Impossible à annuler.")) return;
+                    purgeFromTrash(entry.id);
+                    openTrashPanel();
+                });
+                actions.appendChild(purgeBtn);
+                row.appendChild(actions);
+
+                list.appendChild(row);
+            });
+            panel.appendChild(list);
+
+            if (trash.length) {
+                var emptyRow = document.createElement("div");
+                emptyRow.className = "backups-close-row";
+                var emptyAllBtn = document.createElement("button");
+                emptyAllBtn.type = "button";
+                emptyAllBtn.className = "ctx-danger-solid";
+                emptyAllBtn.textContent = "Vider la corbeille";
+                emptyAllBtn.addEventListener("click", function () {
+                    if (!window.confirm("Vider définitivement la corbeille ?")) return;
+                    emptyTrash();
+                    openTrashPanel();
+                });
+                emptyRow.appendChild(emptyAllBtn);
+                panel.appendChild(emptyRow);
+            }
+        });
+    }
+
     var importInput = document.getElementById("import-input");
     document.getElementById("import-btn").addEventListener("click", function () {
         importInput.click();
@@ -2622,6 +2918,12 @@
         for (var i = 0; i < m.pattern.length; i++) {
             if ([0, 1, 2].indexOf(m.pattern[i]) === -1) m.pattern[i] = 1;
         }
+        // Tempo progressif (peu utilisé au quotidien, désactivé par défaut) : augmente le BPM tout
+        // seul toutes les N mesures pendant la lecture — voir metroScheduler.
+        if (!m.progressive || typeof m.progressive !== "object") m.progressive = {};
+        if (typeof m.progressive.enabled !== "boolean") m.progressive.enabled = false;
+        if (typeof m.progressive.incrementBpm !== "number" || isNaN(m.progressive.incrementBpm) || m.progressive.incrementBpm <= 0) m.progressive.incrementBpm = 5;
+        if (typeof m.progressive.everyMeasures !== "number" || isNaN(m.progressive.everyMeasures) || m.progressive.everyMeasures <= 0) m.progressive.everyMeasures = 4;
         return m;
     }
 
@@ -2632,6 +2934,7 @@
     var metroNextNoteTime = 0;
     var metroCurrentStep = 0;
     var metroBeatCallback = null; // met à jour l'affichage (pas qui clignote), posé par le panneau ouvert
+    var metroMeasureCallback = null; // prévenu à chaque nouvelle mesure (voir tempo progressif)
     var METRO_LOOKAHEAD_MS = 25;
     var METRO_SCHEDULE_AHEAD_S = 0.12;
 
@@ -2688,6 +2991,7 @@
             var secondsPerStep = 60 / m.bpm / m.subdivision;
             metroNextNoteTime += secondsPerStep;
             metroCurrentStep = (metroCurrentStep + 1) % stepCount;
+            if (metroCurrentStep === 0 && metroMeasureCallback) metroMeasureCallback();
         }
         metroTimer = setTimeout(metroScheduler, METRO_LOOKAHEAD_MS);
     }
@@ -2777,6 +3081,98 @@
             bpmSlider.className = "metro-bpm-slider";
             bpmSlider.addEventListener("input", function () { setBpm(parseInt(bpmSlider.value, 10)); });
             panel.appendChild(bpmSlider);
+
+            // ---------- tap tempo ----------
+            // Taper le rythme au doigt/clic déduit le BPM des écarts entre appuis, plutôt que de le
+            // saisir au clavier. Une pause de plus de 2s entre deux appuis repart de zéro (on a
+            // changé d'idée) au lieu de fausser la moyenne avec un tempo sans rapport.
+            var tapTimes = [];
+            var tapBtn = document.createElement("button");
+            tapBtn.type = "button";
+            tapBtn.className = "btn-ghost metro-tap-btn";
+            tapBtn.textContent = "Tap tempo";
+            tapBtn.title = "Tapoter au tempo souhaité pour régler le BPM";
+            tapBtn.addEventListener("click", function () {
+                var now = Date.now();
+                if (tapTimes.length && now - tapTimes[tapTimes.length - 1] > 2000) tapTimes = [];
+                tapTimes.push(now);
+                if (tapTimes.length > 8) tapTimes.shift();
+                if (tapTimes.length >= 2) {
+                    var intervals = [];
+                    for (var i = 1; i < tapTimes.length; i++) intervals.push(tapTimes[i] - tapTimes[i - 1]);
+                    var avg = intervals.reduce(function (a, b) { return a + b; }, 0) / intervals.length;
+                    setBpm(Math.round(60000 / avg));
+                }
+            });
+            panel.appendChild(tapBtn);
+
+            // ---------- tempo progressif ----------
+            // Peu utilisé au quotidien (voir demande utilisateur) : bouton dédié qui replie/déplie
+            // ses deux réglages plutôt que de les laisser en permanence dans le panneau principal.
+            var progRow = document.createElement("div");
+            progRow.className = "metro-progressive-row";
+            var progToggle = document.createElement("button");
+            progToggle.type = "button";
+            progToggle.className = "btn-ghost metro-progressive-toggle";
+            var progFields = document.createElement("div");
+            progFields.className = "metro-progressive-fields";
+
+            var progIncField = document.createElement("label");
+            progIncField.className = "metro-progressive-field";
+            progIncField.textContent = "+ BPM";
+            var progIncInput = document.createElement("input");
+            progIncInput.type = "number";
+            progIncInput.min = "1";
+            progIncInput.max = "50";
+            progIncInput.value = m.progressive.incrementBpm;
+            progIncInput.addEventListener("change", function () {
+                m.progressive.incrementBpm = Math.max(1, parseInt(progIncInput.value, 10) || 5);
+                progIncInput.value = m.progressive.incrementBpm;
+                save();
+            });
+            progIncField.appendChild(progIncInput);
+            progFields.appendChild(progIncField);
+
+            var progEveryField = document.createElement("label");
+            progEveryField.className = "metro-progressive-field";
+            progEveryField.textContent = "Toutes les X mesures";
+            var progEveryInput = document.createElement("input");
+            progEveryInput.type = "number";
+            progEveryInput.min = "1";
+            progEveryInput.max = "64";
+            progEveryInput.value = m.progressive.everyMeasures;
+            progEveryInput.addEventListener("change", function () {
+                m.progressive.everyMeasures = Math.max(1, parseInt(progEveryInput.value, 10) || 4);
+                progEveryInput.value = m.progressive.everyMeasures;
+                save();
+            });
+            progEveryField.appendChild(progEveryInput);
+            progFields.appendChild(progEveryField);
+
+            function refreshProgToggle() {
+                progToggle.textContent = "Tempo progressif : " + (m.progressive.enabled ? "activé" : "désactivé");
+                progToggle.classList.toggle("metro-progressive-active", m.progressive.enabled);
+                progFields.hidden = !m.progressive.enabled;
+            }
+            progToggle.addEventListener("click", function () {
+                m.progressive.enabled = !m.progressive.enabled;
+                save();
+                refreshProgToggle();
+            });
+            refreshProgToggle();
+            progRow.appendChild(progToggle);
+            progRow.appendChild(progFields);
+            panel.appendChild(progRow);
+
+            var progMeasureCount = 0;
+            metroMeasureCallback = function () {
+                if (!m.progressive.enabled) return;
+                progMeasureCount++;
+                if (progMeasureCount >= m.progressive.everyMeasures) {
+                    progMeasureCount = 0;
+                    setBpm(m.bpm + m.progressive.incrementBpm);
+                }
+            };
 
             var fieldsRow = document.createElement("div");
             fieldsRow.className = "metro-fields-row";
@@ -2985,7 +3381,7 @@
             }
             refreshPlayBtn();
             playBtn.addEventListener("click", function () {
-                if (metroPlaying) { stopMetronome(); stopChrono(); } else { startMetronome(); startChrono(); }
+                if (metroPlaying) { stopMetronome(); stopChrono(); } else { progMeasureCount = 0; startMetronome(); startChrono(); }
                 refreshPlayBtn();
             });
             panel.appendChild(playBtn);
@@ -3008,6 +3404,7 @@
                 stopMetronome();
                 if (chronoInterval) clearInterval(chronoInterval);
                 metroBeatCallback = null;
+                metroMeasureCallback = null;
             };
         });
     }
@@ -3126,6 +3523,496 @@
         });
     }
 
+    // ---------- gammes & arpèges ----------
+    // Simple visualisation (pas de son) des gammes/modes/arpèges sur les manches (basse 4 et 5
+    // cordes, guitare) et le clavier — géométrie du manche reprise de celle de HarmoHub
+    // (buildGuitarDiagramSVG : mêmes espacements stringGap/fretGap/marginLeft/marginTop, sillet à
+    // gauche, corde la plus AIGUË en haut), généralisée à un nombre de cordes quelconque au lieu de
+    // 6 fixes, et augmentée d'un texte sur chaque note (intervalle ou nom, au choix).
+    var NOTE_NAMES_SHARP = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"];
+
+    var SCALE_DEFS = [
+        { key: "major", kind: "Gammes", label: "Majeur (Ionien)", semis: [0, 2, 4, 5, 7, 9, 11], degrees: ["1", "2", "3", "4", "5", "6", "7"] },
+        { key: "dorian", kind: "Gammes", label: "Dorien", semis: [0, 2, 3, 5, 7, 9, 10], degrees: ["1", "2", "♭3", "4", "5", "6", "♭7"] },
+        { key: "phrygian", kind: "Gammes", label: "Phrygien", semis: [0, 1, 3, 5, 7, 8, 10], degrees: ["1", "♭2", "♭3", "4", "5", "♭6", "♭7"] },
+        { key: "lydian", kind: "Gammes", label: "Lydien", semis: [0, 2, 4, 6, 7, 9, 11], degrees: ["1", "2", "3", "♯4", "5", "6", "7"] },
+        { key: "mixolydian", kind: "Gammes", label: "Mixolydien", semis: [0, 2, 4, 5, 7, 9, 10], degrees: ["1", "2", "3", "4", "5", "6", "♭7"] },
+        { key: "aeolian", kind: "Gammes", label: "Mineur naturel (Éolien)", semis: [0, 2, 3, 5, 7, 8, 10], degrees: ["1", "2", "♭3", "4", "5", "♭6", "♭7"] },
+        { key: "locrian", kind: "Gammes", label: "Locrien", semis: [0, 1, 3, 5, 6, 8, 10], degrees: ["1", "♭2", "♭3", "4", "♭5", "♭6", "♭7"] },
+        { key: "harmonicMinor", kind: "Gammes", label: "Mineur harmonique", semis: [0, 2, 3, 5, 7, 8, 11], degrees: ["1", "2", "♭3", "4", "5", "♭6", "7"] },
+        { key: "melodicMinor", kind: "Gammes", label: "Mineur mélodique", semis: [0, 2, 3, 5, 7, 9, 11], degrees: ["1", "2", "♭3", "4", "5", "6", "7"] },
+        { key: "majorPenta", kind: "Gammes", label: "Pentatonique majeure", semis: [0, 2, 4, 7, 9], degrees: ["1", "2", "3", "5", "6"] },
+        { key: "minorPenta", kind: "Gammes", label: "Pentatonique mineure", semis: [0, 3, 5, 7, 10], degrees: ["1", "♭3", "4", "5", "♭7"] },
+        { key: "blues", kind: "Gammes", label: "Blues", semis: [0, 3, 5, 6, 7, 10], degrees: ["1", "♭3", "4", "♭5", "5", "♭7"] },
+        { key: "wholeTone", kind: "Gammes", label: "Gamme par tons", semis: [0, 2, 4, 6, 8, 10], degrees: ["1", "2", "3", "4", "5", "6"] },
+        { key: "triadMaj", kind: "Arpèges", label: "Triade majeure", semis: [0, 4, 7], degrees: ["1", "3", "5"] },
+        { key: "triadMin", kind: "Arpèges", label: "Triade mineure", semis: [0, 3, 7], degrees: ["1", "♭3", "5"] },
+        { key: "triadDim", kind: "Arpèges", label: "Triade diminuée", semis: [0, 3, 6], degrees: ["1", "♭3", "♭5"] },
+        { key: "triadAug", kind: "Arpèges", label: "Triade augmentée", semis: [0, 4, 8], degrees: ["1", "3", "♯5"] },
+        { key: "maj7", kind: "Arpèges", label: "Septième majeure (maj7)", semis: [0, 4, 7, 11], degrees: ["1", "3", "5", "7"] },
+        { key: "dom7", kind: "Arpèges", label: "Septième de dominante (7)", semis: [0, 4, 7, 10], degrees: ["1", "3", "5", "♭7"] },
+        { key: "min7", kind: "Arpèges", label: "Septième mineure (m7)", semis: [0, 3, 7, 10], degrees: ["1", "♭3", "5", "♭7"] },
+        { key: "min7b5", kind: "Arpèges", label: "Demi-diminuée (m7♭5)", semis: [0, 3, 6, 10], degrees: ["1", "♭3", "♭5", "♭7"] },
+        { key: "dim7", kind: "Arpèges", label: "Diminuée 7 (dim7)", semis: [0, 3, 6, 9], degrees: ["1", "♭3", "♭5", "6"] },
+        { key: "minMaj7", kind: "Arpèges", label: "Mineure/majeure 7 (mMaj7)", semis: [0, 3, 7, 11], degrees: ["1", "♭3", "5", "7"] }
+    ];
+
+    var FRETBOARD_TUNINGS = [
+        { key: "bass4", label: "Basse (4 cordes)", midis: [28, 33, 38, 43] },
+        { key: "bass5", label: "Basse (5 cordes)", midis: [23, 28, 33, 38, 43] },
+        { key: "guitar", label: "Guitare", midis: [40, 45, 50, 55, 59, 64] }
+    ];
+    var FRETBOARD_DISPLAY_FRETS = 24;
+    var FRETBOARD_SINGLE_MARKERS = [3, 5, 7, 9, 15, 17, 19, 21];
+    var FRETBOARD_DOUBLE_MARKERS = [12, 24];
+
+    function scaleNoteLabel(def, semiIdx, pc, labelMode) {
+        return labelMode === "notes" ? NOTE_NAMES_SHARP[pc] : def.degrees[semiIdx];
+    }
+
+    function buildFretboardSvg(tuning, def, rootPc, labelMode) {
+        var ns = "http://www.w3.org/2000/svg";
+        var stringGap = 16, fretGap = 30, marginLeft = 20, marginTop = 8, labelRowH = 13;
+        var n = tuning.midis.length;
+        var stringsSpan = stringGap * (n - 1);
+        var width = marginLeft + fretGap * FRETBOARD_DISPLAY_FRETS + 8;
+        var height = marginTop + stringsSpan + labelRowH + 4;
+        var svg = document.createElementNS(ns, "svg");
+        svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+        svg.setAttribute("width", width);
+        svg.setAttribute("height", height);
+        svg.setAttribute("class", "fretboard-svg");
+
+        function el(tag, attrs) {
+            var e = document.createElementNS(ns, tag);
+            for (var k in attrs) e.setAttribute(k, attrs[k]);
+            return e;
+        }
+        function stringY(s) { return marginTop + (n - 1 - s) * stringGap; }
+
+        svg.appendChild(el("rect", { x: marginLeft - 2, y: marginTop, width: 3, height: stringsSpan, class: "fretboard-nut" }));
+        for (var c = 1; c <= FRETBOARD_DISPLAY_FRETS; c++) {
+            var x = marginLeft + c * fretGap;
+            svg.appendChild(el("line", { x1: x, y1: marginTop, x2: x, y2: marginTop + stringsSpan, class: "fretboard-fret" }));
+        }
+        for (var s = 0; s < n; s++) {
+            var y = stringY(s);
+            svg.appendChild(el("line", { x1: marginLeft, y1: y, x2: marginLeft + fretGap * FRETBOARD_DISPLAY_FRETS, y2: y, class: "fretboard-string" }));
+        }
+        var midY = marginTop + stringsSpan / 2;
+        var labelY = marginTop + stringsSpan + 11;
+        FRETBOARD_SINGLE_MARKERS.forEach(function (fret) {
+            var mx = marginLeft + (fret - 0.5) * fretGap;
+            svg.appendChild(el("circle", { cx: mx, cy: midY, r: 3, class: "fretboard-inlay" }));
+            svg.appendChild(el("text", { x: mx, y: labelY, class: "fretboard-fret-label" })).textContent = fret;
+        });
+        FRETBOARD_DOUBLE_MARKERS.forEach(function (fret) {
+            var mx = marginLeft + (fret - 0.5) * fretGap;
+            svg.appendChild(el("circle", { cx: mx, cy: midY - stringGap, r: 3, class: "fretboard-inlay" }));
+            svg.appendChild(el("circle", { cx: mx, cy: midY + stringGap, r: 3, class: "fretboard-inlay" }));
+            svg.appendChild(el("text", { x: mx, y: labelY, class: "fretboard-fret-label" })).textContent = fret;
+        });
+
+        for (var s2 = 0; s2 < n; s2++) {
+            for (var fret2 = 0; fret2 <= FRETBOARD_DISPLAY_FRETS; fret2++) {
+                var pc = (tuning.midis[s2] + fret2) % 12;
+                var diff = (pc - rootPc + 12) % 12;
+                var semiIdx = def.semis.indexOf(diff);
+                if (semiIdx === -1) continue;
+                var isRoot = diff === 0;
+                var nx = fret2 === 0 ? marginLeft - 9 : marginLeft + (fret2 - 0.5) * fretGap;
+                var ny = stringY(s2);
+                var r = fret2 === 0 ? 7 : 9;
+                svg.appendChild(el("circle", { cx: nx, cy: ny, r: r, class: "fretboard-note" + (isRoot ? " fretboard-note-root" : "") }));
+                var t = el("text", { x: nx, y: ny + 3, class: "fretboard-note-label" });
+                t.textContent = scaleNoteLabel(def, semiIdx, pc, labelMode);
+                svg.appendChild(t);
+            }
+        }
+        return svg;
+    }
+
+    // ---------- clavier (piano) ----------
+    function roundedBottomRectPath(x, y, w, h, r) {
+        return "M" + x + "," + y + " H" + (x + w) + " V" + (y + h - r) + " Q" + (x + w) + "," + (y + h) + " " + (x + w - r) + "," + (y + h) +
+            " H" + (x + r) + " Q" + x + "," + (y + h) + " " + x + "," + (y + h - r) + " Z";
+    }
+    var PIANO_LOW_MIDI = 48; // C3
+    var PIANO_HIGH_MIDI = 72; // C5, deux octaves complètes
+    var PIANO_BLACK_PCS = [1, 3, 6, 8, 10];
+
+    function buildPianoScaleSvg(def, rootPc, labelMode) {
+        var ns = "http://www.w3.org/2000/svg";
+        var keyW = 26, keyH = 90, blackW = keyW * 0.62, blackH = keyH * 0.6;
+        var whiteMidis = [];
+        for (var m = PIANO_LOW_MIDI; m <= PIANO_HIGH_MIDI; m++) {
+            if (PIANO_BLACK_PCS.indexOf(((m % 12) + 12) % 12) === -1) whiteMidis.push(m);
+        }
+        var width = whiteMidis.length * keyW;
+        var svg = document.createElementNS(ns, "svg");
+        svg.setAttribute("viewBox", "0 0 " + width + " " + keyH);
+        svg.setAttribute("width", width);
+        svg.setAttribute("height", keyH);
+        svg.setAttribute("class", "piano-scale-svg");
+
+        function el(tag, attrs) {
+            var e = document.createElementNS(ns, tag);
+            for (var k in attrs) e.setAttribute(k, attrs[k]);
+            return e;
+        }
+        function activeFor(midi) {
+            var pc = ((midi % 12) + 12) % 12;
+            var diff = (pc - rootPc + 12) % 12;
+            var semiIdx = def.semis.indexOf(diff);
+            if (semiIdx === -1) return null;
+            return { isRoot: diff === 0, label: scaleNoteLabel(def, semiIdx, pc, labelMode) };
+        }
+
+        whiteMidis.forEach(function (midi, i) {
+            var active = activeFor(midi);
+            var x = i * keyW, w = keyW - 1;
+            var path = el("path", { d: roundedBottomRectPath(x, 0, w, keyH, 3), class: "piano-key-white" + (active ? " piano-key-active" + (active.isRoot ? " piano-key-root" : "") : "") });
+            svg.appendChild(path);
+            if (active) {
+                var t = el("text", { x: x + w / 2, y: keyH - 8, class: "piano-key-label" });
+                t.textContent = active.label;
+                svg.appendChild(t);
+            }
+        });
+        var whiteSeen = 0;
+        for (var midi2 = PIANO_LOW_MIDI; midi2 <= PIANO_HIGH_MIDI; midi2++) {
+            var isBlack = PIANO_BLACK_PCS.indexOf(((midi2 % 12) + 12) % 12) !== -1;
+            if (!isBlack) { whiteSeen++; continue; }
+            var active2 = activeFor(midi2);
+            var x2 = whiteSeen * keyW - blackW / 2;
+            var path2 = el("path", { d: roundedBottomRectPath(x2, 0, blackW, blackH, 2.5), class: "piano-key-black" + (active2 ? " piano-key-active" + (active2.isRoot ? " piano-key-root" : "") : "") });
+            svg.appendChild(path2);
+            if (active2) {
+                var t2 = el("text", { x: x2 + blackW / 2, y: blackH - 8, class: "piano-key-label piano-key-label-black" });
+                t2.textContent = active2.label;
+                svg.appendChild(t2);
+            }
+        }
+        return svg;
+    }
+
+    function openScalesPanel() {
+        openModal("scales-panel", function (panel) {
+            var title = document.createElement("div");
+            title.className = "backups-title";
+            title.textContent = "Gammes & arpèges";
+            panel.appendChild(title);
+
+            var controlsRow = document.createElement("div");
+            controlsRow.className = "scales-controls-row";
+
+            var rootSelect = document.createElement("select");
+            NOTE_NAMES_SHARP.forEach(function (name, pc) {
+                var o = document.createElement("option");
+                o.value = pc;
+                o.textContent = name;
+                rootSelect.appendChild(o);
+            });
+            controlsRow.appendChild(rootSelect);
+
+            var typeSelect = document.createElement("select");
+            var currentGroup = null, optgroup = null;
+            SCALE_DEFS.forEach(function (def) {
+                if (def.kind !== currentGroup) {
+                    currentGroup = def.kind;
+                    optgroup = document.createElement("optgroup");
+                    optgroup.label = def.kind;
+                    typeSelect.appendChild(optgroup);
+                }
+                var o = document.createElement("option");
+                o.value = def.key;
+                o.textContent = def.label;
+                optgroup.appendChild(o);
+            });
+            controlsRow.appendChild(typeSelect);
+            panel.appendChild(controlsRow);
+
+            var labelModeRow = document.createElement("div");
+            labelModeRow.className = "scales-label-mode-row";
+            var labelMode = "degrees";
+            var intervalsBtn = document.createElement("button");
+            intervalsBtn.type = "button";
+            intervalsBtn.className = "btn-ghost scales-label-btn";
+            intervalsBtn.textContent = "Intervalles";
+            var notesBtn = document.createElement("button");
+            notesBtn.type = "button";
+            notesBtn.className = "btn-ghost scales-label-btn";
+            notesBtn.textContent = "Noms des notes";
+            labelModeRow.appendChild(intervalsBtn);
+            labelModeRow.appendChild(notesBtn);
+            panel.appendChild(labelModeRow);
+
+            var diagramsWrap = document.createElement("div");
+            diagramsWrap.className = "scales-diagrams";
+            panel.appendChild(diagramsWrap);
+
+            function refreshLabelButtons() {
+                intervalsBtn.classList.toggle("scales-label-btn-active", labelMode === "degrees");
+                notesBtn.classList.toggle("scales-label-btn-active", labelMode === "notes");
+            }
+            intervalsBtn.addEventListener("click", function () { labelMode = "degrees"; refreshLabelButtons(); renderDiagrams(); });
+            notesBtn.addEventListener("click", function () { labelMode = "notes"; refreshLabelButtons(); renderDiagrams(); });
+            refreshLabelButtons();
+
+            function renderDiagrams() {
+                diagramsWrap.innerHTML = "";
+                var rootPc = parseInt(rootSelect.value, 10);
+                var def = SCALE_DEFS.filter(function (d) { return d.key === typeSelect.value; })[0] || SCALE_DEFS[0];
+                FRETBOARD_TUNINGS.forEach(function (tuning) {
+                    var section = document.createElement("div");
+                    section.className = "scales-section";
+                    var heading = document.createElement("div");
+                    heading.className = "section-label";
+                    heading.textContent = tuning.label;
+                    section.appendChild(heading);
+                    var scroll = document.createElement("div");
+                    scroll.className = "fretboard-scroll";
+                    scroll.appendChild(buildFretboardSvg(tuning, def, rootPc, labelMode));
+                    section.appendChild(scroll);
+                    diagramsWrap.appendChild(section);
+                });
+                var pianoSection = document.createElement("div");
+                pianoSection.className = "scales-section";
+                var pianoHeading = document.createElement("div");
+                pianoHeading.className = "section-label";
+                pianoHeading.textContent = "Piano";
+                pianoSection.appendChild(pianoHeading);
+                var pianoScroll = document.createElement("div");
+                pianoScroll.className = "fretboard-scroll";
+                pianoScroll.appendChild(buildPianoScaleSvg(def, rootPc, labelMode));
+                pianoSection.appendChild(pianoScroll);
+                diagramsWrap.appendChild(pianoSection);
+            }
+            rootSelect.addEventListener("change", renderDiagrams);
+            typeSelect.addEventListener("change", renderDiagrams);
+            renderDiagrams();
+        });
+    }
+
+    // ---------- accordeur ----------
+    // Un accordeur chromatique classique : n'importe quelle entrée audio (micro OU carte son
+    // branchée en USB) apparaît de la même façon dans navigator.mediaDevices.enumerateDevices() —
+    // le navigateur ne fait pas la différence, donc un simple sélecteur d'entrée suffit à couvrir
+    // les deux cas demandés, sans code spécifique à une interface audio.
+    var TUNER_REFERENCE_TUNINGS = [
+        { key: "guitar", label: "Guitare", midis: [40, 45, 50, 55, 59, 64] },
+        { key: "bass4", label: "Basse (4 cordes)", midis: [28, 33, 38, 43] },
+        { key: "bass5", label: "Basse (5 cordes)", midis: [23, 28, 33, 38, 43] }
+    ];
+
+    function midiNoteName(midi) {
+        return NOTE_NAMES_SHARP[((midi % 12) + 12) % 12];
+    }
+
+    // Détection de fréquence par autocorrélation temporelle (technique standard pour un accordeur :
+    // on cherche le décalage qui fait le mieux correspondre le signal avec lui-même, ce décalage
+    // correspond à la période du son). Renvoie -1 si le signal est trop faible pour être fiable.
+    function autoCorrelateFrequency(buf, sampleRate) {
+        var size = buf.length;
+        var rms = 0;
+        for (var i = 0; i < size; i++) rms += buf[i] * buf[i];
+        rms = Math.sqrt(rms / size);
+        if (rms < 0.01) return -1;
+
+        var threshold = 0.2, start = 0, end = size - 1;
+        for (var a = 0; a < size / 2; a++) { if (Math.abs(buf[a]) >= threshold) { start = a; break; } }
+        for (var b = size - 1; b > size / 2; b--) { if (Math.abs(buf[b]) >= threshold) { end = b; break; } }
+        var trimmed = buf.slice(start, end);
+        var n = trimmed.length;
+        if (n < 8) return -1;
+
+        var corr = new Array(n).fill(0);
+        for (var lag = 0; lag < n; lag++) {
+            for (var j = 0; j < n - lag; j++) corr[lag] += trimmed[j] * trimmed[j + lag];
+        }
+        var d = 0;
+        while (d < n - 1 && corr[d] > corr[d + 1]) d++;
+        var bestLag = -1, bestVal = -1;
+        for (var k = d; k < n; k++) {
+            if (corr[k] > bestVal) { bestVal = corr[k]; bestLag = k; }
+        }
+        if (bestLag <= 0) return -1;
+        // Interpolation parabolique autour du pic pour affiner la période au-delà de la résolution
+        // entière de l'échantillonnage.
+        var x1 = corr[bestLag - 1] || 0, x2 = corr[bestLag], x3 = corr[bestLag + 1] || 0;
+        var a2 = (x1 + x3 - 2 * x2) / 2, b2 = (x3 - x1) / 2;
+        var refinedLag = a2 ? bestLag - b2 / (2 * a2) : bestLag;
+        return sampleRate / refinedLag;
+    }
+
+    function freqToNoteInfo(freq) {
+        var noteNum = 12 * (Math.log(freq / 440) / Math.log(2));
+        var midi = Math.round(69 + noteNum);
+        var cents = Math.round((69 + noteNum - midi) * 100);
+        return { midi: midi, name: midiNoteName(midi), octave: Math.floor(midi / 12) - 1, cents: cents };
+    }
+
+    function openTunerPanel() {
+        openModal("tuner-panel", function (panel, close) {
+            var title = document.createElement("div");
+            title.className = "backups-title";
+            title.textContent = "Accordeur";
+            panel.appendChild(title);
+
+            var intro = document.createElement("div");
+            intro.className = "backups-intro";
+            intro.textContent = "Choisis ton entrée audio (micro ou carte son) puis démarre.";
+            panel.appendChild(intro);
+
+            var controlsRow = document.createElement("div");
+            controlsRow.className = "tuner-controls-row";
+            var deviceSelect = document.createElement("select");
+            deviceSelect.className = "tuner-device-select";
+            deviceSelect.disabled = true;
+            var placeholderOpt = document.createElement("option");
+            placeholderOpt.value = "";
+            placeholderOpt.textContent = "Démarre pour lister les entrées…";
+            deviceSelect.appendChild(placeholderOpt);
+            controlsRow.appendChild(deviceSelect);
+
+            var tuningSelect = document.createElement("select");
+            TUNER_REFERENCE_TUNINGS.forEach(function (t) {
+                var o = document.createElement("option");
+                o.value = t.key;
+                o.textContent = t.label;
+                tuningSelect.appendChild(o);
+            });
+            controlsRow.appendChild(tuningSelect);
+            panel.appendChild(controlsRow);
+
+            var referenceRow = document.createElement("div");
+            referenceRow.className = "tuner-reference-row";
+            panel.appendChild(referenceRow);
+            function refreshReferenceRow() {
+                referenceRow.innerHTML = "";
+                var t = TUNER_REFERENCE_TUNINGS.filter(function (x) { return x.key === tuningSelect.value; })[0];
+                t.midis.slice().reverse().forEach(function (midi) {
+                    var chip = document.createElement("span");
+                    chip.className = "tuner-reference-chip";
+                    chip.textContent = midiNoteName(midi);
+                    referenceRow.appendChild(chip);
+                });
+            }
+            tuningSelect.addEventListener("change", refreshReferenceRow);
+            refreshReferenceRow();
+
+            var startBtn = document.createElement("button");
+            startBtn.type = "button";
+            startBtn.className = "btn-accent tuner-start-btn";
+            startBtn.textContent = "Démarrer";
+            panel.appendChild(startBtn);
+
+            var display = document.createElement("div");
+            display.className = "tuner-display";
+            var noteEl = document.createElement("div");
+            noteEl.className = "tuner-note";
+            noteEl.textContent = "—";
+            var freqEl = document.createElement("div");
+            freqEl.className = "tuner-freq";
+            display.appendChild(noteEl);
+            display.appendChild(freqEl);
+            panel.appendChild(display);
+
+            var needleTrack = document.createElement("div");
+            needleTrack.className = "tuner-needle-track";
+            var needleCenter = document.createElement("div");
+            needleCenter.className = "tuner-needle-center";
+            needleTrack.appendChild(needleCenter);
+            var needle = document.createElement("div");
+            needle.className = "tuner-needle";
+            needleTrack.appendChild(needle);
+            panel.appendChild(needleTrack);
+
+            var audioCtx = null, analyser = null, source = null, currentStream = null, rafId = null;
+
+            function stopAudio() {
+                if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+                if (currentStream) { currentStream.getTracks().forEach(function (t) { t.stop(); }); currentStream = null; }
+                if (source) { source.disconnect(); source = null; }
+                if (audioCtx) { audioCtx.close(); audioCtx = null; }
+                noteEl.textContent = "—";
+                freqEl.textContent = "";
+                needle.style.transform = "translateX(-50%) rotate(0deg)";
+                needle.classList.remove("tuner-needle-in-tune");
+            }
+
+            function connectStream(stream) {
+                if (source) source.disconnect();
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 2048;
+                source = audioCtx.createMediaStreamSource(stream);
+                source.connect(analyser);
+                currentStream = stream;
+                var buf = new Float32Array(analyser.fftSize);
+                function loop() {
+                    analyser.getFloatTimeDomainData(buf);
+                    var freq = autoCorrelateFrequency(buf, audioCtx.sampleRate);
+                    if (freq !== -1 && freq > 25 && freq < 2000) {
+                        var info = freqToNoteInfo(freq);
+                        noteEl.textContent = info.name + info.octave;
+                        freqEl.textContent = freq.toFixed(1) + " Hz · " + (info.cents > 0 ? "+" : "") + info.cents + " cents";
+                        var clamped = Math.max(-50, Math.min(50, info.cents));
+                        needle.style.transform = "translateX(-50%) rotate(" + (clamped * 0.9) + "deg)";
+                        needle.classList.toggle("tuner-needle-in-tune", Math.abs(info.cents) <= 5);
+                    }
+                    rafId = requestAnimationFrame(loop);
+                }
+                loop();
+            }
+
+            function populateDevices(selectedId) {
+                navigator.mediaDevices.enumerateDevices().then(function (devices) {
+                    deviceSelect.innerHTML = "";
+                    devices.filter(function (d) { return d.kind === "audioinput"; }).forEach(function (d, i) {
+                        var o = document.createElement("option");
+                        o.value = d.deviceId;
+                        o.textContent = d.label || ("Entrée audio " + (i + 1));
+                        if (d.deviceId === selectedId) o.selected = true;
+                        deviceSelect.appendChild(o);
+                    });
+                    deviceSelect.disabled = false;
+                });
+            }
+
+            function startWithDevice(deviceId) {
+                var constraints = { audio: deviceId ? { deviceId: { exact: deviceId } } : true };
+                navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
+                    var track = stream.getAudioTracks()[0];
+                    populateDevices(track && track.getSettings ? track.getSettings().deviceId : deviceId);
+                    connectStream(stream);
+                    startBtn.textContent = "Arrêter";
+                    startBtn.classList.add("tuner-start-btn-active");
+                }).catch(function (err) {
+                    window.alert("Accès au micro/à la carte son refusé ou indisponible : " + err.message);
+                });
+            }
+
+            startBtn.addEventListener("click", function () {
+                if (currentStream) {
+                    stopAudio();
+                    startBtn.textContent = "Démarrer";
+                    startBtn.classList.remove("tuner-start-btn-active");
+                } else {
+                    startWithDevice(deviceSelect.value || null);
+                }
+            });
+
+            deviceSelect.addEventListener("change", function () {
+                if (currentStream) startWithDevice(deviceSelect.value);
+            });
+
+            return function () {
+                stopAudio();
+            };
+        });
+    }
+
     // ---------- paramètres généraux ----------
     function openSettingsPanel() {
         openModal("settings-panel", function (panel) {
@@ -3207,6 +4094,64 @@
 
     function sessionTotalMinutes(session) {
         return session.steps.reduce(function (sum, s) { return sum + s.minutes; }, 0);
+    }
+
+    // ---------- export PDF d'une session guidée ----------
+    // Vectoriel (texte jsPDF direct, pas de html2canvas) : le contenu n'est que du texte, un PDF
+    // rastérisé serait plus lourd et moins net pour rien. "Enregistrer sous PDF" plutôt
+    // qu'"Imprimer" : un fichier généré et téléchargé directement (pdf.save), sans dépendre d'un
+    // pilote d'impression système qui se comporte différemment selon l'appareil.
+    function exportSessionPdf(session) {
+        var jsPDFcls = window.jspdf && window.jspdf.jsPDF;
+        if (!jsPDFcls) { window.alert("Export PDF indisponible."); return; }
+        var pdf = new jsPDFcls({ unit: "mm", format: "a4", orientation: "portrait" });
+        var marginLeft = 18, marginRight = 18, y = 20;
+        var pageWidth = pdf.internal.pageSize.getWidth();
+        var pageHeight = pdf.internal.pageSize.getHeight();
+        var maxWidth = pageWidth - marginLeft - marginRight;
+
+        function ensureSpace(needed) {
+            if (y + needed > pageHeight - 16) { pdf.addPage(); y = 20; }
+        }
+        function writeLines(text, fontSize, style, lineGap) {
+            pdf.setFont("helvetica", style || "normal");
+            pdf.setFontSize(fontSize);
+            var lines = pdf.splitTextToSize(text, maxWidth);
+            lines.forEach(function (line) {
+                ensureSpace(lineGap || 6);
+                pdf.text(line, marginLeft, y);
+                y += lineGap || 6;
+            });
+        }
+
+        pdf.setTextColor(20, 20, 20);
+        writeLines(session.name || "Session guidée", 18, "bold", 8);
+        writeLines("Durée totale : " + sessionTotalMinutes(session) + " min · " + session.steps.length + " exercice(s)", 10, "normal", 7);
+        y += 2;
+
+        session.steps.forEach(function (step, i) {
+            var found = findExerciseById(step.exerciseId);
+            ensureSpace(12);
+            pdf.setDrawColor(210, 210, 210);
+            pdf.line(marginLeft, y, pageWidth - marginRight, y);
+            y += 6;
+            var title = found ? found.ex.title : "(exercice supprimé)";
+            writeLines((i + 1) + ". " + title + " — " + step.minutes + " min", 13, "bold", 7);
+            if (found) {
+                writeLines(found.pathNames.join(" › "), 9, "italic", 5.5);
+                if (found.ex.notes && found.ex.notes.trim()) writeLines(found.ex.notes.trim(), 10, "normal", 5.5);
+                (found.ex.links || []).forEach(function (link) {
+                    writeLines("Lien : " + link.label + " — " + link.url, 9, "normal", 5.5);
+                });
+                (found.ex.files || []).forEach(function (f) {
+                    writeLines("Pièce jointe : " + f.name, 9, "normal", 5.5);
+                });
+            }
+            y += 3;
+        });
+
+        var fileName = "session-" + (session.name || "guidee").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") + ".pdf";
+        pdf.save(fileName);
     }
 
     function gsThemeBadge(pathNames, color) {
@@ -3343,6 +4288,7 @@
                 playBtn.classList.add("gs-session-play-btn");
                 var delBtn = iconButton("✕", "Supprimer cette session", function () {
                     if (!window.confirm("Supprimer la session « " + session.name + " » ?")) return;
+                    addToTrash("session", session, {});
                     sessions.splice(sessions.indexOf(session), 1);
                     save();
                     render();
@@ -3391,6 +4337,13 @@
             save();
         });
         content.appendChild(nameInput);
+
+        var pdfBtn = document.createElement("button");
+        pdfBtn.type = "button";
+        pdfBtn.className = "btn-ghost gs-pdf-btn";
+        pdfBtn.textContent = "Enregistrer sous PDF";
+        pdfBtn.addEventListener("click", function () { exportSessionPdf(session); });
+        content.appendChild(pdfBtn);
 
         var stepsLabel = document.createElement("div");
         stepsLabel.className = "section-label";
@@ -3854,6 +4807,10 @@
     if ($metronomeBtn) $metronomeBtn.addEventListener("click", openMetronomePanel);
     var $aidesBtn = document.getElementById("aides-btn");
     if ($aidesBtn) $aidesBtn.addEventListener("click", openAidesPanel);
+    var $scalesBtn = document.getElementById("scales-btn");
+    if ($scalesBtn) $scalesBtn.addEventListener("click", openScalesPanel);
+    var $tunerBtn = document.getElementById("tuner-btn");
+    if ($tunerBtn) $tunerBtn.addEventListener("click", openTunerPanel);
     var $guidedSessionBtn = document.getElementById("guided-session-btn");
     if ($guidedSessionBtn) $guidedSessionBtn.addEventListener("click", function () {
         guidedSessionViewActive = !guidedSessionViewActive;

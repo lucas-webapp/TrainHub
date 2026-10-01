@@ -430,6 +430,15 @@ button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--acce
     border-radius: var(--radius-sm);
     padding: 3px 9px;
 }
+.exercise-tag-badge {
+    flex: none;
+    font-size: var(--fs-2xs);
+    font-weight: 700;
+    background: rgba(255,255,255,.05);
+    border: 1px solid;
+    border-radius: var(--radius-sm);
+    padding: 2px 8px;
+}
 
 /* Accès rapide à un lien (ou au choix entre plusieurs) directement depuis la barre de l'exercice,
    sans avoir à déplier les détails. */
@@ -965,6 +974,12 @@ button.metro-volume-btn:hover { border-color: var(--accent); color: var(--accent
 .metro-chrono-value { font-size: var(--fs-md); font-weight: 700; letter-spacing: .02em; }
 .metro-chrono-reset { flex: none; color: var(--text-muted); }
 .metro-chrono-reset .icon { width: 15px; height: 15px; }
+.metro-tap-btn { display: block; margin: 4px auto 0; }
+.metro-progressive-row { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-top: 4px; }
+button.metro-progressive-toggle.metro-progressive-active { color: var(--accent); border-color: var(--accent); }
+.metro-progressive-fields { display: flex; justify-content: center; gap: 18px; }
+.metro-progressive-field { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+.metro-progressive-field input { font-size: var(--fs-sm); text-align: center; color: var(--text-main); text-transform: none; letter-spacing: normal; width: 64px; }
 .metro-fields-row { display: flex; justify-content: center; align-items: flex-end; gap: 18px; }
 .metro-field { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
 .metro-field input, .metro-field select { font-size: var(--fs-sm); text-align: center; color: var(--text-main); text-transform: none; letter-spacing: normal; }
@@ -1019,6 +1034,52 @@ button.metro-volume-btn:hover { border-color: var(--accent); color: var(--accent
 
 /* ---------- aides : cercle des quintes ---------- */
 .aides-panel { align-items: center; text-align: center; }
+.scales-panel { width: min(820px, calc(100vw - 24px)); max-height: min(720px, calc(100vh - 24px)); }
+.scales-controls-row { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.scales-controls-row select { font-size: var(--fs-sm); }
+.scales-label-mode-row { display: flex; justify-content: center; gap: 8px; margin-top: 8px; }
+button.scales-label-btn.scales-label-btn-active { color: var(--accent); border-color: var(--accent); }
+.scales-diagrams { display: flex; flex-direction: column; gap: 16px; margin-top: 14px; }
+.scales-section .section-label { text-align: center; margin-bottom: 6px; }
+.fretboard-scroll { overflow-x: auto; display: flex; justify-content: flex-start; }
+.fretboard-svg { flex: none; }
+.fretboard-nut { fill: #e8e8e8; }
+.fretboard-fret { stroke: #888; stroke-width: 1; }
+.fretboard-string { stroke: #888; stroke-width: 1; }
+.fretboard-inlay { fill: #3a3a3a; }
+.fretboard-fret-label { font-size: 8px; fill: var(--text-muted); text-anchor: middle; }
+.fretboard-note { fill: var(--card-bg-2); stroke: var(--accent); stroke-width: 1.5; }
+.fretboard-note-root { stroke: none; fill: var(--accent); }
+.fretboard-note-label { font-size: 8px; text-anchor: middle; dominant-baseline: middle; fill: var(--text-main); pointer-events: none; }
+.piano-scale-svg { flex: none; }
+.piano-key-white { fill: #f2ead9; stroke: #2a2a2a; stroke-width: .7; }
+.piano-key-black { fill: #171310; stroke: #000; stroke-width: .6; }
+.piano-key-active { fill: var(--accent); opacity: .55; }
+.piano-key-root { opacity: 1; }
+.piano-key-label { font-size: 10px; text-anchor: middle; fill: #111; font-weight: 700; }
+.piano-key-label-black { fill: #fff; }
+.tuner-controls-row { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.tuner-controls-row select { font-size: var(--fs-sm); max-width: 220px; }
+.tuner-reference-row { display: flex; justify-content: center; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.tuner-reference-chip { font-size: var(--fs-2xs); font-weight: 700; color: var(--text-muted); background: rgba(255,255,255,.05); border-radius: var(--radius-sm); padding: 2px 8px; }
+button.tuner-start-btn { display: block; margin: 12px auto 0; }
+button.tuner-start-btn-active { background: var(--danger, #ff4d4f); }
+.tuner-display { text-align: center; margin-top: 14px; }
+.tuner-note { font-size: 42px; font-weight: 800; line-height: 1; }
+.tuner-freq { font-size: var(--fs-sm); color: var(--text-muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+.tuner-needle-track { position: relative; width: 200px; height: 60px; margin: 14px auto 0; overflow: hidden; }
+.tuner-needle-center { position: absolute; left: 50%; bottom: 0; width: 2px; height: 100%; background: var(--border); transform: translateX(-50%); }
+.tuner-needle {
+    position: absolute;
+    left: 50%; bottom: 0;
+    width: 3px; height: 54px;
+    background: var(--accent);
+    border-radius: 2px;
+    transform-origin: bottom center;
+    transform: translateX(-50%) rotate(0deg);
+    transition: transform .12s ease-out, background .15s ease;
+}
+.tuner-needle.tuner-needle-in-tune { background: #4ade80; }
 .cof-wrap { display: flex; justify-content: center; }
 .circle-of-fifths {
     width: min(320px, 80vw);
@@ -1045,8 +1106,10 @@ button.metro-volume-btn:hover { border-color: var(--accent); color: var(--accent
     stroke-linejoin: round;
 }
 .cof-major { font-size: 16px; font-weight: 700; }
-.cof-minor { font-size: 12px; fill: var(--text-muted); }
-.cof-acc { font-size: 11px; font-weight: 600; fill: var(--text-muted); }
+/* Le voile des anneaux colorés (cof-wedge-mid/core) assombrit le texte : fill plus clair que
+   var(--text-muted) pour que mineurs relatifs et altérations restent bien lisibles dessus. */
+.cof-minor { font-size: 12px; fill: #d8d8d8; }
+.cof-acc { font-size: 11px; font-weight: 700; fill: #d8d8d8; }
 
 /* ---------- session guidée ---------- */
 /* Affichée dans la zone principale (pas une fenêtre flottante), comme le reste du contenu : les
