@@ -439,6 +439,20 @@ button.session-btn-highlight:hover { background: color-mix(in srgb, var(--accent
 .exercise-drag-handle:hover { color: var(--text-main); }
 .exercise.dragging { opacity: .5; }
 
+/* La copie flottante qui suit le pointeur pendant un glisser (voir setupDragReorder) : un peu plus
+   grande et plus marquée que l'original, comme une icône "soulevée" sur un écran d'accueil de
+   téléphone, pour bien la distinguer du reste de la liste en-dessous. */
+.drag-ghost {
+    position: fixed;
+    z-index: 970;
+    pointer-events: none;
+    margin: 0 !important;
+    box-shadow: 0 12px 28px rgba(0,0,0,.45);
+    border-radius: var(--radius-sm);
+    transform: scale(1.03);
+    opacity: .97;
+}
+
 .exercise-favorite-badge { flex: none; display: inline-flex; color: #ffd60a; }
 .exercise-favorite-badge .icon { width: 14px; height: 14px; }
 .exercise-archived-badge {
@@ -656,7 +670,10 @@ button.tags-view-chip:hover { border-color: var(--text-muted); }
     transition: background .12s ease;
 }
 .tree-row:hover { background: rgba(255,255,255,.09) !important; }
-.tree-row.dragging { opacity: .45; cursor: grabbing; }
+/* La classe "dragging" est posée sur .tree-node (l'élément reconnu par setupDragReorder, voir
+   itemSelector=".tree-node"), pas sur .tree-row lui-même : il faut cibler le descendant pour que
+   l'estompage soit réellement visible pendant le glisser. */
+.tree-node.dragging > .tree-row { opacity: .45; cursor: grabbing; }
 .tree-row.selected .tree-label { color: var(--chapter-accent); font-weight: 700; }
 
 /* Ligne fixe "Favoris" au-dessus de l'arborescence : couleur or fixe, pas de glisser (elle n'est

@@ -1257,13 +1257,50 @@
         place();
     }
 
+    // Glisser-déposer façon "réorganiser des applications sur un téléphone" : une copie flottante
+    // de l'élément (le "fantôme") suit le pointeur au pixel près, pendant que les AUTRES éléments
+    // de la liste glissent doucement vers leur nouvelle place (technique FLIP : on capture leurs
+    // positions avant le déplacement DOM, puis on anime depuis cette position vers la nouvelle au
+    // lieu de les laisser sauter instantanément). L'élément d'origine reste à sa place dans le DOM
+    // (pour que le tri final reste simple à lire) mais s'efface visuellement derrière le fantôme.
     function setupDragReorder(container, itemSelector, getArray, axis) {
         var dragEl = null;
+        var ghost = null;
         var startX = 0, startY = 0;
+        var grabOffsetX = 0, grabOffsetY = 0;
         var moved = false;
 
         function directChildren() {
             return Array.prototype.filter.call(container.children, function (el) { return el.matches(itemSelector); });
+        }
+
+        function captureRects(list) {
+            var map = {};
+            list.forEach(function (el) { map[el.dataset.reorderId] = el.getBoundingClientRect(); });
+            return map;
+        }
+
+        function flipSiblings(before) {
+            var movable = directChildren().filter(function (el) { return el !== dragEl; });
+            movable.forEach(function (el) {
+                var a = before[el.dataset.reorderId];
+                var b = el.getBoundingClientRect();
+                if (!a) return;
+                var dx = a.left - b.left, dy = a.top - b.top;
+                if (!dx && !dy) return;
+                el.style.transition = "none";
+                el.style.transform = "translate(" + dx + "px," + dy + "px)";
+                // Force le navigateur à appliquer cette position AVANT de retirer la transformation,
+                // sinon les deux affectations sont fusionnées et l'élément saute directement à sa
+                // position finale sans jamais être animé.
+                el.getBoundingClientRect();
+                el.style.transition = "transform .18s ease";
+                el.style.transform = "";
+                el.addEventListener("transitionend", function cleanup() {
+                    el.style.transition = "";
+                    el.removeEventListener("transitionend", cleanup);
+                });
+            });
         }
 
         container.addEventListener("pointerdown", function (e) {
@@ -1293,20 +1330,38 @@
             if (!moved && Math.abs(delta) < 10) return;
             if (!moved) {
                 try { dragEl.setPointerCapture(e.pointerId); } catch (err) {}
+                moved = true;
+                var startRect = dragEl.getBoundingClientRect();
+                grabOffsetX = startX - startRect.left;
+                grabOffsetY = startY - startRect.top;
+                ghost = dragEl.cloneNode(true);
+                ghost.className = dragEl.className + " drag-ghost";
+                ghost.style.position = "fixed";
+                ghost.style.left = startRect.left + "px";
+                ghost.style.top = startRect.top + "px";
+                ghost.style.width = startRect.width + "px";
+                ghost.style.height = startRect.height + "px";
+                ghost.style.margin = "0";
+                document.body.appendChild(ghost);
+                dragEl.classList.add("dragging");
             }
-            moved = true;
-            dragEl.classList.add("dragging");
+            ghost.style.left = (e.clientX - grabOffsetX) + "px";
+            ghost.style.top = (e.clientY - grabOffsetY) + "px";
+
             var siblings = directChildren().filter(function (el) { return el !== dragEl; });
+            var before = captureRects(siblings);
             for (var i = 0; i < siblings.length; i++) {
                 var rect = siblings[i].getBoundingClientRect();
                 var mid = axis === "x" ? (rect.left + rect.width / 2) : (rect.top + rect.height / 2);
                 var pos = axis === "x" ? e.clientX : e.clientY;
                 if (pos < mid) {
                     container.insertBefore(dragEl, siblings[i]);
+                    flipSiblings(before);
                     return;
                 }
             }
             container.appendChild(dragEl);
+            flipSiblings(before);
         });
 
         // `arr` peut être un tableau d'objets {id, ...} (dossiers, exercices) ou directement un
@@ -1314,6 +1369,7 @@
         function idOf(x) { return (x && typeof x === "object") ? x.id : x; }
 
         function finish() {
+            if (ghost) { ghost.remove(); ghost = null; }
             if (dragEl && moved) {
                 var arr = getArray();
                 var order = directChildren().map(function (el) { return el.dataset.reorderId; });
