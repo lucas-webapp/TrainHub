@@ -864,13 +864,14 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
     flex-direction: column;
     gap: 12px;
 }
-/* Zone de préhension pour déplacer la fenêtre à la souris, ajoutée en premier enfant par openModal. */
+/* Zone de préhension pour déplacer la fenêtre à la souris, ajoutée en premier enfant par openModal.
+   Assez épaisse et contrastée pour qu'on la repère du premier coup d'œil (pas qu'une fine bande). */
 .panel-drag-handle {
     flex: none;
     margin: -18px -18px 0 -18px;
-    height: 16px;
+    height: 22px;
     border-radius: var(--radius) var(--radius) 0 0;
-    background: rgba(255,255,255,.03);
+    background: rgba(255,255,255,.05);
     border-bottom: 1px solid var(--border);
     cursor: grab;
     display: flex;
@@ -878,7 +879,15 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
     justify-content: center;
     touch-action: none;
 }
-.panel-drag-handle::before { content: "⋯⋯⋯"; letter-spacing: 5px; font-size: 10px; color: var(--text-muted); }
+.panel-drag-handle::before {
+    content: "";
+    width: 40px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--text-muted);
+    opacity: .6;
+}
+.panel-drag-handle:hover::before { opacity: 1; background: var(--accent); }
 .panel-drag-handle:active { cursor: grabbing; }
 @media (max-width: 700px) {
     /* Glisser/redimensionner une fenêtre n'a pas de sens sur téléphone : l'outil prend tout l'écran. */
@@ -891,8 +900,13 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
         resize: none !important;
     }
     .panel-drag-handle { display: none; }
+    .panel-drag-by-title { cursor: inherit !important; touch-action: auto !important; }
 }
 .backups-title { font-size: var(--fs-md); font-weight: 800; }
+/* Le titre lui-même est aussi une poignée de déplacement (voir openModal) : plus facile à repérer
+   que la seule bande du dessus. */
+.panel-drag-by-title { cursor: grab; touch-action: none; -webkit-user-select: none; user-select: none; }
+.panel-drag-by-title:active { cursor: grabbing; }
 .backups-intro { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.4; }
 .backups-list { display: flex; flex-direction: column; gap: 8px; }
 .backups-empty { color: var(--text-muted); font-size: var(--fs-sm); padding: 8px 0; }
@@ -1120,11 +1134,16 @@ button.metro-bpm-btn {
 }
 button.metro-bpm-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(255,255,255,.07); }
 button.metro-bpm-step10 { min-width: 48px; font-size: var(--fs-sm); }
-@media (max-width: 360px) {
-    .metro-dial { width: 116px; height: 116px; }
-    .metro-transport-row { gap: 6px; }
-    button.metro-bpm-btn { min-width: 36px; height: 38px; padding: 0 6px; }
-    button.metro-bpm-step10 { min-width: 40px; }
+/* En dessous de 700px la fenêtre prend tout l'écran (voir .backups-panel), mais ça ne veut pas dire
+   que tout tient sur une seule ligne : à 480px et moins (la quasi-totalité des téléphones en
+   portrait), le cadran et les ±1/±10 autour ne rentraient pas à leur taille normale et un bouton
+   (+10) atterrissait seul sur une 2e ligne — d'où l'impression de mise en page décalée. */
+@media (max-width: 480px) {
+    .metro-dial { width: 112px; height: 112px; }
+    .metro-dial-value { font-size: calc(var(--fs-lg) * 1.25); }
+    .metro-transport-row { gap: 5px; }
+    button.metro-bpm-btn { min-width: 34px; height: 38px; padding: 0 5px; font-size: var(--fs-md); }
+    button.metro-bpm-step10 { min-width: 38px; font-size: var(--fs-xs); }
 }
 
 /* -- bascules secondaires : tap / progressif, même style pour les deux -- */
@@ -1144,11 +1163,12 @@ button.metro-mini-btn {
     justify-content: center;
 }
 button.metro-mini-btn:hover { border-color: var(--accent); color: var(--accent); }
-button.metro-progressive-toggle.metro-progressive-active { color: var(--accent); border-color: var(--accent); }
+button.metro-mini-btn.metro-progressive-active { color: var(--accent); border-color: var(--accent); }
 
 /* -- formules rythmiques courantes + "…" (formules moins courantes / réglage libre) -- */
 .metro-formulas-row { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-button.metro-rhythm-btn { min-width: 42px; padding: 0 12px; font-weight: 800; }
+button.metro-mini-btn.metro-mini-btn-icon { width: 38px; padding: 0; }
+button.metro-mini-btn.metro-mini-btn-icon .icon { width: 20px; height: 20px; }
 
 /* -- rythme/progressif : champs dépliés au clic -- */
 .metro-rhythm-fields, .metro-progressive-fields { display: flex; justify-content: center; gap: 18px; margin-top: 10px; flex-wrap: wrap; }
@@ -1158,25 +1178,34 @@ button.metro-rhythm-btn { min-width: 42px; padding: 0 12px; font-weight: 800; }
 .metro-progressive-field { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
 .metro-progressive-field input { font-size: var(--fs-sm); text-align: center; color: var(--text-main); text-transform: none; letter-spacing: normal; width: 64px; }
 
-/* Le pavé est une pile de lignes (une par groupe de temps réparti symétriquement, voir renderPad
-   dans script.js), chaque ligne regroupant des temps entiers : le retour à la ligne ne coupe
-   jamais un temps en deux, même en doubles-croches sur petit écran. Pas d'intitulé : juste le
-   nombre de temps, masqué entièrement en mode "None" (voir renderPad). */
-.metro-pad { display: flex; flex-direction: column; gap: 8px; padding: 4px 0; margin-top: 12px; }
-.metro-pad-row { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+/* Le pavé est un simple conteneur flex-wrap de groupes (un groupe = un temps, voir renderPad dans
+   script.js) : tient sur une seule ligne tant que la largeur le permet, et ne revient à la ligne
+   qu'un groupe entier à la fois (jamais coupé en deux) si l'espace manque vraiment. Pas d'intitulé :
+   juste le nombre de temps, masqué entièrement en mode "None" (voir renderPad). */
+.metro-pad { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; padding: 4px 0; margin-top: 12px; }
 .metro-beat-group { display: flex; gap: 4px; }
+/* Chaque case se règle par zone (haut = fort, milieu = normal, bas = silence) plutôt qu'en la
+   cliquant plusieurs fois pour boucler les 3 états : les deux lignes fines marquent ces zones. */
 .metro-step {
-    width: 30px;
-    height: 30px;
+    width: 32px;
+    height: 48px;
     border-radius: var(--radius-sm);
     border: 2px solid var(--border);
-    background: transparent;
+    background:
+        linear-gradient(var(--border), var(--border)) left 33% / 100% 1px no-repeat,
+        linear-gradient(var(--border), var(--border)) left 66% / 100% 1px no-repeat,
+        transparent;
+    background-origin: content-box;
     padding: 0;
+    cursor: pointer;
 }
 .metro-step-0 { border-style: dashed; opacity: .45; }
-.metro-step-1 { background: var(--text-muted); border-color: var(--text-muted); }
-.metro-step-2 { background: var(--accent); border-color: var(--accent); }
+.metro-step-1 { background-color: var(--text-muted); border-color: var(--text-muted); }
+.metro-step-2 { background-color: var(--accent); border-color: var(--accent); }
 .metro-step-current { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent); }
+@media (max-width: 360px) {
+    .metro-step { width: 28px; height: 42px; }
+}
 
 /* -- pied de panneau : chronomètre -- */
 .metro-footer-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }

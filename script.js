@@ -588,6 +588,7 @@
     var METRO_PLAY_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5Z"/></svg>';
     var METRO_STOP_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
     var METRO_VOLUME_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v4h4l5 4V6L8 10Z"/><path d="M17 9a4.5 4.5 0 0 1 0 6"/><path d="M19.5 6.5a8.5 8.5 0 0 1 0 11"/></svg>';
+    var METRO_MORE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2.2"/><circle cx="12" cy="12" r="2.2"/><circle cx="19" cy="12" r="2.2"/></svg>';
     var METRO_CHRONO_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2h4"/><path d="M12 6v0"/><circle cx="12" cy="14" r="8"/><path d="M12 14V9.5"/><path d="M17.5 5.5l1.5-1.5"/></svg>';
     var RESET_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>';
 
@@ -2851,13 +2852,16 @@
         var cleanupResize = makePanelResizable(panel, "backups-panel");
         var dragHandle = document.createElement("div");
         dragHandle.className = "panel-drag-handle";
+        dragHandle.title = "Faire glisser pour déplacer la fenêtre";
         panel.appendChild(dragHandle);
         var cleanupDrag = makePanelDraggable(panel, "backups-panel", dragHandle);
 
         var title = document.createElement("div");
-        title.className = "backups-title";
+        title.className = "backups-title panel-drag-by-title";
+        title.title = "Faire glisser pour déplacer la fenêtre";
         title.textContent = "Sauvegardes de secours (sur cet appareil)";
         panel.appendChild(title);
+        var cleanupTitleDrag = makePanelDraggable(panel, "backups-panel", title);
 
         var intro = document.createElement("div");
         intro.className = "backups-intro";
@@ -2935,6 +2939,7 @@
         function closeBackupsPanel() {
             cleanupResize();
             cleanupDrag();
+            cleanupTitleDrag();
             if (fitTimer) clearInterval(fitTimer);
             backdrop.remove();
             panel.remove();
@@ -3199,10 +3204,29 @@
     function recalcPanelFit(panel, baseMinW, baseMinH) {
         var maxW = Math.max(200, window.innerWidth - 24);
         var maxH = Math.max(150, window.innerHeight - 24);
+        // On remet le plancher à la valeur de base AVANT de mesurer : sinon panel.scrollHeight/
+        // scrollWidth reflète la taille déjà imposée par le précédent min-width/min-height (le
+        // panneau ne pourrait alors plus jamais rétrécir après un contenu replié, puisque chaque
+        // mesure se fonderait sur sa propre taille gonflée — un plancher qui ne fait que grandir).
+        if (panel.style.minWidth !== baseMinW + "px") panel.style.minWidth = baseMinW + "px";
+        if (panel.style.minHeight !== baseMinH + "px") panel.style.minHeight = baseMinH + "px";
         var neededH = Math.min(panel.scrollHeight, maxH);
         var neededW = panel.scrollWidth;
         var fb = panel.querySelector(".fretboard-scroll");
         if (fb && fb.scrollWidth > fb.clientWidth) neededW += (fb.scrollWidth - fb.clientWidth);
+        // Le pavé rythmique du métronome (flex-wrap) ne tient sur une seule ligne que si la fenêtre
+        // est assez large pour ça : on mesure la largeur qu'il demanderait sans retour à la ligne
+        // (somme des groupes + espacements) pour que la fenêtre grandisse en conséquence, et ne le
+        // laisse revenir à la ligne que si l'écran est réellement trop petit (limite haute ci-après).
+        var pad = panel.querySelector(".metro-pad");
+        if (pad && !pad.hidden && pad.children.length) {
+            var padGapPx = parseFloat(getComputedStyle(pad).columnGap || getComputedStyle(pad).gap) || 0;
+            var padNeeded = 0;
+            for (var gi = 0; gi < pad.children.length; gi++) padNeeded += pad.children[gi].offsetWidth;
+            padNeeded += padGapPx * Math.max(0, pad.children.length - 1);
+            padNeeded += panel.offsetWidth - pad.clientWidth; // marge/bordures du panneau autour du pad
+            neededW = Math.max(neededW, padNeeded);
+        }
         neededW = Math.min(neededW, maxW);
         var w = Math.max(baseMinW, neededW) + "px";
         var h = Math.max(baseMinH, neededH) + "px";
@@ -3253,8 +3277,10 @@
 
         var dragHandle = document.createElement("div");
         dragHandle.className = "panel-drag-handle";
+        dragHandle.title = "Faire glisser pour déplacer la fenêtre";
         panel.appendChild(dragHandle);
         var cleanupDrag = makePanelDraggable(panel, panelKind, dragHandle);
+        var cleanupTitleDrag = null;
 
         var onClose = null;
         var fitTimer = null;
@@ -3263,6 +3289,7 @@
             if (onClose) onClose();
             cleanupResize();
             cleanupDrag();
+            if (cleanupTitleDrag) cleanupTitleDrag();
             if (fitTimer) clearInterval(fitTimer);
             backdrop.remove();
             panel.remove();
@@ -3276,6 +3303,15 @@
         closeActiveModal = close;
 
         onClose = build(panel, close) || null;
+
+        // Le titre de l'outil (visible, contrairement à la fine poignée du dessus) est lui aussi une
+        // zone de prise pour déplacer la fenêtre — plus facile à trouver que la seule bande dédiée.
+        var titleEl = panel.querySelector(".backups-title");
+        if (titleEl) {
+            titleEl.classList.add("panel-drag-by-title");
+            titleEl.title = "Faire glisser pour déplacer la fenêtre";
+            cleanupTitleDrag = makePanelDraggable(panel, panelKind, titleEl);
+        }
 
         var closeRow = document.createElement("div");
         closeRow.className = "backups-close-row";
@@ -3748,11 +3784,12 @@
                 formulasRow.appendChild(btn);
             });
 
-            // -- "…" : formules moins courantes / réglage libre (temps/mesure + subdivision) --
+            // -- "plus" : formules moins courantes / réglage libre (temps/mesure + subdivision) --
             var rhythmBtn = document.createElement("button");
             rhythmBtn.type = "button";
-            rhythmBtn.className = "metro-mini-btn metro-rhythm-btn";
-            rhythmBtn.textContent = "…";
+            rhythmBtn.className = "metro-mini-btn metro-mini-btn-icon metro-rhythm-btn";
+            rhythmBtn.innerHTML = METRO_MORE_ICON_SVG;
+            rhythmBtn.setAttribute("aria-label", "Formules moins courantes et réglage libre");
             rhythmBtn.title = "Formules moins courantes et réglage libre";
             formulasRow.appendChild(rhythmBtn);
             panel.appendChild(formulasRow);
@@ -3901,10 +3938,16 @@
 
             // Le pavé est groupé par "groupe" (un temps pour une subdivision >= 1, ex. 2 pas en
             // croches ; un seul pas pour la blanche, qui couvre justement 2 temps à lui seul — voir
-            // metroGroupSize), et ces groupes sont eux-mêmes répartis en lignes de longueur égale
-            // (ex. 4 temps -> 2 en haut, 2 en bas) plutôt que laissés au retour à la ligne du
-            // flex-wrap, qui casserait un groupe en deux et donnerait un rendu asymétrique sur petit
-            // écran (doubles-croches...).
+            // metroGroupSize). Les groupes sont posés dans un simple conteneur flex-wrap : ça tient
+            // sur une seule ligne tant que la fenêtre est assez large, et ne revient à la ligne (par
+            // groupe entier, jamais coupé en deux) que si la largeur manque vraiment — pas de calcul
+            // manuel de lignes qui forcerait un retour à la ligne prématuré.
+            //
+            // Chaque case se règle directement par zone plutôt qu'en la cliquant plusieurs fois de
+            // suite pour boucler silence -> normal -> fort : cliquer en haut met l'accent fort, au
+            // milieu un temps normal, en bas le silence — un seul clic suffit pour n'importe quel
+            // état, ce qui change tout pour composer un rythme en doubles-croches (demandé
+            // explicitement, "il faut cliquer beaucoup de fois avant d'arriver à son objectif").
             function renderPad() {
                 padRow.innerHTML = "";
                 // Mode "None" (aucun temps accentué) : pas de pavé du tout, rien à composer.
@@ -3912,37 +3955,28 @@
                 if (padRow.hidden) return;
                 var groupSize = metroGroupSize(m.subdivision);
                 var totalSteps = m.pattern.length;
-                var groupCount = Math.max(1, Math.round(totalSteps / groupSize));
-                var rows = totalSteps > 8 ? Math.min(groupCount, Math.ceil(totalSteps / 8)) : 1;
-                var groupsPerRowBase = Math.floor(groupCount / rows);
-                var extraGroups = groupCount % rows;
-                var stepIdx = 0, groupIdx = 0;
-                for (var r = 0; r < rows; r++) {
-                    var rowGroups = groupsPerRowBase + (r < extraGroups ? 1 : 0);
-                    var rowEl = document.createElement("div");
-                    rowEl.className = "metro-pad-row";
-                    for (var g = 0; g < rowGroups; g++) {
-                        var groupEl = document.createElement("div");
-                        groupEl.className = "metro-beat-group";
-                        for (var s = 0; s < groupSize; s++) {
-                            (function (idx, isFirstOfGroup, groupNum) {
-                                var step = document.createElement("button");
-                                step.type = "button";
-                                step.className = "metro-step metro-step-" + m.pattern[idx];
-                                step.title = (isFirstOfGroup ? "Temps " + (groupNum + 1) : "Pas " + (idx + 1)) + " : silence / normal / fort";
-                                step.addEventListener("click", function () {
-                                    m.pattern[idx] = (m.pattern[idx] + 1) % 3;
-                                    save();
-                                    renderPad();
-                                });
-                                groupEl.appendChild(step);
-                            })(stepIdx, s === 0, groupIdx);
-                            stepIdx++;
-                        }
-                        rowEl.appendChild(groupEl);
-                        groupIdx++;
+                var groupIdx = 0;
+                for (var i = 0; i < totalSteps; i += groupSize) {
+                    var groupEl = document.createElement("div");
+                    groupEl.className = "metro-beat-group";
+                    for (var s = 0; s < groupSize && i + s < totalSteps; s++) {
+                        (function (idx, isFirstOfGroup, groupNum) {
+                            var step = document.createElement("button");
+                            step.type = "button";
+                            step.className = "metro-step metro-step-" + m.pattern[idx];
+                            step.title = (isFirstOfGroup ? "Temps " + (groupNum + 1) : "Pas " + (idx + 1)) + " : clique en haut (fort), au milieu (normal) ou en bas (silence)";
+                            step.addEventListener("click", function (e) {
+                                var rect = step.getBoundingClientRect();
+                                var relY = (e.clientY - rect.top) / rect.height;
+                                m.pattern[idx] = relY < 1 / 3 ? 2 : (relY < 2 / 3 ? 1 : 0);
+                                save();
+                                renderPad();
+                            });
+                            groupEl.appendChild(step);
+                        })(i + s, s === 0, groupIdx);
                     }
-                    padRow.appendChild(rowEl);
+                    padRow.appendChild(groupEl);
+                    groupIdx++;
                 }
             }
             renderPad();
