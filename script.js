@@ -2849,6 +2849,10 @@
         var panel = document.createElement("div");
         panel.className = "backups-panel";
         var cleanupResize = makePanelResizable(panel, "backups-panel");
+        var dragHandle = document.createElement("div");
+        dragHandle.className = "panel-drag-handle";
+        panel.appendChild(dragHandle);
+        var cleanupDrag = makePanelDraggable(panel, "backups-panel", dragHandle);
 
         var title = document.createElement("div");
         title.className = "backups-title";
@@ -2927,8 +2931,11 @@
         closeRow.appendChild(closeBtn);
         panel.appendChild(closeRow);
 
+        var fitTimer = null;
         function closeBackupsPanel() {
             cleanupResize();
+            cleanupDrag();
+            if (fitTimer) clearInterval(fitTimer);
             backdrop.remove();
             panel.remove();
             document.removeEventListener("keydown", onKey, true);
@@ -2941,8 +2948,28 @@
         document.addEventListener("keydown", onKey, true);
 
         lockBodyScroll();
+        panel.style.visibility = "hidden";
         document.body.appendChild(backdrop);
         document.body.appendChild(panel);
+        var baseMin = basePanelMinSize("backups-panel");
+        requestAnimationFrame(function () {
+            recalcPanelFit(panel, baseMin.w, baseMin.h);
+            var rect = panel.getBoundingClientRect();
+            var w = rect.width, h = rect.height;
+            var stored = loadPanelPositions()["backups-panel"];
+            var left, top;
+            if (stored) {
+                left = Math.min(Math.max(8, stored.left), Math.max(8, window.innerWidth - w - 8));
+                top = Math.min(Math.max(8, stored.top), Math.max(8, window.innerHeight - h - 8));
+            } else {
+                left = Math.max(8, (window.innerWidth - w) / 2);
+                top = Math.max(8, (window.innerHeight - h) / 2);
+            }
+            panel.style.left = left + "px";
+            panel.style.top = top + "px";
+            panel.style.visibility = "visible";
+        });
+        fitTimer = setInterval(function () { recalcPanelFit(panel, baseMin.w, baseMin.h); }, 400);
     }
 
     var $trashBtn = document.getElementById("trash-btn");
@@ -3094,6 +3121,94 @@
             localStorage.setItem(PANEL_SIZES_KEY, JSON.stringify(sizes));
         } catch (e) {}
     }
+
+    // Position retenue par famille de fenêtre, comme la taille ci-dessus — une vraie fenêtre de
+    // bureau qu'on déplace à la souris doit se souvenir d'où on l'a laissée.
+    var PANEL_POS_KEY = "trainhub.panelPos.v1";
+    function loadPanelPositions() {
+        try { return JSON.parse(localStorage.getItem(PANEL_POS_KEY)) || {}; } catch (e) { return {}; }
+    }
+    function savePanelPosition(kind, left, top) {
+        try {
+            var pos = loadPanelPositions();
+            pos[kind] = { left: left, top: top };
+            localStorage.setItem(PANEL_POS_KEY, JSON.stringify(pos));
+        } catch (e) {}
+    }
+    function isMobilePanelLayout() {
+        return window.matchMedia && window.matchMedia("(max-width: 700px)").matches;
+    }
+
+    // Taille minimale "de base" par famille de fenêtre (reflète les min-width/min-height posés en
+    // CSS pour chaque .xxx-panel) : point de départ de recalcPanelFit, qui ne descend jamais en
+    // dessous de ces valeurs même quand le contenu est très court.
+    var PANEL_BASE_MIN_SIZE = {
+        "aides-panel": { w: 300, h: 320 },
+        "scales-panel": { w: 480, h: 380 },
+        "folder-picker-panel": { w: 280, h: 280 }
+    };
+    function basePanelMinSize(kind) {
+        return PANEL_BASE_MIN_SIZE[kind] || { w: 280, h: 180 };
+    }
+
+    // Permet de faire glisser `panel` à la souris/au doigt depuis `handle` — comme une vraie fenêtre
+    // de bureau. Désactivé sur téléphone (le panneau y prend tout l'écran, voir CSS).
+    function makePanelDraggable(panel, kind, handle) {
+        var dragging = false;
+        var startX = 0, startY = 0, startLeft = 0, startTop = 0;
+        function onDown(e) {
+            if (isMobilePanelLayout()) return;
+            dragging = true;
+            startX = e.clientX; startY = e.clientY;
+            var rect = panel.getBoundingClientRect();
+            startLeft = rect.left; startTop = rect.top;
+            if (handle.setPointerCapture) { try { handle.setPointerCapture(e.pointerId); } catch (err) {} }
+            e.preventDefault();
+        }
+        function onMove(e) {
+            if (!dragging) return;
+            var w = panel.offsetWidth, h = panel.offsetHeight;
+            var left = startLeft + (e.clientX - startX);
+            var top = startTop + (e.clientY - startY);
+            left = Math.min(Math.max(8, left), Math.max(8, window.innerWidth - w - 8));
+            top = Math.min(Math.max(8, top), Math.max(8, window.innerHeight - h - 8));
+            panel.style.left = left + "px";
+            panel.style.top = top + "px";
+        }
+        function onUp() {
+            if (!dragging) return;
+            dragging = false;
+            savePanelPosition(kind, parseFloat(panel.style.left) || 0, parseFloat(panel.style.top) || 0);
+        }
+        handle.addEventListener("pointerdown", onDown);
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
+        return function cleanup() {
+            handle.removeEventListener("pointerdown", onDown);
+            window.removeEventListener("pointermove", onMove);
+            window.removeEventListener("pointerup", onUp);
+        };
+    }
+
+    // Recalcule en continu la taille minimale de `panel` pour qu'elle ne soit jamais inférieure à
+    // ce que le contenu occupe réellement : plutôt que de faire apparaître un ascenseur, la fenêtre
+    // grandit (min-width/min-height l'emportent sur une largeur/hauteur de base trop petite). Le cas
+    // du manche (.fretboard-scroll, gammes/arpèges) est traité à part : son propre débordement
+    // horizontal est ajouté au besoin en largeur du panneau, pour que le manche n'ait besoin de
+    // défiler que quand l'écran est réellement trop petit (la limite haute ci-dessous).
+    function recalcPanelFit(panel, baseMinW, baseMinH) {
+        var maxW = Math.max(200, window.innerWidth - 24);
+        var maxH = Math.max(150, window.innerHeight - 24);
+        var neededH = Math.min(panel.scrollHeight, maxH);
+        var neededW = panel.scrollWidth;
+        var fb = panel.querySelector(".fretboard-scroll");
+        if (fb && fb.scrollWidth > fb.clientWidth) neededW += (fb.scrollWidth - fb.clientWidth);
+        neededW = Math.min(neededW, maxW);
+        var w = Math.max(baseMinW, neededW) + "px";
+        var h = Math.max(baseMinH, neededH) + "px";
+        if (panel.style.minWidth !== w) panel.style.minWidth = w;
+        if (panel.style.minHeight !== h) panel.style.minHeight = h;
+    }
     // Rend `panel` redimensionnable (voir resize:both en CSS sur .backups-panel) et persiste la
     // taille choisie. Pas de ResizeObserver générique : il se déclencherait aussi pour des
     // changements de taille dus au CONTENU (déplier le volume, changer d'onglet…), pas seulement à
@@ -3133,12 +3248,22 @@
         var panel = document.createElement("div");
         panel.className = "backups-panel" + (extraClass ? " " + extraClass : "");
         var panelKind = extraClass ? extraClass.split(" ")[0] : "modal";
+        var baseMin = basePanelMinSize(panelKind);
         var cleanupResize = makePanelResizable(panel, panelKind);
+
+        var dragHandle = document.createElement("div");
+        dragHandle.className = "panel-drag-handle";
+        panel.appendChild(dragHandle);
+        var cleanupDrag = makePanelDraggable(panel, panelKind, dragHandle);
+
         var onClose = null;
+        var fitTimer = null;
 
         function close() {
             if (onClose) onClose();
             cleanupResize();
+            cleanupDrag();
+            if (fitTimer) clearInterval(fitTimer);
             backdrop.remove();
             panel.remove();
             document.removeEventListener("keydown", onKey, true);
@@ -3162,8 +3287,40 @@
         closeRow.appendChild(closeBtn);
         panel.appendChild(closeRow);
 
+        panel.style.visibility = "hidden";
         document.body.appendChild(backdrop);
         document.body.appendChild(panel);
+
+        // Position initiale : taille/position mémorisées si on a déjà ouvert cet outil, sinon centré
+        // — posée en px une fois le panneau mesurable, pour ne jamais voir le saut depuis (0,0).
+        requestAnimationFrame(function () {
+            recalcPanelFit(panel, baseMin.w, baseMin.h);
+            var rect = panel.getBoundingClientRect();
+            var w = rect.width, h = rect.height;
+            var stored = loadPanelPositions()[panelKind];
+            var left, top;
+            if (stored) {
+                left = Math.min(Math.max(8, stored.left), Math.max(8, window.innerWidth - w - 8));
+                top = Math.min(Math.max(8, stored.top), Math.max(8, window.innerHeight - h - 8));
+            } else if (panelKind === "metronome-panel") {
+                // Pas encore déplacé à la main : on part du point de départ choisi dans les réglages
+                // (centre/haut/bas/coin) plutôt que du centre pur.
+                var pref = state.settings.appearance.metronomePosition;
+                left = Math.max(8, (window.innerWidth - w) / 2);
+                top = Math.max(8, (window.innerHeight - h) / 2);
+                if (pref === "top") { top = 84; }
+                else if (pref === "bottom") { top = Math.max(8, window.innerHeight - h - 16); }
+                else if (pref === "corner") { left = Math.max(8, window.innerWidth - w - 16); top = Math.max(8, window.innerHeight - h - 16); }
+            } else {
+                left = Math.max(8, (window.innerWidth - w) / 2);
+                top = Math.max(8, (window.innerHeight - h) / 2);
+            }
+            panel.style.left = left + "px";
+            panel.style.top = top + "px";
+            panel.style.visibility = "visible";
+        });
+        fitTimer = setInterval(function () { recalcPanelFit(panel, baseMin.w, baseMin.h); }, 400);
+
         return close;
     }
 
