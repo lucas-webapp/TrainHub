@@ -15,6 +15,7 @@
     --card-bg: #161616;
     --card-bg-2: #1c1c1c;
     --text-main: #e0e0e0;
+    --text-dim: #c2c2c2;
     --text-muted: #a0a0a0;
     --border: #333;
     --radius: 12px;
@@ -696,12 +697,17 @@ button.tags-view-chip:hover { border-color: var(--text-muted); }
    chapitre (niveau 0) garde la couleur du chapitre en permanence (voir renderTreeNode). Les
    sous-dossiers s'effacent progressivement — texte plus petit, plus discret — pour que la couleur
    reste un repère de chapitre et non un habillage répété à chaque niveau. */
-.tree-row-d0 .tree-label { font-size: calc(var(--fs-sm) * var(--tree-font-scale, 1)); font-weight: 700; }
+.tree-row-d0 .tree-label { font-size: calc(var(--fs-base) * var(--tree-font-scale, 1)); font-weight: 700; color: var(--text-main); }
+.tree-row-d0.selected .tree-label { color: var(--chapter-accent); }
 
-.tree-row-d1 { padding: calc(7px * var(--density-scale, 1)) 8px; border-radius: 6px; }
-.tree-row-d1 .tree-label { font-weight: 600; }
+/* Sous-dossiers resserrés par défaut (padding réduit) pour que la liste tienne plus de dossiers à
+   l'écran sans dérégler le réglage "Densité" des paramètres généraux — var(--density-scale)
+   continue de s'appliquer par-dessus cette base, juste plus petite qu'avant. */
+.tree-row-d1 { padding: calc(5px * var(--density-scale, 1)) 8px; border-radius: 6px; }
+.tree-row-d1 .tree-label { font-weight: 600; color: var(--text-dim); }
+.tree-row-d1.selected .tree-label { color: var(--chapter-accent); }
 
-.tree-row-d2 { padding: calc(5px * var(--density-scale, 1)) 8px; border-radius: 6px; }
+.tree-row-d2 { padding: calc(3px * var(--density-scale, 1)) 8px; border-radius: 6px; }
 .tree-row-d2 .tree-label { font-size: calc(var(--fs-xs) * var(--tree-font-scale, 1)); font-weight: 500; color: var(--text-muted); }
 .tree-row-d2.selected .tree-label { color: var(--chapter-accent); }
 
@@ -808,15 +814,17 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
 }
 .section-group { display: flex; flex-direction: column; gap: calc(8px * var(--density-scale, 1)); }
 /* Disposition de l'écran principal (réglable dans les paramètres) : verticale, comme avant
-   (sous-dossiers au-dessus des exercices), ou horizontale façon Finder (sous-dossiers dans une
-   colonne à droite). */
+   (sous-dossiers au-dessus des exercices), ou horizontale façon Finder — sous-dossiers dans une
+   colonne à GAUCHE (comme la barre latérale du vrai Finder macOS), exercices dans le panneau
+   principal à droite. Une fine bordure sépare les deux colonnes, pour que la coupure soit nette. */
 .folder-browser-vertical { display: flex; flex-direction: column; gap: 18px; }
-.folder-browser-horizontal { display: flex; gap: 22px; align-items: flex-start; }
-.folder-browser-horizontal .exercises-group { flex: 1; min-width: 0; }
-.folder-browser-horizontal .folders-group { flex: 0 0 220px; }
+.folder-browser-horizontal { display: flex; gap: 0; align-items: flex-start; }
+.folder-browser-horizontal .exercises-group { flex: 1; min-width: 0; padding-left: 22px; }
+.folder-browser-horizontal .folders-group { flex: 0 0 220px; padding-right: 22px; border-right: 1px solid var(--border); }
 @media (max-width: 700px) {
     .folder-browser-horizontal { flex-direction: column; gap: 18px; }
-    .folder-browser-horizontal .folders-group { flex: none; width: 100%; }
+    .folder-browser-horizontal .folders-group { flex: none; width: 100%; padding-right: 0; border-right: none; border-bottom: 1px solid var(--border); padding-bottom: 18px; }
+    .folder-browser-horizontal .exercises-group { padding-left: 0; }
 }
 .section-label {
     font-size: var(--fs-2xs);

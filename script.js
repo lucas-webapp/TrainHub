@@ -2047,18 +2047,14 @@
         exGroup.appendChild(renderAddExerciseForm(currentFolder));
 
         // Disposition réglable dans les paramètres généraux : verticale (sous-dossiers au-dessus
-        // des exercices, comme avant) ou horizontale façon Finder (sous-dossiers dans une colonne
-        // à droite des exercices).
+        // des exercices, comme avant) ou horizontale façon Finder (sous-dossiers dans une colonne à
+        // GAUCHE, comme la barre latérale du vrai Finder macOS, exercices dans le panneau principal
+        // à droite).
         var horizontal = state.settings.appearance.mainLayout === "horizontal";
         var mainWrap = document.createElement("div");
         mainWrap.className = "folder-browser " + (horizontal ? "folder-browser-horizontal" : "folder-browser-vertical");
-        if (horizontal) {
-            mainWrap.appendChild(exGroup);
-            mainWrap.appendChild(foldersGroup);
-        } else {
-            mainWrap.appendChild(foldersGroup);
-            mainWrap.appendChild(exGroup);
-        }
+        mainWrap.appendChild(foldersGroup);
+        mainWrap.appendChild(exGroup);
         $folderContainer.appendChild(mainWrap);
     }
 
