@@ -769,9 +769,17 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
     top: 50%; left: 50%;
     transform: translate(-50%, -50%);
     width: min(480px, calc(100vw - 32px));
+    height: auto;
     max-height: min(600px, calc(100vh - 32px));
-    overflow-y: auto;
-    overflow-x: hidden;
+    min-width: 280px;
+    min-height: 180px;
+    max-width: calc(100vw - 24px);
+    /* Redimensionnable à la main (coin bas-droit) sur tous les outils flottants — taille retenue
+       par makePanelResizable/savePanelSize, voir script.js. Grandit à partir du centre (transform
+       de centrage ci-dessus) : pas aussi naturel qu'un ancrage coin, mais évite toute logique de
+       repositionnement et reste centré quelle que soit la taille choisie. */
+    resize: both;
+    overflow: auto;
     box-sizing: border-box;
     background: var(--card-bg-2);
     border: 1px solid var(--border);
@@ -1072,17 +1080,22 @@ button.metro-progressive-toggle.metro-progressive-active { color: var(--accent);
 .metro-play-btn-active { background: #ff5252; color: #2b0000; }
 
 /* ---------- aides : cercle des quintes ---------- */
-.aides-panel { align-items: center; text-align: center; }
-.scales-panel { width: min(960px, calc(100vw - 24px)); max-height: min(820px, calc(100vh - 24px)); }
+.aides-panel { align-items: center; text-align: center; display: flex; flex-direction: column; }
+/* max-height propre (celui de .backups-panel, 600px, plafonnerait sinon la hauteur voulue ici). */
+.aides-panel { width: min(420px, calc(100vw - 24px)); height: min(480px, calc(100vh - 24px)); max-height: calc(100vh - 24px); min-width: 300px; min-height: 320px; }
+.scales-panel { width: min(960px, calc(100vw - 24px)); height: min(640px, calc(100vh - 24px)); max-height: calc(100vh - 24px); min-width: 480px; min-height: 380px; display: flex; flex-direction: column; }
 .scales-controls-row { display: flex; justify-content: center; gap: 16px; flex-wrap: wrap; }
 .scales-field { display: flex; flex-direction: column; gap: 4px; align-items: center; }
 .scales-field-label { font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
 .scales-field select { font-size: var(--fs-sm); min-width: 160px; }
 .scales-label-mode-row { display: flex; justify-content: center; gap: 8px; margin-top: 12px; }
 button.scales-label-btn.scales-label-btn-active { color: var(--accent); border-color: var(--accent); }
-.scales-diagrams { display: flex; justify-content: center; margin-top: 18px; }
-.fretboard-scroll { overflow-x: auto; overflow-y: hidden; display: flex; justify-content: flex-start; max-width: 100%; padding: 4px; }
-.fretboard-svg { flex: none; }
+/* flex:1 + min-height:0 : la zone du diagramme prend tout l'espace restant du panneau (donc grandit
+   quand on redimensionne la fenêtre à la main), et le manche/clavier suit en hauteur (voir
+   .fretboard-svg/.piano-scale-svg, height:100% + width:auto préservant leur ratio). */
+.scales-diagrams { flex: 1; min-height: 0; display: flex; justify-content: center; margin-top: 18px; }
+.fretboard-scroll { flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; display: flex; align-items: center; justify-content: flex-start; padding: 4px; }
+.fretboard-svg { flex: none; height: 100%; width: auto; max-width: none; display: block; }
 /* Fond et notes en gris clair neutre pour l'instant (pas de couleurs vives tant qu'on n'a pas
    décidé d'un code couleur par note/degré) : seule la racine se distingue, par un remplissage
    plein plutôt qu'un simple contour. */
@@ -1095,7 +1108,7 @@ button.scales-label-btn.scales-label-btn-active { color: var(--accent); border-c
 .fretboard-note-root { stroke: none; fill: #e4e4e4; }
 .fretboard-note-label { font-size: 10px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; fill: #ddd; pointer-events: none; }
 .fretboard-note-root + .fretboard-note-label { fill: #111; }
-.piano-scale-svg { flex: none; }
+.piano-scale-svg { flex: none; height: 100%; width: auto; max-width: none; display: block; }
 .piano-key-white { fill: #f2ead9; stroke: #2a2a2a; stroke-width: .7; }
 .piano-key-black { fill: #171310; stroke: #000; stroke-width: .6; }
 .piano-key-active { fill: #b9b9b9; }
@@ -1119,10 +1132,14 @@ button.scales-label-btn.scales-label-btn-active { color: var(--accent); border-c
     transition: transform .12s ease-out, background .15s ease;
 }
 .tuner-needle.tuner-needle-in-tune { background: #4ade80; }
-.cof-wrap { display: flex; justify-content: center; }
+/* flex:1 + min-height:0 : grandit avec la fenêtre (voir .scales-diagrams, même principe). Le SVG
+   garde son ratio 1:1 (viewBox carré) via height:100%/width:auto, max-width:100% au cas où le
+   panneau serait plus large que haut. */
+.cof-wrap { flex: 1; min-height: 0; display: flex; justify-content: center; align-items: center; }
 .circle-of-fifths {
-    width: min(320px, 80vw);
-    height: min(320px, 80vw);
+    width: auto;
+    height: 100%;
+    max-width: 100%;
     filter: drop-shadow(0 2px 10px rgba(0, 0, 0, .18));
 }
 .cof-ring { fill: none; stroke: var(--border); stroke-width: 1.5; }

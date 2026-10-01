@@ -2617,6 +2617,7 @@
         backdrop.className = "ctx-backdrop";
         var panel = document.createElement("div");
         panel.className = "backups-panel";
+        var cleanupResize = makePanelResizable(panel, "backups-panel");
 
         var title = document.createElement("div");
         title.className = "backups-title";
@@ -2696,6 +2697,7 @@
         panel.appendChild(closeRow);
 
         function closeBackupsPanel() {
+            cleanupResize();
             backdrop.remove();
             panel.remove();
             document.removeEventListener("keydown", onKey, true);
@@ -2845,6 +2847,52 @@
     function lockBodyScroll() { document.documentElement.classList.add("modal-open"); }
     function unlockBodyScroll() { document.documentElement.classList.remove("modal-open"); }
 
+    // ---------- taille des fenêtres flottantes (redimensionnables à la main) ----------
+    // Persisté par "famille" de fenêtre (métronome, cercle des quintes, gammes…), pas par instance :
+    // rouvrir le même outil retrouve sa dernière taille. Volontairement en localStorage (pas dans
+    // `state`) : une préférence d'affichage liée à CET écran, pas une donnée à synchroniser entre
+    // appareils aux résolutions différentes.
+    var PANEL_SIZES_KEY = "trainhub.panelSizes.v1";
+    function loadPanelSizes() {
+        try { return JSON.parse(localStorage.getItem(PANEL_SIZES_KEY)) || {}; } catch (e) { return {}; }
+    }
+    function savePanelSize(kind, width, height) {
+        try {
+            var sizes = loadPanelSizes();
+            sizes[kind] = { width: width, height: height };
+            localStorage.setItem(PANEL_SIZES_KEY, JSON.stringify(sizes));
+        } catch (e) {}
+    }
+    // Rend `panel` redimensionnable (voir resize:both en CSS sur .backups-panel) et persiste la
+    // taille choisie. Pas de ResizeObserver générique : il se déclencherait aussi pour des
+    // changements de taille dus au CONTENU (déplier le volume, changer d'onglet…), pas seulement à
+    // un vrai redimensionnement manuel — on ne retient donc que les redimensionnements commencés
+    // depuis le coin bas-droit (la poignée native du navigateur).
+    function makePanelResizable(panel, kind) {
+        var stored = loadPanelSizes()[kind];
+        if (stored) {
+            panel.style.width = stored.width + "px";
+            panel.style.height = stored.height + "px";
+        }
+        var resizing = false;
+        var HANDLE_ZONE = 24;
+        function onPointerDown(e) {
+            var rect = panel.getBoundingClientRect();
+            if (e.clientX > rect.right - HANDLE_ZONE && e.clientY > rect.bottom - HANDLE_ZONE) resizing = true;
+        }
+        function onPointerUp() {
+            if (!resizing) return;
+            resizing = false;
+            savePanelSize(kind, panel.offsetWidth, panel.offsetHeight);
+        }
+        panel.addEventListener("pointerdown", onPointerDown);
+        window.addEventListener("pointerup", onPointerUp);
+        return function cleanup() {
+            panel.removeEventListener("pointerdown", onPointerDown);
+            window.removeEventListener("pointerup", onPointerUp);
+        };
+    }
+
     function openModal(extraClass, build) {
         closeFolderMenu();
         if (closeActiveModal) closeActiveModal();
@@ -2853,10 +2901,13 @@
         backdrop.className = "ctx-backdrop";
         var panel = document.createElement("div");
         panel.className = "backups-panel" + (extraClass ? " " + extraClass : "");
+        var panelKind = extraClass ? extraClass.split(" ")[0] : "modal";
+        var cleanupResize = makePanelResizable(panel, panelKind);
         var onClose = null;
 
         function close() {
             if (onClose) onClose();
+            cleanupResize();
             backdrop.remove();
             panel.remove();
             document.removeEventListener("keydown", onKey, true);
