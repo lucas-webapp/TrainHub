@@ -3539,34 +3539,33 @@
             title.textContent = "Métronome";
             panel.appendChild(title);
 
-            var bpmRow = document.createElement("div");
-            bpmRow.className = "metro-bpm-row";
-            var bpmDown10 = iconButton("−10", "Ralentir de 10", function () { setBpm(m.bpm - 10); });
-            bpmDown10.classList.add("metro-bpm-btn", "metro-bpm-step10");
-            var bpmDown = iconButton("−", "Ralentir", function () { setBpm(m.bpm - 1); });
-            bpmDown.classList.add("metro-bpm-btn");
+            // ---------- cadran BPM ----------
+            // Met le tempo en valeur au centre d'un cadran plutôt que sur une barre de réglage
+            // (jugée peu lisible) : le chiffre reste la chose la plus visible du panneau, et se
+            // clique pour une saisie directe au clavier, comme avant.
+            var dialWrap = document.createElement("div");
+            dialWrap.className = "metro-dial-wrap";
+            var dial = document.createElement("div");
+            dial.className = "metro-dial";
             var bpmValue = document.createElement("button");
             bpmValue.type = "button";
-            bpmValue.className = "metro-bpm-value";
+            bpmValue.className = "metro-dial-value";
             bpmValue.title = "Cliquer pour saisir le BPM au clavier";
             bpmValue.addEventListener("click", startEditBpm);
-            var bpmUp = iconButton("+", "Accélérer", function () { setBpm(m.bpm + 1); });
-            bpmUp.classList.add("metro-bpm-btn");
-            var bpmUp10 = iconButton("+10", "Accélérer de 10", function () { setBpm(m.bpm + 10); });
-            bpmUp10.classList.add("metro-bpm-btn", "metro-bpm-step10");
-            bpmRow.appendChild(bpmDown10);
-            bpmRow.appendChild(bpmDown);
-            bpmRow.appendChild(bpmValue);
-            bpmRow.appendChild(bpmUp);
-            bpmRow.appendChild(bpmUp10);
-            panel.appendChild(bpmRow);
+            var bpmUnit = document.createElement("div");
+            bpmUnit.className = "metro-dial-unit";
+            bpmUnit.textContent = "BPM";
+            dial.appendChild(bpmValue);
+            dial.appendChild(bpmUnit);
+            dialWrap.appendChild(dial);
+            panel.appendChild(dialWrap);
 
             function startEditBpm() {
                 var input = document.createElement("input");
                 input.type = "number";
                 input.min = "30";
                 input.max = "300";
-                input.className = "metro-bpm-input";
+                input.className = "metro-dial-input";
                 input.value = m.bpm;
                 bpmValue.replaceWith(input);
                 input.focus();
@@ -3592,23 +3591,51 @@
                 input.addEventListener("blur", commit);
             }
 
-            var bpmSlider = document.createElement("input");
-            bpmSlider.type = "range";
-            bpmSlider.min = "30";
-            bpmSlider.max = "300";
-            bpmSlider.className = "metro-bpm-slider";
-            bpmSlider.addEventListener("input", function () { setBpm(parseInt(bpmSlider.value, 10)); });
-            panel.appendChild(bpmSlider);
+            // ---------- transport : vitesse +/- de part et d'autre du bouton lecture ----------
+            // Boutons de taille cohérente avec leur importance : la lecture est la plus grosse et
+            // la seule colorée, les pas de vitesse (±1/±10) sont plus petits et neutres.
+            var transportRow = document.createElement("div");
+            transportRow.className = "metro-transport-row";
+            var bpmDown10 = iconButton("−10", "Ralentir de 10", function () { setBpm(m.bpm - 10); });
+            bpmDown10.classList.add("metro-bpm-btn", "metro-bpm-step10");
+            var bpmDown = iconButton("−", "Ralentir", function () { setBpm(m.bpm - 1); });
+            bpmDown.classList.add("metro-bpm-btn");
+            var playBtn = svgIconButton(METRO_PLAY_ICON_SVG, "Jouer", function () {
+                if (metroPlaying) { stopMetronome(); stopChrono(); } else { progMeasureCount = 0; startMetronome(); startChrono(); }
+                refreshPlayBtn();
+            });
+            playBtn.classList.add("metro-play-dial-btn");
+            var bpmUp = iconButton("+", "Accélérer", function () { setBpm(m.bpm + 1); });
+            bpmUp.classList.add("metro-bpm-btn");
+            var bpmUp10 = iconButton("+10", "Accélérer de 10", function () { setBpm(m.bpm + 10); });
+            bpmUp10.classList.add("metro-bpm-btn", "metro-bpm-step10");
+            transportRow.appendChild(bpmDown10);
+            transportRow.appendChild(bpmDown);
+            transportRow.appendChild(playBtn);
+            transportRow.appendChild(bpmUp);
+            transportRow.appendChild(bpmUp10);
+            panel.appendChild(transportRow);
+            function refreshPlayBtn() {
+                playBtn.classList.toggle("metro-play-btn-active", metroPlaying);
+                playBtn.innerHTML = metroPlaying ? METRO_STOP_ICON_SVG : METRO_PLAY_ICON_SVG;
+                playBtn.title = metroPlaying ? "Arrêter" : "Jouer";
+            }
+            refreshPlayBtn();
 
-            // ---------- tap tempo ----------
-            // Taper le rythme au doigt/clic déduit le BPM des écarts entre appuis, plutôt que de le
-            // saisir au clavier. Une pause de plus de 2s entre deux appuis repart de zéro (on a
-            // changé d'idée) au lieu de fausser la moyenne avec un tempo sans rapport.
+            // ---------- bascules secondaires : tap / rythme / progressif / volume ----------
+            // Les quatre partagent la même pastille (metro-mini-btn) : plus de bouton qui ressort
+            // par sa taille sans que ce soit voulu. Chacune déplie ses propres réglages juste en
+            // dessous au clic, plutôt que de les laisser en permanence affichés.
+            var toolsRow = document.createElement("div");
+            toolsRow.className = "metro-tools-row";
+            panel.appendChild(toolsRow);
+
+            // -- tap tempo --
             var tapTimes = [];
             var tapBtn = document.createElement("button");
             tapBtn.type = "button";
             tapBtn.className = "metro-mini-btn metro-tap-btn";
-            tapBtn.textContent = "Tap tempo";
+            tapBtn.textContent = "Tap";
             tapBtn.title = "Tapoter au tempo souhaité pour régler le BPM";
             tapBtn.addEventListener("click", function () {
                 var now = Date.now();
@@ -3622,22 +3649,87 @@
                     setBpm(Math.round(60000 / avg));
                 }
             });
+            toolsRow.appendChild(tapBtn);
 
-            var tapProgRow = document.createElement("div");
-            tapProgRow.className = "metro-tap-progressive-row";
-            tapProgRow.appendChild(tapBtn);
-            panel.appendChild(tapProgRow);
+            // -- rythme : badge "4/4 ♩" qui déplie temps/mesure + subdivision --
+            var rhythmBtn = document.createElement("button");
+            rhythmBtn.type = "button";
+            rhythmBtn.className = "metro-mini-btn metro-rhythm-btn";
+            rhythmBtn.title = "Temps par mesure et subdivision";
+            toolsRow.appendChild(rhythmBtn);
 
-            // ---------- tempo progressif ----------
-            // Peu utilisé au quotidien (voir demande utilisateur) : bouton dédié qui replie/déplie
-            // ses deux réglages plutôt que de les laisser en permanence dans le panneau principal.
-            var progRow = document.createElement("div");
-            progRow.className = "metro-progressive-row";
+            var rhythmFields = document.createElement("div");
+            rhythmFields.className = "metro-rhythm-fields";
+            rhythmFields.hidden = true;
+
+            var beatsField = document.createElement("label");
+            beatsField.className = "metro-field";
+            beatsField.textContent = "Temps/mesure";
+            var beatsInput = document.createElement("input");
+            beatsInput.type = "number";
+            beatsInput.min = "1";
+            beatsInput.max = "12";
+            beatsInput.value = m.beatsPerMeasure;
+            beatsInput.addEventListener("change", function () {
+                var n = Math.min(12, Math.max(1, parseInt(beatsInput.value, 10) || 4));
+                m.beatsPerMeasure = n;
+                m.pattern = null; // sera reconstruit par normalizeMetronomeSettings, motif adapté à la nouvelle taille
+                normalizeMetronomeSettings(state.settings);
+                beatsInput.value = m.beatsPerMeasure;
+                save();
+                renderPad();
+                refreshRhythmBtn();
+            });
+            beatsField.appendChild(beatsInput);
+            rhythmFields.appendChild(beatsField);
+
+            var subField = document.createElement("label");
+            subField.className = "metro-field";
+            subField.textContent = "Subdivision";
+            var subSelect = document.createElement("select");
+            var SUBDIVISION_LABELS = { 1: "Noire", 2: "Croches", 3: "Triolet", 4: "Doubles-croches" };
+            [[1, "Noire"], [2, "Croches"], [3, "Triolet"], [4, "Doubles-croches"]].forEach(function (opt) {
+                var o = document.createElement("option");
+                o.value = opt[0];
+                o.textContent = opt[1];
+                if (m.subdivision === opt[0]) o.selected = true;
+                subSelect.appendChild(o);
+            });
+            subSelect.addEventListener("change", function () {
+                m.subdivision = parseInt(subSelect.value, 10);
+                m.pattern = null;
+                normalizeMetronomeSettings(state.settings);
+                save();
+                renderPad();
+                refreshRhythmBtn();
+            });
+            subField.appendChild(subSelect);
+            rhythmFields.appendChild(subField);
+            panel.appendChild(rhythmFields);
+
+            // Affiche "4/4", "6/8"… à partir des temps/mesure et de la subdivision choisie : une
+            // notation familière plutôt que deux champs nus côte à côte (demandé explicitement).
+            var SUBDIVISION_DENOM = { 1: 4, 2: 8, 3: 4, 4: 16 };
+            function refreshRhythmBtn() {
+                var denom = SUBDIVISION_DENOM[m.subdivision] || 4;
+                rhythmBtn.textContent = m.beatsPerMeasure + "/" + denom + (m.subdivision === 3 ? " (triolet)" : "");
+            }
+            refreshRhythmBtn();
+            rhythmBtn.addEventListener("click", function () {
+                rhythmFields.hidden = !rhythmFields.hidden;
+                rhythmBtn.classList.toggle("metro-progressive-active", !rhythmFields.hidden);
+            });
+
+            // -- tempo progressif --
             var progToggle = document.createElement("button");
             progToggle.type = "button";
             progToggle.className = "metro-mini-btn metro-progressive-toggle";
+            progToggle.textContent = "Progressif";
+            toolsRow.appendChild(progToggle);
+
             var progFields = document.createElement("div");
             progFields.className = "metro-progressive-fields";
+            panel.appendChild(progFields);
 
             var progIncField = document.createElement("label");
             progIncField.className = "metro-progressive-field";
@@ -3672,7 +3764,6 @@
             progFields.appendChild(progEveryField);
 
             function refreshProgToggle() {
-                progToggle.textContent = "Tempo progressif : " + (m.progressive.enabled ? "activé" : "désactivé");
                 progToggle.classList.toggle("metro-progressive-active", m.progressive.enabled);
                 progFields.hidden = !m.progressive.enabled;
             }
@@ -3682,9 +3773,6 @@
                 refreshProgToggle();
             });
             refreshProgToggle();
-            progRow.appendChild(progFields);
-            tapProgRow.appendChild(progToggle);
-            panel.appendChild(progRow);
 
             var progMeasureCount = 0;
             metroMeasureCallback = function () {
@@ -3696,55 +3784,9 @@
                 }
             };
 
-            var fieldsRow = document.createElement("div");
-            fieldsRow.className = "metro-fields-row";
-
-            var beatsField = document.createElement("label");
-            beatsField.className = "metro-field";
-            beatsField.textContent = "Temps/mesure";
-            var beatsInput = document.createElement("input");
-            beatsInput.type = "number";
-            beatsInput.min = "1";
-            beatsInput.max = "12";
-            beatsInput.value = m.beatsPerMeasure;
-            beatsInput.addEventListener("change", function () {
-                var n = Math.min(12, Math.max(1, parseInt(beatsInput.value, 10) || 4));
-                m.beatsPerMeasure = n;
-                m.pattern = null; // sera reconstruit par normalizeMetronomeSettings, motif adapté à la nouvelle taille
-                normalizeMetronomeSettings(state.settings);
-                beatsInput.value = m.beatsPerMeasure;
-                save();
-                renderPad();
-            });
-            beatsField.appendChild(beatsInput);
-            fieldsRow.appendChild(beatsField);
-
-            var subField = document.createElement("label");
-            subField.className = "metro-field";
-            subField.textContent = "Subdivision";
-            var subSelect = document.createElement("select");
-            [[1, "Noire"], [2, "Croches"], [3, "Triolet"], [4, "Doubles-croches"]].forEach(function (opt) {
-                var o = document.createElement("option");
-                o.value = opt[0];
-                o.textContent = opt[1];
-                if (m.subdivision === opt[0]) o.selected = true;
-                subSelect.appendChild(o);
-            });
-            subSelect.addEventListener("change", function () {
-                m.subdivision = parseInt(subSelect.value, 10);
-                m.pattern = null;
-                normalizeMetronomeSettings(state.settings);
-                save();
-                renderPad();
-            });
-            subField.appendChild(subSelect);
-            fieldsRow.appendChild(subField);
-
-            // Le réglage de volume est discret : juste une icône, à droite de la subdivision. La
-            // barre ne se déplie (en pleine largeur, sous les champs) que sur clic, sinon elle
-            // serait en permanence visible alors qu'on y touche rarement.
-            var volumeField = document.createElement("div");
-            volumeField.className = "metro-volume-field";
+            // -- volume : même pastille que les autres bascules, barre pleine largeur en dessous --
+            var volumeRow = document.createElement("div");
+            volumeRow.className = "metro-volume-row";
             var volumeSlider = document.createElement("input");
             volumeSlider.type = "range";
             volumeSlider.min = "0";
@@ -3756,18 +3798,13 @@
                 setMetroVolume(parseInt(volumeSlider.value, 10) / 100);
                 save();
             });
-            var volumeRow = document.createElement("div");
-            volumeRow.className = "metro-volume-row";
             var volumeBtn = svgIconButton(METRO_VOLUME_ICON_SVG, "Volume", function () {
-                volumeRow.classList.toggle("metro-volume-expanded");
-                if (volumeRow.classList.contains("metro-volume-expanded")) volumeSlider.focus();
+                volumeRow.classList.toggle("metro-volume-expanded-row");
+                volumeBtn.classList.toggle("metro-volume-expanded", volumeRow.classList.contains("metro-volume-expanded-row"));
+                if (volumeRow.classList.contains("metro-volume-expanded-row")) volumeSlider.focus();
             });
-            volumeBtn.classList.add("metro-volume-btn");
-            volumeField.appendChild(volumeBtn);
-            fieldsRow.appendChild(volumeField);
-
-            panel.appendChild(fieldsRow);
-
+            volumeBtn.classList.add("metro-mini-btn", "metro-mini-btn-icon", "metro-volume-btn");
+            toolsRow.appendChild(volumeBtn);
             volumeRow.appendChild(volumeSlider);
             panel.appendChild(volumeRow);
 
@@ -3791,7 +3828,7 @@
             var resetPadBtn = document.createElement("button");
             resetPadBtn.type = "button";
             resetPadBtn.className = "metro-mini-btn metro-pad-reset";
-            resetPadBtn.textContent = "1er temps accentué";
+            resetPadBtn.textContent = "1er temps fort";
             resetPadBtn.title = "Revenir au 1er temps accentué";
             resetPadBtn.addEventListener("click", function () {
                 for (var i = 0; i < m.pattern.length; i++) m.pattern[i] = i === 0 ? 2 : (i % m.subdivision === 0 ? 1 : 0);
@@ -3814,7 +3851,13 @@
             });
             padActionsRow.appendChild(noAccentBtn);
 
-            panel.appendChild(padActionsRow);
+            // Réinitialiser le pavé et le chrono se retrouvent sur la même ligne (gagne une ligne de
+            // hauteur) : ce sont deux actions secondaires de même poids, pas de raison de les
+            // empiler.
+            var footerRow = document.createElement("div");
+            footerRow.className = "metro-footer-row";
+            footerRow.appendChild(padActionsRow);
+            panel.appendChild(footerRow);
 
             // Le pavé est groupé par temps (un mini-groupe de `subdivision` pas), et ces groupes
             // sont eux-mêmes répartis en lignes de longueur égale (ex. 4 temps -> 2 en haut, 2 en
@@ -3881,7 +3924,7 @@
             chronoRow.appendChild(chronoIcon);
             chronoRow.appendChild(chronoValue);
             chronoRow.appendChild(chronoResetBtn);
-            panel.appendChild(chronoRow);
+            footerRow.appendChild(chronoRow);
 
             var chronoElapsedMs = 0;
             var chronoStartTs = null;
@@ -3907,26 +3950,6 @@
             }
             refreshChrono();
 
-            var playBtn = document.createElement("button");
-            playBtn.type = "button";
-            playBtn.className = "metro-play-btn";
-            var playBtnIcon = document.createElement("span");
-            playBtnIcon.className = "metro-play-btn-icon";
-            var playBtnLabel = document.createElement("span");
-            playBtn.appendChild(playBtnIcon);
-            playBtn.appendChild(playBtnLabel);
-            function refreshPlayBtn() {
-                playBtn.classList.toggle("metro-play-btn-active", metroPlaying);
-                playBtnIcon.innerHTML = metroPlaying ? METRO_STOP_ICON_SVG : METRO_PLAY_ICON_SVG;
-                playBtnLabel.textContent = metroPlaying ? "Arrêter" : "Jouer";
-            }
-            refreshPlayBtn();
-            playBtn.addEventListener("click", function () {
-                if (metroPlaying) { stopMetronome(); stopChrono(); } else { progMeasureCount = 0; startMetronome(); startChrono(); }
-                refreshPlayBtn();
-            });
-            panel.appendChild(playBtn);
-
             function setBpm(v) {
                 v = Math.min(300, Math.max(30, v));
                 m.bpm = v;
@@ -3934,8 +3957,7 @@
                 refreshBpmUI();
             }
             function refreshBpmUI() {
-                bpmValue.textContent = m.bpm + " BPM";
-                bpmSlider.value = m.bpm;
+                bpmValue.textContent = m.bpm;
             }
             refreshBpmUI();
 
