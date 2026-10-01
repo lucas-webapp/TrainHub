@@ -1257,19 +1257,51 @@ button.metro-play-btn-big.metro-play-btn-active { background: #ff5252; color: #2
 .aides-panel { align-items: center; text-align: center; display: flex; flex-direction: column; }
 /* max-height propre (celui de .backups-panel, 600px, plafonnerait sinon la hauteur voulue ici). */
 .aides-panel { width: min(420px, calc(100vw - 24px)); height: min(480px, calc(100vh - 24px)); max-height: calc(100vh - 24px); min-width: 300px; min-height: 320px; }
-.scales-panel { width: min(960px, calc(100vw - 24px)); height: min(640px, calc(100vh - 24px)); max-height: calc(100vh - 24px); min-width: 480px; min-height: 380px; display: flex; flex-direction: column; }
-.scales-controls-row { display: flex; justify-content: center; gap: 16px; flex-wrap: wrap; }
-.scales-field { display: flex; flex-direction: column; gap: 4px; align-items: center; }
-.scales-field-label { font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
-.scales-field select { font-size: var(--fs-sm); min-width: 160px; }
-.scales-label-mode-row { display: flex; justify-content: center; gap: 8px; margin-top: 12px; }
-button.scales-label-btn.scales-label-btn-active { color: var(--accent); border-color: var(--accent); }
-/* flex:1 + min-height:0 : la zone du diagramme prend tout l'espace restant du panneau (donc grandit
-   quand on redimensionne la fenêtre à la main), et le manche/clavier suit en hauteur (voir
-   .fretboard-svg/.piano-scale-svg, height:100% + width:auto préservant leur ratio). */
-.scales-diagrams { flex: 1; min-height: 0; display: flex; justify-content: center; margin-top: 18px; }
-.fretboard-scroll { flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; display: flex; align-items: center; justify-content: flex-start; padding: 4px; }
-.fretboard-svg { flex: none; height: 100%; width: auto; max-width: none; display: block; }
+/* Hauteur ajustée au contenu (le diagramme a une taille fixe × zoom, voir openScalesPanel) ; la
+   largeur grandit pour le manche jusqu'à la largeur de l'écran (recalcPanelFit), au-delà il défile. */
+.scales-panel { width: min(760px, calc(100vw - 24px)); height: auto; max-height: calc(100vh - 24px); min-width: 320px; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.scales-row { display: grid; grid-template-columns: 92px 1fr; align-items: center; gap: 10px; }
+.scales-row-label { font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; text-align: left; }
+.scales-row-types { margin-top: -4px; }
+.scales-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.scales-row-view .scales-chips { gap: 10px; }
+.scales-row-view .scales-segmented { gap: 0; }
+button.scales-chip {
+    box-sizing: border-box;
+    min-height: 32px;
+    padding: 0 11px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: rgba(255,255,255,.04);
+    color: var(--text-main);
+    font-size: var(--fs-sm);
+    font-weight: 600;
+}
+button.scales-chip:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+button.scales-chip.scales-chip-active { background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: var(--accent); color: var(--accent); }
+button.scales-chip:disabled { opacity: .35; cursor: default; }
+button.scales-chip.scales-chip-icon { min-width: 36px; padding: 0; font-size: var(--fs-md); }
+.scales-row-root button.scales-chip { min-width: 40px; padding: 0 6px; }
+/* Boutons collés façon interrupteur à plusieurs positions (un seul choix possible). */
+.scales-segmented { gap: 0 !important; flex-wrap: nowrap; }
+.scales-segmented button.scales-chip { border-radius: 0; margin-left: -1px; }
+.scales-segmented button.scales-chip:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); margin-left: 0; }
+.scales-segmented button.scales-chip:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.scales-segmented button.scales-chip-active { position: relative; z-index: 1; }
+.scales-summary { font-size: var(--fs-sm); color: var(--text-muted); text-align: left; padding-top: 6px; border-top: 1px solid var(--border); }
+.scales-summary strong { color: var(--text-main); }
+.scales-diagrams { display: flex; justify-content: center; min-height: 0; }
+.fretboard-scroll { flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; display: flex; align-items: center; justify-content: safe center; padding: 14px 4px; }
+.fretboard-svg { flex: none; display: block; max-width: none; overflow: visible; }
+@media (max-width: 700px) {
+    .scales-row { grid-template-columns: 1fr; gap: 4px; }
+    .scales-row-types { margin-top: 0; }
+    .scales-row-root .scales-chips { display: grid; grid-template-columns: repeat(6, 1fr); }
+    .scales-row-root button.scales-chip { min-width: 0; }
+    .scales-segmented { flex-wrap: nowrap; }
+    .scales-segmented button.scales-chip { flex: 1; padding: 0 6px; }
+    .scales-row-view .scales-chips { flex-wrap: wrap; }
+}
 /* Fond et notes en gris clair neutre pour l'instant (pas de couleurs vives tant qu'on n'a pas
    décidé d'un code couleur par note/degré) : seule la racine se distingue, par un remplissage
    plein plutôt qu'un simple contour. */
@@ -1282,22 +1314,7 @@ button.scales-label-btn.scales-label-btn-active { color: var(--accent); border-c
 .fretboard-note-root { stroke: none; fill: #e4e4e4; }
 .fretboard-note-label { font-size: 10px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; fill: #ddd; pointer-events: none; }
 .fretboard-note-root + .fretboard-note-label { fill: #111; }
-.piano-scale-svg { flex: none; height: 100%; width: auto; max-width: none; display: block; }
-/* Téléphone : les 3 menus sur une seule rangée compacte, et un manche de hauteur raisonnable qui
-   défile à l'horizontale — au lieu d'un manche étiré sur toute la hauteur restante (notes géantes,
-   une seule case visible). */
-@media (max-width: 700px) {
-    .scales-controls-row { display: grid; grid-template-columns: 1fr 1.4fr 1.3fr; gap: 8px; }
-    .scales-field { min-width: 0; align-items: stretch; }
-    .scales-field-label { text-align: center; font-size: 10px; }
-    .scales-field select { min-width: 0; width: 100%; font-size: var(--fs-xs); padding-left: 6px; padding-right: 6px; }
-    .scales-label-mode-row { margin-top: 4px; }
-    .scales-diagrams { flex: 0 0 auto; height: clamp(180px, 38vh, 280px); margin-top: 8px; }
-    /* Les pastilles de la 1re et de la dernière corde débordent un peu du dessin : sans marge
-       verticale, la zone qui défile à l'horizontale les coupait. */
-    .fretboard-scroll { padding: 16px 4px; }
-    .fretboard-svg { overflow: visible; }
-}
+.piano-scale-svg { flex: none; max-width: none; display: block; }
 .piano-key-white { fill: #f2ead9; stroke: #2a2a2a; stroke-width: .7; }
 .piano-key-black { fill: #171310; stroke: #000; stroke-width: .6; }
 .piano-key-active { fill: #b9b9b9; }

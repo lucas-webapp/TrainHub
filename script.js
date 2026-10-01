@@ -3150,7 +3150,7 @@
     // dessous de ces valeurs même quand le contenu est très court.
     var PANEL_BASE_MIN_SIZE = {
         "aides-panel": { w: 300, h: 320 },
-        "scales-panel": { w: 480, h: 380 },
+        "scales-panel": { w: 320, h: 200 },
         "folder-picker-panel": { w: 280, h: 280 }
     };
     function basePanelMinSize(kind) {
@@ -4410,15 +4410,16 @@
         return labelMode === "notes" ? NOTE_NAMES_SHARP[pc] : def.degrees[semiIdx];
     }
 
-    function buildFretboardSvg(tuning, def, rootPc, labelMode) {
+    function buildFretboardSvg(tuning, def, rootPc, labelMode, fretCount) {
+        var FRETS = fretCount || FRETBOARD_DISPLAY_FRETS;
         var ns = "http://www.w3.org/2000/svg";
         // Espacements volontairement plus généreux que des proportions "réalistes" de manche
         // (stringGap > fretGap/2, au lieu d'un vrai manche plus large que haut) : le but est que les
         // pastilles de notes ne se touchent jamais, pas de reproduire un vrai manche à l'échelle.
-        var stringGap = 26, fretGap = 38, marginLeft = 24, marginTop = 10, labelRowH = 16;
+        var stringGap = 26, fretGap = 38, marginLeft = 24, marginTop = 14, labelRowH = 26;
         var n = tuning.midis.length;
         var stringsSpan = stringGap * (n - 1);
-        var width = marginLeft + fretGap * FRETBOARD_DISPLAY_FRETS + 8;
+        var width = marginLeft + fretGap * FRETS + 8;
         var height = marginTop + stringsSpan + labelRowH + 4;
         var svg = document.createElementNS(ns, "svg");
         svg.setAttribute("viewBox", "0 0 " + width + " " + height);
@@ -4434,22 +4435,24 @@
         function stringY(s) { return marginTop + (n - 1 - s) * stringGap; }
 
         svg.appendChild(el("rect", { x: marginLeft - 2, y: marginTop, width: 3, height: stringsSpan, class: "fretboard-nut" }));
-        for (var c = 1; c <= FRETBOARD_DISPLAY_FRETS; c++) {
+        for (var c = 1; c <= FRETS; c++) {
             var x = marginLeft + c * fretGap;
             svg.appendChild(el("line", { x1: x, y1: marginTop, x2: x, y2: marginTop + stringsSpan, class: "fretboard-fret" }));
         }
         for (var s = 0; s < n; s++) {
             var y = stringY(s);
-            svg.appendChild(el("line", { x1: marginLeft, y1: y, x2: marginLeft + fretGap * FRETBOARD_DISPLAY_FRETS, y2: y, class: "fretboard-string" }));
+            svg.appendChild(el("line", { x1: marginLeft, y1: y, x2: marginLeft + fretGap * FRETS, y2: y, class: "fretboard-string" }));
         }
         var midY = marginTop + stringsSpan / 2;
-        var labelY = marginTop + stringsSpan + 11;
+        var labelY = marginTop + stringsSpan + 23; // sous les pastilles de la dernière corde, pas cachées par elles
         FRETBOARD_SINGLE_MARKERS.forEach(function (fret) {
+            if (fret > FRETS) return;
             var mx = marginLeft + (fret - 0.5) * fretGap;
             svg.appendChild(el("circle", { cx: mx, cy: midY, r: 3, class: "fretboard-inlay" }));
             svg.appendChild(el("text", { x: mx, y: labelY, class: "fretboard-fret-label" })).textContent = fret;
         });
         FRETBOARD_DOUBLE_MARKERS.forEach(function (fret) {
+            if (fret > FRETS) return;
             var mx = marginLeft + (fret - 0.5) * fretGap;
             svg.appendChild(el("circle", { cx: mx, cy: midY - stringGap, r: 3, class: "fretboard-inlay" }));
             svg.appendChild(el("circle", { cx: mx, cy: midY + stringGap, r: 3, class: "fretboard-inlay" }));
@@ -4457,7 +4460,7 @@
         });
 
         for (var s2 = 0; s2 < n; s2++) {
-            for (var fret2 = 0; fret2 <= FRETBOARD_DISPLAY_FRETS; fret2++) {
+            for (var fret2 = 0; fret2 <= FRETS; fret2++) {
                 var pc = (tuning.midis[s2] + fret2) % 12;
                 var diff = (pc - rootPc + 12) % 12;
                 var semiIdx = def.semis.indexOf(diff);
@@ -4542,11 +4545,36 @@
     // Un seul instrument affiché à la fois (menu déroulant) plutôt que 4 manches entassés : le piano
     // n'est qu'un choix de plus dans la même liste, à côté des accordages de cordes.
     var SCALES_INSTRUMENTS = [
-        { key: "bass4", label: "Basse (4 cordes)", type: "fretboard", tuning: FRETBOARD_TUNINGS[0] },
-        { key: "bass5", label: "Basse (5 cordes)", type: "fretboard", tuning: FRETBOARD_TUNINGS[1] },
-        { key: "guitar", label: "Guitare", type: "fretboard", tuning: FRETBOARD_TUNINGS[2] },
-        { key: "piano", label: "Piano", type: "piano" }
+        { key: "bass4", label: "Basse (4 cordes)", short: "Basse 4", type: "fretboard", tuning: FRETBOARD_TUNINGS[0] },
+        { key: "bass5", label: "Basse (5 cordes)", short: "Basse 5", type: "fretboard", tuning: FRETBOARD_TUNINGS[1] },
+        { key: "guitar", label: "Guitare", short: "Guitare", type: "fretboard", tuning: FRETBOARD_TUNINGS[2] },
+        { key: "piano", label: "Piano", short: "Piano", type: "piano" }
     ];
+    // Choix rangés en 3 familles courtes plutôt qu'un long menu déroulant : chaque famille tient en
+    // une rangée de boutons au libellé court (le nom complet reste en info-bulle).
+    var SCALE_GROUPS = [
+        { key: "scales", label: "Gammes", items: [["major", "Majeur"], ["aeolian", "Mineur"], ["harmonicMinor", "Min. harm."], ["melodicMinor", "Min. mél."], ["majorPenta", "Penta maj"], ["minorPenta", "Penta min"], ["blues", "Blues"], ["wholeTone", "Par tons"]] },
+        { key: "modes", label: "Modes", items: [["major", "Ionien"], ["dorian", "Dorien"], ["phrygian", "Phrygien"], ["lydian", "Lydien"], ["mixolydian", "Mixolydien"], ["aeolian", "Éolien"], ["locrian", "Locrien"]] },
+        { key: "arps", label: "Arpèges", items: [["triadMaj", "Maj"], ["triadMin", "m"], ["triadDim", "dim"], ["triadAug", "aug"], ["maj7", "maj7"], ["dom7", "7"], ["min7", "m7"], ["min7b5", "m7♭5"], ["dim7", "dim7"], ["minMaj7", "mMaj7"]] }
+    ];
+    var SCALES_PREFS_KEY = "trainhub.scalesPrefs.v1";
+    function loadScalesPrefs() {
+        var p = {};
+        try { p = JSON.parse(localStorage.getItem(SCALES_PREFS_KEY)) || {}; } catch (e) {}
+        var isPhone = window.matchMedia && window.matchMedia("(max-width: 700px)").matches;
+        return {
+            root: typeof p.root === "number" && p.root >= 0 && p.root < 12 ? p.root : 0,
+            group: ["scales", "modes", "arps"].indexOf(p.group) !== -1 ? p.group : "scales",
+            type: SCALE_DEFS.some(function (d) { return d.key === p.type; }) ? p.type : "major",
+            instrument: SCALES_INSTRUMENTS.some(function (i) { return i.key === p.instrument; }) ? p.instrument : "bass4",
+            labelMode: p.labelMode === "notes" ? "notes" : "degrees",
+            frets: p.frets === 24 ? 24 : 12,
+            zoom: typeof p.zoom === "number" && p.zoom >= 0.6 && p.zoom <= 1.8 ? p.zoom : (isPhone ? 0.85 : 1.2)
+        };
+    }
+    function saveScalesPrefs(p) {
+        try { localStorage.setItem(SCALES_PREFS_KEY, JSON.stringify(p)); } catch (e) {}
+    }
 
     function openScalesPanel() {
         openModal("scales-panel", function (panel) {
@@ -4555,99 +4583,130 @@
             title.textContent = "Gammes & arpèges";
             panel.appendChild(title);
 
-            // Ordre logique : d'abord la tonique, puis ce qu'on construit dessus (gamme/arpège),
-            // enfin sur quel instrument le voir — chaque menu porte son étiquette, plutôt qu'une
-            // rangée de select nus dont l'ordre/le rôle ne sont pas évidents au premier coup d'œil.
-            function selectField(labelText, select) {
-                var field = document.createElement("label");
-                field.className = "scales-field";
-                var span = document.createElement("span");
-                span.className = "scales-field-label";
-                span.textContent = labelText;
-                field.appendChild(span);
-                field.appendChild(select);
-                return field;
+            var prefs = loadScalesPrefs();
+
+            // Une rangée par question, dans l'ordre où on se la pose : quelle note, quelle gamme,
+            // sur quel instrument, puis comment l'afficher. Des boutons plutôt que des menus
+            // déroulants : on voit tous les choix d'un coup et un seul toucher suffit.
+            function row(labelText, extraClass) {
+                var r = document.createElement("div");
+                r.className = "scales-row" + (extraClass ? " " + extraClass : "");
+                var l = document.createElement("div");
+                l.className = "scales-row-label";
+                l.textContent = labelText;
+                var chips = document.createElement("div");
+                chips.className = "scales-chips";
+                r.appendChild(l);
+                r.appendChild(chips);
+                panel.appendChild(r);
+                return chips;
+            }
+            function chip(container, text, titleText, onClick) {
+                var b = document.createElement("button");
+                b.type = "button";
+                b.className = "scales-chip";
+                b.textContent = text;
+                if (titleText) b.title = titleText;
+                b.addEventListener("click", onClick);
+                container.appendChild(b);
+                return b;
             }
 
-            var controlsRow = document.createElement("div");
-            controlsRow.className = "scales-controls-row";
-
-            var rootSelect = document.createElement("select");
-            NOTE_NAMES_SHARP.forEach(function (name, pc) {
-                var o = document.createElement("option");
-                o.value = pc;
-                o.textContent = name;
-                rootSelect.appendChild(o);
+            var rootChips = row("Tonique", "scales-row-root");
+            var rootBtns = NOTE_NAMES_SHARP.map(function (name, pc) {
+                return chip(rootChips, name, null, function () { prefs.root = pc; update(); });
             });
-            controlsRow.appendChild(selectField("Tonique", rootSelect));
 
-            var typeSelect = document.createElement("select");
-            var currentGroup = null, optgroup = null;
-            SCALE_DEFS.forEach(function (def) {
-                if (def.kind !== currentGroup) {
-                    currentGroup = def.kind;
-                    optgroup = document.createElement("optgroup");
-                    optgroup.label = def.kind;
-                    typeSelect.appendChild(optgroup);
-                }
-                var o = document.createElement("option");
-                o.value = def.key;
-                o.textContent = def.label;
-                optgroup.appendChild(o);
+            var groupChips = row("Type");
+            var groupBtns = SCALE_GROUPS.map(function (g) {
+                return chip(groupChips, g.label, null, function () {
+                    prefs.group = g.key;
+                    // Garde le même choix s'il existe dans la nouvelle famille (Majeur <-> Ionien),
+                    // sinon prend le premier.
+                    if (!g.items.some(function (it) { return it[0] === prefs.type; })) prefs.type = g.items[0][0];
+                    update();
+                });
             });
-            controlsRow.appendChild(selectField("Gamme / arpège", typeSelect));
+            groupChips.classList.add("scales-segmented");
+            var typeChips = row("", "scales-row-types");
 
-            var instrumentSelect = document.createElement("select");
-            SCALES_INSTRUMENTS.forEach(function (inst) {
-                var o = document.createElement("option");
-                o.value = inst.key;
-                o.textContent = inst.label;
-                instrumentSelect.appendChild(o);
+            var instChips = row("Instrument");
+            instChips.classList.add("scales-segmented");
+            var instBtns = SCALES_INSTRUMENTS.map(function (inst) {
+                return chip(instChips, inst.short, inst.label, function () { prefs.instrument = inst.key; update(); });
             });
-            controlsRow.appendChild(selectField("Instrument", instrumentSelect));
-            panel.appendChild(controlsRow);
 
-            var labelModeRow = document.createElement("div");
-            labelModeRow.className = "scales-label-mode-row";
-            var labelMode = "degrees";
-            var intervalsBtn = document.createElement("button");
-            intervalsBtn.type = "button";
-            intervalsBtn.className = "metro-mini-btn scales-label-btn";
-            intervalsBtn.textContent = "Intervalles";
-            var notesBtn = document.createElement("button");
-            notesBtn.type = "button";
-            notesBtn.className = "metro-mini-btn scales-label-btn";
-            notesBtn.textContent = "Noms des notes";
-            labelModeRow.appendChild(intervalsBtn);
-            labelModeRow.appendChild(notesBtn);
-            panel.appendChild(labelModeRow);
+            var viewChips = row("Affichage", "scales-row-view");
+            var labelSeg = document.createElement("div");
+            labelSeg.className = "scales-chips scales-segmented";
+            viewChips.appendChild(labelSeg);
+            var degreesBtn = chip(labelSeg, "Intervalles", null, function () { prefs.labelMode = "degrees"; update(); });
+            var notesBtn = chip(labelSeg, "Notes", null, function () { prefs.labelMode = "notes"; update(); });
+            var fretSeg = document.createElement("div");
+            fretSeg.className = "scales-chips scales-segmented";
+            viewChips.appendChild(fretSeg);
+            var frets12Btn = chip(fretSeg, "12 cases", "Manche jusqu'à la 12e case", function () { prefs.frets = 12; update(); });
+            var frets24Btn = chip(fretSeg, "24 cases", "Manche complet", function () { prefs.frets = 24; update(); });
+            var zoomSeg = document.createElement("div");
+            zoomSeg.className = "scales-chips scales-segmented";
+            viewChips.appendChild(zoomSeg);
+            var zoomOut = chip(zoomSeg, "−", "Diagramme plus petit", function () { prefs.zoom = Math.max(0.6, Math.round((prefs.zoom - 0.15) * 100) / 100); update(); });
+            var zoomIn = chip(zoomSeg, "+", "Diagramme plus grand", function () { prefs.zoom = Math.min(1.8, Math.round((prefs.zoom + 0.15) * 100) / 100); update(); });
+            zoomOut.classList.add("scales-chip-icon");
+            zoomIn.classList.add("scales-chip-icon");
+
+            var summary = document.createElement("div");
+            summary.className = "scales-summary";
+            panel.appendChild(summary);
 
             var diagramsWrap = document.createElement("div");
             diagramsWrap.className = "scales-diagrams";
             panel.appendChild(diagramsWrap);
 
-            function refreshLabelButtons() {
-                intervalsBtn.classList.toggle("scales-label-btn-active", labelMode === "degrees");
-                notesBtn.classList.toggle("scales-label-btn-active", labelMode === "notes");
-            }
-            intervalsBtn.addEventListener("click", function () { labelMode = "degrees"; refreshLabelButtons(); renderDiagram(); });
-            notesBtn.addEventListener("click", function () { labelMode = "notes"; refreshLabelButtons(); renderDiagram(); });
-            refreshLabelButtons();
+            function setActive(btns, pred) { btns.forEach(function (b, i) { b.classList.toggle("scales-chip-active", !!pred(i)); }); }
 
-            function renderDiagram() {
+            function update() {
+                saveScalesPrefs(prefs);
+                var group = SCALE_GROUPS.filter(function (g) { return g.key === prefs.group; })[0];
+                setActive(rootBtns, function (i) { return i === prefs.root; });
+                setActive(groupBtns, function (i) { return SCALE_GROUPS[i].key === prefs.group; });
+                typeChips.innerHTML = "";
+                group.items.forEach(function (it) {
+                    var def = SCALE_DEFS.filter(function (d) { return d.key === it[0]; })[0];
+                    var b = chip(typeChips, it[1], def.label, function () { prefs.type = it[0]; update(); });
+                    b.classList.toggle("scales-chip-active", it[0] === prefs.type);
+                });
+                setActive(instBtns, function (i) { return SCALES_INSTRUMENTS[i].key === prefs.instrument; });
+                degreesBtn.classList.toggle("scales-chip-active", prefs.labelMode === "degrees");
+                notesBtn.classList.toggle("scales-chip-active", prefs.labelMode === "notes");
+                var inst = SCALES_INSTRUMENTS.filter(function (i) { return i.key === prefs.instrument; })[0];
+                fretSeg.hidden = inst.type === "piano";
+                frets12Btn.classList.toggle("scales-chip-active", prefs.frets === 12);
+                frets24Btn.classList.toggle("scales-chip-active", prefs.frets === 24);
+                zoomOut.disabled = prefs.zoom <= 0.6;
+                zoomIn.disabled = prefs.zoom >= 1.8;
+
+                // Récapitulatif lisible : nom complet + notes de la gamme, utile en soi.
+                var def = SCALE_DEFS.filter(function (d) { return d.key === prefs.type; })[0];
+                var notes = def.semis.map(function (st) { return NOTE_NAMES_SHARP[(prefs.root + st) % 12]; });
+                summary.innerHTML = "";
+                var strong = document.createElement("strong");
+                strong.textContent = NOTE_NAMES_SHARP[prefs.root] + " " + def.label;
+                summary.appendChild(strong);
+                summary.appendChild(document.createTextNode(" · " + notes.join(" ")));
+
                 diagramsWrap.innerHTML = "";
-                var rootPc = parseInt(rootSelect.value, 10);
-                var def = SCALE_DEFS.filter(function (d) { return d.key === typeSelect.value; })[0] || SCALE_DEFS[0];
-                var inst = SCALES_INSTRUMENTS.filter(function (i) { return i.key === instrumentSelect.value; })[0] || SCALES_INSTRUMENTS[0];
                 var scroll = document.createElement("div");
                 scroll.className = "fretboard-scroll";
-                scroll.appendChild(inst.type === "piano" ? buildPianoScaleSvg(def, rootPc, labelMode) : buildFretboardSvg(inst.tuning, def, rootPc, labelMode));
+                var svg = inst.type === "piano" ? buildPianoScaleSvg(def, prefs.root, prefs.labelMode) : buildFretboardSvg(inst.tuning, def, prefs.root, prefs.labelMode, prefs.frets);
+                // Taille fixe (en px) × zoom plutôt qu'étirée sur toute la hauteur dispo : les notes
+                // gardent une taille lisible et constante, quelle que soit la taille de l'écran.
+                svg.setAttribute("width", Math.round(parseFloat(svg.getAttribute("width")) * prefs.zoom));
+                svg.setAttribute("height", Math.round(parseFloat(svg.getAttribute("height")) * prefs.zoom));
+                scroll.appendChild(svg);
                 diagramsWrap.appendChild(scroll);
             }
-            rootSelect.addEventListener("change", renderDiagram);
-            typeSelect.addEventListener("change", renderDiagram);
-            instrumentSelect.addEventListener("change", renderDiagram);
-            renderDiagram();
+            update();
         });
     }
 
