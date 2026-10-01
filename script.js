@@ -42,6 +42,7 @@
     // marqués favoris et les exercices archivés de TOUT l'instrument, où qu'ils soient rangés.
     var FAVORITES_ID = "__favorites__";
     var ARCHIVED_ID = "__archived__";
+    var TAGS_VIEW_ID = "__tags__";
 
     var searchQuery = "";
     var navPaths = {}; // instrumentId -> [folderId, ...] depuis le grand chapitre (non synchronisé, juste la navigation en cours)
@@ -49,6 +50,24 @@
 
     function uid() {
         return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    }
+
+    // ---------- notification discrète (toast) ----------
+    // Pour les cas où une action a un effet secondaire pas forcément évident (ex. dupliquer un
+    // exercice archivé/favori ne reprend pas ce statut — la copie "disparaît" donc de la vue
+    // Archivés/Favoris sans qu'on comprenne pourquoi au premier abord).
+    var activeToastEl = null, activeToastTimer = null;
+    function showToast(message) {
+        if (activeToastEl) { activeToastEl.remove(); clearTimeout(activeToastTimer); }
+        var toast = document.createElement("div");
+        toast.className = "toast";
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        activeToastEl = toast;
+        activeToastTimer = setTimeout(function () {
+            toast.remove();
+            if (activeToastEl === toast) activeToastEl = null;
+        }, 3200);
     }
 
     function makeFolder(name, color) {
@@ -108,7 +127,7 @@
     // défaut (ou pour un instrument créé avant cette version), les virtuels sont en tête et les
     // vrais chapitres suivent dans leur ordre existant — rien ne bouge visuellement.
     function normalizePinnedOrder(inst) {
-        var validIds = [FAVORITES_ID, ARCHIVED_ID].concat(inst.categories.map(function (c) { return c.id; }));
+        var validIds = [FAVORITES_ID, ARCHIVED_ID, TAGS_VIEW_ID].concat(inst.categories.map(function (c) { return c.id; }));
         var order = Array.isArray(inst.pinnedOrder) ? inst.pinnedOrder.filter(function (id) { return validIds.indexOf(id) !== -1; }) : [];
         validIds.forEach(function (id) { if (order.indexOf(id) === -1) order.push(id); });
         inst.pinnedOrder = order;
@@ -396,6 +415,33 @@
         return found;
     }
 
+    // ---------- doublons de nom (dans UN MÊME dossier seulement) ----------
+    // Le même exercice peut légitimement exister sous le même nom dans deux dossiers différents
+    // (ex. un échauffement rangé à la fois dans "Technique" et dans "Gammes") : la vérification ne
+    // porte donc que sur les frères directs d'un même parent, jamais à travers tout l'instrument.
+    function folderNameTaken(siblingFolders, name, exclude) {
+        var n = name.trim().toLowerCase();
+        return siblingFolders.some(function (f) { return f !== exclude && f.name.trim().toLowerCase() === n; });
+    }
+    function exerciseTitleTaken(siblingExercises, title, exclude) {
+        var t = title.trim().toLowerCase();
+        return siblingExercises.some(function (ex) { return ex !== exclude && ex.title.trim().toLowerCase() === t; });
+    }
+    function confirmNameCollision(kind, name) {
+        return window.confirm("Un " + kind + " nommé « " + name + " » existe déjà ici. Continuer quand même ?");
+    }
+
+    // ---------- déplacer / fusionner des dossiers ----------
+    function folderSubtreeDepth(folder) {
+        if (!folder.folders.length) return 1;
+        return 1 + Math.max.apply(Math, folder.folders.map(folderSubtreeDepth));
+    }
+    function collectFolderAndDescendantIds(folder) {
+        var ids = [folder.id];
+        folder.folders.forEach(function (f) { ids = ids.concat(collectFolderAndDescendantIds(f)); });
+        return ids;
+    }
+
     function humanFileSize(bytes) {
         if (!bytes && bytes !== 0) return "";
         if (bytes < 1024) return bytes + " o";
@@ -536,6 +582,7 @@
     var GRIP_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>';
     var STAR_FILLED_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.7l2.9 6 6.6.7-4.9 4.5 1.3 6.5L12 17.4l-5.9 3 1.3-6.5-4.9-4.5 6.6-.7Z"/></svg>';
     var ARCHIVE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"/><path d="M10 13h4"/></svg>';
+    var TAG_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.6 12.3 12.3 20.6a2 2 0 0 1-2.8 0l-7-7a2 2 0 0 1 0-2.8L10.9 2.5a2 2 0 0 1 1.4-.6H19a2 2 0 0 1 2 2v6.9a2 2 0 0 1-.4 1.4Z"/><circle cx="16.5" cy="7.5" r="1.5" fill="currentColor" stroke="none"/></svg>';
     var FILE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05 12.25 20.24a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
     var METRONOME_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 21 10 4h4l3 17Z"/><path d="M12 4V2.3"/><path d="M12 18 15.2 6.5"/><circle cx="14.1" cy="10.8" r="1.3" fill="currentColor" stroke="none"/></svg>';
     var METRO_PLAY_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5Z"/></svg>';
@@ -849,13 +896,76 @@
             title.className = "ctx-title";
             title.textContent = folder.name;
             menu.appendChild(title);
-            if (canAddSub) menu.appendChild(menuButton("Nouveau sous-dossier", "", showAddSub));
+            if (canAddSub) {
+                menu.appendChild(menuButton("Nouveau sous-dossier", "", showAddSub));
+            } else if (depth >= MAX_FOLDER_DEPTH) {
+                var depthNote = document.createElement("div");
+                depthNote.className = "ctx-message";
+                depthNote.textContent = "Profondeur maximale atteinte (" + MAX_FOLDER_DEPTH + " niveaux)";
+                menu.appendChild(depthNote);
+            }
             menu.appendChild(menuButton("Renommer", "", showRename));
             menu.appendChild(menuButton("Dupliquer", "", function () {
-                getParentArray().push(duplicateFolderDeep(folder));
+                var parentArray = getParentArray();
+                var dup = duplicateFolderDeep(folder);
+                // Un grand chapitre dupliqué doit rester repérable : une couleur propre (suivant la
+                // palette, comme un chapitre tout neuf), pas celle — identique — de l'original.
+                if (dup.color) dup.color = currentPalette()[parentArray.length % currentPalette().length];
+                parentArray.push(dup);
                 save();
                 closeFolderMenu();
                 render();
+            }));
+            menu.appendChild(menuButton("Déplacer vers…", "", function () {
+                closeFolderMenu();
+                var excludeIds = collectFolderAndDescendantIds(folder);
+                openFolderPickerModal("Déplacer « " + folder.name + " » vers…", excludeIds, function (dest) {
+                    var destDepth = folderDepth(inst, dest.id);
+                    if (destDepth + folderSubtreeDepth(folder) > MAX_FOLDER_DEPTH) {
+                        window.alert("Impossible de déplacer ici : la profondeur maximale (" + MAX_FOLDER_DEPTH + " niveaux) serait dépassée.");
+                        return;
+                    }
+                    if (folderNameTaken(dest.folders, folder.name) && !confirmNameCollision("dossier", folder.name)) return;
+                    var parentArray = getParentArray();
+                    var pos = parentArray.indexOf(folder);
+                    if (pos !== -1) parentArray.splice(pos, 1);
+                    dest.folders.push(folder);
+                    // Si le dossier déplacé faisait partie du chemin affiché, on le suit à son nouvel
+                    // emplacement plutôt que de laisser l'écran pointer vers un chemin qui n'existe plus.
+                    var currentPath = getNavPath(inst);
+                    if (currentPath.indexOf(folder.id) !== -1) {
+                        var destPath = findPathTo(inst, dest.id) || [];
+                        setNavPath(inst, destPath.concat(folder.id));
+                    }
+                    save();
+                    render();
+                    showToast("« " + folder.name + " » déplacé vers « " + dest.name + " »");
+                });
+            }));
+            menu.appendChild(menuButton("Fusionner avec…", "", function () {
+                closeFolderMenu();
+                var excludeIds2 = collectFolderAndDescendantIds(folder);
+                openFolderPickerModal("Fusionner « " + folder.name + " » dans…", excludeIds2, function (dest) {
+                    var maxChildDepth = folder.folders.reduce(function (m, f) { return Math.max(m, folderSubtreeDepth(f)); }, 0);
+                    var destDepth = folderDepth(inst, dest.id);
+                    if (maxChildDepth > 0 && destDepth + maxChildDepth > MAX_FOLDER_DEPTH) {
+                        window.alert("Impossible de fusionner ici : certains sous-dossiers dépasseraient la profondeur maximale (" + MAX_FOLDER_DEPTH + " niveaux).");
+                        return;
+                    }
+                    if (!window.confirm("Fusionner « " + folder.name + " » dans « " + dest.name + " » ? Ses sous-dossiers et exercices seront déplacés dans « " + dest.name + " », et « " + folder.name + " » disparaîtra.")) return;
+                    dest.folders = dest.folders.concat(folder.folders);
+                    dest.exercises = dest.exercises.concat(folder.exercises);
+                    var parentArray2 = getParentArray();
+                    var pos2 = parentArray2.indexOf(folder);
+                    if (pos2 !== -1) parentArray2.splice(pos2, 1);
+                    var currentPath2 = getNavPath(inst);
+                    if (currentPath2.indexOf(folder.id) !== -1) {
+                        setNavPath(inst, findPathTo(inst, dest.id) || []);
+                    }
+                    save();
+                    render();
+                    showToast("« " + folder.name + " » fusionné dans « " + dest.name + " »");
+                });
             }));
             menu.appendChild(menuButton("Supprimer", "ctx-danger", showDelete));
         }
@@ -872,6 +982,7 @@
             function commit() {
                 var name = input.value.trim();
                 if (!name) return;
+                if (folderNameTaken(folder.folders, name) && !confirmNameCollision("dossier", name)) return;
                 var child = makeFolder(name);
                 folder.folders.push(child);
                 treeExpanded[folder.id] = true;
@@ -906,6 +1017,7 @@
             function commit() {
                 var name = input.value.trim();
                 if (name && name !== folder.name) {
+                    if (folderNameTaken(getParentArray(), name, folder) && !confirmNameCollision("dossier", name)) return;
                     folder.name = name;
                     save();
                 }
@@ -1049,6 +1161,24 @@
                 save();
                 closeFolderMenu();
                 render();
+                // La copie ne reprend pas le statut favori/archivé (voir duplicateExercise) : sans ce
+                // message, dupliquer depuis la vue Archivés ferait "disparaître" la copie de cette vue
+                // sans explication, l'air d'un bug plutôt que d'un choix.
+                if (ex.favorite || ex.archived) {
+                    showToast("Copie créée dans « " + folder.name + " » (non " + (ex.archived ? "archivée" : "favorite") + ")");
+                }
+            }));
+            menu.appendChild(menuButton("Déplacer vers…", "", function () {
+                closeFolderMenu();
+                openFolderPickerModal("Déplacer « " + ex.title + " » vers…", [], function (dest) {
+                    if (dest === folder) return;
+                    if (exerciseTitleTaken(dest.exercises, ex.title) && !confirmNameCollision("exercice", ex.title)) return;
+                    folder.exercises.splice(folder.exercises.indexOf(ex), 1);
+                    dest.exercises.push(ex);
+                    save();
+                    render();
+                    showToast("« " + ex.title + " » déplacé vers « " + dest.name + " »");
+                });
             }));
         }
 
@@ -1323,7 +1453,7 @@
         var inst = getActiveInstrument();
         if (!inst) return;
         var path = getNavPath(inst);
-        if (path[0] === FAVORITES_ID || path[0] === ARCHIVED_ID) return;
+        if (path[0] === FAVORITES_ID || path[0] === ARCHIVED_ID || path[0] === TAGS_VIEW_ID) return;
         var nodes = resolvePath(inst, path);
         var currentFolder = nodes[nodes.length - 1];
         if (!currentFolder) return;
@@ -1345,7 +1475,7 @@
         var inst = getActiveInstrument();
         var path = inst ? getNavPath(inst) : [];
         var rootChapter = inst && path.length ? findById(inst.categories, path[0]) : null;
-        var accent = path[0] === FAVORITES_ID ? "#ffd60a" : path[0] === ARCHIVED_ID ? "#9ca3af" : ((rootChapter && rootChapter.color) || "#00e676");
+        var accent = path[0] === FAVORITES_ID ? "#ffd60a" : path[0] === ARCHIVED_ID ? "#9ca3af" : path[0] === TAGS_VIEW_ID ? (TAGS[tagsViewSelectedTag] || {}).color || "#60a5fa" : ((rootChapter && rootChapter.color) || "#00e676");
         document.documentElement.style.setProperty("--chapter-accent", accent);
         document.documentElement.style.setProperty("--tree-font-scale", state.settings.appearance.treeFontScale);
         DENSITIES.forEach(function (d) { document.documentElement.classList.toggle("density-" + d, state.settings.appearance.density === d); });
@@ -1392,13 +1522,14 @@
     // renommer/supprimer, mais glissable au même titre que les vrais chapitres (voir pinnedOrder).
     function virtualChapterMeta(kind) {
         if (kind === ARCHIVED_ID) return { id: ARCHIVED_ID, name: "Archivés", color: "#9ca3af", icon: ARCHIVE_ICON_SVG, cls: "virtual-archived" };
+        if (kind === TAGS_VIEW_ID) return { id: TAGS_VIEW_ID, name: "Étiquettes", color: "#60a5fa", icon: TAG_ICON_SVG, cls: "virtual-tags" };
         return { id: FAVORITES_ID, name: "Favoris", color: "#ffd60a", icon: STAR_FILLED_SVG, cls: "virtual-favorites" };
     }
 
     function orderedChapterItems(inst) {
         normalizePinnedOrder(inst);
         return inst.pinnedOrder.map(function (id) {
-            if (id === FAVORITES_ID || id === ARCHIVED_ID) return virtualChapterMeta(id);
+            if (id === FAVORITES_ID || id === ARCHIVED_ID || id === TAGS_VIEW_ID) return virtualChapterMeta(id);
             return findById(inst.categories, id);
         }).filter(Boolean);
     }
@@ -1410,7 +1541,7 @@
         var activeId = path[0];
 
         orderedChapterItems(inst).forEach(function (item) {
-            var isVirtual = item.id === FAVORITES_ID || item.id === ARCHIVED_ID;
+            var isVirtual = item.id === FAVORITES_ID || item.id === ARCHIVED_ID || item.id === TAGS_VIEW_ID;
             var isActive = item.id === activeId;
             var chip = document.createElement("div");
             chip.className = "chapter-chip" + (isVirtual ? " " + item.cls : "") + (isActive ? " active" : "");
@@ -1526,7 +1657,7 @@
         var list = document.createElement("div");
         list.className = "tree-list";
         orderedChapterItems(inst).forEach(function (item) {
-            if (item.id === FAVORITES_ID || item.id === ARCHIVED_ID) {
+            if (item.id === FAVORITES_ID || item.id === ARCHIVED_ID || item.id === TAGS_VIEW_ID) {
                 list.appendChild(renderVirtualTreeNode(inst, item.id, path));
             } else {
                 list.appendChild(renderTreeNode(inst, item, [], path, item.color, 0));
@@ -1549,6 +1680,7 @@
         function commitChapter() {
             var name = addInput.value.trim();
             if (!name) return;
+            if (folderNameTaken(inst.categories, name) && !confirmNameCollision("chapitre", name)) return;
             var chapter = makeFolder(name, currentPalette()[inst.categories.length % currentPalette().length]);
             inst.categories.push(chapter);
             clearFilters();
@@ -1648,7 +1780,7 @@
             return;
         }
         var path = getNavPath(inst);
-        if (path[0] === FAVORITES_ID || path[0] === ARCHIVED_ID) {
+        if (path[0] === FAVORITES_ID || path[0] === ARCHIVED_ID || path[0] === TAGS_VIEW_ID) {
             $breadcrumb.hidden = true;
             $breadcrumb.innerHTML = "";
             renderVirtualChapterView(inst, path[0]);
@@ -1699,18 +1831,49 @@
     // Favoris et Archivés partagent le même rendu : une liste à plat de tout l'instrument, avec le
     // chemin réel de chaque exercice (voir renderResultsList) — seuls le titre et le critère de
     // recherche changent.
+    // Étiquette actuellement choisie dans la vue "Étiquettes" (non synchronisée, juste l'état
+    // d'affichage en cours — comme treeExpanded/navPaths).
+    var tagsViewSelectedTag = Object.keys(TAGS)[0];
+
     function renderVirtualChapterView(inst, kind) {
         $contentHeading.innerHTML = "";
         var h2 = document.createElement("h2");
-        h2.textContent = kind === ARCHIVED_ID ? "Archivés" : "★ Favoris";
+        h2.textContent = kind === ARCHIVED_ID ? "Archivés" : kind === TAGS_VIEW_ID ? "Étiquettes" : "★ Favoris";
         $contentHeading.appendChild(h2);
 
-        var results = kind === ARCHIVED_ID
-            ? collectExercises(inst, function (ex) { return ex.archived; })
-            : collectExercises(inst, function (ex) { return ex.favorite && !ex.archived; });
-        var emptyText = kind === ARCHIVED_ID
-            ? "Aucun exercice archivé pour l'instant. Range-en un depuis son menu (clic droit ou appui long dessus)."
-            : "Aucun favori pour l'instant. Marque un exercice en favori depuis son menu (clic droit ou appui long dessus).";
+        if (kind === TAGS_VIEW_ID) {
+            // Une seule vue "Étiquettes" avec un sélecteur, plutôt qu'un chapitre virtuel par
+            // étiquette : ajouter de nouvelles étiquettes plus tard n'encombrera pas le bandeau.
+            var tagsRow = document.createElement("div");
+            tagsRow.className = "tags-view-row";
+            Object.keys(TAGS).forEach(function (key) {
+                var tag = TAGS[key];
+                var chip = document.createElement("button");
+                chip.type = "button";
+                chip.className = "tags-view-chip" + (key === tagsViewSelectedTag ? " tags-view-chip-active" : "");
+                chip.textContent = tag.label;
+                chip.style.borderColor = tag.color;
+                if (key === tagsViewSelectedTag) {
+                    chip.style.color = tag.color;
+                    chip.style.background = "color-mix(in srgb, " + tag.color + " 14%, transparent)";
+                }
+                chip.addEventListener("click", function () { tagsViewSelectedTag = key; render(); });
+                tagsRow.appendChild(chip);
+            });
+            $contentHeading.appendChild(tagsRow);
+        }
+
+        var results, emptyText;
+        if (kind === ARCHIVED_ID) {
+            results = collectExercises(inst, function (ex) { return ex.archived; });
+            emptyText = "Aucun exercice archivé pour l'instant. Range-en un depuis son menu (clic droit ou appui long dessus).";
+        } else if (kind === TAGS_VIEW_ID) {
+            results = collectExercises(inst, function (ex) { return !ex.archived && ex.tags.indexOf(tagsViewSelectedTag) !== -1; });
+            emptyText = "Aucun exercice étiqueté « " + TAGS[tagsViewSelectedTag].label + " » pour l'instant.";
+        } else {
+            results = collectExercises(inst, function (ex) { return ex.favorite && !ex.archived; });
+            emptyText = "Aucun favori pour l'instant. Marque un exercice en favori depuis son menu (clic droit ou appui long dessus).";
+        }
         renderResultsList(inst, results, emptyText);
     }
 
@@ -1798,6 +1961,13 @@
         }
         if (depth < MAX_FOLDER_DEPTH) {
             foldersGroup.appendChild(renderAddFolderForm(currentFolder));
+        } else {
+            // Sans ce message, le "+" disparaît simplement sans explication — on dirait un bug plutôt
+            // qu'une limite volontaire (profondeur maximale des dossiers imbriqués).
+            var depthNote = document.createElement("div");
+            depthNote.className = "folder-depth-limit-note";
+            depthNote.textContent = "Profondeur maximale atteinte (" + MAX_FOLDER_DEPTH + " niveaux) : pas de nouveau sous-dossier ici.";
+            foldersGroup.appendChild(depthNote);
         }
 
         var exGroup = document.createElement("div");
@@ -1890,6 +2060,7 @@
         function commit() {
             var name = input.value.trim();
             if (!name) return;
+            if (folderNameTaken(currentFolder.folders, name) && !confirmNameCollision("dossier", name)) return;
             currentFolder.folders.push(makeFolder(name));
             save();
             render();
@@ -1910,9 +2081,10 @@
             if (!query) return true;
             if (ex.title.toLowerCase().indexOf(query) !== -1) return true;
             // La recherche trouve aussi un exercice par le nom d'un lien ou d'une pièce jointe
-            // (ex. "Youtube bassless"), pas seulement par le titre de l'exercice.
+            // (ex. "Youtube bassless"), ou par le contenu de ses notes — pas seulement par son titre.
             if (ex.links.some(function (l) { return (l.label || "").toLowerCase().indexOf(query) !== -1; })) return true;
             if (ex.files.some(function (f) { return (f.name || "").toLowerCase().indexOf(query) !== -1; })) return true;
+            if ((ex.notes || "").toLowerCase().indexOf(query) !== -1) return true;
             return false;
         }
         var results = collectExercises(inst, matchFn);
@@ -1928,6 +2100,7 @@
         function commit() {
             var title = input.value.trim();
             if (!title) return;
+            if (exerciseTitleTaken(folder.exercises, title) && !confirmNameCollision("exercice", title)) return;
             folder.exercises.push({
                 id: uid(),
                 title: title,
@@ -2007,7 +2180,13 @@
         title.value = ex.title;
         title.addEventListener("input", function () { autoSizeExerciseTitle(title); });
         title.addEventListener("change", function () {
-            ex.title = title.value.trim() || ex.title;
+            var newTitle = title.value.trim();
+            if (!newTitle || newTitle === ex.title) { title.value = ex.title; return; }
+            if (exerciseTitleTaken(folder.exercises, newTitle, ex) && !confirmNameCollision("exercice", newTitle)) {
+                title.value = ex.title;
+                return;
+            }
+            ex.title = newTitle;
             touchExercise(ex);
             save();
         });
@@ -2934,6 +3113,85 @@
         document.body.appendChild(backdrop);
         document.body.appendChild(panel);
         return close;
+    }
+
+    // ---------- choisir un dossier de destination (déplacer / fusionner) ----------
+    // Arborescence de TOUT l'instrument courant, dans le même style que le bandeau latéral —
+    // `excludeIds` masque la branche qu'on déplace elle-même (impossible de la déposer dans l'un de
+    // ses propres sous-dossiers, ce qui créerait un cycle).
+    function openFolderPickerModal(titleText, excludeIds, onPick) {
+        openModal("folder-picker-panel", function (panel, close) {
+            var title = document.createElement("div");
+            title.className = "backups-title";
+            title.textContent = titleText;
+            panel.appendChild(title);
+
+            var hint = document.createElement("div");
+            hint.className = "backups-intro";
+            hint.textContent = "Clique le nom d'un dossier pour le choisir ; la flèche déplie ses sous-dossiers.";
+            panel.appendChild(hint);
+
+            var treeWrap = document.createElement("div");
+            treeWrap.className = "folder-picker-tree";
+            panel.appendChild(treeWrap);
+
+            // Rendu local, pas le render() global : ce panneau flottant vit hors du cycle de rendu
+            // normal de l'appli (comme tous les panneaux ouverts via openModal), un render() global
+            // ne le rafraîchirait pas.
+            function refreshTree() {
+                treeWrap.innerHTML = "";
+                renderNode(treeWrap, getActiveInstrument().categories, 0, null);
+            }
+
+            function renderNode(container, folders, depth, rootColor) {
+                folders.forEach(function (folder) {
+                    if (excludeIds.indexOf(folder.id) !== -1) return;
+                    var color = depth === 0 ? folder.color : rootColor;
+                    var hasChildren = folder.folders.length > 0;
+                    var expanded = treeExpanded["picker:" + folder.id] !== false;
+
+                    var node = document.createElement("div");
+                    node.className = "gs-pick-node";
+                    var row = document.createElement("div");
+                    row.className = "gs-pick-tree-row";
+                    if (depth === 0) {
+                        row.style.borderLeft = "3px solid " + color;
+                        row.style.background = "color-mix(in srgb, " + color + " 6%, transparent)";
+                    }
+                    var twisty = document.createElement("button");
+                    twisty.type = "button";
+                    twisty.className = "tree-twisty" + (hasChildren ? "" : " tree-twisty-empty") + (expanded ? " expanded" : "");
+                    twisty.innerHTML = CHEVRON_ICON_SVG;
+                    if (hasChildren) {
+                        twisty.addEventListener("click", function (e) {
+                            e.stopPropagation();
+                            treeExpanded["picker:" + folder.id] = !expanded;
+                            refreshTree();
+                        });
+                    }
+                    row.appendChild(twisty);
+                    var label = document.createElement("button");
+                    label.type = "button";
+                    label.className = "gs-pick-exercise-row folder-picker-choose-btn";
+                    label.textContent = folder.name;
+                    label.addEventListener("click", function () {
+                        close();
+                        onPick(folder);
+                    });
+                    row.appendChild(label);
+                    node.appendChild(row);
+
+                    if (expanded && hasChildren) {
+                        var childWrap = document.createElement("div");
+                        childWrap.className = "gs-pick-tree-children";
+                        renderNode(childWrap, folder.folders, depth + 1, color);
+                        node.appendChild(childWrap);
+                    }
+                    container.appendChild(node);
+                });
+            }
+            refreshTree();
+        });
     }
 
     // ---------- métronome ----------
