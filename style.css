@@ -175,6 +175,23 @@ button.metronome-btn-highlight {
 }
 button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
 .metronome-btn-highlight .icon { width: 22px; height: 22px; }
+/* La session guidée mérite la même mise en avant que le métronome (juste à côté) plutôt que de se
+   fondre parmi les icônes simples : texte + icône, plus large qu'un bouton carré. */
+button.session-btn-highlight {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    height: 36px;
+    box-sizing: border-box;
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    font-weight: 700;
+    font-size: var(--fs-sm);
+}
+button.session-btn-highlight:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.session-btn-highlight .icon { width: 18px; height: 18px; }
 
 /* ---------- auth / synchro ---------- */
 .auth-area { display: flex; align-items: center; }
@@ -898,7 +915,13 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
 .metronome-panel.metro-pos-corner { top: auto; left: auto; right: 16px; bottom: 16px; transform: none; }
 .metronome-panel.metro-size-small { width: min(320px, calc(100vw - 32px)); }
 .metronome-panel.metro-size-large { width: min(560px, calc(100vw - 32px)); }
-.metro-bpm-row { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.metro-bpm-row { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; row-gap: 10px; }
+@media (max-width: 360px) {
+    .metro-bpm-row { gap: 5px; }
+    .metro-bpm-value { min-width: 86px; }
+    button.metro-bpm-btn { min-width: 30px; padding: 0 5px; }
+    button.metro-bpm-step10 { min-width: 36px; }
+}
 .metro-bpm-value {
     font-size: var(--fs-xl);
     font-weight: 800;
@@ -939,8 +962,8 @@ button.metro-bpm-step10 { min-width: 42px; font-size: var(--fs-xs); }
 .metro-bpm-slider { width: 100%; }
 .metro-volume-field { display: flex; align-items: center; justify-content: center; }
 button.metro-volume-btn {
-    width: 40px;
-    height: 40px;
+    width: 36px;
+    height: 36px;
     border: 1px solid var(--border);
     border-radius: 10px;
     color: var(--text-muted);
@@ -974,24 +997,40 @@ button.metro-volume-btn:hover { border-color: var(--accent); color: var(--accent
 .metro-chrono-value { font-size: var(--fs-md); font-weight: 700; letter-spacing: .02em; }
 .metro-chrono-reset { flex: none; color: var(--text-muted); }
 .metro-chrono-reset .icon { width: 15px; height: 15px; }
-.metro-tap-btn { display: block; margin: 4px auto 0; }
-.metro-progressive-row { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-top: 4px; }
+/* Tap tempo, tempo progressif et réinitialiser partagent la même pastille (hauteur/police/bordure)
+   plutôt que trois styles différents — la juxtaposition de boutons de tailles/formes variées était
+   justement le défaut signalé. */
+button.metro-mini-btn {
+    box-sizing: border-box;
+    height: 32px;
+    padding: 0 14px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: rgba(255,255,255,.04);
+    color: var(--text-main);
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+button.metro-mini-btn:hover { border-color: var(--accent); color: var(--accent); }
+.metro-tap-progressive-row { display: flex; justify-content: center; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.metro-progressive-row { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 button.metro-progressive-toggle.metro-progressive-active { color: var(--accent); border-color: var(--accent); }
 .metro-progressive-fields { display: flex; justify-content: center; gap: 18px; }
 .metro-progressive-field { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
 .metro-progressive-field input { font-size: var(--fs-sm); text-align: center; color: var(--text-main); text-transform: none; letter-spacing: normal; width: 64px; }
-.metro-fields-row { display: flex; justify-content: center; align-items: flex-end; gap: 18px; }
-.metro-field { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
-.metro-field input, .metro-field select { font-size: var(--fs-sm); text-align: center; color: var(--text-main); text-transform: none; letter-spacing: normal; }
-.metro-field input[type="number"] { width: 64px; }
+.metro-fields-row { display: grid; grid-template-columns: 1fr 1fr auto; align-items: end; gap: 14px; max-width: 360px; margin: 0 auto; }
+.metro-field { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; text-align: center; }
+.metro-field input, .metro-field select { font-size: var(--fs-sm); text-align: center; color: var(--text-main); text-transform: none; letter-spacing: normal; width: 100%; box-sizing: border-box; }
+.metro-field input[type="number"] { max-width: 64px; }
 /* Sur téléphone, le volume tout seul sur sa propre ligne (retour à la ligne du flex-wrap normal)
    avait l'air égaré : temps/mesure et subdivision se partagent la largeur à égalité, le volume
    passe sciemment en dessous sur toute la largeur, plutôt que de renvoyer à la ligne au hasard. */
 @media (max-width: 420px) {
-    .metro-fields-row { flex-wrap: wrap; }
-    .metro-field { flex: 1 1 0; min-width: 0; }
-    .metro-field select { width: 100%; }
-    .metro-volume-field { flex: 0 0 100%; order: 3; margin-top: 8px; }
+    .metro-fields-row { grid-template-columns: 1fr 1fr; row-gap: 10px; }
+    .metro-volume-field { grid-column: 1 / -1; order: 3; }
 }
 
 .metro-pad-label { margin-top: 4px; }
@@ -1013,7 +1052,7 @@ button.metro-progressive-toggle.metro-progressive-active { color: var(--accent);
 .metro-step-1 { background: var(--text-muted); border-color: var(--text-muted); }
 .metro-step-2 { background: var(--accent); border-color: var(--accent); }
 .metro-step-current { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent); }
-.metro-pad-reset { font-size: var(--fs-2xs); align-self: center; }
+.metro-pad-reset { display: block; margin: 10px auto 0; }
 
 .metro-play-btn {
     display: flex;
@@ -1034,36 +1073,36 @@ button.metro-progressive-toggle.metro-progressive-active { color: var(--accent);
 
 /* ---------- aides : cercle des quintes ---------- */
 .aides-panel { align-items: center; text-align: center; }
-.scales-panel { width: min(820px, calc(100vw - 24px)); max-height: min(720px, calc(100vh - 24px)); }
-.scales-controls-row { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
-.scales-controls-row select { font-size: var(--fs-sm); }
-.scales-label-mode-row { display: flex; justify-content: center; gap: 8px; margin-top: 8px; }
+.scales-panel { width: min(960px, calc(100vw - 24px)); max-height: min(820px, calc(100vh - 24px)); }
+.scales-controls-row { display: flex; justify-content: center; gap: 16px; flex-wrap: wrap; }
+.scales-field { display: flex; flex-direction: column; gap: 4px; align-items: center; }
+.scales-field-label { font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+.scales-field select { font-size: var(--fs-sm); min-width: 160px; }
+.scales-label-mode-row { display: flex; justify-content: center; gap: 8px; margin-top: 12px; }
 button.scales-label-btn.scales-label-btn-active { color: var(--accent); border-color: var(--accent); }
-.scales-diagrams { display: flex; flex-direction: column; gap: 16px; margin-top: 14px; }
-.scales-section .section-label { text-align: center; margin-bottom: 6px; }
-.fretboard-scroll { overflow-x: auto; display: flex; justify-content: flex-start; }
+.scales-diagrams { display: flex; justify-content: center; margin-top: 18px; }
+.fretboard-scroll { overflow-x: auto; overflow-y: hidden; display: flex; justify-content: flex-start; max-width: 100%; padding: 4px; }
 .fretboard-svg { flex: none; }
-.fretboard-nut { fill: #e8e8e8; }
-.fretboard-fret { stroke: #888; stroke-width: 1; }
-.fretboard-string { stroke: #888; stroke-width: 1; }
-.fretboard-inlay { fill: #3a3a3a; }
-.fretboard-fret-label { font-size: 8px; fill: var(--text-muted); text-anchor: middle; }
-.fretboard-note { fill: var(--card-bg-2); stroke: var(--accent); stroke-width: 1.5; }
-.fretboard-note-root { stroke: none; fill: var(--accent); }
-.fretboard-note-label { font-size: 8px; text-anchor: middle; dominant-baseline: middle; fill: var(--text-main); pointer-events: none; }
+/* Fond et notes en gris clair neutre pour l'instant (pas de couleurs vives tant qu'on n'a pas
+   décidé d'un code couleur par note/degré) : seule la racine se distingue, par un remplissage
+   plein plutôt qu'un simple contour. */
+.fretboard-nut { fill: #d8d8d8; }
+.fretboard-fret { stroke: #777; stroke-width: 1; }
+.fretboard-string { stroke: #777; stroke-width: 1; }
+.fretboard-inlay { fill: #4a4a4a; }
+.fretboard-fret-label { font-size: 10px; fill: var(--text-muted); text-anchor: middle; }
+.fretboard-note { fill: #2a2a2a; stroke: #bbb; stroke-width: 1.5; }
+.fretboard-note-root { stroke: none; fill: #e4e4e4; }
+.fretboard-note-label { font-size: 10px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; fill: #ddd; pointer-events: none; }
+.fretboard-note-root + .fretboard-note-label { fill: #111; }
 .piano-scale-svg { flex: none; }
 .piano-key-white { fill: #f2ead9; stroke: #2a2a2a; stroke-width: .7; }
 .piano-key-black { fill: #171310; stroke: #000; stroke-width: .6; }
-.piano-key-active { fill: var(--accent); opacity: .55; }
-.piano-key-root { opacity: 1; }
-.piano-key-label { font-size: 10px; text-anchor: middle; fill: #111; font-weight: 700; }
+.piano-key-active { fill: #b9b9b9; }
+.piano-key-root { fill: #e8e8e8; }
+.piano-key-label { font-size: 13px; text-anchor: middle; fill: #111; font-weight: 700; }
 .piano-key-label-black { fill: #fff; }
-.tuner-controls-row { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
-.tuner-controls-row select { font-size: var(--fs-sm); max-width: 220px; }
-.tuner-reference-row { display: flex; justify-content: center; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
-.tuner-reference-chip { font-size: var(--fs-2xs); font-weight: 700; color: var(--text-muted); background: rgba(255,255,255,.05); border-radius: var(--radius-sm); padding: 2px 8px; }
-button.tuner-start-btn { display: block; margin: 12px auto 0; }
-button.tuner-start-btn-active { background: var(--danger, #ff4d4f); }
+.tuner-source { text-align: center; font-size: var(--fs-sm); color: var(--text-muted); }
 .tuner-display { text-align: center; margin-top: 14px; }
 .tuner-note { font-size: 42px; font-weight: 800; line-height: 1; }
 .tuner-freq { font-size: var(--fs-sm); color: var(--text-muted); margin-top: 4px; font-variant-numeric: tabular-nums; }

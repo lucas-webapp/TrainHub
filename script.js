@@ -3089,7 +3089,7 @@
             var tapTimes = [];
             var tapBtn = document.createElement("button");
             tapBtn.type = "button";
-            tapBtn.className = "btn-ghost metro-tap-btn";
+            tapBtn.className = "metro-mini-btn metro-tap-btn";
             tapBtn.textContent = "Tap tempo";
             tapBtn.title = "Tapoter au tempo souhaité pour régler le BPM";
             tapBtn.addEventListener("click", function () {
@@ -3104,7 +3104,11 @@
                     setBpm(Math.round(60000 / avg));
                 }
             });
-            panel.appendChild(tapBtn);
+
+            var tapProgRow = document.createElement("div");
+            tapProgRow.className = "metro-tap-progressive-row";
+            tapProgRow.appendChild(tapBtn);
+            panel.appendChild(tapProgRow);
 
             // ---------- tempo progressif ----------
             // Peu utilisé au quotidien (voir demande utilisateur) : bouton dédié qui replie/déplie
@@ -3113,7 +3117,7 @@
             progRow.className = "metro-progressive-row";
             var progToggle = document.createElement("button");
             progToggle.type = "button";
-            progToggle.className = "btn-ghost metro-progressive-toggle";
+            progToggle.className = "metro-mini-btn metro-progressive-toggle";
             var progFields = document.createElement("div");
             progFields.className = "metro-progressive-fields";
 
@@ -3160,8 +3164,8 @@
                 refreshProgToggle();
             });
             refreshProgToggle();
-            progRow.appendChild(progToggle);
             progRow.appendChild(progFields);
+            tapProgRow.appendChild(progToggle);
             panel.appendChild(progRow);
 
             var progMeasureCount = 0;
@@ -3265,7 +3269,7 @@
 
             var resetPadBtn = document.createElement("button");
             resetPadBtn.type = "button";
-            resetPadBtn.className = "btn-ghost metro-pad-reset";
+            resetPadBtn.className = "metro-mini-btn metro-pad-reset";
             resetPadBtn.textContent = "Réinitialiser";
             resetPadBtn.title = "Revenir au 1er temps accentué";
             resetPadBtn.addEventListener("click", function () {
@@ -3572,7 +3576,10 @@
 
     function buildFretboardSvg(tuning, def, rootPc, labelMode) {
         var ns = "http://www.w3.org/2000/svg";
-        var stringGap = 16, fretGap = 30, marginLeft = 20, marginTop = 8, labelRowH = 13;
+        // Espacements volontairement plus généreux que des proportions "réalistes" de manche
+        // (stringGap > fretGap/2, au lieu d'un vrai manche plus large que haut) : le but est que les
+        // pastilles de notes ne se touchent jamais, pas de reproduire un vrai manche à l'échelle.
+        var stringGap = 26, fretGap = 38, marginLeft = 24, marginTop = 10, labelRowH = 16;
         var n = tuning.midis.length;
         var stringsSpan = stringGap * (n - 1);
         var width = marginLeft + fretGap * FRETBOARD_DISPLAY_FRETS + 8;
@@ -3620,9 +3627,9 @@
                 var semiIdx = def.semis.indexOf(diff);
                 if (semiIdx === -1) continue;
                 var isRoot = diff === 0;
-                var nx = fret2 === 0 ? marginLeft - 9 : marginLeft + (fret2 - 0.5) * fretGap;
+                var nx = fret2 === 0 ? marginLeft - 11 : marginLeft + (fret2 - 0.5) * fretGap;
                 var ny = stringY(s2);
-                var r = fret2 === 0 ? 7 : 9;
+                var r = fret2 === 0 ? 9 : 11;
                 svg.appendChild(el("circle", { cx: nx, cy: ny, r: r, class: "fretboard-note" + (isRoot ? " fretboard-note-root" : "") }));
                 var t = el("text", { x: nx, y: ny + 3, class: "fretboard-note-label" });
                 t.textContent = scaleNoteLabel(def, semiIdx, pc, labelMode);
@@ -3643,7 +3650,7 @@
 
     function buildPianoScaleSvg(def, rootPc, labelMode) {
         var ns = "http://www.w3.org/2000/svg";
-        var keyW = 26, keyH = 90, blackW = keyW * 0.62, blackH = keyH * 0.6;
+        var keyW = 36, keyH = 130, blackW = keyW * 0.62, blackH = keyH * 0.6;
         var whiteMidis = [];
         for (var m = PIANO_LOW_MIDI; m <= PIANO_HIGH_MIDI; m++) {
             if (PIANO_BLACK_PCS.indexOf(((m % 12) + 12) % 12) === -1) whiteMidis.push(m);
@@ -3696,12 +3703,35 @@
         return svg;
     }
 
+    // Un seul instrument affiché à la fois (menu déroulant) plutôt que 4 manches entassés : le piano
+    // n'est qu'un choix de plus dans la même liste, à côté des accordages de cordes.
+    var SCALES_INSTRUMENTS = [
+        { key: "bass4", label: "Basse (4 cordes)", type: "fretboard", tuning: FRETBOARD_TUNINGS[0] },
+        { key: "bass5", label: "Basse (5 cordes)", type: "fretboard", tuning: FRETBOARD_TUNINGS[1] },
+        { key: "guitar", label: "Guitare", type: "fretboard", tuning: FRETBOARD_TUNINGS[2] },
+        { key: "piano", label: "Piano", type: "piano" }
+    ];
+
     function openScalesPanel() {
         openModal("scales-panel", function (panel) {
             var title = document.createElement("div");
             title.className = "backups-title";
             title.textContent = "Gammes & arpèges";
             panel.appendChild(title);
+
+            // Ordre logique : d'abord la tonique, puis ce qu'on construit dessus (gamme/arpège),
+            // enfin sur quel instrument le voir — chaque menu porte son étiquette, plutôt qu'une
+            // rangée de select nus dont l'ordre/le rôle ne sont pas évidents au premier coup d'œil.
+            function selectField(labelText, select) {
+                var field = document.createElement("label");
+                field.className = "scales-field";
+                var span = document.createElement("span");
+                span.className = "scales-field-label";
+                span.textContent = labelText;
+                field.appendChild(span);
+                field.appendChild(select);
+                return field;
+            }
 
             var controlsRow = document.createElement("div");
             controlsRow.className = "scales-controls-row";
@@ -3713,7 +3743,7 @@
                 o.textContent = name;
                 rootSelect.appendChild(o);
             });
-            controlsRow.appendChild(rootSelect);
+            controlsRow.appendChild(selectField("Tonique", rootSelect));
 
             var typeSelect = document.createElement("select");
             var currentGroup = null, optgroup = null;
@@ -3729,7 +3759,16 @@
                 o.textContent = def.label;
                 optgroup.appendChild(o);
             });
-            controlsRow.appendChild(typeSelect);
+            controlsRow.appendChild(selectField("Gamme / arpège", typeSelect));
+
+            var instrumentSelect = document.createElement("select");
+            SCALES_INSTRUMENTS.forEach(function (inst) {
+                var o = document.createElement("option");
+                o.value = inst.key;
+                o.textContent = inst.label;
+                instrumentSelect.appendChild(o);
+            });
+            controlsRow.appendChild(selectField("Instrument", instrumentSelect));
             panel.appendChild(controlsRow);
 
             var labelModeRow = document.createElement("div");
@@ -3737,11 +3776,11 @@
             var labelMode = "degrees";
             var intervalsBtn = document.createElement("button");
             intervalsBtn.type = "button";
-            intervalsBtn.className = "btn-ghost scales-label-btn";
+            intervalsBtn.className = "metro-mini-btn scales-label-btn";
             intervalsBtn.textContent = "Intervalles";
             var notesBtn = document.createElement("button");
             notesBtn.type = "button";
-            notesBtn.className = "btn-ghost scales-label-btn";
+            notesBtn.className = "metro-mini-btn scales-label-btn";
             notesBtn.textContent = "Noms des notes";
             labelModeRow.appendChild(intervalsBtn);
             labelModeRow.appendChild(notesBtn);
@@ -3755,55 +3794,40 @@
                 intervalsBtn.classList.toggle("scales-label-btn-active", labelMode === "degrees");
                 notesBtn.classList.toggle("scales-label-btn-active", labelMode === "notes");
             }
-            intervalsBtn.addEventListener("click", function () { labelMode = "degrees"; refreshLabelButtons(); renderDiagrams(); });
-            notesBtn.addEventListener("click", function () { labelMode = "notes"; refreshLabelButtons(); renderDiagrams(); });
+            intervalsBtn.addEventListener("click", function () { labelMode = "degrees"; refreshLabelButtons(); renderDiagram(); });
+            notesBtn.addEventListener("click", function () { labelMode = "notes"; refreshLabelButtons(); renderDiagram(); });
             refreshLabelButtons();
 
-            function renderDiagrams() {
+            function renderDiagram() {
                 diagramsWrap.innerHTML = "";
                 var rootPc = parseInt(rootSelect.value, 10);
                 var def = SCALE_DEFS.filter(function (d) { return d.key === typeSelect.value; })[0] || SCALE_DEFS[0];
-                FRETBOARD_TUNINGS.forEach(function (tuning) {
-                    var section = document.createElement("div");
-                    section.className = "scales-section";
-                    var heading = document.createElement("div");
-                    heading.className = "section-label";
-                    heading.textContent = tuning.label;
-                    section.appendChild(heading);
-                    var scroll = document.createElement("div");
-                    scroll.className = "fretboard-scroll";
-                    scroll.appendChild(buildFretboardSvg(tuning, def, rootPc, labelMode));
-                    section.appendChild(scroll);
-                    diagramsWrap.appendChild(section);
-                });
-                var pianoSection = document.createElement("div");
-                pianoSection.className = "scales-section";
-                var pianoHeading = document.createElement("div");
-                pianoHeading.className = "section-label";
-                pianoHeading.textContent = "Piano";
-                pianoSection.appendChild(pianoHeading);
-                var pianoScroll = document.createElement("div");
-                pianoScroll.className = "fretboard-scroll";
-                pianoScroll.appendChild(buildPianoScaleSvg(def, rootPc, labelMode));
-                pianoSection.appendChild(pianoScroll);
-                diagramsWrap.appendChild(pianoSection);
+                var inst = SCALES_INSTRUMENTS.filter(function (i) { return i.key === instrumentSelect.value; })[0] || SCALES_INSTRUMENTS[0];
+                var scroll = document.createElement("div");
+                scroll.className = "fretboard-scroll";
+                scroll.appendChild(inst.type === "piano" ? buildPianoScaleSvg(def, rootPc, labelMode) : buildFretboardSvg(inst.tuning, def, rootPc, labelMode));
+                diagramsWrap.appendChild(scroll);
             }
-            rootSelect.addEventListener("change", renderDiagrams);
-            typeSelect.addEventListener("change", renderDiagrams);
-            renderDiagrams();
+            rootSelect.addEventListener("change", renderDiagram);
+            typeSelect.addEventListener("change", renderDiagram);
+            instrumentSelect.addEventListener("change", renderDiagram);
+            renderDiagram();
         });
     }
 
     // ---------- accordeur ----------
-    // Un accordeur chromatique classique : n'importe quelle entrée audio (micro OU carte son
-    // branchée en USB) apparaît de la même façon dans navigator.mediaDevices.enumerateDevices() —
-    // le navigateur ne fait pas la différence, donc un simple sélecteur d'entrée suffit à couvrir
-    // les deux cas demandés, sans code spécifique à une interface audio.
-    var TUNER_REFERENCE_TUNINGS = [
-        { key: "guitar", label: "Guitare", midis: [40, 45, 50, 55, 59, 64] },
-        { key: "bass4", label: "Basse (4 cordes)", midis: [28, 33, 38, 43] },
-        { key: "bass5", label: "Basse (5 cordes)", midis: [23, 28, 33, 38, 43] }
-    ];
+    // Un accordeur chromatique classique, à la GarageBand : aucune étape à renseigner avant de
+    // pouvoir s'en servir, l'écoute démarre toute seule à l'ouverture et la note est reconnue
+    // automatiquement. L'entrée audio (micro OU carte son branchée en USB) est celle par défaut du
+    // système — le navigateur ne fait pas la différence entre les deux, donc il suffit de deviner
+    // laquelle c'est d'après le nom du périphérique pour l'indiquer, sans sélecteur à manipuler.
+    function describeAudioSource(label) {
+        var l = (label || "").toLowerCase();
+        if (/usb|interface|carte|card|scarlett|focusrite|behringer|presonus|apogee|m-audio|steinberg|line\s*in/.test(l)) {
+            return "Carte son" + (label ? " (" + label + ")" : "");
+        }
+        return "Microphone" + (label ? " (" + label + ")" : "");
+    }
 
     function midiNoteName(midi) {
         return NOTE_NAMES_SHARP[((midi % 12) + 12) % 12];
@@ -3859,53 +3883,10 @@
             title.textContent = "Accordeur";
             panel.appendChild(title);
 
-            var intro = document.createElement("div");
-            intro.className = "backups-intro";
-            intro.textContent = "Choisis ton entrée audio (micro ou carte son) puis démarre.";
-            panel.appendChild(intro);
-
-            var controlsRow = document.createElement("div");
-            controlsRow.className = "tuner-controls-row";
-            var deviceSelect = document.createElement("select");
-            deviceSelect.className = "tuner-device-select";
-            deviceSelect.disabled = true;
-            var placeholderOpt = document.createElement("option");
-            placeholderOpt.value = "";
-            placeholderOpt.textContent = "Démarre pour lister les entrées…";
-            deviceSelect.appendChild(placeholderOpt);
-            controlsRow.appendChild(deviceSelect);
-
-            var tuningSelect = document.createElement("select");
-            TUNER_REFERENCE_TUNINGS.forEach(function (t) {
-                var o = document.createElement("option");
-                o.value = t.key;
-                o.textContent = t.label;
-                tuningSelect.appendChild(o);
-            });
-            controlsRow.appendChild(tuningSelect);
-            panel.appendChild(controlsRow);
-
-            var referenceRow = document.createElement("div");
-            referenceRow.className = "tuner-reference-row";
-            panel.appendChild(referenceRow);
-            function refreshReferenceRow() {
-                referenceRow.innerHTML = "";
-                var t = TUNER_REFERENCE_TUNINGS.filter(function (x) { return x.key === tuningSelect.value; })[0];
-                t.midis.slice().reverse().forEach(function (midi) {
-                    var chip = document.createElement("span");
-                    chip.className = "tuner-reference-chip";
-                    chip.textContent = midiNoteName(midi);
-                    referenceRow.appendChild(chip);
-                });
-            }
-            tuningSelect.addEventListener("change", refreshReferenceRow);
-            refreshReferenceRow();
-
-            var startBtn = document.createElement("button");
-            startBtn.type = "button";
-            startBtn.className = "btn-accent tuner-start-btn";
-            startBtn.textContent = "Démarrer";
-            panel.appendChild(startBtn);
+            var sourceEl = document.createElement("div");
+            sourceEl.className = "tuner-source";
+            sourceEl.textContent = "Démarrage…";
+            panel.appendChild(sourceEl);
 
             var display = document.createElement("div");
             display.className = "tuner-display";
@@ -3935,14 +3916,9 @@
                 if (currentStream) { currentStream.getTracks().forEach(function (t) { t.stop(); }); currentStream = null; }
                 if (source) { source.disconnect(); source = null; }
                 if (audioCtx) { audioCtx.close(); audioCtx = null; }
-                noteEl.textContent = "—";
-                freqEl.textContent = "";
-                needle.style.transform = "translateX(-50%) rotate(0deg)";
-                needle.classList.remove("tuner-needle-in-tune");
             }
 
             function connectStream(stream) {
-                if (source) source.disconnect();
                 if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 analyser = audioCtx.createAnalyser();
                 analyser.fftSize = 2048;
@@ -3966,45 +3942,15 @@
                 loop();
             }
 
-            function populateDevices(selectedId) {
-                navigator.mediaDevices.enumerateDevices().then(function (devices) {
-                    deviceSelect.innerHTML = "";
-                    devices.filter(function (d) { return d.kind === "audioinput"; }).forEach(function (d, i) {
-                        var o = document.createElement("option");
-                        o.value = d.deviceId;
-                        o.textContent = d.label || ("Entrée audio " + (i + 1));
-                        if (d.deviceId === selectedId) o.selected = true;
-                        deviceSelect.appendChild(o);
-                    });
-                    deviceSelect.disabled = false;
-                });
-            }
-
-            function startWithDevice(deviceId) {
-                var constraints = { audio: deviceId ? { deviceId: { exact: deviceId } } : true };
-                navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
-                    var track = stream.getAudioTracks()[0];
-                    populateDevices(track && track.getSettings ? track.getSettings().deviceId : deviceId);
-                    connectStream(stream);
-                    startBtn.textContent = "Arrêter";
-                    startBtn.classList.add("tuner-start-btn-active");
-                }).catch(function (err) {
-                    window.alert("Accès au micro/à la carte son refusé ou indisponible : " + err.message);
-                });
-            }
-
-            startBtn.addEventListener("click", function () {
-                if (currentStream) {
-                    stopAudio();
-                    startBtn.textContent = "Démarrer";
-                    startBtn.classList.remove("tuner-start-btn-active");
-                } else {
-                    startWithDevice(deviceSelect.value || null);
-                }
-            });
-
-            deviceSelect.addEventListener("change", function () {
-                if (currentStream) startWithDevice(deviceSelect.value);
+            // Démarrage automatique dès l'ouverture, sans rien à choisir d'abord (comme GarageBand) :
+            // le navigateur utilise l'entrée par défaut du système (micro ou carte son déjà
+            // sélectionnée dans l'OS), on se contente d'indiquer laquelle d'après son nom.
+            navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+                var track = stream.getAudioTracks()[0];
+                sourceEl.textContent = "Source : " + describeAudioSource(track && track.label);
+                connectStream(stream);
+            }).catch(function (err) {
+                sourceEl.textContent = "Accès au micro/à la carte son refusé ou indisponible (" + err.name + ").";
             });
 
             return function () {
