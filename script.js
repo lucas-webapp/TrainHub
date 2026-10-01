@@ -3628,17 +3628,36 @@
             padRow.className = "metro-pad";
             panel.appendChild(padRow);
 
+            var padActionsRow = document.createElement("div");
+            padActionsRow.className = "metro-pad-actions-row";
+
             var resetPadBtn = document.createElement("button");
             resetPadBtn.type = "button";
             resetPadBtn.className = "metro-mini-btn metro-pad-reset";
-            resetPadBtn.textContent = "Réinitialiser";
+            resetPadBtn.textContent = "1er temps accentué";
             resetPadBtn.title = "Revenir au 1er temps accentué";
             resetPadBtn.addEventListener("click", function () {
                 for (var i = 0; i < m.pattern.length; i++) m.pattern[i] = i === 0 ? 2 : (i % m.subdivision === 0 ? 1 : 0);
                 save();
                 renderPad();
             });
-            panel.appendChild(resetPadBtn);
+            padActionsRow.appendChild(resetPadBtn);
+
+            // Demandé explicitement : un clic rapide vers un métronome "de base", sans accent sur le
+            // 1er temps ni sur aucun autre — tous les temps sonnent pareil.
+            var noAccentBtn = document.createElement("button");
+            noAccentBtn.type = "button";
+            noAccentBtn.className = "metro-mini-btn metro-pad-reset";
+            noAccentBtn.textContent = "Aucun accent";
+            noAccentBtn.title = "Tous les temps au même volume, sans accent";
+            noAccentBtn.addEventListener("click", function () {
+                for (var i = 0; i < m.pattern.length; i++) m.pattern[i] = (i % m.subdivision === 0) ? 1 : 0;
+                save();
+                renderPad();
+            });
+            padActionsRow.appendChild(noAccentBtn);
+
+            panel.appendChild(padActionsRow);
 
             // Le pavé est groupé par temps (un mini-groupe de `subdivision` pas), et ces groupes
             // sont eux-mêmes répartis en lignes de longueur égale (ex. 4 temps -> 2 en haut, 2 en

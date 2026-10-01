@@ -1132,7 +1132,7 @@ button.metro-progressive-toggle.metro-progressive-active { color: var(--accent);
 .metro-step-1 { background: var(--text-muted); border-color: var(--text-muted); }
 .metro-step-2 { background: var(--accent); border-color: var(--accent); }
 .metro-step-current { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent); }
-.metro-pad-reset { display: block; margin: 10px auto 0; }
+.metro-pad-actions-row { display: flex; justify-content: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
 
 .metro-play-btn {
     display: flex;
