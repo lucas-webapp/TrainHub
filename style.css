@@ -1018,31 +1018,67 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
 .tree-row, .folder-row, .chapter-chip, .link-chip { -webkit-touch-callout: none; -webkit-user-select: none; }
 
 /* ---------- métronome ---------- */
-/* Refonte "cadran" : le BPM est mis en valeur au centre d'un cadran rond plutôt que sur une barre
-   de réglage ; le transport (vitesse + lecture) et les bascules secondaires (tap, rythme, volume,
-   progressif) sont chacun regroupés sur une seule ligne de boutons de taille homogène, pour que la
-   fenêtre reste courte et ne demande jamais à défiler (voir recalcPanelFit, script.js). */
+/* Refonte "cadran" : le BPM est mis en valeur au centre d'un cadran rond ; transport (vitesse +
+   cadran), bascules (tap/progressif), formules rythmiques et pavé sont chacun regroupés sur une
+   ligne, pour que la fenêtre reste courte et ne demande jamais à défiler (recalcPanelFit,
+   script.js). Les boutons reprennent les bords légèrement arrondis du reste de l'appli (--radius /
+   --radius-sm) plutôt que la forme pilule utilisée dans une itération précédente. */
 .metronome-panel { align-items: stretch; text-align: center; }
 /* Taille réglable depuis les paramètres généraux (state.settings.appearance). La position de
    départ (centre/haut/bas/coin) est, elle, posée en JS par openModal (voir metronomePosition dans
    script.js) : la fenêtre étant désormais librement déplaçable à la souris, un simple point de
    départ ne peut plus être une classe CSS figée comme avant. */
-.metronome-panel.metro-size-small { width: min(320px, calc(100vw - 32px)); }
-.metronome-panel.metro-size-large { width: min(560px, calc(100vw - 32px)); }
+.metronome-panel.metro-size-small { width: min(340px, calc(100vw - 32px)); }
+.metronome-panel.metro-size-large { width: min(580px, calc(100vw - 32px)); }
 
-/* -- cadran BPM -- */
-.metro-dial-wrap { display: flex; justify-content: center; margin: 2px 0; }
+/* -- en-tête : titre + volume, bien visible en haut à droite -- */
+.metro-header-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left; }
+button.metro-volume-btn {
+    box-sizing: border-box;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 40px;
+    padding: 0 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: rgba(255,255,255,.04);
+    color: var(--text-main);
+    font-size: var(--fs-sm);
+    font-weight: 700;
+}
+button.metro-volume-btn:hover, button.metro-volume-btn.metro-volume-expanded { border-color: var(--accent); color: var(--accent); }
+.metro-volume-btn-icon { display: inline-flex; }
+.metro-volume-btn-icon .icon { width: 20px; height: 20px; }
+/* -- volume : barre pleine largeur, repliée par défaut (déclenchée depuis l'en-tête) -- */
+.metro-volume-row { display: flex; justify-content: center; margin-top: 0; }
+.metro-volume-slider {
+    width: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    opacity: 0;
+    pointer-events: none;
+    transition: width .15s ease, opacity .15s ease;
+}
+.metro-volume-expanded-row { margin-top: 8px; }
+.metro-volume-expanded-row .metro-volume-slider { width: 100%; opacity: 1; pointer-events: auto; }
+
+/* -- cadran BPM : cerclage fin façon vitrine, pas une piste de glissière -- */
 .metro-dial {
     box-sizing: border-box;
-    width: 128px;
-    height: 128px;
+    width: 136px;
+    height: 136px;
     border-radius: 50%;
-    border: 6px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border: 2px solid var(--accent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
     background: rgba(255,255,255,.03);
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
+    flex: none;
     /* Se règle directement : glisser verticalement ou la molette change le tempo (voir script.js). */
     cursor: ns-resize;
     touch-action: none;
@@ -1058,26 +1094,21 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
     font-weight: 800;
     letter-spacing: -.01em;
     color: var(--text-main);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
 }
 .metro-dial-value:hover { color: var(--accent); }
 .metro-dial-unit { font-size: var(--fs-2xs); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); margin-top: 2px; }
 .metro-dial-input { font-size: calc(var(--fs-xl) * 1.1); font-weight: 800; width: 88px; text-align: center; }
 
-/* -- transport : vitesse +/- autour du bouton lecture -- */
-.metro-transport-row { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; row-gap: 10px; margin-top: 8px; }
-@media (max-width: 360px) {
-    .metro-transport-row { gap: 5px; }
-    button.metro-bpm-btn { min-width: 30px; padding: 0 5px; }
-    button.metro-bpm-step10 { min-width: 36px; }
-}
+/* -- transport : vitesse ±1/±10 de part et d'autre du cadran -- */
+.metro-transport-row { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; row-gap: 10px; margin-top: 10px; }
 button.metro-bpm-btn {
     box-sizing: border-box;
-    min-width: 36px;
-    height: 36px;
-    padding: 0 8px;
+    min-width: 42px;
+    height: 42px;
+    padding: 0 10px;
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     background: rgba(255,255,255,.04);
     color: var(--text-main);
     font-weight: 700;
@@ -1088,31 +1119,22 @@ button.metro-bpm-btn {
     flex: none;
 }
 button.metro-bpm-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(255,255,255,.07); }
-button.metro-bpm-step10 { min-width: 42px; font-size: var(--fs-xs); }
-button.metro-play-dial-btn {
-    box-sizing: border-box;
-    width: 54px;
-    height: 54px;
-    border-radius: 50%;
-    border: none;
-    background: var(--accent);
-    color: #06210f;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex: none;
+button.metro-bpm-step10 { min-width: 48px; font-size: var(--fs-sm); }
+@media (max-width: 360px) {
+    .metro-dial { width: 116px; height: 116px; }
+    .metro-transport-row { gap: 6px; }
+    button.metro-bpm-btn { min-width: 36px; height: 38px; padding: 0 6px; }
+    button.metro-bpm-step10 { min-width: 40px; }
 }
-.metro-play-dial-btn .icon { width: 24px; height: 24px; }
-.metro-play-dial-btn.metro-play-btn-active { background: #ff5252; color: #2b0000; }
 
-/* -- bascules secondaires : tap / rythme / progressif / volume, même pastille pour les quatre -- */
-.metro-tools-row { display: flex; justify-content: center; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+/* -- bascules secondaires : tap / progressif, même style pour les deux -- */
+.metro-tools-row { display: flex; justify-content: center; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
 button.metro-mini-btn {
     box-sizing: border-box;
-    height: 32px;
-    padding: 0 14px;
+    min-height: 38px;
+    padding: 0 16px;
     border: 1px solid var(--border);
-    border-radius: 999px;
+    border-radius: var(--radius-sm);
     background: rgba(255,255,255,.04);
     color: var(--text-main);
     font-size: var(--fs-sm);
@@ -1122,12 +1144,13 @@ button.metro-mini-btn {
     justify-content: center;
 }
 button.metro-mini-btn:hover { border-color: var(--accent); color: var(--accent); }
-button.metro-mini-btn.metro-mini-btn-icon { width: 32px; padding: 0; }
-button.metro-mini-btn.metro-mini-btn-icon .icon { width: 18px; height: 18px; }
-button.metro-progressive-toggle.metro-progressive-active,
-button.metro-mini-btn-icon.metro-volume-expanded { color: var(--accent); border-color: var(--accent); }
+button.metro-progressive-toggle.metro-progressive-active { color: var(--accent); border-color: var(--accent); }
 
-/* -- rythme : badge "4/4 ♩" qui déplie temps/mesure + subdivision au clic -- */
+/* -- formules rythmiques courantes + "…" (formules moins courantes / réglage libre) -- */
+.metro-formulas-row { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+button.metro-rhythm-btn { min-width: 42px; padding: 0 12px; font-weight: 800; }
+
+/* -- rythme/progressif : champs dépliés au clic -- */
 .metro-rhythm-fields, .metro-progressive-fields { display: flex; justify-content: center; gap: 18px; margin-top: 10px; flex-wrap: wrap; }
 .metro-field { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; text-align: center; }
 .metro-field input, .metro-field select { font-size: var(--fs-sm); text-align: center; color: var(--text-main); text-transform: none; letter-spacing: normal; width: 100%; box-sizing: border-box; }
@@ -1135,30 +1158,17 @@ button.metro-mini-btn-icon.metro-volume-expanded { color: var(--accent); border-
 .metro-progressive-field { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
 .metro-progressive-field input { font-size: var(--fs-sm); text-align: center; color: var(--text-main); text-transform: none; letter-spacing: normal; width: 64px; }
 
-/* -- volume : barre pleine largeur, repliée par défaut (déclenchée depuis metro-tools-row) -- */
-.metro-volume-row { display: flex; justify-content: center; margin-top: 8px; }
-.metro-volume-slider {
-    width: 0;
-    padding: 0;
-    border: none;
-    background: transparent;
-    opacity: 0;
-    pointer-events: none;
-    transition: width .15s ease, opacity .15s ease;
-}
-.metro-volume-expanded-row .metro-volume-slider { width: 100%; opacity: 1; pointer-events: auto; }
-
-.metro-pad-label { margin-top: 10px; }
 /* Le pavé est une pile de lignes (une par groupe de temps réparti symétriquement, voir renderPad
    dans script.js), chaque ligne regroupant des temps entiers : le retour à la ligne ne coupe
-   jamais un temps en deux, même en doubles-croches sur petit écran. */
-.metro-pad { display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
+   jamais un temps en deux, même en doubles-croches sur petit écran. Pas d'intitulé : juste le
+   nombre de temps, masqué entièrement en mode "None" (voir renderPad). */
+.metro-pad { display: flex; flex-direction: column; gap: 8px; padding: 4px 0; margin-top: 12px; }
 .metro-pad-row { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
 .metro-beat-group { display: flex; gap: 4px; }
 .metro-step {
-    width: 24px;
-    height: 24px;
-    border-radius: 6px;
+    width: 30px;
+    height: 30px;
+    border-radius: var(--radius-sm);
     border: 2px solid var(--border);
     background: transparent;
     padding: 0;
@@ -1169,7 +1179,7 @@ button.metro-mini-btn-icon.metro-volume-expanded { color: var(--accent); border-
 .metro-step-current { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent); }
 
 /* -- pied de panneau : chronomètre -- */
-.metro-footer-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.metro-footer-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
 .metro-chrono-row {
     display: flex;
     align-items: center;
@@ -1184,9 +1194,27 @@ button.metro-mini-btn-icon.metro-volume-expanded { color: var(--accent); border-
 .metro-chrono-reset { flex: none; color: var(--text-muted); }
 .metro-chrono-reset .icon { width: 15px; height: 15px; }
 
-/* -- formules rythmiques courantes + résolution du pavé : même pastille que les autres bascules -- */
-.metro-formulas-row, .metro-resolution-row { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-button.metro-resolution-btn.metro-progressive-active { color: var(--accent); border-color: var(--accent); }
+/* -- lecture : gros bouton rectangulaire (bords légèrement arrondis), en bas du panneau -- */
+button.metro-play-btn-big {
+    box-sizing: border-box;
+    width: 100%;
+    height: 56px;
+    margin-top: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    font-size: var(--fs-md);
+    font-weight: 700;
+    border: none;
+    border-radius: var(--radius);
+    background: var(--accent);
+    color: #06210f;
+    flex: none;
+}
+.metro-play-btn-icon { display: inline-flex; }
+.metro-play-btn-icon .icon { width: 24px; height: 24px; }
+button.metro-play-btn-big.metro-play-btn-active { background: #ff5252; color: #2b0000; }
 
 /* ---------- aides : cercle des quintes ---------- */
 .aides-panel { align-items: center; text-align: center; display: flex; flex-direction: column; }
