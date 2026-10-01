@@ -891,13 +891,19 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
 .panel-drag-handle:active { cursor: grabbing; }
 @media (max-width: 700px) {
     /* Glisser/redimensionner une fenêtre n'a pas de sens sur téléphone : l'outil prend tout l'écran. */
+    /* Ancré aux 4 bords plutôt que 100vh : sur iPhone, 100vh inclut la zone sous la barre d'adresse
+       de Safari, qui cachait le bas des outils (manche des gammes coupé, bouton Fermer invisible).
+       Les marges "safe-area" évitent l'encoche et la barre d'accueil. */
     .backups-panel {
-        top: 0 !important; left: 0 !important;
-        width: 100vw !important; height: 100vh !important;
-        max-width: 100vw !important; max-height: 100vh !important;
+        top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
+        width: auto !important; height: auto !important;
+        max-width: none !important; max-height: none !important;
         min-width: 0 !important; min-height: 0 !important;
         border-radius: 0 !important;
+        border: none !important;
         resize: none !important;
+        padding: calc(14px + env(safe-area-inset-top, 0px)) 14px calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+        gap: 10px;
     }
     .panel-drag-handle { display: none; }
     .panel-drag-by-title { cursor: inherit !important; touch-action: auto !important; }
@@ -1277,29 +1283,50 @@ button.scales-label-btn.scales-label-btn-active { color: var(--accent); border-c
 .fretboard-note-label { font-size: 10px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; fill: #ddd; pointer-events: none; }
 .fretboard-note-root + .fretboard-note-label { fill: #111; }
 .piano-scale-svg { flex: none; height: 100%; width: auto; max-width: none; display: block; }
+/* Téléphone : les 3 menus sur une seule rangée compacte, et un manche de hauteur raisonnable qui
+   défile à l'horizontale — au lieu d'un manche étiré sur toute la hauteur restante (notes géantes,
+   une seule case visible). */
+@media (max-width: 700px) {
+    .scales-controls-row { display: grid; grid-template-columns: 1fr 1.4fr 1.3fr; gap: 8px; }
+    .scales-field { min-width: 0; align-items: stretch; }
+    .scales-field-label { text-align: center; font-size: 10px; }
+    .scales-field select { min-width: 0; width: 100%; font-size: var(--fs-xs); padding-left: 6px; padding-right: 6px; }
+    .scales-label-mode-row { margin-top: 4px; }
+    .scales-diagrams { flex: 0 0 auto; height: clamp(180px, 38vh, 280px); margin-top: 8px; }
+    /* Les pastilles de la 1re et de la dernière corde débordent un peu du dessin : sans marge
+       verticale, la zone qui défile à l'horizontale les coupait. */
+    .fretboard-scroll { padding: 16px 4px; }
+    .fretboard-svg { overflow: visible; }
+}
 .piano-key-white { fill: #f2ead9; stroke: #2a2a2a; stroke-width: .7; }
 .piano-key-black { fill: #171310; stroke: #000; stroke-width: .6; }
 .piano-key-active { fill: #b9b9b9; }
 .piano-key-root { fill: #e8e8e8; }
 .piano-key-label { font-size: 13px; text-anchor: middle; fill: #111; font-weight: 700; }
 .piano-key-label-black { fill: #fff; }
-.tuner-source { text-align: center; font-size: var(--fs-sm); color: var(--text-muted); }
-.tuner-display { text-align: center; margin-top: 14px; }
-.tuner-note { font-size: 42px; font-weight: 800; line-height: 1; }
-.tuner-freq { font-size: var(--fs-sm); color: var(--text-muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
-.tuner-needle-track { position: relative; width: 200px; height: 60px; margin: 14px auto 0; overflow: hidden; }
-.tuner-needle-center { position: absolute; left: 50%; bottom: 0; width: 2px; height: 100%; background: var(--border); transform: translateX(-50%); }
-.tuner-needle {
-    position: absolute;
-    left: 50%; bottom: 0;
-    width: 3px; height: 54px;
-    background: var(--accent);
-    border-radius: 2px;
-    transform-origin: bottom center;
-    transform: translateX(-50%) rotate(0deg);
-    transition: transform .12s ease-out, background .15s ease;
-}
-.tuner-needle.tuner-needle-in-tune { background: #4ade80; }
+/* -- accordeur : cadran façon pédale (arc -50/+50 cents, zone verte ±5, aiguille unique) -- */
+.tuner-panel { text-align: center; }
+.tuner-gauge-wrap { position: relative; width: min(340px, 100%); margin: 6px auto 0; }
+.tuner-gauge { display: block; width: 100%; height: auto; overflow: visible; }
+.tuner-arc { fill: none; stroke: var(--border); stroke-width: 6; stroke-linecap: round; }
+.tuner-arc-zone { fill: none; stroke: #4ade80; stroke-width: 6; stroke-linecap: round; opacity: .55; transition: opacity .2s ease; }
+.tuner-tick { stroke: var(--text-muted); stroke-width: 1.5; opacity: .55; }
+.tuner-tick-major { stroke-width: 2.5; opacity: .9; }
+.tuner-tick-label { fill: var(--text-muted); font-size: 11px; text-anchor: middle; dominant-baseline: middle; font-variant-numeric: tabular-nums; }
+.tuner-side { fill: var(--text-muted); font-size: 26px; font-weight: 700; text-anchor: middle; opacity: .25; transition: opacity .15s ease, fill .15s ease; }
+.tuner-side.tuner-side-on { opacity: 1; fill: #ff9f43; }
+.tuner-needle-line { stroke: var(--text-main); stroke-width: 3; stroke-linecap: round; transition: stroke .2s ease; }
+.tuner-hub { fill: var(--card-bg-2); stroke: var(--text-main); stroke-width: 3; transition: stroke .2s ease; }
+.tuner-gauge-wrap.tuner-idle .tuner-needle-line, .tuner-gauge-wrap.tuner-idle .tuner-hub { stroke: var(--text-muted); }
+.tuner-gauge-wrap.tuner-in-tune .tuner-needle-line, .tuner-gauge-wrap.tuner-in-tune .tuner-hub { stroke: #4ade80; }
+.tuner-gauge-wrap.tuner-in-tune .tuner-arc-zone { opacity: 1; filter: drop-shadow(0 0 6px rgba(74, 222, 128, .8)); }
+.tuner-display { text-align: center; margin-top: -6px; transition: opacity .25s ease; }
+.tuner-display.tuner-idle { opacity: .45; }
+.tuner-note { font-size: 64px; font-weight: 800; line-height: 1; letter-spacing: -.02em; transition: color .2s ease, text-shadow .2s ease; }
+.tuner-octave { font-size: 22px; font-weight: 700; color: var(--text-muted); margin-left: 2px; vertical-align: baseline; }
+.tuner-display.tuner-in-tune .tuner-note { color: #4ade80; text-shadow: 0 0 18px rgba(74, 222, 128, .45); }
+.tuner-freq { font-size: var(--fs-sm); color: var(--text-muted); margin-top: 6px; font-variant-numeric: tabular-nums; min-height: 1.3em; }
+.tuner-source { text-align: center; font-size: var(--fs-xs); color: var(--text-muted); margin-top: 6px; }
 /* flex:1 + min-height:0 : grandit avec la fenêtre (voir .scales-diagrams, même principe). Le SVG
    garde son ratio 1:1 (viewBox carré) via height:100%/width:auto, max-width:100% au cas où le
    panneau serait plus large que haut. */
@@ -1501,3 +1528,9 @@ button.gs-add-step-btn { margin-top: 10px; width: 100%; height: 42px; border: 1p
 .settings-field { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; }
 .settings-field-label { font-size: var(--fs-sm); color: var(--text-muted); }
 .settings-field select { min-width: 160px; }
+@media (max-width: 700px) {
+    /* Plein écran sur téléphone : l'accordeur se centre verticalement au lieu de rester collé en haut. */
+    .tuner-panel .tuner-gauge-wrap { margin-top: auto; width: min(420px, 100%); }
+    .tuner-panel .tuner-source { margin-bottom: auto; }
+    .tuner-panel .tuner-note { font-size: 80px; }
+}

@@ -4669,47 +4669,88 @@
         return NOTE_NAMES_SHARP[((midi % 12) + 12) % 12];
     }
 
-    // Détection de fréquence par autocorrélation temporelle (technique standard pour un accordeur :
-    // on cherche le décalage qui fait le mieux correspondre le signal avec lui-même, ce décalage
-    // correspond à la période du son). Renvoie -1 si le signal est trop faible pour être fiable.
-    function autoCorrelateFrequency(buf, sampleRate) {
-        var size = buf.length;
+    // Détection plus robuste que l'autocorrélation brute pour un accordeur : différence cumulée
+    // normalisée façon YIN (celle des accordeurs logiciels courants). Elle évite la plupart des
+    // erreurs d'octave et donne un indice de netteté : en dessous du seuil, on considère qu'il n'y a
+    // pas de note tenue (bruit, attaque, fin de note) plutôt que d'afficher une valeur fantaisiste.
+    // Plage utile : ~30 Hz (si grave d'une basse 5 cordes) à ~1400 Hz.
+    function yinFrequency(buf, sampleRate) {
+        // Retire la composante continue (décalage de certains micros/cartes son) avant tout calcul.
+        var mean = 0;
+        for (var mi = 0; mi < buf.length; mi++) mean += buf[mi];
+        mean /= buf.length;
+        if (mean) for (var mj = 0; mj < buf.length; mj++) buf[mj] -= mean;
         var rms = 0;
-        for (var i = 0; i < size; i++) rms += buf[i] * buf[i];
-        rms = Math.sqrt(rms / size);
-        if (rms < 0.01) return -1;
-
-        var threshold = 0.2, start = 0, end = size - 1;
-        for (var a = 0; a < size / 2; a++) { if (Math.abs(buf[a]) >= threshold) { start = a; break; } }
-        for (var b = size - 1; b > size / 2; b--) { if (Math.abs(buf[b]) >= threshold) { end = b; break; } }
-        var trimmed = buf.slice(start, end);
-        var n = trimmed.length;
-        if (n < 8) return -1;
-
-        var corr = new Array(n).fill(0);
-        for (var lag = 0; lag < n; lag++) {
-            for (var j = 0; j < n - lag; j++) corr[lag] += trimmed[j] * trimmed[j + lag];
+        for (var i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
+        rms = Math.sqrt(rms / buf.length);
+        if (rms < 0.008) return { freq: -1, rms: rms };
+        var maxTau = Math.min(Math.floor(sampleRate / 30), Math.floor(buf.length / 2));
+        var minTau = Math.floor(sampleRate / 1400);
+        var w = buf.length - maxTau;
+        var d = new Float32Array(maxTau + 1);
+        for (var tau = 1; tau <= maxTau; tau++) {
+            var sum = 0;
+            for (var j = 0; j < w; j++) { var diff = buf[j] - buf[j + tau]; sum += diff * diff; }
+            d[tau] = sum;
         }
-        var d = 0;
-        while (d < n - 1 && corr[d] > corr[d + 1]) d++;
-        var bestLag = -1, bestVal = -1;
-        for (var k = d; k < n; k++) {
-            if (corr[k] > bestVal) { bestVal = corr[k]; bestLag = k; }
+        var running = 0, best = -1;
+        d[0] = 1;
+        for (var t = 1; t <= maxTau; t++) {
+            running += d[t];
+            d[t] = running ? d[t] * t / running : 1;
         }
-        if (bestLag <= 0) return -1;
-        // Interpolation parabolique autour du pic pour affiner la période au-delà de la résolution
-        // entière de l'échantillonnage.
-        var x1 = corr[bestLag - 1] || 0, x2 = corr[bestLag], x3 = corr[bestLag + 1] || 0;
-        var a2 = (x1 + x3 - 2 * x2) / 2, b2 = (x3 - x1) / 2;
-        var refinedLag = a2 ? bestLag - b2 / (2 * a2) : bestLag;
-        return sampleRate / refinedLag;
+        for (var t2 = minTau; t2 < maxTau; t2++) {
+            if (d[t2] < 0.12) {
+                while (t2 + 1 < maxTau && d[t2 + 1] < d[t2]) t2++;
+                best = t2;
+                break;
+            }
+        }
+        if (best === -1) return { freq: -1, rms: rms };
+        var x0 = d[best - 1], x1 = d[best], x2 = d[best + 1];
+        var denom = x0 + x2 - 2 * x1;
+        var refined = denom ? best + (x0 - x2) / (2 * denom) : best;
+        return { freq: sampleRate / refined, rms: rms, clarity: 1 - x1 };
     }
 
-    function freqToNoteInfo(freq) {
-        var noteNum = 12 * (Math.log(freq / 440) / Math.log(2));
-        var midi = Math.round(69 + noteNum);
-        var cents = Math.round((69 + noteNum - midi) * 100);
-        return { midi: midi, name: midiNoteName(midi), octave: Math.floor(midi / 12) - 1, cents: cents };
+    // Cadran façon pédale d'accordeur : arc de -50 à +50 cents, graduations, zone verte de ±5 cents
+    // au centre, aiguille unique.
+    var TUNER_GAUGE_SPAN_DEG = 60; // ±50 cents -> ±60°
+    function buildTunerGaugeSvg() {
+        var ns = "http://www.w3.org/2000/svg";
+        var cx = 150, cy = 158, r = 128;
+        function el(tag, attrs) { var n = document.createElementNS(ns, tag); for (var k in attrs) n.setAttribute(k, attrs[k]); return n; }
+        function pt(radius, cents) {
+            var a = (cents / 50 * TUNER_GAUGE_SPAN_DEG - 90) * Math.PI / 180;
+            return [cx + radius * Math.cos(a), cy + radius * Math.sin(a)];
+        }
+        function arcPath(radius, c0, c1) {
+            var p0 = pt(radius, c0), p1 = pt(radius, c1);
+            return "M" + p0[0].toFixed(2) + " " + p0[1].toFixed(2) + " A" + radius + " " + radius + " 0 0 1 " + p1[0].toFixed(2) + " " + p1[1].toFixed(2);
+        }
+        var svg = el("svg", { viewBox: "0 0 300 172", "class": "tuner-gauge" });
+        svg.appendChild(el("path", { d: arcPath(r, -50, 50), "class": "tuner-arc" }));
+        svg.appendChild(el("path", { d: arcPath(r, -5, 5), "class": "tuner-arc-zone" }));
+        for (var c = -50; c <= 50; c += 5) {
+            var major = c % 25 === 0;
+            var a = pt(r - 6, c), b = pt(r - (major ? 22 : 14), c);
+            svg.appendChild(el("line", { x1: a[0], y1: a[1], x2: b[0], y2: b[1], "class": "tuner-tick" + (major ? " tuner-tick-major" : "") }));
+        }
+        [[-50, "−50"], [-25, "−25"], [0, "0"], [25, "+25"], [50, "+50"]].forEach(function (l) {
+            var p = pt(r - 36, l[0]);
+            var t = el("text", { x: p[0], y: p[1], "class": "tuner-tick-label" });
+            t.textContent = l[1];
+            svg.appendChild(t);
+        });
+        var flat = el("text", { x: 34, y: 150, "class": "tuner-side tuner-side-flat" }); flat.textContent = "♭";
+        var sharp = el("text", { x: 266, y: 150, "class": "tuner-side tuner-side-sharp" }); sharp.textContent = "♯";
+        svg.appendChild(flat);
+        svg.appendChild(sharp);
+        var needle = el("g", { "class": "tuner-needle-g" });
+        needle.appendChild(el("line", { x1: cx, y1: cy, x2: cx, y2: cy - r + 10, "class": "tuner-needle-line" }));
+        svg.appendChild(needle);
+        svg.appendChild(el("circle", { cx: cx, cy: cy, r: 7, "class": "tuner-hub" }));
+        return { svg: svg, needle: needle, flat: flat, sharp: sharp, cx: cx, cy: cy };
     }
 
     function openTunerPanel() {
@@ -4719,31 +4760,33 @@
             title.textContent = "Accordeur";
             panel.appendChild(title);
 
-            var sourceEl = document.createElement("div");
-            sourceEl.className = "tuner-source";
-            sourceEl.textContent = "Démarrage…";
-            panel.appendChild(sourceEl);
+            var gauge = buildTunerGaugeSvg();
+            var gaugeWrap = document.createElement("div");
+            gaugeWrap.className = "tuner-gauge-wrap";
+            gaugeWrap.appendChild(gauge.svg);
+            panel.appendChild(gaugeWrap);
 
             var display = document.createElement("div");
-            display.className = "tuner-display";
+            display.className = "tuner-display tuner-idle";
             var noteEl = document.createElement("div");
             noteEl.className = "tuner-note";
-            noteEl.textContent = "—";
+            var noteName = document.createElement("span");
+            noteName.textContent = "—";
+            var noteOct = document.createElement("sub");
+            noteOct.className = "tuner-octave";
+            noteEl.appendChild(noteName);
+            noteEl.appendChild(noteOct);
             var freqEl = document.createElement("div");
             freqEl.className = "tuner-freq";
+            freqEl.textContent = "Joue une note";
             display.appendChild(noteEl);
             display.appendChild(freqEl);
             panel.appendChild(display);
 
-            var needleTrack = document.createElement("div");
-            needleTrack.className = "tuner-needle-track";
-            var needleCenter = document.createElement("div");
-            needleCenter.className = "tuner-needle-center";
-            needleTrack.appendChild(needleCenter);
-            var needle = document.createElement("div");
-            needle.className = "tuner-needle";
-            needleTrack.appendChild(needle);
-            panel.appendChild(needleTrack);
+            var sourceEl = document.createElement("div");
+            sourceEl.className = "tuner-source";
+            sourceEl.textContent = "Démarrage…";
+            panel.appendChild(sourceEl);
 
             var audioCtx = null, analyser = null, source = null, currentStream = null, rafId = null;
 
@@ -4754,34 +4797,104 @@
                 if (audioCtx) { audioCtx.close(); audioCtx = null; }
             }
 
+            // Ce qui rend un accordeur "calme" (pédale, GarageBand, GuitarTuna) :
+            //  - la mesure n'est faite qu'une vingtaine de fois par seconde, et on garde la médiane
+            //    des dernières mesures (une valeur aberrante isolée ne fait plus sauter l'aiguille) ;
+            //  - la note affichée ne change qu'après quelques mesures concordantes (hystérésis) ;
+            //  - l'aiguille ne saute pas à la valeur mesurée : elle la rejoint avec une inertie, à
+            //    60 images/s, indépendamment du rythme des mesures ;
+            //  - quand le son s'arrête, la dernière note reste affichée (estompée) et l'aiguille
+            //    revient doucement au centre, au lieu de se figer ou de clignoter.
+            var DETECT_INTERVAL_MS = 50, NEEDLE_TAU_MS = 110, HOLD_MS = 450, NOTE_CONFIRM = 3;
+            var recentMidiFloat = [];
+            var shownMidi = null, candidateMidi = null, candidateCount = 0;
+            var targetCents = 0, needleCents = 0, lastSignalAt = 0, lastDetectAt = 0, lastFrameAt = 0;
+            var lastShownCents = null, lastTextAt = 0, shownFreq = 0;
+
+            function median(arr) {
+                var s = arr.slice().sort(function (a, b) { return a - b; });
+                return s[Math.floor(s.length / 2)];
+            }
+
+            function onDetection(freq, now) {
+                var midiFloat = 69 + 12 * Math.log(freq / 440) / Math.LN2;
+                // Changement net de note (> 1 demi-ton) : on repart d'une fenêtre vide pour ne pas
+                // mélanger deux notes dans la médiane.
+                if (recentMidiFloat.length && Math.abs(midiFloat - recentMidiFloat[recentMidiFloat.length - 1]) > 1) recentMidiFloat = [];
+                recentMidiFloat.push(midiFloat);
+                if (recentMidiFloat.length > 5) recentMidiFloat.shift();
+                var m = median(recentMidiFloat);
+                var nearest = Math.round(m);
+                if (shownMidi === null || nearest === shownMidi) {
+                    candidateMidi = null; candidateCount = 0;
+                    if (shownMidi === null) shownMidi = nearest;
+                } else if (nearest === candidateMidi) {
+                    if (++candidateCount >= NOTE_CONFIRM) { shownMidi = nearest; candidateMidi = null; candidateCount = 0; }
+                } else {
+                    candidateMidi = nearest; candidateCount = 1;
+                }
+                targetCents = Math.max(-50, Math.min(50, (m - shownMidi) * 100));
+                shownFreq = 440 * Math.pow(2, (m - 69) / 12);
+                lastSignalAt = now;
+            }
+
+            function render(now) {
+                var dt = lastFrameAt ? Math.min(100, now - lastFrameAt) : 16;
+                lastFrameAt = now;
+                var active = now - lastSignalAt < HOLD_MS && shownMidi !== null;
+                var goal = active ? targetCents : 0;
+                needleCents += (goal - needleCents) * (1 - Math.exp(-dt / NEEDLE_TAU_MS));
+                gauge.needle.setAttribute("transform", "rotate(" + (needleCents / 50 * TUNER_GAUGE_SPAN_DEG).toFixed(2) + " " + gauge.cx + " " + gauge.cy + ")");
+
+                var inTune = active && Math.abs(targetCents) <= 5 && Math.abs(needleCents) <= 6;
+                display.classList.toggle("tuner-idle", !active);
+                display.classList.toggle("tuner-in-tune", inTune);
+                gaugeWrap.classList.toggle("tuner-in-tune", inTune);
+                gaugeWrap.classList.toggle("tuner-idle", !active);
+                gauge.flat.classList.toggle("tuner-side-on", active && targetCents < -5);
+                gauge.sharp.classList.toggle("tuner-side-on", active && targetCents > 5);
+
+                if (shownMidi !== null) {
+                    noteName.textContent = midiNoteName(shownMidi);
+                    noteOct.textContent = Math.floor(shownMidi / 12) - 1;
+                }
+                // Texte des cents mis à jour au plus ~6 fois/s : lisible au lieu de défiler.
+                if (active && now - lastTextAt > 160) {
+                    var c = Math.round(targetCents);
+                    if (c !== lastShownCents) {
+                        lastShownCents = c;
+                        freqEl.textContent = (c > 0 ? "+" : c < 0 ? "−" : "±") + Math.abs(c) + " cents · " + shownFreq.toFixed(1) + " Hz";
+                    }
+                    lastTextAt = now;
+                }
+            }
+
             function connectStream(stream) {
                 if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 analyser = audioCtx.createAnalyser();
-                analyser.fftSize = 2048;
+                analyser.fftSize = 4096; // fenêtre assez longue pour les notes graves de basse
                 source = audioCtx.createMediaStreamSource(stream);
                 source.connect(analyser);
                 currentStream = stream;
                 var buf = new Float32Array(analyser.fftSize);
-                function loop() {
-                    analyser.getFloatTimeDomainData(buf);
-                    var freq = autoCorrelateFrequency(buf, audioCtx.sampleRate);
-                    if (freq !== -1 && freq > 25 && freq < 2000) {
-                        var info = freqToNoteInfo(freq);
-                        noteEl.textContent = info.name + info.octave;
-                        freqEl.textContent = freq.toFixed(1) + " Hz · " + (info.cents > 0 ? "+" : "") + info.cents + " cents";
-                        var clamped = Math.max(-50, Math.min(50, info.cents));
-                        needle.style.transform = "translateX(-50%) rotate(" + (clamped * 0.9) + "deg)";
-                        needle.classList.toggle("tuner-needle-in-tune", Math.abs(info.cents) <= 5);
+                function loop(now) {
+                    now = now || performance.now();
+                    if (now - lastDetectAt >= DETECT_INTERVAL_MS) {
+                        lastDetectAt = now;
+                        analyser.getFloatTimeDomainData(buf);
+                        var res = yinFrequency(buf, audioCtx.sampleRate);
+                        if (res.freq > 28 && res.freq < 1500) onDetection(res.freq, now);
                     }
+                    render(now);
                     rafId = requestAnimationFrame(loop);
                 }
-                loop();
+                rafId = requestAnimationFrame(loop);
             }
 
             // Démarrage automatique dès l'ouverture, sans rien à choisir d'abord (comme GarageBand) :
             // le navigateur utilise l'entrée par défaut du système (micro ou carte son déjà
             // sélectionnée dans l'OS), on se contente d'indiquer laquelle d'après son nom.
-            navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+            navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }).then(function (stream) {
                 var track = stream.getAudioTracks()[0];
                 sourceEl.textContent = "Source : " + describeAudioSource(track && track.label);
                 connectStream(stream);
