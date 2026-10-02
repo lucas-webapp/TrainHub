@@ -1210,7 +1210,12 @@ button.metro-mini-btn.metro-mini-btn-icon .icon { width: 20px; height: 20px; }
     padding: 0;
     cursor: pointer;
 }
-.metro-step-0 { border-style: dashed; opacity: .45; }
+/* Case vide (silence) : bien visible (fond légèrement éclairci + contour net) pour savoir où placer
+   ses notes, tout en restant nettement en retrait du gris (normal) et du vert (fort). */
+.metro-step-0 { background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.22); }
+.metro-step-0:hover { border-color: var(--accent); }
+/* 1er pas de chaque temps un peu plus marqué : repère visuel dans les doubles-croches. */
+.metro-beat-group .metro-step-0:first-child { border-color: rgba(255,255,255,.38); }
 .metro-step-1 { background: var(--text-muted); border-color: var(--text-muted); }
 .metro-step-2 { background: var(--accent); border-color: var(--accent); }
 .metro-step-current { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent); }
