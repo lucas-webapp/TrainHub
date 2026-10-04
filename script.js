@@ -163,6 +163,10 @@
             gs.steps.forEach(function (step) {
                 if (!step.id) step.id = uid();
                 if (typeof step.minutes !== "number" || isNaN(step.minutes) || step.minutes <= 0) step.minutes = 5;
+                // Note propre à ce pas de la session (ex. "tempo progressif depuis 80 bpm") et liste des
+                // liens/fichiers de l'exercice à NE PAS montrer pendant cette session (clés "link:<id>"/"file:<id>").
+                if (typeof step.note !== "string") step.note = "";
+                if (!Array.isArray(step.hidden)) step.hidden = [];
             });
         });
     }
@@ -5160,6 +5164,17 @@
         (ex.files || []).forEach(function (meta) { items.push({ type: "file", key: "file:" + meta.id, label: meta.name, meta: meta }); });
         return items;
     }
+    function gsStepHides(step, key) { return (step.hidden || []).indexOf(key) !== -1; }
+    function gsSetStepHidden(step, key, hide) {
+        var list = (step.hidden || []).filter(function (k) { return k !== key; });
+        if (hide) list.push(key);
+        step.hidden = list;
+    }
+    function gsShortUrl(url) {
+        var s = String(url || "").replace(/^https?:\/\/(www\.)?/i, "");
+        return s.length > 40 ? s.slice(0, 39) + "…" : s;
+    }
+    var gsOpenStepDetails = {}; // id de pas -> bloc "notes et liens" déplié dans l'écran d'édition
     function gsSessionHasItems(session) {
         return session.steps.some(function (step) {
             var found = findExerciseById(step.exerciseId);
@@ -5214,6 +5229,7 @@
             y += 6;
             var title = found ? found.ex.title : "(exercice supprimé)";
             writeLines((i + 1) + ". " + title + " — " + step.minutes + " min", 13, "bold", 7);
+            if (step.note && step.note.trim()) writeLines("Note : " + step.note.trim(), 10, "bold", 5.5);
             if (found) {
                 writeLines(found.pathNames.join(" › "), 9, "italic", 5.5);
                 if (found.ex.notes && found.ex.notes.trim()) writeLines(found.ex.notes.trim(), 10, "normal", 5.5);
@@ -5243,8 +5259,9 @@
 
     // Puces de liens/fichiers en lecture seule (pas de renommer/retirer) : juste de quoi cliquer
     // et ouvrir, depuis l'écran de guidage.
-    function appendReadOnlyResourceChips(container, ex) {
+    function appendReadOnlyResourceChips(container, ex, include) {
         (ex.links || []).forEach(function (link) {
+            if (include && !include("link", link)) return;
             var chip = document.createElement("a");
             chip.className = "link-chip gs-resource-chip";
             chip.href = link.url;
@@ -5261,6 +5278,7 @@
             container.appendChild(chip);
         });
         (ex.files || []).forEach(function (meta) {
+            if (include && !include("file", meta)) return;
             var chip = document.createElement("button");
             chip.type = "button";
             chip.className = "file-chip gs-resource-chip";
@@ -5449,6 +5467,16 @@
         });
         content.appendChild(nameInput);
 
+        var runBtn = document.createElement("button");
+        runBtn.type = "button";
+        runBtn.className = "btn-accent gs-edit-run-btn";
+        runBtn.textContent = "▶ Lancer la session";
+        runBtn.title = session.steps.length ? "Lancer cette session maintenant" : "Ajoutez d'abord un exercice";
+        runBtn.disabled = !session.steps.length;
+        runBtn.addEventListener("click", function () { if (session.steps.length) gsStartRun(session); });
+        content.appendChild(runBtn);
+        var editRunBtn = runBtn;
+
         var editToolsRow = document.createElement("div");
         editToolsRow.className = "gs-edit-tools-row";
         var pdfBtn = document.createElement("button");
@@ -5517,13 +5545,67 @@
                 minLabel.className = "gs-step-min-label";
                 minLabel.textContent = "min";
                 row.appendChild(minLabel);
+                var detailsOpen = !!gsOpenStepDetails[step.id];
+                var detailsBtn = iconButton(step.note && step.note.trim() ? "✎▾" : "▾", "Note et liens affichés pendant la session", function () {
+                    gsOpenStepDetails[step.id] = !gsOpenStepDetails[step.id];
+                    renderSteps();
+                });
+                detailsBtn.classList.add("gs-step-details-btn");
+                if (detailsOpen) detailsBtn.classList.add("gs-step-details-open");
+                row.appendChild(detailsBtn);
                 var removeBtn = iconButton("✕", "Retirer cet exercice", function () {
                     session.steps.splice(session.steps.indexOf(step), 1);
                     save();
                     renderSteps();
                     refreshTotal();
+                    editRunBtn.disabled = !session.steps.length;
                 });
                 row.appendChild(removeBtn);
+
+                if (detailsOpen) {
+                    var details = document.createElement("div");
+                    details.className = "gs-step-details";
+                    var noteLabel = document.createElement("div");
+                    noteLabel.className = "section-label";
+                    noteLabel.textContent = "Note pour cet exercice (affichée pendant la session)";
+                    details.appendChild(noteLabel);
+                    var noteInput = document.createElement("textarea");
+                    noteInput.className = "gs-step-note";
+                    noteInput.rows = 2;
+                    noteInput.placeholder = "Ex. tempo progressif depuis 80 bpm";
+                    noteInput.value = step.note || "";
+                    noteInput.addEventListener("input", function () { step.note = noteInput.value; persist(); });
+                    noteInput.addEventListener("change", function () { save(); detailsBtn.textContent = step.note.trim() ? "✎▾" : "▾"; });
+                    details.appendChild(noteInput);
+                    var items = found ? gsExerciseItems(found.ex) : [];
+                    var resLabel = document.createElement("div");
+                    resLabel.className = "section-label";
+                    resLabel.textContent = "Liens et fichiers affichés pendant la session";
+                    details.appendChild(resLabel);
+                    if (!items.length) {
+                        var none = document.createElement("div");
+                        none.className = "gs-empty";
+                        none.textContent = "Aucun lien ni fichier dans cet exercice.";
+                        details.appendChild(none);
+                    }
+                    items.forEach(function (item) {
+                        var line = document.createElement("label");
+                        line.className = "gs-links-item";
+                        var cb = document.createElement("input");
+                        cb.type = "checkbox";
+                        cb.checked = !gsStepHides(step, item.key);
+                        cb.addEventListener("change", function () {
+                            gsSetStepHidden(step, item.key, !cb.checked);
+                            save();
+                        });
+                        line.appendChild(cb);
+                        var text = document.createElement("span");
+                        text.textContent = item.type === "link" ? item.label + " · " + gsShortUrl(item.url) : item.label;
+                        line.appendChild(text);
+                        details.appendChild(line);
+                    });
+                    row.appendChild(details);
+                }
                 stepsList.appendChild(row);
             });
             setupDragReorder(stepsList, ".gs-step-row", function () { return session.steps; }, "y");
@@ -5718,7 +5800,7 @@
     // ---------- lecteurs YouTube intégrés (sous la session) ----------
     // Un lien YouTube d'un exercice se lit ici plutôt que dans un onglet. Volume et vitesse se règlent
     // dans les paramètres du lecteur YouTube lui-même (roue dentée) : aucun réglage n'est ajouté par-dessus,
-    // pour ne pas perturber la vidéo. Un lien peu utile peut être masqué de cette liste (link.hidePlayer) :
+    // pour ne pas perturber la vidéo. Un lien peu utile peut être masqué de cette liste (step.hidden de la session) :
     // il reste dans l'exercice et dans l'écran des liens, et on peut le réafficher.
     var ytApiPromise = null;
 
@@ -5781,7 +5863,7 @@
         if (e.key === "Escape" && gsYtOverlayCard) setYtOverlay(gsYtOverlayCard, false);
     });
 
-    function buildYouTubeCard(link, ex, info) {
+    function buildYouTubeCard(link, ex, info, onHide) {
         var card = document.createElement("div");
         card.className = "gs-yt-card";
 
@@ -5828,14 +5910,9 @@
         hideBtn.type = "button";
         hideBtn.className = "btn-ghost gs-yt-btn gs-yt-hide-btn";
         hideBtn.textContent = "✕";
-        hideBtn.title = "Ne plus afficher cette vidéo dans la session (le lien reste dans l'exercice)";
+        hideBtn.title = "Ne plus afficher ce lien dans cette session (le lien reste dans l'exercice ; à regérer dans l'édition de la session)";
         hideBtn.setAttribute("aria-label", "Masquer cette vidéo");
-        hideBtn.addEventListener("click", function () {
-            link.hidePlayer = true;
-            touchExercise(ex);
-            save();
-            render();
-        });
+        hideBtn.addEventListener("click", onHide);
         head.appendChild(hideBtn);
         card.appendChild(head);
 
@@ -5961,10 +6038,24 @@
         // Les liens/fichiers de l'exercice en cours sont visibles tout de suite (pas besoin de
         // cliquer sur "Ouvrir liens/pièces jointes", qui ne sert qu'à ouvrir d'un coup ceux de
         // TOUTE la session).
+        if (step.note && step.note.trim()) {
+            var noteEl = document.createElement("div");
+            noteEl.className = "gs-run-note";
+            noteEl.textContent = step.note.trim();
+            content.appendChild(noteEl);
+        }
+
+        // Liens et fichiers de l'exercice (sauf ceux masqués pour cette session, et sauf les liens
+        // YouTube déjà lisibles dans un lecteur plus bas).
         if (found) {
             var resourcesRow = document.createElement("div");
             resourcesRow.className = "links-list gs-run-resources";
-            appendReadOnlyResourceChips(resourcesRow, found.ex);
+            var playersOn = ytVideosShown();
+            appendReadOnlyResourceChips(resourcesRow, found.ex, function (kind, obj) {
+                if (gsStepHides(step, (kind === "link" ? "link:" : "file:") + obj.id)) return false;
+                if (kind === "link" && playersOn && youTubeVideoInfo(obj.url)) return false;
+                return true;
+            });
             if (resourcesRow.children.length) content.appendChild(resourcesRow);
         }
 
@@ -6115,8 +6206,12 @@
             }
             if (ytShown) ytLinks.forEach(function (link) {
                 var info = youTubeVideoInfo(link.url);
-                if (link.hidePlayer) { hiddenVideos.push(link); return; }
-                content.appendChild(buildYouTubeCard(link, found.ex, info));
+                if (gsStepHides(step, "link:" + link.id)) { hiddenVideos.push(link); return; }
+                content.appendChild(buildYouTubeCard(link, found.ex, info, function () {
+                    gsSetStepHidden(step, "link:" + link.id, true);
+                    save();
+                    render();
+                }));
             });
             if (ytShown && hiddenVideos.length) {
                 var hiddenRow = document.createElement("div");
@@ -6128,8 +6223,7 @@
                     showBtn.textContent = "▶ Réafficher « " + (link.label || "YouTube") + " »";
                     showBtn.title = "Réafficher cette vidéo dans la session";
                     showBtn.addEventListener("click", function () {
-                        delete link.hidePlayer;
-                        touchExercise(found.ex);
+                        gsSetStepHidden(step, "link:" + link.id, false);
                         save();
                         render();
                     });

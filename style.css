@@ -1539,6 +1539,16 @@ button.gs-back-btn { margin-bottom: 10px; border: 1px solid var(--border); heigh
     border-radius: 8px;
     padding: 6px 8px;
 }
+.gs-step-row { flex-wrap: wrap; }
+button.gs-edit-run-btn { width: 100%; height: 42px; margin-bottom: 10px; }
+button.gs-edit-run-btn:disabled { opacity: .4; cursor: default; }
+.gs-step-details { flex: 0 0 100%; display: flex; flex-direction: column; gap: 6px; padding: 8px 2px 4px; border-top: 1px solid var(--border); margin-top: 2px; }
+.gs-step-note { width: 100%; box-sizing: border-box; resize: vertical; min-height: 54px; font-family: inherit; font-size: var(--fs-sm); }
+.gs-step-details .gs-links-item { align-items: flex-start; }
+.gs-step-details .gs-links-item span { min-width: 0; overflow-wrap: anywhere; }
+.gs-step-details-btn { flex: none; min-width: 34px; }
+.gs-step-details-btn.gs-step-details-open { color: var(--accent); }
+.gs-run-note { margin: 10px auto 0; max-width: 460px; padding: 8px 12px; border-left: 3px solid var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); border-radius: var(--radius-sm); font-size: var(--fs-sm); white-space: pre-wrap; text-align: left; }
 .gs-step-handle { flex: none; display: inline-flex; color: var(--text-muted); cursor: grab; }
 .gs-step-handle .icon { width: 16px; height: 16px; }
 .gs-step-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); }
