@@ -1549,6 +1549,8 @@ button.gs-edit-run-btn:disabled { opacity: .4; cursor: default; }
 .gs-step-details-btn { flex: none; min-width: 34px; }
 .gs-step-details-btn.gs-step-details-open { color: var(--accent); }
 .gs-run-note { margin: 10px auto 0; max-width: 460px; padding: 8px 12px; border-left: 3px solid var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); border-radius: var(--radius-sm); font-size: var(--fs-sm); white-space: pre-wrap; text-align: left; }
+.save-status { margin-left: 8px; font-size: var(--fs-2xs); font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--text-muted); }
+.save-status.saved { color: var(--accent); }
 .gs-step-handle { flex: none; display: inline-flex; color: var(--text-muted); cursor: grab; }
 .gs-step-handle .icon { width: 16px; height: 16px; }
 .gs-step-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); }

@@ -1533,6 +1533,7 @@
     resetHistory();
 
     function render() {
+        flushPendingTextSaves();
         var inst = getActiveInstrument();
         var path = inst ? getNavPath(inst) : [];
         var rootChapter = inst && path.length ? findById(inst.categories, path[0]) : null;
@@ -2391,6 +2392,50 @@
         place();
     }
 
+    // ---------- enregistrement automatique des zones de note ----------
+    // Avant, une note n'était enregistrée qu'à la perte du focus (événement "change") : si la zone
+    // disparaissait avant (réaffichage de la page, onglet fermé…), la saisie était perdue, et rien
+    // n'indiquait quand c'était fait. Maintenant : la valeur est dans les données dès la frappe,
+    // enregistrée après une courte pause de frappe, et de toute façon avant tout réaffichage, perte
+    // de focus, changement d'onglet ou fermeture de la page. Un indicateur dit où on en est.
+    var pendingTextFlushes = [];
+    function flushPendingTextSaves() {
+        pendingTextFlushes.slice().forEach(function (f) { f(); });
+    }
+    function bindAutosaveTextarea(textarea, apply, statusEl) {
+        var timer = null, fadeTimer = null, dirty = false;
+        function setStatus(text, cls) {
+            if (!statusEl) return;
+            statusEl.textContent = text;
+            statusEl.className = "save-status" + (cls ? " " + cls : "");
+        }
+        function flush() {
+            clearTimeout(timer); timer = null;
+            if (!dirty) return;
+            dirty = false;
+            var at = pendingTextFlushes.indexOf(flush);
+            if (at !== -1) pendingTextFlushes.splice(at, 1);
+            save();
+            setStatus("Enregistré ✓", "saved");
+            clearTimeout(fadeTimer);
+            fadeTimer = setTimeout(function () { setStatus("", ""); }, 3000);
+        }
+        textarea.addEventListener("input", function () {
+            apply(textarea.value);
+            dirty = true;
+            if (pendingTextFlushes.indexOf(flush) === -1) pendingTextFlushes.push(flush);
+            setStatus("Modification en cours…", "pending");
+            clearTimeout(fadeTimer);
+            clearTimeout(timer);
+            timer = setTimeout(flush, 700);
+        });
+        textarea.addEventListener("blur", flush);
+        textarea.addEventListener("change", flush);
+    }
+    window.addEventListener("pagehide", flushPendingTextSaves);
+    window.addEventListener("beforeunload", flushPendingTextSaves);
+    document.addEventListener("visibilitychange", function () { if (document.hidden) flushPendingTextSaves(); });
+
     function renderExerciseDetails(ex) {
         var details = document.createElement("div");
         details.className = "exercise-details";
@@ -2398,17 +2443,19 @@
         var notesLabel = document.createElement("div");
         notesLabel.className = "section-label";
         notesLabel.textContent = "Notes";
+        var notesStatus = document.createElement("span");
+        notesStatus.className = "save-status";
+        notesLabel.appendChild(notesStatus);
         var notes = document.createElement("textarea");
         notes.className = "notes-textarea";
         notes.rows = NOTES_MIN_ROWS;
         notes.value = ex.notes || "";
         notes.placeholder = "Remarques, points à retravailler…";
         notes.addEventListener("input", function () { autoGrowNotes(notes); });
-        notes.addEventListener("change", function () {
-            ex.notes = notes.value;
+        bindAutosaveTextarea(notes, function (value) {
+            ex.notes = value;
             touchExercise(ex);
-            save();
-        });
+        }, notesStatus);
         details.appendChild(notesLabel);
         details.appendChild(notes);
 
@@ -5568,14 +5615,19 @@
                     var noteLabel = document.createElement("div");
                     noteLabel.className = "section-label";
                     noteLabel.textContent = "Note pour cet exercice (affichée pendant la session)";
+                    var noteStatus = document.createElement("span");
+                    noteStatus.className = "save-status";
+                    noteLabel.appendChild(noteStatus);
                     details.appendChild(noteLabel);
                     var noteInput = document.createElement("textarea");
                     noteInput.className = "gs-step-note";
                     noteInput.rows = 2;
                     noteInput.placeholder = "Ex. tempo progressif depuis 80 bpm";
                     noteInput.value = step.note || "";
-                    noteInput.addEventListener("input", function () { step.note = noteInput.value; persist(); });
-                    noteInput.addEventListener("change", function () { save(); detailsBtn.textContent = step.note.trim() ? "✎▾" : "▾"; });
+                    bindAutosaveTextarea(noteInput, function (value) {
+                        step.note = value;
+                        detailsBtn.textContent = value.trim() ? "✎▾" : "▾";
+                    }, noteStatus);
                     details.appendChild(noteInput);
                     var items = found ? gsExerciseItems(found.ex) : [];
                     var resLabel = document.createElement("div");
