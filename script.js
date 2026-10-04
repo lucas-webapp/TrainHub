@@ -1196,6 +1196,77 @@
         place();
     }
 
+    // ---------- exercices du même nom (plusieurs dossiers, plusieurs thèmes) ----------
+    // Un même exercice peut servir plusieurs thèmes : il existe alors sous le même nom dans plusieurs
+    // dossiers (copie, ou création à la main). Quand on modifie la note ou les liens de l'un, on
+    // propose d'appliquer la même modification aux autres — jamais automatiquement.
+    function findSameNamedExercises(ex) {
+        var inst = getActiveInstrument();
+        var key = (ex.title || "").trim().toLowerCase();
+        if (!inst || !key) return [];
+        return collectExercises(inst, function (o) { return o.id !== ex.id && (o.title || "").trim().toLowerCase() === key; });
+    }
+
+    // Petit dialogue centré à choix, sur le modèle des menus contextuels.
+    function openChoiceMenu(heading, message, choices) {
+        closeFolderMenu();
+        var backdrop = document.createElement("div");
+        backdrop.className = "ctx-backdrop";
+        function close() { closeFolderMenu(); }
+        backdrop.addEventListener("pointerdown", function (e) { e.preventDefault(); close(); });
+        var menu = document.createElement("div");
+        menu.className = "ctx-menu ctx-menu-dialog";
+        menu.setAttribute("role", "dialog");
+        var h = document.createElement("div");
+        h.className = "ctx-menu-title ctx-menu-title-wrap";
+        h.textContent = heading;
+        menu.appendChild(h);
+        if (message) {
+            var m = document.createElement("div");
+            m.className = "ctx-menu-text";
+            m.textContent = message;
+            menu.appendChild(m);
+        }
+        choices.forEach(function (c) {
+            var b = document.createElement("button");
+            b.type = "button";
+            b.className = "ctx-item" + (c.muted ? " ctx-item-muted" : "");
+            b.textContent = c.text;
+            b.addEventListener("click", function () { close(); if (c.onClick) c.onClick(); });
+            menu.appendChild(b);
+        });
+        function onKey(e) { if (e.key === "Escape") close(); }
+        document.body.appendChild(backdrop);
+        document.body.appendChild(menu);
+        document.addEventListener("keydown", onKey, true);
+        openMenu = { backdrop: backdrop, menu: menu, onKey: onKey };
+        var w = menu.offsetWidth || 300, hh = menu.offsetHeight || 160;
+        menu.style.left = Math.max(8, (window.innerWidth - w) / 2) + "px";
+        menu.style.top = Math.max(8, (window.innerHeight - hh) / 3) + "px";
+    }
+
+    // `needsApply(other)` : cet autre exercice serait-il réellement modifié ? (sinon on ne demande rien)
+    // `apply(other)` : applique la modification.
+    function askApplyToSameNamed(ex, question, needsApply, apply) {
+        var others = findSameNamedExercises(ex).filter(function (r) { return needsApply(r.ex); });
+        if (!others.length) return;
+        var where = others.slice(0, 4).map(function (r) { return r.pathNames.join(" › "); }).join(", ") + (others.length > 4 ? "…" : "");
+        openChoiceMenu(
+            "« " + ex.title + " » existe aussi dans " + (others.length === 1 ? "un autre dossier" : others.length + " autres dossiers"),
+            where + "\n" + question,
+            [
+                { text: others.length === 1 ? "Appliquer aussi à l'autre" : "Appliquer à tous (" + others.length + ")", onClick: function () {
+                    others.forEach(function (r) { apply(r.ex); touchExercise(r.ex); });
+                    save();
+                    render();
+                    showToast("Appliqué à " + others.length + " autre" + (others.length > 1 ? "s" : "") + " exercice" + (others.length > 1 ? "s" : "") + " « " + ex.title + " »");
+                } },
+                { text: "Seulement ici", muted: true }
+            ]);
+    }
+
+    function hasLinkUrl(o, url) { return (o.links || []).some(function (l) { return l.url === url; }); }
+
     // Exercice lâché sur un dossier de l'arborescence : on demande s'il faut le déplacer ou le copier.
     function openExerciseDropMenu(x, y, ex, fromFolder, destFolder) {
         closeFolderMenu();
@@ -1983,13 +2054,61 @@
 
     // Rendu partagé entre le filtre plein-texte (renderFilteredResults) et les favoris
     // (renderFavoritesView) : une liste à plat, avec le chemin réel de chaque exercice.
-    function renderResultsList(inst, results, emptyText) {
+    // `grouped` (Favoris, Archivés, Étiquettes) : les exercices d'un même dossier sont rangés ensemble
+    // sous un seul titre de dossier (les morceaux ensemble, la technique ensemble…), dans l'ordre des
+    // chapitres de la barre latérale puis des dossiers ; dans un dossier, l'ordre de ses exercices.
+    function renderGroupedResults(inst, results) {
+        var chapterOrder = {};
+        orderedChapterItems(inst).forEach(function (item, i) { chapterOrder[item.id] = i; });
+        var groups = [], byFolder = {};
+        results.forEach(function (r) {
+            var g = byFolder[r.folder.id];
+            if (!g) { g = byFolder[r.folder.id] = { first: r, items: [], rank: chapterOrder[r.pathIds[0]], seq: groups.length }; groups.push(g); }
+            g.items.push(r);
+        });
+        groups.sort(function (a, b) {
+            var ra = a.rank === undefined ? 1e9 : a.rank, rb = b.rank === undefined ? 1e9 : b.rank;
+            return ra - rb || a.seq - b.seq;
+        });
+        groups.forEach(function (g) {
+            var r = g.first;
+            var section = document.createElement("div");
+            section.className = "result-group";
+            var rootChapter = findById(inst.categories, r.pathIds[0]);
+            if (rootChapter && rootChapter.color) section.style.setProperty("--group-color", rootChapter.color);
+            var title = document.createElement("button");
+            title.type = "button";
+            title.className = "result-group-title";
+            title.textContent = r.pathNames.join(" › ");
+            var count = document.createElement("span");
+            count.className = "result-group-count";
+            count.textContent = String(g.items.length);
+            title.appendChild(count);
+            title.title = "Aller à ce dossier";
+            title.addEventListener("click", function () {
+                clearFilters();
+                setNavPath(inst, r.pathIds);
+                render();
+            });
+            section.appendChild(title);
+            g.items.forEach(function (item) {
+                var wrap = document.createElement("div");
+                wrap.className = "result-item result-item-grouped";
+                wrap.appendChild(renderExercise(item.folder, item.ex, false));
+                section.appendChild(wrap);
+            });
+            $folderContainer.appendChild(section);
+        });
+    }
+
+    function renderResultsList(inst, results, emptyText, grouped) {
         $folderContainer.innerHTML = "";
         if (results.length === 0) {
             $empty.hidden = false;
             $empty.textContent = emptyText;
             return;
         }
+        if (grouped) { renderGroupedResults(inst, results); return; }
         results.forEach(function (r) {
             var wrap = document.createElement("div");
             wrap.className = "result-item";
@@ -2057,7 +2176,7 @@
             results = collectExercises(inst, function (ex) { return ex.favorite && !ex.archived; });
             emptyText = "Aucun favori pour l'instant. Marque un exercice en favori depuis son menu (clic droit ou appui long dessus).";
         }
-        renderResultsList(inst, results, emptyText);
+        renderResultsList(inst, results, emptyText, true);
     }
 
     function renderContentHeading(folder, getParentArray, inst) {
@@ -2528,6 +2647,7 @@
     // n'indiquait quand c'était fait. Maintenant : la valeur est dans les données dès la frappe,
     // enregistrée après une courte pause de frappe, et de toute façon avant tout réaffichage, perte
     // de focus, changement d'onglet ou fermeture de la page. Un indicateur dit où on en est.
+    var newLinkPropagateId = null; // lien tout juste ajouté : à proposer aux exercices du même nom une fois son nom validé
     var pendingRenameKey = null; // "link:<id>" / "file:<id>" : ressource tout juste ajoutée, à renommer aussitôt
     var exerciseVideosOpen = {}; // id d'exercice -> vidéos YouTube affichées (le temps où il reste déplié)
     // Cliquer en dehors d'un champ de saisie en sort (et déclenche donc son enregistrement). Le
@@ -2549,8 +2669,10 @@
     function flushPendingTextSaves() {
         pendingTextFlushes.slice().forEach(function (f) { f(); });
     }
-    function bindAutosaveTextarea(textarea, apply, statusEl) {
-        var timer = null, fadeTimer = null, dirty = false;
+    // `hooks.onLeave` (facultatif) : appelé quand on QUITTE la zone après l'avoir modifiée (pas à chaque
+    // enregistrement automatique en cours de frappe) — c'est le bon moment pour poser une question.
+    function bindAutosaveTextarea(textarea, apply, statusEl, hooks) {
+        var timer = null, fadeTimer = null, dirty = false, changedSinceLeave = false;
         function setStatus(text, cls) {
             if (!statusEl) return;
             statusEl.textContent = text;
@@ -2567,17 +2689,25 @@
             clearTimeout(fadeTimer);
             fadeTimer = setTimeout(function () { setStatus("", ""); }, 3000);
         }
+        function leave() {
+            flush();
+            if (changedSinceLeave) {
+                changedSinceLeave = false;
+                if (hooks && hooks.onLeave) hooks.onLeave();
+            }
+        }
         textarea.addEventListener("input", function () {
             apply(textarea.value);
             dirty = true;
+            changedSinceLeave = true;
             if (pendingTextFlushes.indexOf(flush) === -1) pendingTextFlushes.push(flush);
             setStatus("Modification en cours…", "pending");
             clearTimeout(fadeTimer);
             clearTimeout(timer);
             timer = setTimeout(flush, 700);
         });
-        textarea.addEventListener("blur", flush);
-        textarea.addEventListener("change", flush);
+        textarea.addEventListener("blur", leave);
+        textarea.addEventListener("change", leave);
     }
     window.addEventListener("pagehide", flushPendingTextSaves);
     window.addEventListener("beforeunload", flushPendingTextSaves);
@@ -2602,7 +2732,14 @@
         bindAutosaveTextarea(notes, function (value) {
             ex.notes = value;
             touchExercise(ex);
-        }, notesStatus);
+        }, notesStatus, {
+            onLeave: function () {
+                var text = ex.notes || "";
+                askApplyToSameNamed(ex, text.trim() ? "Remplacer leur note par celle-ci ?" : "Effacer aussi leur note ?",
+                    function (o) { return (o.notes || "") !== text; },
+                    function (o) { o.notes = text; });
+            }
+        });
         details.appendChild(notesLabel);
         details.appendChild(notes);
 
@@ -2640,6 +2777,21 @@
                 input.focus();
                 input.select();
                 var done = false;
+                var oldLabel = link.label;
+                var isNewLink = newLinkPropagateId === link.id;
+                function propagate() {
+                    var url = link.url, label = link.label;
+                    if (isNewLink) {
+                        newLinkPropagateId = null;
+                        askApplyToSameNamed(ex, "Ajouter aussi ce lien (« " + label + " ») ?",
+                            function (o) { return !hasLinkUrl(o, url); },
+                            function (o) { o.links = o.links || []; o.links.push({ id: uid(), label: label, url: url }); });
+                    } else if (label !== oldLabel) {
+                        askApplyToSameNamed(ex, "Renommer aussi ce lien en « " + label + " » ?",
+                            function (o) { return (o.links || []).some(function (l) { return l.url === url && l.label !== label; }); },
+                            function (o) { (o.links || []).forEach(function (l) { if (l.url === url) l.label = label; }); });
+                    }
+                }
                 function commit() {
                     if (done) return;
                     done = true;
@@ -2648,11 +2800,13 @@
                     input.replaceWith(labelSpan);
                     touchExercise(ex);
                     save();
+                    propagate();
                 }
                 function cancel() {
                     if (done) return;
                     done = true;
                     input.replaceWith(labelSpan);
+                    propagate();
                 }
                 input.addEventListener("keydown", function (e) {
                     e.stopPropagation();
@@ -2692,6 +2846,12 @@
                 touchExercise(ex);
                 save();
                 render();
+                askApplyToSameNamed(ex, "Retirer aussi ce lien (« " + link.label + " ») ?",
+                    function (o) { return hasLinkUrl(o, link.url); },
+                    function (o) {
+                        o.links = (o.links || []).filter(function (l) { return l.url !== link.url; });
+                        if (o.pinnedLinkId && !(o.links || []).some(function (l) { return l.id === o.pinnedLinkId; })) o.pinnedLinkId = null;
+                    });
             });
             chip.appendChild(removeBtn);
             resourcesList.appendChild(chip);
@@ -2736,6 +2896,7 @@
             var newLink = { id: uid(), label: guessLinkLabel(url), url: url };
             ex.links.push(newLink);
             pendingRenameKey = "link:" + newLink.id;
+            newLinkPropagateId = newLink.id;
             urlInput.value = "";
             touchExercise(ex);
             save();
