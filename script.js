@@ -5716,12 +5716,20 @@
     }
 
     // ---------- lecteurs YouTube intégrés (sous la session) ----------
-    // Un lien YouTube d'un exercice peut être lu ici plutôt que dans un onglet : seul le lecteur
-    // intégré (API IFrame de YouTube) permet de régler le volume et la vitesse par programme, et de
-    // les retenir par lien (link.ytVolume 0-100, link.ytRate 0.25-2) pour les retrouver à chaque
-    // lecture — typiquement pour baisser le son d'une vidéo avant de jouer par-dessus à la carte son.
-    var YT_RATE_MIN = 0.25, YT_RATE_MAX = 2, YT_RATE_STEP = 0.05;
+    // Un lien YouTube d'un exercice se lit ici plutôt que dans un onglet. Volume et vitesse se règlent
+    // dans les paramètres du lecteur YouTube lui-même (roue dentée) : aucun réglage n'est ajouté par-dessus,
+    // pour ne pas perturber la vidéo. Un lien peu utile peut être masqué de cette liste (link.hidePlayer) :
+    // il reste dans l'exercice et dans l'écran des liens, et on peut le réafficher.
     var ytApiPromise = null;
+
+    // Les lecteurs sont-ils affichés dans la session ? Réglage d'affichage propre à cet appareil, retenu.
+    var YT_SHOWN_KEY = "trainhub.ytShown.v1";
+    function ytVideosShown() {
+        try { return localStorage.getItem(YT_SHOWN_KEY) !== "0"; } catch (e) { return true; }
+    }
+    function setYtVideosShown(on) {
+        try { localStorage.setItem(YT_SHOWN_KEY, on ? "1" : "0"); } catch (e) {}
+    }
 
     function youTubeVideoInfo(url) {
         try {
@@ -5760,34 +5768,17 @@
         return ytApiPromise;
     }
 
-    // iOS/iPadOS ignorent setVolume dans un lecteur web : le volume y reste celui de l'appareil.
-    function isIosDevice() {
-        return /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-    }
-
-    function clampYtRate(r) {
-        r = Math.round(r / YT_RATE_STEP) * YT_RATE_STEP;
-        return Math.round(Math.min(YT_RATE_MAX, Math.max(YT_RATE_MIN, r)) * 100) / 100;
-    }
-    function formatYtRate(r) { return "×" + String(parseFloat(r.toFixed(2))).replace(".", ","); }
-
-    var ytPrefsTimer = null;
-    function saveYtPrefsSoon(ex) {
-        touchExercise(ex);
-        clearTimeout(ytPrefsTimer);
-        // persist() (sans historique d'annulation) : un curseur qui glisse ne doit pas remplir la pile "Annuler".
-        ytPrefsTimer = setTimeout(persist, 400);
-    }
-
-    var gsYtLargeCard = null;
-    function setYtCardLarge(card, large) {
-        if (gsYtLargeCard && gsYtLargeCard !== card) gsYtLargeCard.classList.remove("gs-yt-large");
-        card.classList.toggle("gs-yt-large", large);
-        document.documentElement.classList.toggle("gs-yt-large-open", large);
-        gsYtLargeCard = large ? card : null;
+    // "Agrandir" = vrai plein écran du navigateur (Échap pour en sortir). Là où il n'existe pas pour un
+    // élément quelconque (iPhone), repli sur un grand lecteur par-dessus la page.
+    var gsYtOverlayCard = null;
+    function setYtOverlay(card, on) {
+        if (gsYtOverlayCard && gsYtOverlayCard !== card) gsYtOverlayCard.classList.remove("gs-yt-large");
+        card.classList.toggle("gs-yt-large", on);
+        document.documentElement.classList.toggle("gs-yt-large-open", on);
+        gsYtOverlayCard = on ? card : null;
     }
     document.addEventListener("keydown", function (e) {
-        if (e.key === "Escape" && gsYtLargeCard) setYtCardLarge(gsYtLargeCard, false);
+        if (e.key === "Escape" && gsYtOverlayCard) setYtOverlay(gsYtOverlayCard, false);
     });
 
     function buildYouTubeCard(link, ex, info) {
@@ -5800,17 +5791,30 @@
         title.className = "gs-yt-title";
         title.textContent = link.label || "YouTube";
         head.appendChild(title);
+
+        var frame = document.createElement("div");
+        frame.className = "gs-yt-frame";
+
         var sizeBtn = document.createElement("button");
         sizeBtn.type = "button";
-        sizeBtn.className = "btn-ghost gs-yt-btn";
-        sizeBtn.textContent = "⤢ Agrandir";
-        sizeBtn.title = "Agrandir / réduire le lecteur (Échap pour réduire)";
+        sizeBtn.className = "btn-ghost gs-yt-btn gs-yt-full-btn";
+        sizeBtn.textContent = "⤢ Plein écran";
+        sizeBtn.title = "Afficher la vidéo en plein écran (Échap pour en sortir)";
+        function inFullscreen() { return document.fullscreenElement === frame; }
+        function refreshSizeBtn() {
+            var on = inFullscreen() || card.classList.contains("gs-yt-large");
+            sizeBtn.textContent = on ? "⤡ Réduire" : "⤢ Plein écran";
+        }
         sizeBtn.addEventListener("click", function () {
-            var large = !card.classList.contains("gs-yt-large");
-            setYtCardLarge(card, large);
-            sizeBtn.textContent = large ? "⤡ Réduire" : "⤢ Agrandir";
+            if (inFullscreen()) { document.exitFullscreen(); return; }
+            if (card.classList.contains("gs-yt-large")) { setYtOverlay(card, false); refreshSizeBtn(); return; }
+            var req = frame.requestFullscreen ? frame.requestFullscreen() : null;
+            if (req && req.catch) req.catch(function () { setYtOverlay(card, true); refreshSizeBtn(); });
+            else if (!req) { setYtOverlay(card, true); refreshSizeBtn(); }
         });
+        document.addEventListener("fullscreenchange", refreshSizeBtn);
         head.appendChild(sizeBtn);
+
         var ytLink = document.createElement("a");
         ytLink.className = "btn-ghost gs-yt-btn";
         ytLink.href = link.url;
@@ -5819,10 +5823,22 @@
         ytLink.textContent = "↗ YouTube";
         ytLink.title = "Ouvrir sur YouTube (nouvel onglet)";
         head.appendChild(ytLink);
+
+        var hideBtn = document.createElement("button");
+        hideBtn.type = "button";
+        hideBtn.className = "btn-ghost gs-yt-btn gs-yt-hide-btn";
+        hideBtn.textContent = "✕";
+        hideBtn.title = "Ne plus afficher cette vidéo dans la session (le lien reste dans l'exercice)";
+        hideBtn.setAttribute("aria-label", "Masquer cette vidéo");
+        hideBtn.addEventListener("click", function () {
+            link.hidePlayer = true;
+            touchExercise(ex);
+            save();
+            render();
+        });
+        head.appendChild(hideBtn);
         card.appendChild(head);
 
-        var frame = document.createElement("div");
-        frame.className = "gs-yt-frame";
         var target = document.createElement("div");
         frame.appendChild(target);
         var msg = document.createElement("div");
@@ -5831,96 +5847,13 @@
         frame.appendChild(msg);
         card.appendChild(frame);
 
-        var player = null;
-        var volume = typeof link.ytVolume === "number" ? link.ytVolume : 100;
-        var rate = typeof link.ytRate === "number" ? clampYtRate(link.ytRate) : 1;
-
-        var controls = document.createElement("div");
-        controls.className = "gs-yt-controls";
-
-        var volRow = document.createElement("label");
-        volRow.className = "gs-yt-row";
-        var volLabel = document.createElement("span");
-        volLabel.className = "gs-yt-row-label";
-        volLabel.textContent = "Volume";
-        volRow.appendChild(volLabel);
-        var volSlider = document.createElement("input");
-        volSlider.type = "range";
-        volSlider.min = "0"; volSlider.max = "100"; volSlider.step = "1";
-        volSlider.value = String(volume);
-        volSlider.className = "gs-yt-volume";
-        var volValue = document.createElement("span");
-        volValue.className = "gs-yt-row-value";
-        function refreshVolText() { volValue.textContent = volume + " %"; }
-        refreshVolText();
-        volSlider.addEventListener("input", function () {
-            volume = parseInt(volSlider.value, 10);
-            link.ytVolume = volume;
-            refreshVolText();
-            if (player && player.setVolume) player.setVolume(volume);
-            saveYtPrefsSoon(ex);
-        });
-        if (isIosDevice()) {
-            volSlider.disabled = true;
-            volValue.textContent = "réglé par l'appareil";
-        } else {
-            volRow.appendChild(volSlider);
-            volRow.appendChild(volValue);
-        }
-        if (isIosDevice()) volRow.appendChild(volValue);
-        controls.appendChild(volRow);
-
-        var rateRow = document.createElement("div");
-        rateRow.className = "gs-yt-row";
-        var rateLabel = document.createElement("span");
-        rateLabel.className = "gs-yt-row-label";
-        rateLabel.textContent = "Vitesse";
-        rateRow.appendChild(rateLabel);
-        var rateDown = document.createElement("button");
-        rateDown.type = "button"; rateDown.className = "btn-ghost gs-yt-rate-btn"; rateDown.textContent = "−";
-        rateDown.title = "Ralentir de 0,05";
-        var rateValue = document.createElement("button");
-        rateValue.type = "button"; rateValue.className = "btn-ghost gs-yt-rate-value";
-        rateValue.title = "Revenir à la vitesse normale (×1)";
-        var rateUp = document.createElement("button");
-        rateUp.type = "button"; rateUp.className = "btn-ghost gs-yt-rate-btn"; rateUp.textContent = "+";
-        rateUp.title = "Accélérer de 0,05";
-        function refreshRateText() { rateValue.textContent = formatYtRate(rate); }
-        function applyRate(r) {
-            rate = clampYtRate(r);
-            link.ytRate = rate;
-            refreshRateText();
-            if (player && player.setPlaybackRate) {
-                player.setPlaybackRate(rate);
-                // YouTube peut ramener la vitesse à une valeur qu'il gère : on affiche celle réellement appliquée.
-                setTimeout(function () {
-                    var actual = player && player.getPlaybackRate ? player.getPlaybackRate() : rate;
-                    if (typeof actual === "number" && Math.abs(actual - rate) > 0.001) rateValue.textContent = formatYtRate(actual);
-                }, 250);
-            }
-            saveYtPrefsSoon(ex);
-        }
-        rateDown.addEventListener("click", function () { applyRate(rate - YT_RATE_STEP); });
-        rateUp.addEventListener("click", function () { applyRate(rate + YT_RATE_STEP); });
-        rateValue.addEventListener("click", function () { applyRate(1); });
-        refreshRateText();
-        rateRow.appendChild(rateDown);
-        rateRow.appendChild(rateValue);
-        rateRow.appendChild(rateUp);
-        controls.appendChild(rateRow);
-        card.appendChild(controls);
-
         function showMsg(text) { msg.textContent = text; msg.hidden = false; }
         loadYouTubeApi().then(function () {
-            player = new window.YT.Player(target, {
+            new window.YT.Player(target, {
                 width: "100%", height: "100%",
                 videoId: info.id,
                 playerVars: { playsinline: 1, rel: 0, start: info.start || 0 },
                 events: {
-                    onReady: function () {
-                        if (!isIosDevice()) player.setVolume(volume);
-                        player.setPlaybackRate(rate);
-                    },
                     onError: function () { showMsg("Cette vidéo ne peut pas être lue ici : utilisez « ↗ YouTube »."); }
                 }
             });
@@ -6166,10 +6099,44 @@
 
         // Lecteurs YouTube des liens de l'exercice en cours (volume/vitesse retenus par lien).
         if (found) {
-            (found.ex.links || []).forEach(function (link) {
+            // Plusieurs liens YouTube : les lecteurs se suivent, les uns sous les autres.
+            var hiddenVideos = [];
+            var ytLinks = (found.ex.links || []).filter(function (link) { return !!youTubeVideoInfo(link.url); });
+            var ytShown = ytVideosShown();
+            if (ytLinks.length) {
+                // Un clic affiche/masque toutes les vidéos de la session (masquées : rien n'est chargé).
+                var ytToggle = document.createElement("button");
+                ytToggle.type = "button";
+                ytToggle.className = "btn-ghost gs-yt-toggle";
+                ytToggle.textContent = (ytShown ? "▾ " : "▸ ") + "Vidéos YouTube (" + ytLinks.length + ") — " + (ytShown ? "masquer" : "afficher");
+                ytToggle.title = "Afficher ou masquer les lecteurs YouTube de la session";
+                ytToggle.addEventListener("click", function () { setYtVideosShown(!ytShown); render(); });
+                content.appendChild(ytToggle);
+            }
+            if (ytShown) ytLinks.forEach(function (link) {
                 var info = youTubeVideoInfo(link.url);
-                if (info) content.appendChild(buildYouTubeCard(link, found.ex, info));
+                if (link.hidePlayer) { hiddenVideos.push(link); return; }
+                content.appendChild(buildYouTubeCard(link, found.ex, info));
             });
+            if (ytShown && hiddenVideos.length) {
+                var hiddenRow = document.createElement("div");
+                hiddenRow.className = "gs-yt-hidden";
+                hiddenVideos.forEach(function (link) {
+                    var showBtn = document.createElement("button");
+                    showBtn.type = "button";
+                    showBtn.className = "btn-ghost gs-yt-show-btn";
+                    showBtn.textContent = "▶ Réafficher « " + (link.label || "YouTube") + " »";
+                    showBtn.title = "Réafficher cette vidéo dans la session";
+                    showBtn.addEventListener("click", function () {
+                        delete link.hidePlayer;
+                        touchExercise(found.ex);
+                        save();
+                        render();
+                    });
+                    hiddenRow.appendChild(showBtn);
+                });
+                content.appendChild(hiddenRow);
+            }
         }
         renderGsRunPlan(content, session);
     }
