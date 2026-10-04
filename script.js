@@ -4121,12 +4121,21 @@
         for (var j = 0; j < m.beatPattern.length; j++) {
             if ([0, 1, 2].indexOf(m.beatPattern[j]) === -1) m.beatPattern[j] = 1;
         }
-        // Tempo progressif (peu utilisé au quotidien, désactivé par défaut) : augmente le BPM tout
-        // seul toutes les N mesures pendant la lecture — voir metroScheduler.
+        // Tempo progressif (désactivé par défaut) : augmente le BPM tout seul pendant la lecture, selon
+        // une DURÉE (toutes les N secondes) et non un nombre de mesures — sinon, à mesure que le tempo
+        // monte, les mesures passent plus vite et l'augmentation s'accélère. Voir metroScheduler.
+        // Version 2 : passage des mesures aux secondes ; les anciens réglages (en mesures) sont
+        // remplacés une fois par les valeurs par défaut (+1 BPM toutes les 20 s).
         if (!m.progressive || typeof m.progressive !== "object") m.progressive = {};
         if (typeof m.progressive.enabled !== "boolean") m.progressive.enabled = false;
-        if (typeof m.progressive.incrementBpm !== "number" || isNaN(m.progressive.incrementBpm) || m.progressive.incrementBpm <= 0) m.progressive.incrementBpm = 5;
-        if (typeof m.progressive.everyMeasures !== "number" || isNaN(m.progressive.everyMeasures) || m.progressive.everyMeasures <= 0) m.progressive.everyMeasures = 4;
+        if (m.progressive.version !== 2) {
+            m.progressive.version = 2;
+            m.progressive.incrementBpm = 1;
+            m.progressive.everySeconds = 20;
+            delete m.progressive.everyMeasures;
+        }
+        if (typeof m.progressive.incrementBpm !== "number" || isNaN(m.progressive.incrementBpm) || m.progressive.incrementBpm <= 0) m.progressive.incrementBpm = 1;
+        if (typeof m.progressive.everySeconds !== "number" || isNaN(m.progressive.everySeconds) || m.progressive.everySeconds <= 0) m.progressive.everySeconds = 20;
         return m;
     }
 
@@ -4139,7 +4148,8 @@
     var metroBeatCallback = null; // met à jour l'affichage (pas qui clignote), posé par le panneau ouvert
     var metroPanelApi = null; // { toggle } du panneau ouvert (flottant ou dans le volet) : sert au raccourci Espace
     var transportLastTouched = null; // "session" | "metro" : le dernier des deux lancé/arrêté, voir le raccourci Espace
-    var metroMeasureCallback = null; // prévenu à chaque nouvelle mesure (voir tempo progressif)
+    var metroTempoCallback = null; // prévenu quand le tempo progressif change le BPM (met l'affichage à jour)
+    var metroProgNextAt = null;    // instant (horloge audio) de la prochaine augmentation du tempo progressif
     var METRO_LOOKAHEAD_MS = 25;
     var METRO_SCHEDULE_AHEAD_S = 0.12;
 
@@ -4204,10 +4214,22 @@
                 var step = metroCurrentStep, delayMs = Math.max(0, (metroNextNoteTime - metroAudioCtx.currentTime) * 1000);
                 setTimeout(function () { if (metroPlaying && metroBeatCallback) metroBeatCallback(step); }, delayMs);
             }
+            // Tempo progressif : mesuré sur l'horloge audio (temps écoulé réel de la lecture), donc le
+            // rythme d'augmentation reste le même quel que soit le tempo.
+            if (m.progressive.enabled) {
+                if (metroProgNextAt === null) metroProgNextAt = metroNextNoteTime + m.progressive.everySeconds;
+                while (metroNextNoteTime >= metroProgNextAt) {
+                    m.bpm = Math.min(300, m.bpm + m.progressive.incrementBpm);
+                    metroProgNextAt += m.progressive.everySeconds;
+                    persist();
+                    if (metroTempoCallback) metroTempoCallback();
+                }
+            } else {
+                metroProgNextAt = null;
+            }
             var secondsPerStep = 60 / m.bpm / layer.subdivision;
             metroNextNoteTime += secondsPerStep;
             metroCurrentStep = (metroCurrentStep + 1) % stepCount;
-            if (metroCurrentStep === 0 && metroMeasureCallback) metroMeasureCallback();
         }
         metroTimer = setTimeout(metroScheduler, METRO_LOOKAHEAD_MS);
     }
@@ -4217,6 +4239,7 @@
         ensureMetroAudio();
         metroPlaying = true;
         metroCurrentStep = 0;
+        metroProgNextAt = null; // le décompte du tempo progressif repart à chaque lancement
         metroNextNoteTime = metroAudioCtx.currentTime + 0.05;
         metroScheduler();
     }
@@ -4547,7 +4570,7 @@
             progIncInput.max = "50";
             progIncInput.value = m.progressive.incrementBpm;
             progIncInput.addEventListener("change", function () {
-                m.progressive.incrementBpm = Math.max(1, parseInt(progIncInput.value, 10) || 5);
+                m.progressive.incrementBpm = Math.max(1, parseInt(progIncInput.value, 10) || 1);
                 progIncInput.value = m.progressive.incrementBpm;
                 save();
             });
@@ -4556,15 +4579,16 @@
 
             var progEveryField = document.createElement("label");
             progEveryField.className = "metro-progressive-field";
-            progEveryField.textContent = "Toutes les X mesures";
+            progEveryField.textContent = "Toutes les (s)";
             var progEveryInput = document.createElement("input");
             progEveryInput.type = "number";
             progEveryInput.min = "1";
-            progEveryInput.max = "64";
-            progEveryInput.value = m.progressive.everyMeasures;
+            progEveryInput.max = "600";
+            progEveryInput.value = m.progressive.everySeconds;
             progEveryInput.addEventListener("change", function () {
-                m.progressive.everyMeasures = Math.max(1, parseInt(progEveryInput.value, 10) || 4);
-                progEveryInput.value = m.progressive.everyMeasures;
+                m.progressive.everySeconds = Math.min(600, Math.max(1, parseInt(progEveryInput.value, 10) || 20));
+                progEveryInput.value = m.progressive.everySeconds;
+                metroProgNextAt = null; // le nouveau délai repart du prochain pas
                 save();
             });
             progEveryField.appendChild(progEveryInput);
@@ -4576,20 +4600,14 @@
             }
             progToggle.addEventListener("click", function () {
                 m.progressive.enabled = !m.progressive.enabled;
+                metroProgNextAt = null; // le délai part du moment où on l'active
                 save();
                 refreshProgToggle();
             });
             refreshProgToggle();
 
-            var progMeasureCount = 0;
-            metroMeasureCallback = function () {
-                if (!m.progressive.enabled) return;
-                progMeasureCount++;
-                if (progMeasureCount >= m.progressive.everyMeasures) {
-                    progMeasureCount = 0;
-                    setBpm(m.bpm + m.progressive.incrementBpm);
-                }
-            };
+            // Le scheduler change le BPM lui-même (voir metroScheduler) : on ne fait que rafraîchir l'affichage.
+            metroTempoCallback = function () { refreshBpmUI(); };
 
             // ---------- pavé rythmique ----------
             // Sans "…" : une case par temps de la formule (4/4 = 4 cases, 6/8 = 6 cases). Avec "…" :
@@ -4746,7 +4764,7 @@
             // Aussi appelée par le raccourci Espace (voir metroPanelApi) : un seul chemin pour lancer
             // ou arrêter, que ce soit au clic ou au clavier.
             function toggleMetroPlayback() {
-                if (metroPlaying) { stopMetronome(); stopChrono(); } else { progMeasureCount = 0; startMetronome(); startChrono(); }
+                if (metroPlaying) { stopMetronome(); stopChrono(); } else { startMetronome(); startChrono(); }
                 refreshPlayBtn();
                 transportLastTouched = "metro";
             }
@@ -4772,7 +4790,7 @@
                 stopMetronome();
                 if (chronoInterval) clearInterval(chronoInterval);
                 metroBeatCallback = null;
-                metroMeasureCallback = null;
+                metroTempoCallback = null;
                 metroPanelApi = null;
                 window.removeEventListener("pointermove", onDialPointerMove);
                 window.removeEventListener("pointerup", onDialPointerUp);
