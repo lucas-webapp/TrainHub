@@ -1690,6 +1690,9 @@ button.gs-edit-links-btn:hover, button.gs-pdf-btn:hover { border-color: var(--ac
 }
 button.gs-yt-toggle { width: 100%; height: 36px; margin-top: 14px; justify-content: flex-start; padding: 0 12px; border: 1px solid var(--border); font-size: var(--fs-xs); font-weight: 700; text-align: left; }
 .gs-yt-toggle + .gs-yt-card { margin-top: 8px; }
+/* Dans la liste des exercices : lecteur en petit. */
+.gs-yt-card.gs-yt-small { max-width: 400px; }
+button.gs-yt-toggle-ex { margin-top: 8px; }
 .gs-yt-hidden { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 button.gs-yt-show-btn { height: 34px; justify-content: flex-start; padding: 0 12px; border: 1px dashed var(--border); font-size: var(--fs-xs); color: var(--text-muted); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 button.gs-yt-show-btn:hover { border-color: var(--accent); color: var(--accent); }

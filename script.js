@@ -2280,6 +2280,8 @@
 
         if (!ex.collapsed) {
             el.appendChild(renderExerciseDetails(ex));
+        } else {
+            delete exerciseVideosOpen[ex.id];
         }
 
         return el;
@@ -2398,6 +2400,7 @@
     // n'indiquait quand c'était fait. Maintenant : la valeur est dans les données dès la frappe,
     // enregistrée après une courte pause de frappe, et de toute façon avant tout réaffichage, perte
     // de focus, changement d'onglet ou fermeture de la page. Un indicateur dit où on en est.
+    var exerciseVideosOpen = {}; // id d'exercice -> vidéos YouTube affichées (le temps où il reste déplié)
     var pendingTextFlushes = [];
     function flushPendingTextSaves() {
         pendingTextFlushes.slice().forEach(function (f) { f(); });
@@ -2545,6 +2548,30 @@
         });
         appendFileChips(resourcesList, ex);
         details.appendChild(resourcesList);
+
+        // Vidéos YouTube de l'exercice : TOUJOURS masquées de base (un lecteur intégré est lourd : rien
+        // n'est chargé tant qu'on n'a pas cliqué), en petit, et seulement dans l'exercice déplié.
+        // Replier l'exercice referme aussi les vidéos (voir renderExercise).
+        var exYtLinks = (ex.links || []).filter(function (l) { return !!youTubeVideoInfo(l.url); });
+        if (exYtLinks.length) {
+            var exVideosOpen = !!exerciseVideosOpen[ex.id];
+            var exYtToggle = document.createElement("button");
+            exYtToggle.type = "button";
+            exYtToggle.className = "btn-ghost gs-yt-toggle gs-yt-toggle-ex";
+            exYtToggle.textContent = (exVideosOpen ? "▾ " : "▸ ") + "Vidéos YouTube (" + exYtLinks.length + ") — " + (exVideosOpen ? "masquer" : "afficher");
+            exYtToggle.addEventListener("click", function () {
+                exerciseVideosOpen[ex.id] = !exVideosOpen;
+                render();
+            });
+            details.appendChild(exYtToggle);
+            if (exVideosOpen) {
+                exYtLinks.forEach(function (link) {
+                    var card = buildYouTubeCard(link, ex, youTubeVideoInfo(link.url), null);
+                    card.classList.add("gs-yt-small");
+                    details.appendChild(card);
+                });
+            }
+        }
 
         var addLinkRow = document.createElement("div");
         addLinkRow.className = "add-link-row";
@@ -5964,8 +5991,11 @@
         hideBtn.textContent = "✕";
         hideBtn.title = "Ne plus afficher ce lien dans cette session (le lien reste dans l'exercice ; à regérer dans l'édition de la session)";
         hideBtn.setAttribute("aria-label", "Masquer cette vidéo");
-        hideBtn.addEventListener("click", onHide);
-        head.appendChild(hideBtn);
+        // Pas de « ✕ » dans la liste des exercices (onHide absent) : le masquage par session n'y a pas de sens.
+        if (onHide) {
+            hideBtn.addEventListener("click", onHide);
+            head.appendChild(hideBtn);
+        }
         card.appendChild(head);
 
         var target = document.createElement("div");
