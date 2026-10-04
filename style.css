@@ -1643,6 +1643,60 @@ button.gs-links-open-only-btn { border: 1px solid var(--border); }
 button.gs-pdf-btn, button.gs-edit-links-btn { flex: 1; min-width: 0; height: 36px; border: 1px solid var(--border); font-size: var(--fs-xs); }
 button.gs-edit-links-btn:hover, button.gs-pdf-btn:hover { border-color: var(--accent); color: var(--accent); }
 
+/* ---------- lecteurs YouTube intégrés + plan de session (écran de guidage) ---------- */
+.gs-yt-card {
+    margin-top: 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card-bg);
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.gs-yt-head { display: flex; align-items: center; gap: 6px; }
+.gs-yt-title { flex: 1; min-width: 0; font-weight: 700; font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-yt-btn { flex: none; height: 32px; padding: 0 10px; border: 1px solid var(--border); font-size: var(--fs-2xs); display: inline-flex; align-items: center; text-decoration: none; color: inherit; }
+.gs-yt-btn:hover { border-color: var(--accent); color: var(--accent); }
+.gs-yt-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: var(--radius-sm); overflow: hidden; }
+.gs-yt-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.gs-yt-msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 16px; font-size: var(--fs-sm); color: var(--text-muted); }
+.gs-yt-controls { display: flex; flex-direction: column; gap: 6px; }
+.gs-yt-row { display: flex; align-items: center; gap: 8px; }
+.gs-yt-row-label { flex: none; width: 56px; font-size: var(--fs-xs); color: var(--text-muted); }
+.gs-yt-row-value { flex: none; min-width: 52px; text-align: right; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.gs-yt-volume { flex: 1; min-width: 0; }
+button.gs-yt-rate-btn { flex: none; width: 36px; height: 32px; padding: 0; border: 1px solid var(--border); font-size: var(--fs-base); }
+button.gs-yt-rate-value { flex: none; min-width: 64px; height: 32px; padding: 0 8px; border: 1px solid var(--border); font-variant-numeric: tabular-nums; font-weight: 700; }
+button.gs-yt-rate-btn:hover, button.gs-yt-rate-value:hover { border-color: var(--accent); color: var(--accent); }
+/* Agrandi : le même lecteur (sans le recharger) passe en grand par-dessus la page ; avec le
+   métronome en colonne, on lui laisse sa place à droite. */
+.gs-yt-card.gs-yt-large {
+    position: fixed;
+    top: 3vh; left: 3vw; right: 3vw; bottom: 3vh;
+    z-index: 850;
+    margin: 0;
+    box-shadow: 0 0 0 100vmax rgba(0,0,0,.65);
+}
+.gs-yt-card.gs-yt-large .gs-yt-frame { flex: 1; min-height: 0; aspect-ratio: auto; }
+@media (min-width: 1100px) {
+    html.metro-docked .gs-yt-card.gs-yt-large { right: calc(clamp(380px, 32vw, 440px) + 32px); }
+}
+button.gs-run-keep-btn { width: 100%; height: 34px; margin-bottom: 12px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent); font-size: var(--fs-xs); }
+button.gs-run-keep-btn[hidden] { display: none; }
+
+.gs-plan { margin-top: 14px; }
+button.gs-plan-toggle { width: 100%; height: 36px; justify-content: flex-start; padding: 0 12px; border: 1px solid var(--border); font-size: var(--fs-xs); font-weight: 700; text-align: left; }
+.gs-plan-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.gs-plan-row { display: flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card-bg); padding: 4px 6px; }
+.gs-plan-row.gs-plan-current { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--card-bg)); }
+.gs-plan-num { flex: none; width: 18px; text-align: center; font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+button.gs-plan-name { flex: 1; min-width: 0; height: 34px; padding: 0 6px; justify-content: flex-start; text-align: left; font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-plan-minutes { flex: none; width: 54px; height: 34px; text-align: center; box-sizing: border-box; }
+.gs-plan-unit { flex: none; font-size: var(--fs-2xs); color: var(--text-muted); }
+button.gs-plan-move { flex: none; width: 34px; height: 34px; padding: 0; border: 1px solid var(--border); }
+button.gs-plan-move:disabled { opacity: .3; }
+
 /* ---------- paramètres généraux ---------- */
 .settings-panel { text-align: left; }
 .settings-section-label { margin-top: 4px; }

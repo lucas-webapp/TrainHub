@@ -5715,6 +5715,299 @@
         render();
     }
 
+    // ---------- lecteurs YouTube intégrés (sous la session) ----------
+    // Un lien YouTube d'un exercice peut être lu ici plutôt que dans un onglet : seul le lecteur
+    // intégré (API IFrame de YouTube) permet de régler le volume et la vitesse par programme, et de
+    // les retenir par lien (link.ytVolume 0-100, link.ytRate 0.25-2) pour les retrouver à chaque
+    // lecture — typiquement pour baisser le son d'une vidéo avant de jouer par-dessus à la carte son.
+    var YT_RATE_MIN = 0.25, YT_RATE_MAX = 2, YT_RATE_STEP = 0.05;
+    var ytApiPromise = null;
+
+    function youTubeVideoInfo(url) {
+        try {
+            var u = new URL(url);
+            var host = u.hostname.replace(/^www\.|^m\./, "");
+            var id = null;
+            if (host === "youtu.be") id = u.pathname.slice(1).split("/")[0];
+            else if (/(^|\.)youtube(-nocookie)?\.com$/.test(host)) {
+                if (u.pathname === "/watch") id = u.searchParams.get("v");
+                else {
+                    var m = u.pathname.match(/^\/(embed|shorts|live|v)\/([^/?]+)/);
+                    if (m) id = m[2];
+                }
+            }
+            if (!id || !/^[\w-]{6,}$/.test(id)) return null;
+            var t = u.searchParams.get("t") || u.searchParams.get("start") || "";
+            var start = 0;
+            var tm = t.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s?)?$/);
+            if (tm && t) start = (parseInt(tm[1] || 0, 10) * 3600) + (parseInt(tm[2] || 0, 10) * 60) + parseInt(tm[3] || 0, 10);
+            return { id: id, start: start };
+        } catch (e) { return null; }
+    }
+
+    function loadYouTubeApi() {
+        if (window.YT && window.YT.Player) return Promise.resolve();
+        if (ytApiPromise) return ytApiPromise;
+        ytApiPromise = new Promise(function (resolve, reject) {
+            var prev = window.onYouTubeIframeAPIReady;
+            window.onYouTubeIframeAPIReady = function () { if (prev) prev(); resolve(); };
+            var s = document.createElement("script");
+            s.src = "https://www.youtube.com/iframe_api";
+            s.onerror = function () { ytApiPromise = null; reject(new Error("api")); };
+            document.head.appendChild(s);
+            setTimeout(function () { if (!(window.YT && window.YT.Player)) { ytApiPromise = null; reject(new Error("timeout")); } }, 10000);
+        });
+        return ytApiPromise;
+    }
+
+    // iOS/iPadOS ignorent setVolume dans un lecteur web : le volume y reste celui de l'appareil.
+    function isIosDevice() {
+        return /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    }
+
+    function clampYtRate(r) {
+        r = Math.round(r / YT_RATE_STEP) * YT_RATE_STEP;
+        return Math.round(Math.min(YT_RATE_MAX, Math.max(YT_RATE_MIN, r)) * 100) / 100;
+    }
+    function formatYtRate(r) { return "×" + String(parseFloat(r.toFixed(2))).replace(".", ","); }
+
+    var ytPrefsTimer = null;
+    function saveYtPrefsSoon(ex) {
+        touchExercise(ex);
+        clearTimeout(ytPrefsTimer);
+        // persist() (sans historique d'annulation) : un curseur qui glisse ne doit pas remplir la pile "Annuler".
+        ytPrefsTimer = setTimeout(persist, 400);
+    }
+
+    var gsYtLargeCard = null;
+    function setYtCardLarge(card, large) {
+        if (gsYtLargeCard && gsYtLargeCard !== card) gsYtLargeCard.classList.remove("gs-yt-large");
+        card.classList.toggle("gs-yt-large", large);
+        document.documentElement.classList.toggle("gs-yt-large-open", large);
+        gsYtLargeCard = large ? card : null;
+    }
+    document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape" && gsYtLargeCard) setYtCardLarge(gsYtLargeCard, false);
+    });
+
+    function buildYouTubeCard(link, ex, info) {
+        var card = document.createElement("div");
+        card.className = "gs-yt-card";
+
+        var head = document.createElement("div");
+        head.className = "gs-yt-head";
+        var title = document.createElement("span");
+        title.className = "gs-yt-title";
+        title.textContent = link.label || "YouTube";
+        head.appendChild(title);
+        var sizeBtn = document.createElement("button");
+        sizeBtn.type = "button";
+        sizeBtn.className = "btn-ghost gs-yt-btn";
+        sizeBtn.textContent = "⤢ Agrandir";
+        sizeBtn.title = "Agrandir / réduire le lecteur (Échap pour réduire)";
+        sizeBtn.addEventListener("click", function () {
+            var large = !card.classList.contains("gs-yt-large");
+            setYtCardLarge(card, large);
+            sizeBtn.textContent = large ? "⤡ Réduire" : "⤢ Agrandir";
+        });
+        head.appendChild(sizeBtn);
+        var ytLink = document.createElement("a");
+        ytLink.className = "btn-ghost gs-yt-btn";
+        ytLink.href = link.url;
+        ytLink.target = "_blank";
+        ytLink.rel = "noopener noreferrer";
+        ytLink.textContent = "↗ YouTube";
+        ytLink.title = "Ouvrir sur YouTube (nouvel onglet)";
+        head.appendChild(ytLink);
+        card.appendChild(head);
+
+        var frame = document.createElement("div");
+        frame.className = "gs-yt-frame";
+        var target = document.createElement("div");
+        frame.appendChild(target);
+        var msg = document.createElement("div");
+        msg.className = "gs-yt-msg";
+        msg.hidden = true;
+        frame.appendChild(msg);
+        card.appendChild(frame);
+
+        var player = null;
+        var volume = typeof link.ytVolume === "number" ? link.ytVolume : 100;
+        var rate = typeof link.ytRate === "number" ? clampYtRate(link.ytRate) : 1;
+
+        var controls = document.createElement("div");
+        controls.className = "gs-yt-controls";
+
+        var volRow = document.createElement("label");
+        volRow.className = "gs-yt-row";
+        var volLabel = document.createElement("span");
+        volLabel.className = "gs-yt-row-label";
+        volLabel.textContent = "Volume";
+        volRow.appendChild(volLabel);
+        var volSlider = document.createElement("input");
+        volSlider.type = "range";
+        volSlider.min = "0"; volSlider.max = "100"; volSlider.step = "1";
+        volSlider.value = String(volume);
+        volSlider.className = "gs-yt-volume";
+        var volValue = document.createElement("span");
+        volValue.className = "gs-yt-row-value";
+        function refreshVolText() { volValue.textContent = volume + " %"; }
+        refreshVolText();
+        volSlider.addEventListener("input", function () {
+            volume = parseInt(volSlider.value, 10);
+            link.ytVolume = volume;
+            refreshVolText();
+            if (player && player.setVolume) player.setVolume(volume);
+            saveYtPrefsSoon(ex);
+        });
+        if (isIosDevice()) {
+            volSlider.disabled = true;
+            volValue.textContent = "réglé par l'appareil";
+        } else {
+            volRow.appendChild(volSlider);
+            volRow.appendChild(volValue);
+        }
+        if (isIosDevice()) volRow.appendChild(volValue);
+        controls.appendChild(volRow);
+
+        var rateRow = document.createElement("div");
+        rateRow.className = "gs-yt-row";
+        var rateLabel = document.createElement("span");
+        rateLabel.className = "gs-yt-row-label";
+        rateLabel.textContent = "Vitesse";
+        rateRow.appendChild(rateLabel);
+        var rateDown = document.createElement("button");
+        rateDown.type = "button"; rateDown.className = "btn-ghost gs-yt-rate-btn"; rateDown.textContent = "−";
+        rateDown.title = "Ralentir de 0,05";
+        var rateValue = document.createElement("button");
+        rateValue.type = "button"; rateValue.className = "btn-ghost gs-yt-rate-value";
+        rateValue.title = "Revenir à la vitesse normale (×1)";
+        var rateUp = document.createElement("button");
+        rateUp.type = "button"; rateUp.className = "btn-ghost gs-yt-rate-btn"; rateUp.textContent = "+";
+        rateUp.title = "Accélérer de 0,05";
+        function refreshRateText() { rateValue.textContent = formatYtRate(rate); }
+        function applyRate(r) {
+            rate = clampYtRate(r);
+            link.ytRate = rate;
+            refreshRateText();
+            if (player && player.setPlaybackRate) {
+                player.setPlaybackRate(rate);
+                // YouTube peut ramener la vitesse à une valeur qu'il gère : on affiche celle réellement appliquée.
+                setTimeout(function () {
+                    var actual = player && player.getPlaybackRate ? player.getPlaybackRate() : rate;
+                    if (typeof actual === "number" && Math.abs(actual - rate) > 0.001) rateValue.textContent = formatYtRate(actual);
+                }, 250);
+            }
+            saveYtPrefsSoon(ex);
+        }
+        rateDown.addEventListener("click", function () { applyRate(rate - YT_RATE_STEP); });
+        rateUp.addEventListener("click", function () { applyRate(rate + YT_RATE_STEP); });
+        rateValue.addEventListener("click", function () { applyRate(1); });
+        refreshRateText();
+        rateRow.appendChild(rateDown);
+        rateRow.appendChild(rateValue);
+        rateRow.appendChild(rateUp);
+        controls.appendChild(rateRow);
+        card.appendChild(controls);
+
+        function showMsg(text) { msg.textContent = text; msg.hidden = false; }
+        loadYouTubeApi().then(function () {
+            player = new window.YT.Player(target, {
+                width: "100%", height: "100%",
+                videoId: info.id,
+                playerVars: { playsinline: 1, rel: 0, start: info.start || 0 },
+                events: {
+                    onReady: function () {
+                        if (!isIosDevice()) player.setVolume(volume);
+                        player.setPlaybackRate(rate);
+                    },
+                    onError: function () { showMsg("Cette vidéo ne peut pas être lue ici : utilisez « ↗ YouTube »."); }
+                }
+            });
+        }, function () {
+            showMsg("Lecteur YouTube indisponible (hors ligne ?) : utilisez « ↗ YouTube ».");
+        });
+        return card;
+    }
+
+    // ---------- plan de la session pendant le guidage : ordre et durées modifiables ----------
+    var gsRunPlanOpen = false;
+    function renderGsRunPlan(content, session) {
+        var wrap = document.createElement("div");
+        wrap.className = "gs-plan";
+        var toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "btn-ghost gs-plan-toggle";
+        toggle.textContent = (gsRunPlanOpen ? "▾" : "▸") + " Plan de la session (ordre et durées)";
+        toggle.addEventListener("click", function () { gsRunPlanOpen = !gsRunPlanOpen; render(); });
+        wrap.appendChild(toggle);
+        if (gsRunPlanOpen) {
+            var list = document.createElement("div");
+            list.className = "gs-plan-list";
+            session.steps.forEach(function (step, i) {
+                var found = findExerciseById(step.exerciseId);
+                var row = document.createElement("div");
+                row.className = "gs-plan-row" + (i === gsRunStepIndex ? " gs-plan-current" : "");
+                var num = document.createElement("span");
+                num.className = "gs-plan-num";
+                num.textContent = String(i + 1);
+                row.appendChild(num);
+                var name = document.createElement("button");
+                name.type = "button";
+                name.className = "gs-plan-name";
+                name.textContent = found ? found.ex.title : "(exercice supprimé)";
+                name.title = "Passer à cet exercice";
+                name.addEventListener("click", function () {
+                    if (i === gsRunStepIndex) return;
+                    gsRunStepIndex = i;
+                    gsEnterRunStep();
+                    render();
+                });
+                row.appendChild(name);
+                var mins = document.createElement("input");
+                mins.type = "number"; mins.min = "1"; mins.max = "180"; mins.step = "1";
+                mins.className = "gs-plan-minutes";
+                mins.value = String(step.minutes);
+                mins.title = "Durée (minutes), enregistrée dans la session";
+                mins.addEventListener("change", function () {
+                    var v = Math.round(parseFloat(mins.value));
+                    if (!(v >= 1)) v = step.minutes;
+                    step.minutes = Math.min(180, v);
+                    if (i === gsRunStepIndex) gsRunAllocatedSec = step.minutes * 60;
+                    save();
+                    render();
+                });
+                row.appendChild(mins);
+                var unit = document.createElement("span");
+                unit.className = "gs-plan-unit";
+                unit.textContent = "min";
+                row.appendChild(unit);
+                function mover(label, title, delta) {
+                    var b = document.createElement("button");
+                    b.type = "button";
+                    b.className = "btn-ghost gs-plan-move";
+                    b.textContent = label;
+                    b.title = title;
+                    b.disabled = i + delta < 0 || i + delta >= session.steps.length;
+                    b.addEventListener("click", function () {
+                        var j = i + delta;
+                        var tmp = session.steps[i]; session.steps[i] = session.steps[j]; session.steps[j] = tmp;
+                        // L'exercice en cours reste le même, où qu'il soit passé dans la liste.
+                        if (gsRunStepIndex === i) gsRunStepIndex = j; else if (gsRunStepIndex === j) gsRunStepIndex = i;
+                        save();
+                        render();
+                    });
+                    return b;
+                }
+                row.appendChild(mover("↑", "Monter", -1));
+                row.appendChild(mover("↓", "Descendre", 1));
+                list.appendChild(row);
+            });
+            wrap.appendChild(list);
+        }
+        content.appendChild(wrap);
+    }
+
     function renderGsRunScreen(content) {
         var session = gsRunSession;
         var step = session.steps[gsRunStepIndex];
@@ -5763,12 +6056,35 @@
         adjustRow.appendChild(iconButton("−1 min", "Retirer une minute à cet exercice (juste pour cette fois)", function () {
             gsRunAllocatedSec = Math.max(60, gsRunAllocatedSec - 60);
             refreshTimer();
+            refreshKeepBtn();
         }));
         adjustRow.appendChild(iconButton("+1 min", "Ajouter une minute à cet exercice (juste pour cette fois)", function () {
             gsRunAllocatedSec += 60;
             refreshTimer();
+            refreshKeepBtn();
         }));
         content.appendChild(adjustRow);
+
+        // −1/+1 min ne valent que pour cette fois ; ce bouton (visible seulement quand la durée a
+        // changé) l'enregistre dans la session pour les prochaines fois.
+        var keepBtn = document.createElement("button");
+        keepBtn.type = "button";
+        keepBtn.className = "btn-ghost gs-run-keep-btn";
+        keepBtn.hidden = true;
+        function refreshKeepBtn() {
+            var m = Math.max(1, Math.round(gsRunAllocatedSec / 60));
+            keepBtn.hidden = m === step.minutes;
+            keepBtn.textContent = "Garder " + m + " min pour les prochaines fois";
+        }
+        keepBtn.addEventListener("click", function () {
+            step.minutes = Math.max(1, Math.round(gsRunAllocatedSec / 60));
+            save();
+            refreshKeepBtn();
+            showToast("Durée enregistrée : " + step.minutes + " min");
+            if (gsRunPlanOpen) render();
+        });
+        content.appendChild(keepBtn);
+        refreshKeepBtn();
 
         var pauseStopRow = document.createElement("div");
         pauseStopRow.className = "gs-run-pausestop-row";
@@ -5847,6 +6163,15 @@
         navRow.appendChild(prevBtn);
         navRow.appendChild(nextBtn);
         content.appendChild(navRow);
+
+        // Lecteurs YouTube des liens de l'exercice en cours (volume/vitesse retenus par lien).
+        if (found) {
+            (found.ex.links || []).forEach(function (link) {
+                var info = youTubeVideoInfo(link.url);
+                if (info) content.appendChild(buildYouTubeCard(link, found.ex, info));
+            });
+        }
+        renderGsRunPlan(content, session);
     }
 
     // ---- écran "ouvrir des liens/pièces jointes" (tous les exercices de la session) ----
@@ -5946,7 +6271,8 @@
     document.addEventListener("visibilitychange", function () {
         if (document.hidden && gsRunSession && !gsRunPaused) {
             gsPauseRun();
-            if (guidedSessionViewActive && gsScreen === "run") render();
+            // Pas de render() ici : reconstruire l'écran détruirait les lecteurs YouTube en cours.
+            if (guidedSessionViewActive && gsScreen === "run" && gsRefreshRunUi) gsRefreshRunUi();
         }
     });
 

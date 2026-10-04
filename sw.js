@@ -1,4 +1,4 @@
-const CACHE_NAME = "trainhub-v39";
+const CACHE_NAME = "trainhub-v40";
 const ASSETS = [
     "./",
     "index.html",
@@ -34,6 +34,8 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
     if (event.request.method !== "GET") return;
+    // Requêtes vers d'autres sites (API du lecteur YouTube…) : le navigateur s'en charge seul.
+    if (new URL(event.request.url).origin !== self.location.origin) return;
     event.respondWith(
         caches.match(event.request).then((cached) => cached || fetch(event.request))
     );
