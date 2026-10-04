@@ -4546,30 +4546,80 @@
     // 6 fixes, et augmentée d'un texte sur chaque note (intervalle ou nom, au choix).
     var NOTE_NAMES_SHARP = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"];
 
+    // Catalogue complet. `semis` = demi-tons depuis la tonique (croissants, dans l'octave), `degrees` =
+    // intervalles affichés. L'ordre d'affichage dans le menu est décidé par SCALE_MENU plus bas.
+    function sc(key, kind, label, semis, degrees) { return { key: key, kind: kind, label: label, semis: semis, degrees: degrees }; }
     var SCALE_DEFS = [
-        { key: "major", kind: "Gammes", label: "Majeur (Ionien)", semis: [0, 2, 4, 5, 7, 9, 11], degrees: ["1", "2", "3", "4", "5", "6", "7"] },
-        { key: "dorian", kind: "Gammes", label: "Dorien", semis: [0, 2, 3, 5, 7, 9, 10], degrees: ["1", "2", "♭3", "4", "5", "6", "♭7"] },
-        { key: "phrygian", kind: "Gammes", label: "Phrygien", semis: [0, 1, 3, 5, 7, 8, 10], degrees: ["1", "♭2", "♭3", "4", "5", "♭6", "♭7"] },
-        { key: "lydian", kind: "Gammes", label: "Lydien", semis: [0, 2, 4, 6, 7, 9, 11], degrees: ["1", "2", "3", "♯4", "5", "6", "7"] },
-        { key: "mixolydian", kind: "Gammes", label: "Mixolydien", semis: [0, 2, 4, 5, 7, 9, 10], degrees: ["1", "2", "3", "4", "5", "6", "♭7"] },
-        { key: "aeolian", kind: "Gammes", label: "Mineur naturel (Éolien)", semis: [0, 2, 3, 5, 7, 8, 10], degrees: ["1", "2", "♭3", "4", "5", "♭6", "♭7"] },
-        { key: "locrian", kind: "Gammes", label: "Locrien", semis: [0, 1, 3, 5, 6, 8, 10], degrees: ["1", "♭2", "♭3", "4", "♭5", "♭6", "♭7"] },
-        { key: "harmonicMinor", kind: "Gammes", label: "Mineur harmonique", semis: [0, 2, 3, 5, 7, 8, 11], degrees: ["1", "2", "♭3", "4", "5", "♭6", "7"] },
-        { key: "melodicMinor", kind: "Gammes", label: "Mineur mélodique", semis: [0, 2, 3, 5, 7, 9, 11], degrees: ["1", "2", "♭3", "4", "5", "6", "7"] },
-        { key: "majorPenta", kind: "Gammes", label: "Pentatonique majeure", semis: [0, 2, 4, 7, 9], degrees: ["1", "2", "3", "5", "6"] },
-        { key: "minorPenta", kind: "Gammes", label: "Pentatonique mineure", semis: [0, 3, 5, 7, 10], degrees: ["1", "♭3", "4", "5", "♭7"] },
-        { key: "blues", kind: "Gammes", label: "Blues", semis: [0, 3, 5, 6, 7, 10], degrees: ["1", "♭3", "4", "♭5", "5", "♭7"] },
-        { key: "wholeTone", kind: "Gammes", label: "Gamme par tons", semis: [0, 2, 4, 6, 8, 10], degrees: ["1", "2", "3", "4", "5", "6"] },
-        { key: "triadMaj", kind: "Arpèges", label: "Triade majeure", semis: [0, 4, 7], degrees: ["1", "3", "5"] },
-        { key: "triadMin", kind: "Arpèges", label: "Triade mineure", semis: [0, 3, 7], degrees: ["1", "♭3", "5"] },
-        { key: "triadDim", kind: "Arpèges", label: "Triade diminuée", semis: [0, 3, 6], degrees: ["1", "♭3", "♭5"] },
-        { key: "triadAug", kind: "Arpèges", label: "Triade augmentée", semis: [0, 4, 8], degrees: ["1", "3", "♯5"] },
-        { key: "maj7", kind: "Arpèges", label: "Septième majeure (maj7)", semis: [0, 4, 7, 11], degrees: ["1", "3", "5", "7"] },
-        { key: "dom7", kind: "Arpèges", label: "Septième de dominante (7)", semis: [0, 4, 7, 10], degrees: ["1", "3", "5", "♭7"] },
-        { key: "min7", kind: "Arpèges", label: "Septième mineure (m7)", semis: [0, 3, 7, 10], degrees: ["1", "♭3", "5", "♭7"] },
-        { key: "min7b5", kind: "Arpèges", label: "Demi-diminuée (m7♭5)", semis: [0, 3, 6, 10], degrees: ["1", "♭3", "♭5", "♭7"] },
-        { key: "dim7", kind: "Arpèges", label: "Diminuée 7 (dim7)", semis: [0, 3, 6, 9], degrees: ["1", "♭3", "♭5", "6"] },
-        { key: "minMaj7", kind: "Arpèges", label: "Mineure/majeure 7 (mMaj7)", semis: [0, 3, 7, 11], degrees: ["1", "♭3", "5", "7"] }
+        // Gammes courantes
+        sc("major", "Gammes", "Majeur (Ionien)", [0, 2, 4, 5, 7, 9, 11], ["1", "2", "3", "4", "5", "6", "7"]),
+        sc("aeolian", "Gammes", "Mineur naturel (Éolien)", [0, 2, 3, 5, 7, 8, 10], ["1", "2", "♭3", "4", "5", "♭6", "♭7"]),
+        sc("harmonicMinor", "Gammes", "Mineur harmonique", [0, 2, 3, 5, 7, 8, 11], ["1", "2", "♭3", "4", "5", "♭6", "7"]),
+        sc("melodicMinor", "Gammes", "Mineur mélodique", [0, 2, 3, 5, 7, 9, 11], ["1", "2", "♭3", "4", "5", "6", "7"]),
+        sc("majorPenta", "Gammes", "Pentatonique majeure", [0, 2, 4, 7, 9], ["1", "2", "3", "5", "6"]),
+        sc("minorPenta", "Gammes", "Pentatonique mineure", [0, 3, 5, 7, 10], ["1", "♭3", "4", "5", "♭7"]),
+        sc("blues", "Gammes", "Blues (mineur)", [0, 3, 5, 6, 7, 10], ["1", "♭3", "4", "♭5", "5", "♭7"]),
+        // Modes de la gamme majeure
+        sc("dorian", "Gammes", "Dorien", [0, 2, 3, 5, 7, 9, 10], ["1", "2", "♭3", "4", "5", "6", "♭7"]),
+        sc("phrygian", "Gammes", "Phrygien", [0, 1, 3, 5, 7, 8, 10], ["1", "♭2", "♭3", "4", "5", "♭6", "♭7"]),
+        sc("lydian", "Gammes", "Lydien", [0, 2, 4, 6, 7, 9, 11], ["1", "2", "3", "♯4", "5", "6", "7"]),
+        sc("mixolydian", "Gammes", "Mixolydien", [0, 2, 4, 5, 7, 9, 10], ["1", "2", "3", "4", "5", "6", "♭7"]),
+        sc("locrian", "Gammes", "Locrien", [0, 1, 3, 5, 6, 8, 10], ["1", "♭2", "♭3", "4", "♭5", "♭6", "♭7"]),
+        // Modes du mineur mélodique
+        sc("dorianb2", "Gammes", "Dorien ♭2 (Phrygien ♮6)", [0, 1, 3, 5, 7, 9, 10], ["1", "♭2", "♭3", "4", "5", "6", "♭7"]),
+        sc("lydianAug", "Gammes", "Lydien augmenté", [0, 2, 4, 6, 8, 9, 11], ["1", "2", "3", "♯4", "♯5", "6", "7"]),
+        sc("lydianDom", "Gammes", "Lydien dominant", [0, 2, 4, 6, 7, 9, 10], ["1", "2", "3", "♯4", "5", "6", "♭7"]),
+        sc("mixolydianb6", "Gammes", "Mixolydien ♭6", [0, 2, 4, 5, 7, 8, 10], ["1", "2", "3", "4", "5", "♭6", "♭7"]),
+        sc("locrianNat2", "Gammes", "Locrien ♮2", [0, 2, 3, 5, 6, 8, 10], ["1", "2", "♭3", "4", "♭5", "♭6", "♭7"]),
+        sc("altered", "Gammes", "Altéré (Super-locrien)", [0, 1, 3, 4, 6, 8, 10], ["1", "♭2", "♭3", "♭4", "♭5", "♭6", "♭7"]),
+        // Modes du mineur harmonique
+        sc("locrianNat6", "Gammes", "Locrien ♮6", [0, 1, 3, 5, 6, 9, 10], ["1", "♭2", "♭3", "4", "♭5", "6", "♭7"]),
+        sc("ionianAug", "Gammes", "Ionien ♯5", [0, 2, 4, 5, 8, 9, 11], ["1", "2", "3", "4", "♯5", "6", "7"]),
+        sc("dorianSharp4", "Gammes", "Dorien ♯4", [0, 2, 3, 6, 7, 9, 10], ["1", "2", "♭3", "♯4", "5", "6", "♭7"]),
+        sc("phrygianDominant", "Gammes", "Phrygien dominant (flamenco)", [0, 1, 4, 5, 7, 8, 10], ["1", "♭2", "3", "4", "5", "♭6", "♭7"]),
+        sc("lydianSharp2", "Gammes", "Lydien ♯2", [0, 3, 4, 6, 7, 9, 11], ["1", "♯2", "3", "♯4", "5", "6", "7"]),
+        sc("superLocrianbb7", "Gammes", "Super-locrien ♭♭7", [0, 1, 3, 4, 6, 8, 9], ["1", "♭2", "♭3", "♭4", "♭5", "♭6", "♭♭7"]),
+        // Autres gammes
+        sc("bluesMajor", "Gammes", "Blues majeur", [0, 2, 3, 4, 7, 9], ["1", "2", "♭3", "3", "5", "6"]),
+        sc("wholeTone", "Gammes", "Gamme par tons", [0, 2, 4, 6, 8, 10], ["1", "2", "3", "♯4", "♯5", "♭7"]),
+        sc("dimWH", "Gammes", "Diminuée (ton – demi-ton)", [0, 2, 3, 5, 6, 8, 9, 11], ["1", "2", "♭3", "4", "♭5", "♭6", "6", "7"]),
+        sc("dimHW", "Gammes", "Diminuée (demi-ton – ton)", [0, 1, 3, 4, 6, 7, 9, 10], ["1", "♭2", "♭3", "3", "♭5", "5", "6", "♭7"]),
+        sc("bebopDominant", "Gammes", "Bebop dominante", [0, 2, 4, 5, 7, 9, 10, 11], ["1", "2", "3", "4", "5", "6", "♭7", "7"]),
+        sc("bebopMajor", "Gammes", "Bebop majeure", [0, 2, 4, 5, 7, 8, 9, 11], ["1", "2", "3", "4", "5", "♭6", "6", "7"]),
+        sc("chromatic", "Gammes", "Chromatique", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], ["1", "♭2", "2", "♭3", "3", "4", "♭5", "5", "♭6", "6", "♭7", "7"]),
+        // Gammes du monde
+        sc("hungarianMinor", "Gammes", "Hongroise mineure", [0, 2, 3, 6, 7, 8, 11], ["1", "2", "♭3", "♯4", "5", "♭6", "7"]),
+        sc("doubleHarmonic", "Gammes", "Double harmonique (byzantine)", [0, 1, 4, 5, 7, 8, 11], ["1", "♭2", "3", "4", "5", "♭6", "7"]),
+        sc("neapolitanMinor", "Gammes", "Napolitaine mineure", [0, 1, 3, 5, 7, 8, 11], ["1", "♭2", "♭3", "4", "5", "♭6", "7"]),
+        sc("neapolitanMajor", "Gammes", "Napolitaine majeure", [0, 1, 3, 5, 7, 9, 11], ["1", "♭2", "♭3", "4", "5", "6", "7"]),
+        sc("persian", "Gammes", "Persane", [0, 1, 4, 5, 6, 8, 11], ["1", "♭2", "3", "4", "♭5", "♭6", "7"]),
+        sc("hirajoshi", "Gammes", "Hirajoshi (japonaise)", [0, 2, 3, 7, 8], ["1", "2", "♭3", "5", "♭6"]),
+        sc("inSen", "Gammes", "In-sen (japonaise)", [0, 1, 5, 7, 10], ["1", "♭2", "4", "5", "♭7"]),
+        sc("iwato", "Gammes", "Iwato (japonaise)", [0, 1, 5, 6, 10], ["1", "♭2", "4", "♭5", "♭7"]),
+        sc("egyptian", "Gammes", "Pentatonique suspendue (égyptienne)", [0, 2, 5, 7, 10], ["1", "2", "4", "5", "♭7"]),
+        // Arpèges : triades
+        sc("triadMaj", "Arpèges", "Triade majeure", [0, 4, 7], ["1", "3", "5"]),
+        sc("triadMin", "Arpèges", "Triade mineure", [0, 3, 7], ["1", "♭3", "5"]),
+        sc("triadDim", "Arpèges", "Triade diminuée", [0, 3, 6], ["1", "♭3", "♭5"]),
+        sc("triadAug", "Arpèges", "Triade augmentée", [0, 4, 8], ["1", "3", "♯5"]),
+        sc("sus2", "Arpèges", "Suspendue 2 (sus2)", [0, 2, 7], ["1", "2", "5"]),
+        sc("sus4", "Arpèges", "Suspendue 4 (sus4)", [0, 5, 7], ["1", "4", "5"]),
+        // Arpèges : septièmes et sixtes
+        sc("maj7", "Arpèges", "Septième majeure (maj7)", [0, 4, 7, 11], ["1", "3", "5", "7"]),
+        sc("dom7", "Arpèges", "Septième de dominante (7)", [0, 4, 7, 10], ["1", "3", "5", "♭7"]),
+        sc("min7", "Arpèges", "Septième mineure (m7)", [0, 3, 7, 10], ["1", "♭3", "5", "♭7"]),
+        sc("min7b5", "Arpèges", "Demi-diminuée (m7♭5)", [0, 3, 6, 10], ["1", "♭3", "♭5", "♭7"]),
+        sc("dim7", "Arpèges", "Diminuée 7 (dim7)", [0, 3, 6, 9], ["1", "♭3", "♭5", "♭♭7"]),
+        sc("minMaj7", "Arpèges", "Mineure/majeure 7 (mMaj7)", [0, 3, 7, 11], ["1", "♭3", "5", "7"]),
+        sc("maj6", "Arpèges", "Sixte majeure (6)", [0, 4, 7, 9], ["1", "3", "5", "6"]),
+        sc("min6", "Arpèges", "Sixte mineure (m6)", [0, 3, 7, 9], ["1", "♭3", "5", "6"]),
+        // Arpèges : extensions et altérations
+        sc("dom9", "Arpèges", "Neuvième de dominante (9)", [0, 2, 4, 7, 10], ["1", "9", "3", "5", "♭7"]),
+        sc("maj9", "Arpèges", "Neuvième majeure (maj9)", [0, 2, 4, 7, 11], ["1", "9", "3", "5", "7"]),
+        sc("min9", "Arpèges", "Neuvième mineure (m9)", [0, 2, 3, 7, 10], ["1", "9", "♭3", "5", "♭7"]),
+        sc("dom7sus4", "Arpèges", "Septième sus4 (7sus4)", [0, 5, 7, 10], ["1", "4", "5", "♭7"]),
+        sc("aug7", "Arpèges", "Septième augmentée (7♯5)", [0, 4, 8, 10], ["1", "3", "♯5", "♭7"]),
+        sc("dom7b5", "Arpèges", "Septième ♭5 (7♭5)", [0, 4, 6, 10], ["1", "3", "♭5", "♭7"]),
+        sc("maj7s5", "Arpèges", "Majeure 7 ♯5 (maj7♯5)", [0, 4, 8, 11], ["1", "3", "♯5", "7"])
     ];
 
     var FRETBOARD_TUNINGS = [
@@ -4725,13 +4775,23 @@
         { key: "guitar", label: "Guitare", short: "Guitare", type: "fretboard", tuning: FRETBOARD_TUNINGS[2] },
         { key: "piano", label: "Piano", short: "Piano", type: "piano" }
     ];
-    // Choix rangés en 3 familles courtes plutôt qu'un long menu déroulant : chaque famille tient en
-    // une rangée de boutons au libellé court (le nom complet reste en info-bulle).
-    var SCALE_GROUPS = [
-        { key: "scales", label: "Gammes", items: [["major", "Majeur"], ["aeolian", "Mineur"], ["harmonicMinor", "Min. harm."], ["melodicMinor", "Min. mél."], ["majorPenta", "Penta maj"], ["minorPenta", "Penta min"], ["blues", "Blues"], ["wholeTone", "Par tons"]] },
-        { key: "modes", label: "Modes", items: [["major", "Ionien"], ["dorian", "Dorien"], ["phrygian", "Phrygien"], ["lydian", "Lydien"], ["mixolydian", "Mixolydien"], ["aeolian", "Éolien"], ["locrian", "Locrien"]] },
-        { key: "arps", label: "Arpèges", items: [["triadMaj", "Maj"], ["triadMin", "m"], ["triadDim", "dim"], ["triadAug", "aug"], ["maj7", "maj7"], ["dom7", "7"], ["min7", "m7"], ["min7b5", "m7♭5"], ["dim7", "dim7"], ["minMaj7", "mMaj7"]] }
+    // Menu des gammes : les familles courantes toujours visibles, les autres (peu utilisées ou
+    // complexes) derrière le bouton « … » à côté du menu. Toutes les entrées de SCALE_DEFS y figurent.
+    var SCALE_MENU = [
+        { label: "Gammes courantes", extra: false, keys: ["major", "aeolian", "majorPenta", "minorPenta", "blues", "harmonicMinor", "melodicMinor"] },
+        { label: "Modes de la gamme majeure", extra: false, keys: ["dorian", "phrygian", "lydian", "mixolydian", "locrian"] },
+        { label: "Arpèges : triades", extra: false, keys: ["triadMaj", "triadMin", "triadDim", "triadAug", "sus2", "sus4"] },
+        { label: "Arpèges : septièmes et sixtes", extra: false, keys: ["maj7", "dom7", "min7", "min7b5", "dim7", "minMaj7", "maj6", "min6"] },
+        { label: "Arpèges : extensions et altérations", extra: true, keys: ["dom9", "maj9", "min9", "dom7sus4", "aug7", "dom7b5", "maj7s5"] },
+        { label: "Modes du mineur mélodique", extra: true, keys: ["dorianb2", "lydianAug", "lydianDom", "mixolydianb6", "locrianNat2", "altered"] },
+        { label: "Modes du mineur harmonique", extra: true, keys: ["locrianNat6", "ionianAug", "dorianSharp4", "phrygianDominant", "lydianSharp2", "superLocrianbb7"] },
+        { label: "Autres gammes", extra: true, keys: ["bluesMajor", "wholeTone", "dimWH", "dimHW", "bebopDominant", "bebopMajor", "chromatic"] },
+        { label: "Gammes du monde", extra: true, keys: ["hungarianMinor", "doubleHarmonic", "neapolitanMinor", "neapolitanMajor", "persian", "hirajoshi", "inSen", "iwato", "egyptian"] }
     ];
+    function scaleIsExtra(key) {
+        return SCALE_MENU.some(function (g) { return g.extra && g.keys.indexOf(key) !== -1; });
+    }
+    var ROOT_MENU_NAMES = ["C", "C♯ / D♭", "D", "D♯ / E♭", "E", "F", "F♯ / G♭", "G", "G♯ / A♭", "A", "A♯ / B♭", "B"];
     var SCALES_PREFS_KEY = "trainhub.scalesPrefs.v1";
     function loadScalesPrefs() {
         var p = {};
@@ -4739,8 +4799,8 @@
         var isPhone = window.matchMedia && window.matchMedia("(max-width: 700px)").matches;
         return {
             root: typeof p.root === "number" && p.root >= 0 && p.root < 12 ? p.root : 0,
-            group: ["scales", "modes", "arps"].indexOf(p.group) !== -1 ? p.group : "scales",
             type: SCALE_DEFS.some(function (d) { return d.key === p.type; }) ? p.type : "major",
+            showAll: p.showAll === true || (SCALE_DEFS.some(function (d) { return d.key === p.type; }) && scaleIsExtra(p.type)),
             instrument: SCALES_INSTRUMENTS.some(function (i) { return i.key === p.instrument; }) ? p.instrument : "bass4",
             labelMode: p.labelMode === "notes" ? "notes" : "degrees",
             frets: p.frets === 24 ? 24 : 12,
@@ -4760,9 +4820,9 @@
 
             var prefs = loadScalesPrefs();
 
-            // Une rangée par question, dans l'ordre où on se la pose : quelle note, quelle gamme,
-            // sur quel instrument, puis comment l'afficher. Des boutons plutôt que des menus
-            // déroulants : on voit tous les choix d'un coup et un seul toucher suffit.
+            // Une rangée par question, dans l'ordre où on se la pose : sur quel instrument, quelle
+            // tonique, quelle gamme, puis comment l'afficher. Des menus déroulants (peu d'encombrement
+            // malgré le grand nombre de gammes) ; les gammes rares sont derrière le bouton « … ».
             function row(labelText, extraClass) {
                 var r = document.createElement("div");
                 r.className = "scales-row" + (extraClass ? " " + extraClass : "");
@@ -4786,30 +4846,31 @@
                 container.appendChild(b);
                 return b;
             }
+            function select(container, labelText, onChange) {
+                var sel = document.createElement("select");
+                sel.className = "scales-select";
+                sel.setAttribute("aria-label", labelText);
+                sel.addEventListener("change", function () { onChange(sel.value); });
+                container.appendChild(sel);
+                return sel;
+            }
+            function addOption(parent, value, text) {
+                var o = document.createElement("option");
+                o.value = value;
+                o.textContent = text;
+                parent.appendChild(o);
+            }
 
-            var rootChips = row("Tonique", "scales-row-root");
-            var rootBtns = NOTE_NAMES_SHARP.map(function (name, pc) {
-                return chip(rootChips, name, null, function () { prefs.root = pc; update(); });
-            });
+            var instSelect = select(row("Instrument", "scales-row-inst"), "Instrument", function (v) { prefs.instrument = v; update(); });
+            SCALES_INSTRUMENTS.forEach(function (inst) { addOption(instSelect, inst.key, inst.label); });
 
-            var groupChips = row("Type");
-            var groupBtns = SCALE_GROUPS.map(function (g) {
-                return chip(groupChips, g.label, null, function () {
-                    prefs.group = g.key;
-                    // Garde le même choix s'il existe dans la nouvelle famille (Majeur <-> Ionien),
-                    // sinon prend le premier.
-                    if (!g.items.some(function (it) { return it[0] === prefs.type; })) prefs.type = g.items[0][0];
-                    update();
-                });
-            });
-            groupChips.classList.add("scales-segmented");
-            var typeChips = row("", "scales-row-types");
+            var rootSelect = select(row("Tonique", "scales-row-root"), "Tonique", function (v) { prefs.root = parseInt(v, 10); update(); });
+            ROOT_MENU_NAMES.forEach(function (name, pc) { addOption(rootSelect, String(pc), name); });
 
-            var instChips = row("Instrument");
-            instChips.classList.add("scales-segmented");
-            var instBtns = SCALES_INSTRUMENTS.map(function (inst) {
-                return chip(instChips, inst.short, inst.label, function () { prefs.instrument = inst.key; update(); });
-            });
+            var typeRowChips = row("Gamme", "scales-row-types");
+            var typeSelect = select(typeRowChips, "Gamme ou arpège", function (v) { prefs.type = v; update(); });
+            var moreBtn = chip(typeRowChips, "…", "Afficher aussi les gammes peu utilisées ou complexes", function () { prefs.showAll = !prefs.showAll; update(); });
+            moreBtn.classList.add("scales-more-btn");
 
             var viewChips = row("Affichage", "scales-row-view");
             var labelSeg = document.createElement("div");
@@ -4838,20 +4899,41 @@
             diagramsWrap.className = "scales-diagrams";
             panel.appendChild(diagramsWrap);
 
+            // Légende des couleurs (communes au manche et au clavier).
+            var legend = document.createElement("div");
+            legend.className = "scales-legend";
+            [["scales-dot-root", "Tonique"], ["scales-dot-note", "Note de la gamme"]].forEach(function (it) {
+                var item = document.createElement("span");
+                item.className = "scales-legend-item";
+                var dot = document.createElement("span");
+                dot.className = "scales-dot " + it[0];
+                item.appendChild(dot);
+                item.appendChild(document.createTextNode(it[1]));
+                legend.appendChild(item);
+            });
+            panel.appendChild(legend);
+
             function setActive(btns, pred) { btns.forEach(function (b, i) { b.classList.toggle("scales-chip-active", !!pred(i)); }); }
 
             function update() {
                 saveScalesPrefs(prefs);
-                var group = SCALE_GROUPS.filter(function (g) { return g.key === prefs.group; })[0];
-                setActive(rootBtns, function (i) { return i === prefs.root; });
-                setActive(groupBtns, function (i) { return SCALE_GROUPS[i].key === prefs.group; });
-                typeChips.innerHTML = "";
-                group.items.forEach(function (it) {
-                    var def = SCALE_DEFS.filter(function (d) { return d.key === it[0]; })[0];
-                    var b = chip(typeChips, it[1], def.label, function () { prefs.type = it[0]; update(); });
-                    b.classList.toggle("scales-chip-active", it[0] === prefs.type);
+                instSelect.value = prefs.instrument;
+                rootSelect.value = String(prefs.root);
+                // Menu des gammes reconstruit : familles courantes + (avec « … ») les autres. La famille
+                // de la gamme choisie reste toujours listée, même « … » éteint.
+                typeSelect.innerHTML = "";
+                SCALE_MENU.forEach(function (g) {
+                    if (g.extra && !prefs.showAll && g.keys.indexOf(prefs.type) === -1) return;
+                    var og = document.createElement("optgroup");
+                    og.label = g.label;
+                    g.keys.forEach(function (key) {
+                        var d = SCALE_DEFS.filter(function (x) { return x.key === key; })[0];
+                        addOption(og, key, d.label);
+                    });
+                    typeSelect.appendChild(og);
                 });
-                setActive(instBtns, function (i) { return SCALES_INSTRUMENTS[i].key === prefs.instrument; });
+                typeSelect.value = prefs.type;
+                moreBtn.classList.toggle("scales-chip-active", prefs.showAll);
                 degreesBtn.classList.toggle("scales-chip-active", prefs.labelMode === "degrees");
                 notesBtn.classList.toggle("scales-chip-active", prefs.labelMode === "notes");
                 var inst = SCALES_INSTRUMENTS.filter(function (i) { return i.key === prefs.instrument; })[0];

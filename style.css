@@ -1267,7 +1267,6 @@ button.metro-play-btn-big.metro-play-btn-active { background: #ff5252; color: #2
 .scales-panel { width: min(760px, calc(100vw - 24px)); height: auto; max-height: calc(100vh - 24px); min-width: 320px; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
 .scales-row { display: grid; grid-template-columns: 92px 1fr; align-items: center; gap: 10px; }
 .scales-row-label { font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; text-align: left; }
-.scales-row-types { margin-top: -4px; }
 .scales-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
 .scales-row-view .scales-chips { gap: 10px; }
 .scales-row-view .scales-segmented { gap: 0; }
@@ -1295,12 +1294,18 @@ button.scales-chip.scales-chip-icon { min-width: 36px; padding: 0; font-size: va
 .scales-segmented button.scales-chip-active { position: relative; z-index: 1; }
 .scales-summary { font-size: var(--fs-sm); color: var(--text-muted); text-align: left; padding-top: 6px; border-top: 1px solid var(--border); }
 .scales-summary strong { color: var(--text-main); }
+.scales-select { min-width: 210px; max-width: 100%; }
+button.scales-more-btn { min-width: 44px; padding: 0 10px; font-size: var(--fs-md); letter-spacing: 1px; }
+.scales-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 18px; font-size: var(--fs-2xs); color: var(--text-muted); }
+.scales-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.scales-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; border: 1.5px solid transparent; }
+.scales-dot-root { background: #00e676; border-color: #b9ffd9; }
+.scales-dot-note { background: #2d8fd0; border-color: #7fd0fa; }
 .scales-diagrams { display: flex; justify-content: center; min-height: 0; }
 .fretboard-scroll { flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; display: flex; align-items: center; justify-content: safe center; padding: 14px 4px; }
 .fretboard-svg { flex: none; display: block; max-width: none; overflow: visible; }
 @media (max-width: 700px) {
     .scales-row { grid-template-columns: 1fr; gap: 4px; }
-    .scales-row-types { margin-top: 0; }
     .scales-row-root .scales-chips { display: grid; grid-template-columns: repeat(6, 1fr); }
     .scales-row-root button.scales-chip { min-width: 0; }
     .scales-segmented { flex-wrap: nowrap; }
@@ -1315,17 +1320,23 @@ button.scales-chip.scales-chip-icon { min-width: 36px; padding: 0; font-size: va
 .fretboard-string { stroke: #777; stroke-width: 1; }
 .fretboard-inlay { fill: #4a4a4a; }
 .fretboard-fret-label { font-size: 10px; fill: var(--text-muted); text-anchor: middle; }
-.fretboard-note { fill: #2a2a2a; stroke: #bbb; stroke-width: 1.5; }
-.fretboard-note-root { stroke: none; fill: #e4e4e4; }
-.fretboard-note-label { font-size: 10px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; fill: #ddd; pointer-events: none; }
-.fretboard-note-root + .fretboard-note-label { fill: #111; }
+.fretboard-note { fill: #0f3d57; stroke: #4fc3f7; stroke-width: 1.5; }
+.fretboard-note-root { stroke: #b9ffd9; stroke-width: 1.5; fill: #00e676; }
+.fretboard-note-label { font-size: 10px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; fill: #e6f6ff; pointer-events: none; }
+.fretboard-note-root + .fretboard-note-label { fill: #04210f; }
 .piano-scale-svg { flex: none; max-width: none; display: block; }
 .piano-key-white { fill: #f2ead9; stroke: #2a2a2a; stroke-width: .7; }
 .piano-key-black { fill: #171310; stroke: #000; stroke-width: .6; }
-.piano-key-active { fill: #b9b9b9; }
-.piano-key-root { fill: #e8e8e8; }
+/* Touches hors gamme : blanc crème / noir (aspect d'un vrai clavier). Notes de la gamme : bleu clair sur
+   blanche, bleu franc sur noire. Tonique : vert, sur les deux. Les couleurs ne dépendent donc plus
+   du seul niveau de gris (ce qui rendait blanc/gris/noir illisible). */
+.piano-key-white.piano-key-active { fill: #7fd0fa; stroke: #1c6f9c; stroke-width: 1; }
+.piano-key-black.piano-key-active { fill: #1976d2; stroke: #0b3d75; }
+.piano-key-white.piano-key-root { fill: #3df08f; stroke: #0a7a3f; stroke-width: 1.2; }
+.piano-key-black.piano-key-root { fill: #00a152; stroke: #04532a; stroke-width: 1; }
 .piano-key-label { font-size: 13px; text-anchor: middle; fill: #111; font-weight: 700; }
 .piano-key-label-black { fill: #fff; }
+.piano-key-black.piano-key-root + .piano-key-label-black { fill: #fff; }
 /* -- accordeur : cadran façon pédale (arc -50/+50 cents, zone verte ±5, aiguille unique) -- */
 .tuner-panel { text-align: center; }
 .tuner-gauge-wrap { position: relative; width: min(340px, 100%); margin: 6px auto 0; }
