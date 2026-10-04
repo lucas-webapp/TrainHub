@@ -3105,11 +3105,40 @@
     // reste ouvert à la fois : en ouvrir un ferme le précédent (sinon son fond transparent bloque
     // les clics sur le reste de la page, bouton "Aides"/"Métronome" compris).
     var closeActiveModal = null;
+    var activeModalKind = null; // famille de la fenêtre flottante ouverte (voir openModal), pour le raccourci Espace
 
     // Sans ceci, le fond de page défile sous la fenêtre flottante au doigt sur mobile (le panneau
     // est en position fixed, mais le corps de la page reste scrollable derrière).
     function lockBodyScroll() { document.documentElement.classList.add("modal-open"); }
     function unlockBodyScroll() { document.documentElement.classList.remove("modal-open"); }
+
+    // ---------- volet du métronome intégré à la page (session guidée) ----------
+    // Écran scindé : la session reste à gauche, le métronome vit dans #metro-dock à droite (ou en
+    // bandeau en bas quand l'écran est trop étroit, voir style.css). Contrairement à la fenêtre
+    // flottante, il ne se referme pas quand on clique ailleurs : on règle la session sans le perdre.
+    var $metroDock = document.getElementById("metro-dock");
+    var closeDockedMetronome = null; // non nul tant que le métronome est dans le volet
+    var metroDockCollapsed = false;  // volet réduit (en-tête + Jouer seulement) : retenu le temps de la page
+    function updateMetroDockMetrics() {
+        var root = document.documentElement;
+        var bar = document.querySelector(".top-bar");
+        if (bar) root.style.setProperty("--topbar-h", bar.offsetHeight + "px");
+        if ($metroDock && !$metroDock.hidden) root.style.setProperty("--metro-dock-h", $metroDock.offsetHeight + "px");
+    }
+    function attachMetroDock(panel) {
+        $metroDock.appendChild(panel);
+        $metroDock.hidden = false;
+        document.documentElement.classList.add("metro-docked");
+        updateMetroDockMetrics();
+    }
+    function releaseMetroDock() {
+        closeDockedMetronome = null;
+        if ($metroDock) $metroDock.hidden = true;
+        document.documentElement.classList.remove("metro-docked");
+        document.documentElement.style.removeProperty("--metro-dock-h");
+    }
+    window.addEventListener("resize", updateMetroDockMetrics);
+    if ($metroDock && typeof ResizeObserver !== "undefined") new ResizeObserver(updateMetroDockMetrics).observe($metroDock);
 
     // ---------- taille des fenêtres flottantes (redimensionnables à la main) ----------
     // Persisté par "famille" de fenêtre (métronome, cercle des quintes, gammes…), pas par instance :
@@ -3311,27 +3340,39 @@
 
     // `opts.fitContent` : fenêtre à contenu ajustable (voir fitPanelContentZoom) — réservé au
     // métronome pour l'instant ; les autres outils gardent un contenu qui fixe leur taille minimale.
+    //
+    // `opts.dock` : le panneau n'est plus une fenêtre flottante mais un volet intégré à la page
+    // (colonne à droite sur grand écran, bandeau en bas sinon — voir #metro-dock). Il est alors non
+    // modal : pas de fond qui capte les clics (sinon le moindre clic ailleurs le refermait), pas de
+    // blocage du défilement, pas de fermeture par Échap ni par l'ouverture d'un autre outil, et pas
+    // de déplacement/redimensionnement à la main. Réservé au métronome pendant une session guidée.
     function openModal(extraClass, build, opts) {
+        var docked = !!(opts && opts.dock);
         closeFolderMenu();
-        if (closeActiveModal) closeActiveModal();
-        lockBodyScroll();
+        if (!docked) {
+            if (closeActiveModal) closeActiveModal();
+            lockBodyScroll();
+        }
         var fitContent = !!(opts && opts.fitContent);
-        var backdrop = document.createElement("div");
-        backdrop.className = "ctx-backdrop";
+        var backdrop = docked ? null : document.createElement("div");
+        if (backdrop) backdrop.className = "ctx-backdrop";
         var panel = document.createElement("div");
-        panel.className = "backups-panel" + (extraClass ? " " + extraClass : "") + (fitContent ? " panel-fit-content" : "");
+        panel.className = "backups-panel" + (extraClass ? " " + extraClass : "") + (fitContent ? " panel-fit-content" : "") + (docked ? " panel-docked" : "");
         var panelKind = extraClass ? extraClass.split(" ")[0] : "modal";
         var baseMin = basePanelMinSize(panelKind);
         // Redimensionnée à la main (maintenant ou lors d'une ouverture précédente) : la fenêtre garde
         // la taille choisie au lieu de suivre celle du contenu.
-        var userSized = !!loadPanelSizes()[panelKind];
-        var cleanupResize = makePanelResizable(panel, panelKind, function () { userSized = true; });
+        var userSized = docked ? true : !!loadPanelSizes()[panelKind];
+        var cleanupResize = docked ? function () {} : makePanelResizable(panel, panelKind, function () { userSized = true; });
 
         var dragHandle = document.createElement("div");
         dragHandle.className = "panel-drag-handle";
         dragHandle.title = "Faire glisser pour déplacer la fenêtre";
-        panel.appendChild(dragHandle);
-        var cleanupDrag = makePanelDraggable(panel, panelKind, dragHandle);
+        var cleanupDrag = function () {};
+        if (!docked) {
+            panel.appendChild(dragHandle);
+            cleanupDrag = makePanelDraggable(panel, panelKind, dragHandle);
+        }
         var cleanupTitleDrag = null;
 
         var onClose = null;
@@ -3348,37 +3389,69 @@
             if (resizeObs) resizeObs.disconnect();
             if (mutationObs) mutationObs.disconnect();
             if (fitFrame) cancelAnimationFrame(fitFrame);
-            backdrop.remove();
+            if (backdrop) backdrop.remove();
             panel.remove();
             document.removeEventListener("keydown", onKey, true);
-            unlockBodyScroll();
-            if (closeActiveModal === close) closeActiveModal = null;
+            if (docked) {
+                releaseMetroDock();
+            } else {
+                unlockBodyScroll();
+                if (closeActiveModal === close) { closeActiveModal = null; activeModalKind = null; }
+            }
         }
         function onKey(e) { if (e.key === "Escape") close(); }
-        backdrop.addEventListener("click", close);
-        document.addEventListener("keydown", onKey, true);
-        closeActiveModal = close;
+        if (!docked) {
+            backdrop.addEventListener("click", close);
+            document.addEventListener("keydown", onKey, true);
+            closeActiveModal = close;
+            activeModalKind = panelKind;
+        }
 
         onClose = build(panel, close) || null;
 
         // Le titre de l'outil (visible, contrairement à la fine poignée du dessus) est lui aussi une
         // zone de prise pour déplacer la fenêtre — plus facile à trouver que la seule bande dédiée.
         var titleEl = panel.querySelector(".backups-title");
-        if (titleEl) {
+        if (titleEl && !docked) {
             titleEl.classList.add("panel-drag-by-title");
             titleEl.title = "Faire glisser pour déplacer la fenêtre";
             cleanupTitleDrag = makePanelDraggable(panel, panelKind, titleEl);
         }
 
-        var closeRow = document.createElement("div");
-        closeRow.className = "backups-close-row";
         var closeBtn = document.createElement("button");
         closeBtn.type = "button";
         closeBtn.className = "btn-ghost";
-        closeBtn.textContent = "Fermer";
         closeBtn.addEventListener("click", close);
-        closeRow.appendChild(closeBtn);
-        panel.appendChild(closeRow);
+        if (docked) {
+            // Volet intégré : pas de ligne "Fermer" en bas (de la hauteur gagnée pour le contenu),
+            // une croix dans l'en-tête, à côté du bouton Volume.
+            closeBtn.classList.add("panel-dock-close");
+            closeBtn.textContent = "✕";
+            closeBtn.title = "Fermer le métronome";
+            closeBtn.setAttribute("aria-label", "Fermer le métronome");
+            var dockHeader = panel.querySelector(".metro-header-row") || panel;
+            // Réduire : ne garde que l'en-tête et le bouton Jouer/Arrêter (bandeau du bas, quand
+            // l'écran est trop étroit pour une colonne : laisse la place au chrono de la session).
+            var collapseBtn = document.createElement("button");
+            collapseBtn.type = "button";
+            collapseBtn.className = "btn-ghost panel-dock-collapse";
+            function refreshCollapseBtn() {
+                panel.classList.toggle("panel-dock-collapsed", metroDockCollapsed);
+                collapseBtn.textContent = metroDockCollapsed ? "▴" : "▾";
+                collapseBtn.title = metroDockCollapsed ? "Agrandir le métronome" : "Réduire le métronome";
+                collapseBtn.setAttribute("aria-label", collapseBtn.title);
+            }
+            collapseBtn.addEventListener("click", function () { metroDockCollapsed = !metroDockCollapsed; refreshCollapseBtn(); });
+            refreshCollapseBtn();
+            dockHeader.appendChild(collapseBtn);
+            dockHeader.appendChild(closeBtn);
+        } else {
+            var closeRow = document.createElement("div");
+            closeRow.className = "backups-close-row";
+            closeBtn.textContent = "Fermer";
+            closeRow.appendChild(closeBtn);
+            panel.appendChild(closeRow);
+        }
 
         // Contenu ajustable : tout sauf la poignée passe dans une boîte (taille dispo, sans zoom) qui
         // contient le contenu zoomé — voir fitPanelContentZoom.
@@ -3396,7 +3469,7 @@
 
         function refit() {
             if (!fitContent) { recalcPanelFit(panel, baseMin.w, baseMin.h); return; }
-            if (!userSized && !isMobilePanelLayout() && panel.isConnected) {
+            if (!userSized && !docked && !isMobilePanelLayout() && panel.isConnected) {
                 var prevH = panel.offsetHeight, prevW = panel.offsetWidth;
                 var size = autoSizeFitPanel(panel, fitInner);
                 // Le contenu a grandi (ex. "…" déplié) : on remonte/décale la fenêtre si elle sort
@@ -3416,8 +3489,12 @@
         }
 
         panel.style.visibility = "hidden";
-        document.body.appendChild(backdrop);
-        document.body.appendChild(panel);
+        if (docked) {
+            attachMetroDock(panel);
+        } else {
+            document.body.appendChild(backdrop);
+            document.body.appendChild(panel);
+        }
 
         if (fitContent) {
             // Redimensionnement à la main : le zoom suit en direct. Changement de contenu (pavé
@@ -3437,6 +3514,7 @@
         // — posée en px une fois le panneau mesurable, pour ne jamais voir le saut depuis (0,0).
         requestAnimationFrame(function () {
             refit();
+            if (docked) { panel.style.visibility = "visible"; return; }
             var rect = panel.getBoundingClientRect();
             var w = rect.width, h = rect.height;
             var stored = loadPanelPositions()[panelKind];
@@ -3621,6 +3699,8 @@
     var metroNextNoteTime = 0;
     var metroCurrentStep = 0;
     var metroBeatCallback = null; // met à jour l'affichage (pas qui clignote), posé par le panneau ouvert
+    var metroPanelApi = null; // { toggle } du panneau ouvert (flottant ou dans le volet) : sert au raccourci Espace
+    var transportLastTouched = null; // "session" | "metro" : le dernier des deux lancé/arrêté, voir le raccourci Espace
     var metroMeasureCallback = null; // prévenu à chaque nouvelle mesure (voir tempo progressif)
     var METRO_LOOKAHEAD_MS = 25;
     var METRO_SCHEDULE_AHEAD_S = 0.12;
@@ -3709,17 +3789,26 @@
     }
 
     function openMetronomePanel() {
+        // Déjà dans le volet : le bouton fait bascule (referme), plutôt que de ne rien faire.
+        if (closeDockedMetronome) { closeDockedMetronome(); return; }
         var m = state.settings.metronome;
         var a = state.settings.appearance;
         var extraClass = "metronome-panel metro-pos-" + a.metronomePosition + " metro-size-" + a.metronomeSize;
+        // Pendant une session guidée : écran scindé (session + métronome côte à côte) plutôt qu'une
+        // fenêtre par-dessus la session.
+        var docked = guidedSessionViewActive && !!$metroDock;
 
-        openModal(extraClass, function (panel, close) {
+        var closeFn = openModal(extraClass, function (panel, close) {
             // -- en-tête : titre + volume (bien visible, en haut à droite) --
             var headerRow = document.createElement("div");
             headerRow.className = "metro-header-row";
             var title = document.createElement("div");
             title.className = "backups-title";
             title.textContent = "Métronome";
+            // BPM rappelé dans le titre, visible seulement quand le volet est réduit (voir CSS).
+            var compactBpm = document.createElement("span");
+            compactBpm.className = "metro-compact-bpm";
+            title.appendChild(compactBpm);
             headerRow.appendChild(title);
 
             var volumeRow = document.createElement("div");
@@ -4216,10 +4305,15 @@
                 playBtn.title = metroPlaying ? "Arrêter" : "Jouer";
             }
             refreshPlayBtn();
-            playBtn.addEventListener("click", function () {
+            // Aussi appelée par le raccourci Espace (voir metroPanelApi) : un seul chemin pour lancer
+            // ou arrêter, que ce soit au clic ou au clavier.
+            function toggleMetroPlayback() {
                 if (metroPlaying) { stopMetronome(); stopChrono(); } else { progMeasureCount = 0; startMetronome(); startChrono(); }
                 refreshPlayBtn();
-            });
+                transportLastTouched = "metro";
+            }
+            playBtn.addEventListener("click", toggleMetroPlayback);
+            metroPanelApi = { toggle: toggleMetroPlayback };
             panel.appendChild(playBtn);
 
             function setBpm(v) {
@@ -4230,6 +4324,7 @@
             }
             function refreshBpmUI() {
                 bpmValue.textContent = m.bpm;
+                compactBpm.textContent = m.bpm + " BPM";
             }
             refreshBpmUI();
 
@@ -4240,13 +4335,15 @@
                 if (chronoInterval) clearInterval(chronoInterval);
                 metroBeatCallback = null;
                 metroMeasureCallback = null;
+                metroPanelApi = null;
                 window.removeEventListener("pointermove", onDialPointerMove);
                 window.removeEventListener("pointerup", onDialPointerUp);
                 window.removeEventListener("pointermove", onPadPointerMove);
                 window.removeEventListener("pointerup", onPadPointerUp);
                 window.removeEventListener("pointercancel", onPadPointerUp);
             };
-        }, { fitContent: true });
+        }, { fitContent: true, dock: docked });
+        if (docked) closeDockedMetronome = closeFn;
     }
 
     // ---------- aides : cercle des quintes ----------
@@ -5044,10 +5141,36 @@
     var gsPickCallback = null;
     var gsRunSession = null, gsRunStepIndex = 0;
     var gsRunAllocatedSec = 0, gsRunElapsedMs = 0, gsRunStartTs = null, gsRunPaused = true, gsRunInterval = null;
+    var gsRefreshRunUi = null; // remet à jour bouton Pause/Reprendre + chrono de l'écran de guidage affiché (raccourci Espace)
     var gsLinksChecked = {}; // clé "link:<id>"/"file:<id>" -> coché ou non, le temps de l'écran
+    // L'écran des liens/PJ s'ouvre aussi AVANT de lancer la session (depuis la liste ou l'édition) :
+    // on ouvre tout d'un coup, puis on démarre, sans perdre de temps pendant l'entraînement.
+    var gsLinksSession = null;   // session dont on affiche les liens/PJ
+    var gsLinksBack = "list";    // écran où revenir : "list" | "edit" | "run"
+    var gsFileBlobCache = {};    // id de pièce jointe -> Blob déjà lu (false = absent de cet appareil)
 
     function sessionTotalMinutes(session) {
         return session.steps.reduce(function (sum, s) { return sum + s.minutes; }, 0);
+    }
+
+    // Liens et pièces jointes d'un exercice, sous la forme utilisée par l'écran "Liens et pièces jointes".
+    function gsExerciseItems(ex) {
+        var items = [];
+        (ex.links || []).forEach(function (link) { items.push({ type: "link", key: "link:" + link.id, label: link.label, url: link.url }); });
+        (ex.files || []).forEach(function (meta) { items.push({ type: "file", key: "file:" + meta.id, label: meta.name, meta: meta }); });
+        return items;
+    }
+    function gsSessionHasItems(session) {
+        return session.steps.some(function (step) {
+            var found = findExerciseById(step.exerciseId);
+            return !!found && gsExerciseItems(found.ex).length > 0;
+        });
+    }
+    function gsOpenLinks(session, back) {
+        gsLinksSession = session;
+        gsLinksBack = back;
+        gsScreen = "links";
+        render();
     }
 
     // ---------- export PDF d'une session guidée ----------
@@ -5162,24 +5285,48 @@
         });
     }
 
-    // Ouvre plusieurs liens/fichiers d'un coup dans des onglets séparés. Les onglets sont ouverts
-    // tout de suite, de façon synchrone dans le clic (sinon le navigateur bloque les popups
-    // ouverts depuis un callback asynchrone comme la lecture d'un fichier dans IndexedDB) ; leur
-    // contenu (URL du lien, ou blob du fichier une fois lu) est posé dessus une fois prêt.
+    // Ouvre plusieurs liens/fichiers d'un coup, chacun dans un ONGLET de la fenêtre du navigateur.
+    // Un lien <a target="_blank"> est le geste "nouvel onglet" que tous les navigateurs respectent ;
+    // window.open(…), lui, peut être interprété comme une fenêtre pop-up séparée (c'est ce qui
+    // donnait une fenêtre par lien). Le clic est déclenché ici, de façon synchrone dans le clic de
+    // l'utilisateur (sinon le navigateur bloque l'ouverture comme un pop-up).
+    function gsOpenInNewTab(url) {
+        var a = document.createElement("a");
+        a.href = url;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    }
     function gsOpenItems(items) {
+        var unavailable = [];
         items.forEach(function (item) {
-            var win = window.open("", "_blank");
-            if (item.type === "link") {
-                if (win) win.location.href = item.url;
-            } else {
-                getFileBlob(item.meta.id).then(function (blob) {
-                    if (!blob) { if (win) win.close(); return; }
-                    var url = URL.createObjectURL(blob);
-                    if (win) win.location.href = url;
-                    setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
-                });
+            if (item.type === "link") { gsOpenInNewTab(item.url); return; }
+            var blob = gsFileBlobCache[item.meta.id];
+            if (blob === false) { unavailable.push(item.label); return; }
+            if (blob) {
+                // Fichier déjà lu à l'affichage de l'écran : ouverture immédiate, comme un lien.
+                var url = URL.createObjectURL(blob);
+                gsOpenInNewTab(url);
+                setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+                return;
             }
+            // Pas encore lu (écran à peine affiché) : on réserve l'onglet maintenant, dans le clic,
+            // et on y pose le fichier une fois lu — lecture IndexedDB asynchrone, sinon le
+            // navigateur refuserait d'ouvrir l'onglet.
+            var win = window.open("", "_blank");
+            getFileBlob(item.meta.id).then(function (b) {
+                if (!b) { if (win) win.close(); return; }
+                var u = URL.createObjectURL(b);
+                if (win) win.location.href = u;
+                setTimeout(function () { URL.revokeObjectURL(u); }, 60000);
+            });
         });
+        if (unavailable.length) {
+            window.alert("Ces fichiers ne sont disponibles que sur l'appareil où ils ont été ajoutés :\n" + unavailable.join("\n"));
+        }
     }
 
     function renderGuidedSessionMain() {
@@ -5193,8 +5340,10 @@
         content.className = "gs-main";
         $folderContainer.appendChild(content);
 
+        gsRefreshRunUi = null;
+        if (gsScreen !== "links") gsFileBlobCache = {};
         if (gsScreen === "run" && gsRunSession) renderGsRunScreen(content);
-        else if (gsScreen === "links" && gsRunSession) renderGsLinksScreen(content);
+        else if (gsScreen === "links" && gsLinksSession) renderGsLinksScreen(content);
         else if (gsScreen === "pick" && gsEditingSession) renderGsPickScreen(content);
         else if (gsScreen === "edit" && gsEditingSession) renderGsEditScreen(content);
         else renderGsListScreen(content);
@@ -5240,6 +5389,13 @@
                     gsStartRun(session);
                 });
                 playBtn.classList.add("gs-session-play-btn");
+                var linksBtn = null;
+                if (gsSessionHasItems(session)) {
+                    linksBtn = svgIconButton(LINK_ICONS.link, "Ouvrir les liens et pièces jointes de la session (avant de la lancer)", function () {
+                        gsOpenLinks(session, "list");
+                    });
+                    linksBtn.classList.add("gs-session-links-btn");
+                }
                 var delBtn = iconButton("✕", "Supprimer cette session", function () {
                     if (!window.confirm("Supprimer la session « " + session.name + " » ?")) return;
                     addToTrash("session", session, {});
@@ -5248,6 +5404,7 @@
                     render();
                 });
                 actions.appendChild(playBtn);
+                if (linksBtn) actions.appendChild(linksBtn);
                 actions.appendChild(delBtn);
                 row.appendChild(actions);
                 list.appendChild(row);
@@ -5292,12 +5449,24 @@
         });
         content.appendChild(nameInput);
 
+        var editToolsRow = document.createElement("div");
+        editToolsRow.className = "gs-edit-tools-row";
         var pdfBtn = document.createElement("button");
         pdfBtn.type = "button";
         pdfBtn.className = "btn-ghost gs-pdf-btn";
         pdfBtn.textContent = "Enregistrer sous PDF";
         pdfBtn.addEventListener("click", function () { exportSessionPdf(session); });
-        content.appendChild(pdfBtn);
+        editToolsRow.appendChild(pdfBtn);
+        if (gsSessionHasItems(session)) {
+            var editLinksBtn = document.createElement("button");
+            editLinksBtn.type = "button";
+            editLinksBtn.className = "btn-ghost gs-edit-links-btn";
+            editLinksBtn.textContent = "Ouvrir les liens/PJ…";
+            editLinksBtn.title = "Ouvrir d'un coup les liens et pièces jointes de la session, avant de la lancer";
+            editLinksBtn.addEventListener("click", function () { gsOpenLinks(session, "edit"); });
+            editToolsRow.appendChild(editLinksBtn);
+        }
+        content.appendChild(editToolsRow);
 
         var stepsLabel = document.createElement("div");
         stepsLabel.className = "section-label";
@@ -5518,6 +5687,7 @@
         gsRunElapsedMs = 0;
         gsRunStartTs = Date.now();
         gsRunPaused = false;
+        transportLastTouched = "session";
     }
 
     function gsRunElapsedNowMs() {
@@ -5528,12 +5698,14 @@
         if (gsRunPaused) return;
         gsRunElapsedMs += Date.now() - gsRunStartTs;
         gsRunPaused = true;
+        transportLastTouched = "session";
     }
 
     function gsResumeRun() {
         if (!gsRunPaused) return;
         gsRunStartTs = Date.now();
         gsRunPaused = false;
+        transportLastTouched = "session";
     }
 
     function gsEndRun() {
@@ -5609,10 +5781,12 @@
             pauseBtn.classList.toggle("metro-play-btn-active", !gsRunPaused);
         }
         refreshPauseBtn();
+        pauseBtn.title = "Pause / reprise (barre espace)";
         pauseBtn.addEventListener("click", function () {
             if (gsRunPaused) gsResumeRun(); else gsPauseRun();
             refreshPauseBtn();
         });
+        gsRefreshRunUi = function () { refreshPauseBtn(); refreshTimer(); };
         pauseStopRow.appendChild(pauseBtn);
 
         var stopBtn = document.createElement("button");
@@ -5641,7 +5815,7 @@
         linksBtn.type = "button";
         linksBtn.className = "btn-ghost gs-run-links-btn";
         linksBtn.textContent = "Liens/PJ de toute la session…";
-        linksBtn.addEventListener("click", function () { gsScreen = "links"; render(); });
+        linksBtn.addEventListener("click", function () { gsOpenLinks(gsRunSession, "run"); });
         toolsRow.appendChild(linksBtn);
         content.appendChild(toolsRow);
 
@@ -5677,13 +5851,14 @@
 
     // ---- écran "ouvrir des liens/pièces jointes" (tous les exercices de la session) ----
     function renderGsLinksScreen(content) {
-        var session = gsRunSession;
+        var session = gsLinksSession;
+        var fromRun = gsLinksBack === "run";
 
         var backBtn = document.createElement("button");
         backBtn.type = "button";
         backBtn.className = "btn-ghost gs-back-btn";
-        backBtn.textContent = "← Retour au guidage";
-        backBtn.addEventListener("click", function () { gsScreen = "run"; render(); });
+        backBtn.textContent = fromRun ? "← Retour au guidage" : gsLinksBack === "edit" ? "← Retour à la session" : "← Retour à la liste";
+        backBtn.addEventListener("click", function () { gsScreen = gsLinksBack; render(); });
         content.appendChild(backBtn);
 
         var heading = document.createElement("div");
@@ -5697,10 +5872,14 @@
         session.steps.forEach(function (step) {
             var found = findExerciseById(step.exerciseId);
             if (!found) return;
-            var items = [];
-            (found.ex.links || []).forEach(function (link) { items.push({ type: "link", key: "link:" + link.id, label: link.label, url: link.url }); });
-            (found.ex.files || []).forEach(function (meta) { items.push({ type: "file", key: "file:" + meta.id, label: meta.name, meta: meta }); });
+            var items = gsExerciseItems(found.ex);
             if (!items.length) return;
+            // Pièces jointes lues dès l'affichage : le clic sur "Ouvrir" n'a alors plus rien
+            // d'asynchrone à attendre (voir gsOpenItems).
+            items.forEach(function (item) {
+                if (item.type !== "file" || item.meta.id in gsFileBlobCache) return;
+                getFileBlob(item.meta.id).then(function (b) { gsFileBlobCache[item.meta.id] = b || false; }, function () { gsFileBlobCache[item.meta.id] = false; });
+            });
 
             var group = document.createElement("div");
             group.className = "gs-links-group";
@@ -5736,14 +5915,28 @@
         }
         content.appendChild(list);
 
+        function selectedItems() {
+            return allItems.filter(function (item) { return gsLinksChecked[item.key]; });
+        }
         var openBtn = document.createElement("button");
         openBtn.type = "button";
-        openBtn.className = "btn-accent gs-links-open-btn";
+        openBtn.className = fromRun || !session.steps.length ? "btn-accent gs-links-open-btn" : "btn-ghost gs-links-open-btn gs-links-open-only-btn";
         openBtn.textContent = "Ouvrir la sélection";
-        openBtn.addEventListener("click", function () {
-            gsOpenItems(allItems.filter(function (item) { return gsLinksChecked[item.key]; }));
-        });
+        openBtn.addEventListener("click", function () { gsOpenItems(selectedItems()); });
         content.appendChild(openBtn);
+
+        // Avant le lancement : tout ouvrir puis démarrer d'un seul geste.
+        if (!fromRun && session.steps.length) {
+            var openAndRunBtn = document.createElement("button");
+            openAndRunBtn.type = "button";
+            openAndRunBtn.className = "btn-accent gs-links-open-run-btn";
+            openAndRunBtn.textContent = "Ouvrir la sélection et lancer la session";
+            openAndRunBtn.addEventListener("click", function () {
+                gsOpenItems(selectedItems());
+                gsStartRun(session);
+            });
+            content.appendChild(openAndRunBtn);
+        }
     }
 
     // Une session en cours ne doit pas continuer à décompter pendant qu'on est ailleurs (un autre
@@ -5756,6 +5949,78 @@
             if (guidedSessionViewActive && gsScreen === "run") render();
         }
     });
+
+    // ---------- raccourci clavier : barre espace = pause / reprise ----------
+    // Agit sur ce qui est "présent" : la session guidée en cours de guidage et/ou le métronome (panneau
+    // ouvert). Si l'un des deux tourne, Espace met en pause TOUT ce qui tourne (une pause d'entraînement
+    // arrête le chrono de la session et le clic du métronome ensemble) et retient ce qu'il a arrêté ;
+    // si rien ne tourne, il relance ce qu'il avait mis en pause — et à défaut (rien de retenu), celui des
+    // deux qu'on a lancé/arrêté en dernier. Quand un seul des deux est présent, c'est lui, simplement.
+    var spacePausedSet = [];      // ce que la dernière pression d'Espace a mis en pause : "session" et/ou "metro"
+    var spaceKeyHandled = false;  // vrai entre le keydown pris en charge et son keyup (voir plus bas)
+
+    function transportSessionPresent() { return !!gsRunSession && guidedSessionViewActive; }
+
+    function transportToggleViaSpace() {
+        var sessionOn = transportSessionPresent();
+        var metroOn = !!metroPanelApi;
+        if (!sessionOn && !metroOn) return;
+        var sessionRunning = sessionOn && !gsRunPaused;
+        var metroRunning = metroOn && metroPlaying;
+        if (sessionRunning || metroRunning) {
+            spacePausedSet = [];
+            if (sessionRunning) { gsPauseRun(); spacePausedSet.push("session"); }
+            if (metroRunning) { metroPanelApi.toggle(); spacePausedSet.push("metro"); }
+        } else {
+            var resume = spacePausedSet.filter(function (w) { return w === "session" ? sessionOn : metroOn; });
+            if (!resume.length) {
+                if (transportLastTouched === "metro" && metroOn) resume = ["metro"];
+                else if (transportLastTouched === "session" && sessionOn) resume = ["session"];
+                else resume = [sessionOn ? "session" : "metro"];
+            }
+            spacePausedSet = [];
+            if (resume.indexOf("session") !== -1) gsResumeRun();
+            if (resume.indexOf("metro") !== -1) metroPanelApi.toggle();
+        }
+        if (gsRefreshRunUi) gsRefreshRunUi();
+    }
+
+    // Espace n'a de sens ici que hors saisie de texte : dans un champ, une liste, une case à cocher
+    // ou une case du pavé rythmique (qui s'active à l'Espace au clavier), il garde son rôle habituel.
+    function spaceKeyBelongsToTarget(el) {
+        if (!el || !el.tagName) return false;
+        var tag = el.tagName.toLowerCase();
+        if (tag === "textarea" || tag === "select" || el.isContentEditable) return true;
+        if (tag === "input") {
+            var type = (el.type || "text").toLowerCase();
+            return ["button", "range", "submit", "reset", "image"].indexOf(type) === -1;
+        }
+        return !!(el.closest && el.closest(".metro-step"));
+    }
+    // Pas de raccourci quand une autre fenêtre (réglages, accordeur, gammes…) ou un menu est ouvert
+    // par-dessus : l'Espace ne doit pas agir sur la session qu'on ne voit plus.
+    function spaceKeyBlockedByOverlay() {
+        if (closeActiveModal && activeModalKind !== "metronome-panel") return true;
+        return !!document.querySelector(".ctx-menu");
+    }
+    function isSpaceKeyEvent(e) { return e.code === "Space" || e.key === " " || e.key === "Spacebar"; }
+
+    document.addEventListener("keydown", function (e) {
+        if (!isSpaceKeyEvent(e) || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.isComposing) return;
+        if (!transportSessionPresent() && !metroPanelApi) return;
+        if (spaceKeyBelongsToTarget(e.target) || spaceKeyBlockedByOverlay()) return;
+        // preventDefault : sinon un bouton qui a le focus (Pause, +, Suivant…) serait aussi "cliqué" par
+        // l'Espace, et la page défilerait.
+        e.preventDefault();
+        if (e.repeat) return;
+        spaceKeyHandled = true;
+        transportToggleViaSpace();
+    }, true);
+    // Certains navigateurs (Firefox) déclenchent le clic du bouton au relâchement de la touche :
+    // on annule donc aussi le keyup d'un Espace déjà pris en charge.
+    document.addEventListener("keyup", function (e) {
+        if (spaceKeyHandled && isSpaceKeyEvent(e)) { spaceKeyHandled = false; e.preventDefault(); }
+    }, true);
 
     var $metronomeBtn = document.getElementById("metronome-btn");
     if ($metronomeBtn) $metronomeBtn.addEventListener("click", openMetronomePanel);

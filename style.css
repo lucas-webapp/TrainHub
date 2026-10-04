@@ -1384,6 +1384,100 @@ button.scales-chip.scales-chip-icon { min-width: 36px; padding: 0; font-size: va
 .cof-minor { font-size: 12px; fill: #d8d8d8; }
 .cof-acc { font-size: 11px; font-weight: 700; fill: #d8d8d8; }
 
+/* ---------- métronome intégré à la page (écran scindé pendant une session guidée) ---------- */
+/* Grand écran : colonne à droite de la zone principale (la session reste à gauche). Écran plus
+   étroit : bandeau fixe en bas, la zone principale gagne une marge pour ne rien cacher derrière.
+   --topbar-h et --metro-dock-h sont tenues à jour par script.js (updateMetroDockMetrics). */
+.metro-dock {
+    --metro-dock-max-h: calc(100vh - var(--topbar-h, 64px) - 28px);
+    flex: none;
+    /* 380px minimum : c'est la largeur dont a besoin la rangée −10 / − / cadran / + / +10. */
+    width: clamp(380px, 32vw, 440px);
+    align-self: flex-start;
+    position: sticky;
+    top: calc(var(--topbar-h, 64px) + 12px);
+    margin: 12px 16px 12px 0;
+    box-sizing: border-box;
+}
+.metro-dock .backups-panel.panel-docked {
+    position: static !important;
+    top: auto !important; left: auto !important; right: auto !important; bottom: auto !important;
+    width: 100% !important; height: auto !important;
+    min-width: 0 !important; min-height: 0 !important;
+    max-width: none !important;
+    max-height: var(--metro-dock-max-h) !important;
+    resize: none !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius) !important;
+    padding: 12px 14px !important;
+    box-shadow: none;
+}
+.metro-dock .metro-header-row .backups-title { flex: 1; min-width: 0; }
+/* Colonne à droite : la zone principale peut se resserrer jusqu'au bout (sans ça, son contenu lui
+   imposait une largeur minimale et la page débordait sur les écrans un peu justes). */
+html.metro-docked .main { min-width: 0; }
+/* Dans le volet, une rangée qui manquerait de place est réduite (zoom, voir fitPanelContentZoom)
+   plutôt que renvoyée à la ligne : un bouton +10 isolé sous le cadran serait illisible. */
+.metro-dock .metro-transport-row { flex-wrap: nowrap; }
+.backups-title .metro-compact-bpm {
+    display: none;
+    margin-left: 8px;
+    color: var(--accent);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+/* En colonne il y a toute la hauteur : pas de réduction possible (le bouton n'apparaît qu'en bandeau). */
+.panel-dock-collapse { display: none; }
+button.panel-dock-close, button.panel-dock-collapse {
+    flex: none;
+    box-sizing: border-box;
+    width: 40px; height: 40px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-base);
+    line-height: 1;
+}
+button.panel-dock-close:hover, button.panel-dock-collapse:hover { border-color: var(--accent); color: var(--accent); }
+@media (max-width: 1099px) {
+    button.panel-dock-collapse { display: inline-flex; align-items: center; justify-content: center; }
+    .panel-docked.panel-dock-collapsed .backups-title .metro-compact-bpm { display: inline; }
+    .panel-docked.panel-dock-collapsed .panel-fit-inner > :not(.metro-header-row):not(.metro-volume-row):not(.metro-play-btn-big) { display: none; }
+    /* La ligne du curseur de volume n'est affichée réduite que si on l'a dépliée (sinon : un blanc). */
+    .panel-docked.panel-dock-collapsed .metro-volume-row:not(.metro-volume-expanded-row) { display: none; }
+    /* Réduit : l'en-tête tient sur une ligne (bouton Volume sans texte, titre sans retour à la ligne). */
+    .panel-docked.panel-dock-collapsed .backups-title { white-space: nowrap; }
+    .panel-docked.panel-dock-collapsed button.metro-volume-btn { padding: 0; width: 40px; justify-content: center; }
+    .panel-docked.panel-dock-collapsed button.metro-volume-btn > span:last-child { display: none; }
+}
+@media (max-width: 1099px) {
+    .metro-dock {
+        --metro-dock-max-h: min(56vh, 480px);
+        position: fixed;
+        top: auto; left: 0; right: 0; bottom: 0;
+        width: auto;
+        margin: 0;
+        z-index: 30;
+        display: flex;
+        justify-content: center;
+        padding: 0 8px calc(8px + env(safe-area-inset-bottom, 0px));
+        pointer-events: none; /* seul le panneau capte les clics, pas toute la largeur du bandeau */
+    }
+    .metro-dock[hidden] { display: none; }
+    .metro-dock .backups-panel.panel-docked {
+        pointer-events: auto;
+        max-width: 560px !important;
+        box-shadow: 0 -4px 18px rgba(0,0,0,.45);
+    }
+    /* Marge sous la zone principale = hauteur du bandeau, pour pouvoir défiler jusqu'au bas. */
+    html.metro-docked .layout { padding-bottom: calc(var(--metro-dock-h, 0px) + 12px); }
+    /* Défilement vers un élément (focus, clavier) : s'arrête au-dessus du bandeau et sous la barre du haut. */
+    html.metro-docked { scroll-padding-bottom: calc(var(--metro-dock-h, 0px) + 12px); scroll-padding-top: var(--topbar-h, 64px); }
+}
+@media (max-width: 700px) {
+    .metro-dock { padding: 0 6px calc(6px + env(safe-area-inset-bottom, 0px)); }
+}
+
 /* ---------- session guidée ---------- */
 /* Affichée dans la zone principale (pas une fenêtre flottante), comme le reste du contenu : les
    outils flottants (métronome, cercle des quintes) restent utilisables par-dessus. */
@@ -1542,7 +1636,12 @@ button.gs-add-step-btn { margin-top: 10px; width: 100%; height: 42px; border: 1p
 .gs-links-list { display: flex; flex-direction: column; gap: 14px; }
 .gs-links-group-title { font-weight: 700; font-size: var(--fs-sm); margin-bottom: 6px; }
 .gs-links-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: var(--fs-sm); cursor: pointer; }
-.gs-links-open-btn { width: 100%; padding: 10px; margin-top: 12px; }
+.gs-links-open-btn { width: 100%; height: 42px; padding: 0 10px; margin-top: 12px; }
+button.gs-links-open-only-btn { border: 1px solid var(--border); }
+.gs-links-open-run-btn { width: 100%; height: 42px; padding: 0 10px; margin-top: 8px; }
+.gs-edit-tools-row { display: flex; gap: 8px; margin-bottom: 12px; }
+button.gs-pdf-btn, button.gs-edit-links-btn { flex: 1; min-width: 0; height: 36px; border: 1px solid var(--border); font-size: var(--fs-xs); }
+button.gs-edit-links-btn:hover, button.gs-pdf-btn:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ---------- paramètres généraux ---------- */
 .settings-panel { text-align: left; }
