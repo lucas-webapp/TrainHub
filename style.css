@@ -538,15 +538,26 @@ button.session-btn-highlight:hover { background: color-mix(in srgb, var(--accent
 .link-chip .link-edit svg { width: 13px; height: 13px; }
 .link-chip .link-edit:hover { color: var(--accent); }
 .link-label-input {
+    box-sizing: border-box;
     background: transparent;
-    border: none;
-    border-bottom: 1px dashed var(--accent);
+    border: 1px dashed var(--accent);
+    border-radius: var(--radius-sm);
+    outline: none;
     color: var(--text-main);
     font-size: var(--fs-xs);
-    padding: 0;
-    min-width: 60px;
-    max-width: 140px;
+    padding: 3px 8px; /* sans marge à gauche, le texte touchait/dépassait le cadre */
+    min-width: 90px;
+    max-width: 220px;
 }
+.file-chip .link-edit {
+    flex: none; display: inline-flex; align-items: center; color: var(--text-muted); cursor: pointer; padding: 0 2px;
+}
+.file-chip .link-edit svg { width: 13px; height: 13px; }
+.file-chip .link-edit:hover { color: var(--accent); }
+/* Dossier survolé pendant qu'on glisse un exercice. */
+.drop-hover { outline: 2px solid var(--accent); outline-offset: -2px; background: color-mix(in srgb, var(--accent) 22%, transparent) !important; border-radius: var(--radius-sm); }
+.ctx-menu-title { padding: 8px 12px 6px; font-size: var(--fs-2xs); color: var(--text-muted); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.ctx-item-muted { color: var(--text-muted); }
 
 .add-link-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .add-link-row input { flex: 1; min-width: 120px; }

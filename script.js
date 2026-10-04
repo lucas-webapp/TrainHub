@@ -1196,6 +1196,66 @@
         place();
     }
 
+    // Exercice lâché sur un dossier de l'arborescence : on demande s'il faut le déplacer ou le copier.
+    function openExerciseDropMenu(x, y, ex, fromFolder, destFolder) {
+        closeFolderMenu();
+        if (destFolder === fromFolder) {
+            showToast("« " + ex.title + " » est déjà dans « " + destFolder.name + " »");
+            render();
+            return;
+        }
+        var backdrop = document.createElement("div");
+        backdrop.className = "ctx-backdrop";
+        function cancel() { closeFolderMenu(); render(); }
+        backdrop.addEventListener("pointerdown", function (e) { e.preventDefault(); cancel(); });
+        backdrop.addEventListener("contextmenu", function (e) { e.preventDefault(); cancel(); });
+
+        var menu = document.createElement("div");
+        menu.className = "ctx-menu";
+        menu.setAttribute("role", "menu");
+        var heading = document.createElement("div");
+        heading.className = "ctx-menu-title";
+        heading.textContent = "« " + ex.title + " » → « " + destFolder.name + " »";
+        menu.appendChild(heading);
+        function choice(text, className, onClick) {
+            var b = document.createElement("button");
+            b.type = "button";
+            b.className = "ctx-item" + (className ? " " + className : "");
+            b.textContent = text;
+            b.addEventListener("click", onClick);
+            menu.appendChild(b);
+        }
+        choice("Déplacer ici", "", function () {
+            closeFolderMenu();
+            if (exerciseTitleTaken(destFolder.exercises, ex.title) && !confirmNameCollision("exercice", ex.title)) { render(); return; }
+            fromFolder.exercises.splice(fromFolder.exercises.indexOf(ex), 1);
+            destFolder.exercises.push(ex);
+            save();
+            render();
+            showToast("« " + ex.title + " » déplacé vers « " + destFolder.name + " »");
+        });
+        choice("Copier ici", "", function () {
+            closeFolderMenu();
+            var copy = duplicateExercise(ex);
+            // Dans un autre dossier, pas besoin du suffixe « (copie) » sauf si le nom y existe déjà.
+            if (!exerciseTitleTaken(destFolder.exercises, ex.title)) copy.title = ex.title;
+            destFolder.exercises.push(copy);
+            save();
+            render();
+            showToast("« " + ex.title + " » copié dans « " + destFolder.name + " »");
+        });
+        choice("Annuler", "ctx-item-muted", cancel);
+
+        function onKey(e) { if (e.key === "Escape") cancel(); }
+        document.body.appendChild(backdrop);
+        document.body.appendChild(menu);
+        document.addEventListener("keydown", onKey, true);
+        openMenu = { backdrop: backdrop, menu: menu, onKey: onKey };
+        var w = menu.offsetWidth || 220, h = menu.offsetHeight || 130;
+        menu.style.left = Math.min(Math.max(8, x + 6), Math.max(8, window.innerWidth - w - 8)) + "px";
+        menu.style.top = Math.min(Math.max(8, y - 20), Math.max(8, window.innerHeight - h - 8)) + "px";
+    }
+
     function bindLinkMenu(el, ex, link) {
         bindContextGesture(el, function (x, y) { openLinkMenu(x, y, ex, link); });
     }
@@ -1268,8 +1328,23 @@
     // positions avant le déplacement DOM, puis on anime depuis cette position vers la nouvelle au
     // lieu de les laisser sauter instantanément). L'élément d'origine reste à sa place dans le DOM
     // (pour que le tri final reste simple à lire) mais s'efface visuellement derrière le fantôme.
-    function setupDragReorder(container, itemSelector, getArray, axis) {
+    // `opts.onDropOnTarget(el, folderId, x, y)` (facultatif) : permet de déposer l'élément sur une
+    // ligne portant data-drop-folder-id (dossier de l'arborescence de gauche) au lieu de le
+    // réordonner dans sa liste. Un seul glisser est actif à la fois : activeDragFinish permet à des
+    // écouteurs sur la fenêtre de TOUJOURS le terminer (relâchement hors de la liste, perte du focus
+    // de la fenêtre…), sans quoi la copie flottante restait affichée au milieu de la page.
+    var activeDragFinish = null;
+    function endActiveDrag() { if (activeDragFinish) activeDragFinish(); }
+    window.addEventListener("pointerup", endActiveDrag);
+    window.addEventListener("pointercancel", endActiveDrag);
+    window.addEventListener("blur", endActiveDrag);
+    function clearDropHover() {
+        Array.prototype.forEach.call(document.querySelectorAll(".drop-hover"), function (el) { el.classList.remove("drop-hover"); });
+    }
+
+    function setupDragReorder(container, itemSelector, getArray, axis, opts) {
         var dragEl = null;
+        var hoverTarget = null;
         var ghost = null;
         var startX = 0, startY = 0;
         var grabOffsetX = 0, grabOffsetY = 0;
@@ -1322,15 +1397,20 @@
             startX = e.clientX;
             startY = e.clientY;
             moved = false;
+            window.addEventListener("pointermove", onMove);
             // Pas de capture du pointeur ici : dans un vrai navigateur, capturer dès l'appui
             // redirige le "click" final vers le nœud entier, ce qui rendait inopérants le
             // chevron, le "+" et le clic sur un sous-dossier. On ne capture qu'une fois le
             // glisser réellement commencé (seuil de 10 px), voir pointermove.
         });
 
-        container.addEventListener("pointermove", function (e) {
+        // Écouté sur la fenêtre pendant un glisser (ajouté au pointerdown, retiré dans finish) : replacer
+        // l'élément dans la liste (insertBefore) lui fait perdre la capture du pointeur, et les
+        // mouvements suivants n'atteignaient plus la liste dès que la souris en sortait — le glisser
+        // restait alors figé, copie flottante comprise.
+        function onMove(e) {
             if (!dragEl) return;
-            if (!moved && e.buttons === 0 && e.pointerType === "mouse") { dragEl = null; return; } // relâché hors de la zone
+            if (!moved && e.buttons === 0 && e.pointerType === "mouse") { dragEl = null; window.removeEventListener("pointermove", onMove); return; } // relâché hors de la zone
             var delta = axis === "x" ? (e.clientX - startX) : (e.clientY - startY);
             if (!moved && Math.abs(delta) < 10) return;
             if (!moved) {
@@ -1347,34 +1427,74 @@
                 ghost.style.width = startRect.width + "px";
                 ghost.style.height = startRect.height + "px";
                 ghost.style.margin = "0";
+                ghost.style.pointerEvents = "none";
+                Array.prototype.forEach.call(document.querySelectorAll(".drag-ghost"), function (g) { g.remove(); });
                 document.body.appendChild(ghost);
                 dragEl.classList.add("dragging");
+                activeDragFinish = finish;
             }
             ghost.style.left = (e.clientX - grabOffsetX) + "px";
             ghost.style.top = (e.clientY - grabOffsetY) + "px";
 
-            var siblings = directChildren().filter(function (el) { return el !== dragEl; });
+            // Au-dessus d'un dossier de l'arborescence : on le met en évidence et on ne réordonne plus.
+            if (opts && opts.onDropOnTarget) {
+                var under = document.elementFromPoint ? document.elementFromPoint(e.clientX, e.clientY) : null;
+                var target = under && under.closest ? under.closest("[data-drop-folder-id]") : null;
+                if (target !== hoverTarget) {
+                    clearDropHover();
+                    hoverTarget = target;
+                    if (target) target.classList.add("drop-hover");
+                }
+                if (hoverTarget) return;
+            }
+
+            var items = directChildren();
+            var siblings = items.filter(function (el) { return el !== dragEl; });
             var before = captureRects(siblings);
+            var nextItem = items[items.indexOf(dragEl) + 1] || null;
             for (var i = 0; i < siblings.length; i++) {
                 var rect = siblings[i].getBoundingClientRect();
                 var mid = axis === "x" ? (rect.left + rect.width / 2) : (rect.top + rect.height / 2);
                 var pos = axis === "x" ? e.clientX : e.clientY;
                 if (pos < mid) {
-                    container.insertBefore(dragEl, siblings[i]);
-                    flipSiblings(before);
+                    if (nextItem !== siblings[i]) { // ne replace l'élément que si l'ordre change réellement
+                        container.insertBefore(dragEl, siblings[i]);
+                        flipSiblings(before);
+                    }
                     return;
                 }
             }
-            container.appendChild(dragEl);
-            flipSiblings(before);
-        });
+            if (nextItem !== null) {
+                container.appendChild(dragEl);
+                flipSiblings(before);
+            }
+        }
 
         // `arr` peut être un tableau d'objets {id, ...} (dossiers, exercices) ou directement un
         // tableau d'identifiants bruts (l'ordre des chapitres, réels + virtuels — voir pinnedOrder).
         function idOf(x) { return (x && typeof x === "object") ? x.id : x; }
 
         function finish() {
+            window.removeEventListener("pointermove", onMove);
+            if (activeDragFinish === finish) activeDragFinish = null;
             if (ghost) { ghost.remove(); ghost = null; }
+            Array.prototype.forEach.call(document.querySelectorAll(".drag-ghost"), function (g) { g.remove(); });
+            var dropTarget = hoverTarget;
+            hoverTarget = null;
+            clearDropHover();
+            if (dragEl && moved && dropTarget && opts && opts.onDropOnTarget) {
+                var droppedEl = dragEl;
+                dragEl.classList.remove("dragging");
+                dragEl = null;
+                moved = false;
+                // Relâché sur une autre ligne : aucun clic ne suit sur celle-ci, le drapeau ne serait
+                // jamais consommé et avalerait le prochain vrai clic — d'où la remise à zéro différée.
+                suppressNextClick = true;
+                setTimeout(function () { suppressNextClick = false; }, 60);
+                var r = dropTarget.getBoundingClientRect();
+                opts.onDropOnTarget(droppedEl, dropTarget.dataset.dropFolderId, r.right, r.top + r.height / 2);
+                return;
+            }
             if (dragEl && moved) {
                 var arr = getArray();
                 var order = directChildren().map(function (el) { return el.dataset.reorderId; });
@@ -1772,6 +1892,7 @@
 
         var row = document.createElement("div");
         row.className = "tree-row " + depthClass + (isSelected ? " selected" : "");
+        row.dataset.dropFolderId = folder.id; // cible de dépôt d'un exercice glissé (voir setupDragReorder)
 
         var twisty = document.createElement("button");
         twisty.type = "button";
@@ -2049,7 +2170,14 @@
             exercisesWrap.appendChild(renderExercise(currentFolder, ex, true));
         });
         exGroup.appendChild(exercisesWrap);
-        setupDragReorder(exercisesWrap, ".exercise", function () { return currentFolder.exercises; }, "y");
+        setupDragReorder(exercisesWrap, ".exercise", function () { return currentFolder.exercises; }, "y", {
+            onDropOnTarget: function (el, destFolderId, x, y) {
+                var ex = currentFolder.exercises.filter(function (e) { return e.id === el.dataset.reorderId; })[0];
+                var dest = findFolderById(getActiveInstrument(), destFolderId);
+                if (ex && dest) openExerciseDropMenu(x, y, ex, currentFolder, dest);
+                else render();
+            }
+        });
         exGroup.appendChild(renderAddExerciseForm(currentFolder));
 
         // Disposition réglable dans les paramètres généraux : verticale (sous-dossiers au-dessus
@@ -2400,7 +2528,23 @@
     // n'indiquait quand c'était fait. Maintenant : la valeur est dans les données dès la frappe,
     // enregistrée après une courte pause de frappe, et de toute façon avant tout réaffichage, perte
     // de focus, changement d'onglet ou fermeture de la page. Un indicateur dit où on en est.
+    var pendingRenameKey = null; // "link:<id>" / "file:<id>" : ressource tout juste ajoutée, à renommer aussitôt
     var exerciseVideosOpen = {}; // id d'exercice -> vidéos YouTube affichées (le temps où il reste déplié)
+    // Cliquer en dehors d'un champ de saisie en sort (et déclenche donc son enregistrement). Le
+    // navigateur le ferait seul, mais le glisser-déposer des listes annule l'effet par défaut du
+    // clic (preventDefault sur pointerdown), si bien que cliquer sur une ligne d'exercice ou à côté
+    // laissait la saisie ouverte.
+    document.addEventListener("pointerdown", function (e) {
+        var a = document.activeElement;
+        if (!a || a === document.body || !a.tagName) return;
+        var tag = a.tagName;
+        var isTextField = tag === "TEXTAREA" || (tag === "INPUT" && !/^(button|checkbox|radio|range|submit|reset|file|image)$/i.test(a.type));
+        if (!isTextField) return;
+        var t = e.target;
+        if (t === a || (t && t.closest && t.closest("input, textarea, select, label"))) return;
+        a.blur();
+    }, true);
+
     var pendingTextFlushes = [];
     function flushPendingTextSaves() {
         pendingTextFlushes.slice().forEach(function (f) { f(); });
@@ -2519,6 +2663,12 @@
                 input.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); });
             }
 
+            // Lien tout juste ajouté : on passe directement en saisie du nom, sans cliquer sur le crayon.
+            if (pendingRenameKey === "link:" + link.id) {
+                pendingRenameKey = null;
+                setTimeout(startRenameLink, 0);
+            }
+
             var editBtn = document.createElement("span");
             editBtn.className = "link-edit";
             editBtn.innerHTML = PENCIL_ICON_SVG;
@@ -2583,7 +2733,9 @@
             if (!url) return;
             if (!/^https?:\/\//i.test(url)) url = "https://" + url;
             ex.links = ex.links || [];
-            ex.links.push({ id: uid(), label: guessLinkLabel(url), url: url });
+            var newLink = { id: uid(), label: guessLinkLabel(url), url: url };
+            ex.links.push(newLink);
+            pendingRenameKey = "link:" + newLink.id;
             urlInput.value = "";
             touchExercise(ex);
             save();
@@ -2625,7 +2777,8 @@
             var openBtn = document.createElement("button");
             openBtn.type = "button";
             openBtn.className = "file-open";
-            openBtn.textContent = meta.name + (meta.size ? " · " + humanFileSize(meta.size) : "");
+            function fileCaption() { return meta.name + (meta.size ? " · " + humanFileSize(meta.size) : ""); }
+            openBtn.textContent = fileCaption();
             openBtn.addEventListener("click", function () {
                 getFileBlob(meta.id).then(function (blob) {
                     if (!blob) {
@@ -2638,6 +2791,50 @@
                 });
             });
             chip.appendChild(openBtn);
+
+            // Renommer le fichier (PDF, MP3…) : seul le nom affiché change, pas le fichier stocké.
+            function startRenameFile() {
+                var input = document.createElement("input");
+                input.type = "text";
+                input.className = "link-label-input";
+                input.value = meta.name;
+                openBtn.replaceWith(input);
+                input.focus();
+                input.select();
+                var done = false;
+                function finishRename(save_) {
+                    if (done) return;
+                    done = true;
+                    var name = input.value.trim();
+                    if (save_ && name && name !== meta.name) {
+                        meta.name = name;
+                        touchExercise(ex);
+                        save();
+                    }
+                    openBtn.textContent = fileCaption();
+                    input.replaceWith(openBtn);
+                }
+                input.addEventListener("keydown", function (e) {
+                    e.stopPropagation();
+                    if (e.key === "Enter") { e.preventDefault(); finishRename(true); }
+                    if (e.key === "Escape") finishRename(false);
+                });
+                input.addEventListener("blur", function () { finishRename(true); });
+            }
+            if (pendingRenameKey === "file:" + meta.id) {
+                pendingRenameKey = null;
+                setTimeout(startRenameFile, 0);
+            }
+            var fileEditBtn = document.createElement("span");
+            fileEditBtn.className = "link-edit";
+            fileEditBtn.innerHTML = PENCIL_ICON_SVG;
+            fileEditBtn.title = "Renommer ce fichier";
+            fileEditBtn.addEventListener("click", function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                startRenameFile();
+            });
+            chip.appendChild(fileEditBtn);
 
             var removeBtn = document.createElement("span");
             removeBtn.className = "link-remove";
@@ -2678,6 +2875,8 @@
                 });
             })).then(function () {
                 fileInput.value = "";
+                // Un seul fichier ajouté : saisie du nom aussitôt (comme pour un lien).
+                if (files.length === 1) pendingRenameKey = "file:" + ex.files[ex.files.length - 1].id;
                 touchExercise(ex);
                 save();
                 render();
