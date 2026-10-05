@@ -7321,8 +7321,8 @@
 
         var stopBtn = document.createElement("button");
         stopBtn.type = "button";
-        stopBtn.className = "btn-ghost gs-run-stop-btn";
-        stopBtn.textContent = "Arrêter";
+        stopBtn.className = "gs-run-stop-btn";
+        stopBtn.textContent = "Arrêter la session";
         stopBtn.title = "Arrêter la session";
         stopBtn.addEventListener("click", function () {
             if (window.confirm("Arrêter la session en cours ?")) gsEndRun();
@@ -7343,8 +7343,10 @@
 
         var linksBtn = document.createElement("button");
         linksBtn.type = "button";
-        linksBtn.className = "btn-ghost gs-run-links-btn";
-        linksBtn.textContent = "Liens/PJ de toute la session…";
+        linksBtn.className = "gs-run-links-btn";
+        linksBtn.innerHTML = LINK_ICONS.link;
+        linksBtn.title = "Liens et pièces jointes de toute la session";
+        linksBtn.setAttribute("aria-label", "Liens et pièces jointes de toute la session");
         linksBtn.addEventListener("click", function () { gsOpenLinks(gsRunSession, "run"); });
         toolsRow.appendChild(linksBtn);
         content.appendChild(toolsRow);

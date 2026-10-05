@@ -1672,7 +1672,7 @@ button.gs-add-step-btn { margin-top: 10px; width: 100%; height: 42px; border: 1p
 }
 .gs-pick-exercise-row:hover { background: rgba(255,255,255,.09); color: var(--accent); }
 
-.gs-run-progress { text-align: center; font-size: var(--fs-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+.gs-run-progress { text-align: left; margin-bottom: 18px; font-size: var(--fs-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
 .gs-main .gs-theme-badge { display: block; width: max-content; margin: 8px auto 0; }
 .gs-run-title { text-align: center; font-size: var(--fs-lg); font-weight: 800; margin-top: 6px; }
 .gs-run-resources { justify-content: center; margin: 10px 0 0; }
@@ -1686,25 +1686,36 @@ button.gs-add-step-btn { margin-top: 10px; width: 100%; height: 42px; border: 1p
 }
 .gs-run-timer-overtime { color: #ff6b6b; }
 .gs-run-adjust-row { display: flex; justify-content: center; gap: 10px; margin-bottom: 12px; }
-/* Toutes les commandes de l'écran de guidage partagent la même hauteur, pour un rendu homogène
-   (avant : le bouton métronome prenait toute la largeur et les hauteurs variaient). */
-.gs-run-metro-btn, .gs-run-links-btn, .gs-run-nav-row button {
-    height: 44px;
+/* Commandes de l'écran de guidage : une seule hauteur (44px) et deux largeurs seulement —
+   « souple » (occupe la place restante de sa rangée) et « compacte » (carré de 44px pour une icône,
+   ou 150px pour « Arrêter la session »). */
+.gs-main { --gs-btn-h: 44px; --gs-btn-compact: 150px; }
+.gs-run-metro-btn, .gs-run-links-btn, .gs-run-nav-row button, .gs-run-pause-btn, .gs-run-stop-btn,
+.gs-run-adjust-row button, button.gs-run-keep-btn {
+    height: var(--gs-btn-h);
     padding: 0 14px;
     display: flex;
     align-items: center;
     justify-content: center;
-}
-/* Pause à gauche (l'action principale pendant le guidage, mais pas besoin qu'elle occupe toute la
-   largeur) et Arrêter, plus discret, à sa droite. */
-.gs-run-pausestop-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-.gs-run-pause-btn { flex: 1; height: 40px; font-size: var(--fs-sm); }
-.gs-run-stop-btn { flex: none; height: 40px; padding: 0 14px; font-size: var(--fs-xs); color: var(--text-muted); }
-.gs-run-tools-row { display: flex; gap: 8px; margin-bottom: 12px; }
-.gs-run-metro-btn {
-    flex: none;
-    gap: 8px;
+    box-sizing: border-box;
     font-size: var(--fs-sm);
+}
+.gs-run-adjust-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.gs-run-adjust-row button { flex: 1; border: 1px solid var(--border); background: transparent; color: var(--text-muted); }
+.gs-run-pausestop-row, .gs-run-tools-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.gs-run-pause-btn { flex: 1; min-width: 0; }
+/* Arrêter : rouge vif pâle (même principe que le vert translucide : teinte légère + bord marqué). */
+.gs-run-stop-btn {
+    flex: none;
+    width: var(--gs-btn-compact);
+    color: #ff6b6b;
+    border-color: color-mix(in srgb, #ff6b6b 50%, var(--border));
+    background: color-mix(in srgb, #ff6b6b 12%, transparent);
+}
+.gs-run-stop-btn:hover { border-color: #ff6b6b; background: color-mix(in srgb, #ff6b6b 20%, transparent); }
+.gs-run-metro-btn {
+    flex: 1; min-width: 0;
+    gap: 8px;
     font-weight: 700;
     border-radius: 10px;
     color: var(--accent);
@@ -1712,7 +1723,8 @@ button.gs-add-step-btn { margin-top: 10px; width: 100%; height: 42px; border: 1p
     background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 .gs-run-metro-btn .icon { width: 20px; height: 20px; }
-.gs-run-links-btn { flex: 1; font-size: var(--fs-xs); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-run-links-btn { flex: none; width: var(--gs-btn-h); padding: 0; }
+.gs-run-links-btn .icon { width: 20px; height: 20px; }
 .gs-run-nav-row { display: flex; gap: 8px; }
 .gs-run-nav-row button { flex: 1; }
 
@@ -1802,7 +1814,7 @@ button.gs-yt-toggle-ex { margin-top: 8px; }
 .gs-yt-hidden { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 button.gs-yt-show-btn { height: 34px; justify-content: flex-start; padding: 0 12px; border: 1px dashed var(--border); font-size: var(--fs-xs); color: var(--text-muted); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 button.gs-yt-show-btn:hover { border-color: var(--accent); color: var(--accent); }
-button.gs-run-keep-btn { width: 100%; height: 34px; margin-bottom: 12px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent); font-size: var(--fs-xs); }
+button.gs-run-keep-btn { width: 100%; margin-bottom: 12px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent); font-size: var(--fs-xs); }
 button.gs-run-keep-btn[hidden] { display: none; }
 
 .gs-plan { margin-top: 14px; }
@@ -1833,4 +1845,4 @@ button.gs-plan-move:disabled { opacity: .3; }
     .tuner-panel .tuner-note { font-size: 80px; }
 }
 
-.gs-run-total { text-align: center; font-size: var(--fs-sm); color: var(--text-muted); font-variant-numeric: tabular-nums; margin-top: -2px; }
+.gs-run-total { text-align: center; font-size: var(--fs-sm); color: var(--text-muted); font-variant-numeric: tabular-nums; margin: -8px 0 14px; }
