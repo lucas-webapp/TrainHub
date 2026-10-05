@@ -1912,3 +1912,15 @@ button.ex-view-chip { height: 32px; padding: 0 10px; font-size: var(--fs-xs); ba
 button.ex-view-chip-on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .ex-view-count { font-size: var(--fs-xs); color: var(--text-muted); }
 .ex-view-note { flex-basis: 100%; font-size: var(--fs-2xs); color: var(--text-muted); }
+
+/* Métronome prédéfini */
+.metro-preset-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--fs-xs); }
+.metro-preset-label { font-weight: 800; text-transform: uppercase; letter-spacing: .06em; font-size: var(--fs-2xs); color: var(--text-muted); }
+.metro-preset-summary { color: var(--text-main); }
+.metro-preset-bpm { width: 64px; text-align: center; font-size: var(--fs-sm); }
+button.metro-preset-btn { height: 30px; padding: 0 10px; font-size: var(--fs-xs); }
+.gs-step-metro-badge { flex: none; font-size: var(--fs-2xs); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border)); border-radius: var(--radius-sm); padding: 1px 6px; font-variant-numeric: tabular-nums; }
+.gs-run-preset { text-align: center; font-size: var(--fs-xs); color: var(--accent); margin-top: 4px; }
+.gs-run-auto-btn { flex: none; width: var(--gs-btn-h); padding: 0; height: var(--gs-btn-h); box-sizing: border-box; }
+.gs-run-auto-btn .icon { width: 18px; height: 18px; }
+button.gs-run-auto-on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 16%, transparent); }
