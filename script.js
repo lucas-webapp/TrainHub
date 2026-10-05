@@ -5745,6 +5745,10 @@
             var volOptions = [["auto", "Automatique (volume de YouTube)"]];
             for (var vv = 10; vv <= 100; vv += 10) volOptions.push([String(vv), vv + " %"]);
             var curStartVol = getYtStartVolume();
+            panel.appendChild(selectField("Barres de réglage (temps, volume, vitesse)", [["1", "Affichées"], ["0", "Masquées"]], ytBarsEnabled() ? "1" : "0", function (v) {
+                setYtBarsEnabled(v === "1");
+                document.dispatchEvent(new Event("trainhub-yt-bars")); // les vidéos déjà affichées se mettent à jour
+            }));
             panel.appendChild(selectField("Volume de départ", volOptions, curStartVol === null ? "auto" : String(Math.round(curStartVol / 10) * 10), function (v) {
                 setYtStartVolume(v === "auto" ? null : parseInt(v, 10));
             }));
@@ -6000,10 +6004,16 @@
     function isStandaloneApp() {
         return (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true;
     }
+    // Ouverture ESPACÉE : le premier onglet tout de suite (dans le clic), puis un de plus toutes les
+    // OPEN_TABS_DELAY_MS, dans l'ordre de la liste. Ouverts d'un seul bloc, les onglets pouvaient
+    // s'afficher dans un ordre aléatoire (celui où les pages répondent) ; tout n'a pas besoin d'être
+    // ouvert instantanément. Le délai reste court : l'autorisation d'ouvrir des onglets donnée par le
+    // clic dure quelques secondes.
+    var OPEN_TABS_DELAY_MS = 250;
     function openUrlsInTabs(urls) {
         var standalone = isStandaloneApp();
-        var blocked = 0;
-        urls.forEach(function (url) {
+        var blocked = 0, i = 0;
+        function openOne(url) {
             if (standalone) {
                 try { window.open(url, "_blank", "noopener,noreferrer"); } catch (e) { blocked++; }
                 return;
@@ -6012,12 +6022,20 @@
             try { w = window.open(url, "_blank"); } catch (e) {}
             if (!w) { blocked++; return; }
             try { w.opener = null; } catch (e) {}
-        });
-        if (blocked) {
-            showToast(blocked + " lien" + (blocked > 1 ? "s" : "") + " bloqué" + (blocked > 1 ? "s" : "") + " par le navigateur : autorisez les pop-ups pour TrainHub (icône dans la barre d'adresse) puis recommencez.", 8000);
         }
+        function finish() {
+            if (blocked) {
+                showToast(blocked + " lien" + (blocked > 1 ? "s" : "") + " bloqué" + (blocked > 1 ? "s" : "") + " par le navigateur : autorisez les pop-ups pour TrainHub (icône dans la barre d'adresse) puis recommencez.", 8000);
+            }
+        }
+        function next() {
+            openOne(urls[i++]);
+            if (i < urls.length) setTimeout(next, OPEN_TABS_DELAY_MS); else finish();
+        }
+        if (urls.length) next();
     }
 
+    // Les éléments sont ouverts dans l'ordre où ils s'affichent (exercice par exercice).
     function gsOpenItems(items) {
         var urls = [], unavailable = [], pending = [];
         items.forEach(function (item) {
@@ -6717,7 +6735,24 @@
         volRow.range.className = "gs-yt-vol";
         volRow.range.disabled = true;
         volRow.value.textContent = "–";
-        var seeking = false, volTouching = false;
+        // Vitesse : de 50 % à 125 % par pas de 5 %. La commande n'est envoyée qu'UNE fois, au relâchement
+        // du curseur (comme le temps) ; l'affichage suit ensuite la vitesse réellement appliquée par
+        // YouTube (lue dans tick), au cas où il n'accepterait que certaines valeurs.
+        var rateRow = sideRow("Vitesse");
+        rateRow.range.min = "50"; rateRow.range.max = "125"; rateRow.range.step = "5"; rateRow.range.value = "100";
+        rateRow.range.className = "gs-yt-rate";
+        rateRow.range.disabled = true;
+        rateRow.value.textContent = "–";
+        // La partie « remplie » de la barre se règle via --p (pourcentage de la course).
+        function fillRange(r) {
+            var span = parseFloat(r.max) - parseFloat(r.min);
+            r.style.setProperty("--p", (span > 0 ? (parseFloat(r.value) - parseFloat(r.min)) / span * 100 : 0) + "%");
+        }
+        [seekRow.range, volRow.range, rateRow.range].forEach(function (r) {
+            fillRange(r);
+            r.addEventListener("input", function () { fillRange(r); });
+        });
+        var seeking = false, volTouching = false, rateTouching = false;
         function fmtTime(sec) {
             sec = Math.max(0, Math.floor(sec || 0));
             var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
@@ -6745,7 +6780,16 @@
             }
         });
         volRow.range.addEventListener("change", function () { volTouching = false; });
-        window.addEventListener("pointerup", function () { seeking = false; volTouching = false; });
+        rateRow.range.addEventListener("pointerdown", function () { rateTouching = true; });
+        rateRow.range.addEventListener("input", function () {
+            rateTouching = true; // affichage seulement pendant le déplacement : aucune commande
+            rateRow.value.textContent = rateRow.range.value + " %";
+        });
+        rateRow.range.addEventListener("change", function () {
+            rateTouching = false;
+            if (ytPlayer && ytPlayer.setPlaybackRate) ytPlayer.setPlaybackRate(parseInt(rateRow.range.value, 10) / 100);
+        });
+        window.addEventListener("pointerup", function () { seeking = false; volTouching = false; rateTouching = false; });
         var tickTimer = null;
         function tick() {
             if (!card.isConnected) { clearInterval(tickTimer); tickTimer = null; return; } // carte retirée de la page
@@ -6757,6 +6801,7 @@
                     seekRow.range.disabled = false;
                     if (!seeking) {
                         seekRow.range.value = String(Math.min(1000, Math.round(cur / dur * 1000)));
+                        fillRange(seekRow.range);
                         seekRow.value.textContent = fmtTime(cur) + " / " + fmtTime(dur);
                     }
                 }
@@ -6765,7 +6810,17 @@
                     if (!volTouching) {
                         var vol = (ytPlayer.isMuted && ytPlayer.isMuted()) ? 0 : ytPlayer.getVolume();
                         volRow.range.value = String(vol);
+                        fillRange(volRow.range);
                         volRow.value.textContent = vol + " %";
+                    }
+                }
+                if (ytPlayer.getPlaybackRate) {
+                    rateRow.range.disabled = false;
+                    if (!rateTouching) {
+                        var pr = Math.round((ytPlayer.getPlaybackRate() || 1) * 100);
+                        rateRow.range.value = String(Math.round(pr / 5) * 5); // borné à la course de la barre
+                        fillRange(rateRow.range);
+                        rateRow.value.textContent = pr + " %";
                     }
                 }
             } catch (e) { /* lecteur pas encore prêt : on réessaie au prochain passage */ }

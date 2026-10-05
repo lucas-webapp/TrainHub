@@ -1718,15 +1718,37 @@ button.gs-edit-links-btn:hover, button.gs-pdf-btn:hover { border-color: var(--ac
 .gs-yt-title { flex: 1; min-width: 0; font-weight: 700; font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gs-yt-btn { flex: none; height: 32px; padding: 0 10px; border: 1px solid var(--border); font-size: var(--fs-2xs); display: inline-flex; align-items: center; text-decoration: none; color: inherit; }
 .gs-yt-btn:hover { border-color: var(--accent); color: var(--accent); }
-.gs-yt-body { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; }
-.gs-yt-body .gs-yt-frame { flex: 1 1 520px; min-width: 0; width: auto; }
-.gs-yt-side { flex: 0 0 150px; display: flex; flex-direction: column; gap: 14px; padding-top: 4px; }
-.gs-yt-side-row { display: flex; flex-direction: column; gap: 4px; }
-.gs-yt-side-head { display: flex; justify-content: space-between; gap: 6px; font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
-.gs-yt-side-value { text-transform: none; letter-spacing: 0; font-variant-numeric: tabular-nums; color: var(--text-main); }
-.gs-yt-side input[type=range] { width: 100%; margin: 0; }
+/* Disposition selon la LARGEUR DE LA CARTE (container query) : assez large = vidéo + barres sur le
+   côté ; plus étroite (par ex. métronome accroché à droite) = barres en rangée sous la vidéo. */
+.gs-yt-card { container-type: inline-size; container-name: ytcard; }
+.gs-yt-body { display: flex; flex-direction: column; gap: 10px; }
+.gs-yt-body .gs-yt-frame { width: 100%; }
+.gs-yt-side { display: grid; grid-template-columns: repeat(auto-fit, minmax(98px, 1fr)); gap: 8px 14px; padding: 2px 2px 0; }
+.gs-yt-side-row { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.gs-yt-side-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; font-size: 11px; line-height: 1.2; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+.gs-yt-side-value { text-transform: none; letter-spacing: 0; font-variant-numeric: tabular-nums; color: var(--text-main); font-size: 12px; }
+@container ytcard (min-width: 720px) {
+    .gs-yt-body { flex-direction: row; align-items: stretch; }
+    .gs-yt-body .gs-yt-frame { flex: 1 1 auto; width: auto; min-width: 0; }
+    /* Barres réparties sur toute la hauteur de la vidéo, un peu plus larges pour bien régler. */
+    .gs-yt-side { flex: 0 0 240px; display: flex; flex-direction: column; justify-content: space-around; gap: 10px; padding: 4px 2px; }
+}
+/* Barres : la course va exactement d'un bout à l'autre (pas de marge interne, ce que les champs de saisie
+   du reste de l'appli ajoutaient), curseur qui touche les extrémités à 0 % et à 100 %. */
+.gs-yt-side input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 18px; margin: 0; padding: 0; border: none; border-radius: 0; background: transparent;
+    cursor: pointer; --p: 0%; --bar: #4dabf7;
+}
+.gs-yt-side input[type=range]:focus { outline: none; }
+.gs-yt-side input[type=range]:disabled { opacity: .45; cursor: default; }
+.gs-yt-side input[type=range]::-webkit-slider-runnable-track { height: 5px; border-radius: 3px; background: linear-gradient(to right, var(--bar) var(--p), #3a3f47 var(--p)); }
+.gs-yt-side input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; margin-top: -5.5px; border-radius: 50%; background: #fff; border: none; box-shadow: 0 1px 4px rgba(0,0,0,.6); }
+.gs-yt-side input[type=range]::-moz-range-track { height: 5px; border-radius: 3px; background: #3a3f47; }
+.gs-yt-side input[type=range]::-moz-range-progress { height: 5px; border-radius: 3px; background: var(--bar); }
+.gs-yt-side input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: #fff; border: none; box-shadow: 0 1px 4px rgba(0,0,0,.6); }
+.gs-yt-side input[type=range]:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--accent); outline-offset: 1px; }
 .gs-yt-card.gs-yt-bars-off .gs-yt-side { display: none; }
-.gs-yt-card.gs-yt-bars-off .gs-yt-body .gs-yt-frame { flex-basis: 100%; }
 .gs-yt-btn.gs-yt-bars-btn { padding: 0 9px; }
 .gs-yt-btn.gs-yt-bars-btn-on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
 .gs-yt-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: var(--radius-sm); overflow: hidden; }
@@ -1744,7 +1766,7 @@ button.gs-edit-links-btn:hover, button.gs-pdf-btn:hover { border-color: var(--ac
     margin: 0;
     box-shadow: 0 0 0 100vmax rgba(0,0,0,.65);
 }
-.gs-yt-card.gs-yt-large .gs-yt-body { flex: 1; min-height: 0; flex-wrap: nowrap; }
+.gs-yt-card.gs-yt-large .gs-yt-body { flex: 1; min-height: 0; }
 .gs-yt-card.gs-yt-large .gs-yt-body .gs-yt-frame { flex: 1; align-self: stretch; min-height: 0; aspect-ratio: auto; }
 @media (min-width: 1100px) {
     html.metro-docked .gs-yt-card.gs-yt-large { right: calc(clamp(380px, 32vw, 440px) + 32px); }
@@ -1752,7 +1774,7 @@ button.gs-edit-links-btn:hover, button.gs-pdf-btn:hover { border-color: var(--ac
 button.gs-yt-toggle { width: 100%; height: 36px; margin-top: 14px; justify-content: flex-start; padding: 0 12px; border: 1px solid var(--border); font-size: var(--fs-xs); font-weight: 700; text-align: left; }
 .gs-yt-toggle + .gs-yt-card { margin-top: 8px; }
 /* Dans la liste des exercices : lecteur en petit. */
-.gs-yt-card.gs-yt-small { max-width: 800px; }
+.gs-yt-card.gs-yt-small { max-width: 960px; }
 button.gs-yt-toggle-ex { margin-top: 8px; }
 .gs-yt-hidden { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 button.gs-yt-show-btn { height: 34px; justify-content: flex-start; padding: 0 12px; border: 1px dashed var(--border); font-size: var(--fs-xs); color: var(--text-muted); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
