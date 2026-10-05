@@ -3621,19 +3621,94 @@
         if (bar) root.style.setProperty("--topbar-h", bar.offsetHeight + "px");
         if ($metroDock && !$metroDock.hidden) root.style.setProperty("--metro-dock-h", $metroDock.offsetHeight + "px");
     }
+    // ---- taille réglable du volet (largeur et hauteur) ----
+    // En colonne à droite : poignée sur le bord gauche (largeur) et sur le bord bas (hauteur) ; la zone
+    // principale, en flex, suit toute seule. En bandeau en bas : poignée sur le bord haut (hauteur).
+    // Le contenu du métronome se met à l'échelle pour tenir dans la taille choisie (voir
+    // fitPanelContentZoom). Taille retenue sur cet appareil ; double-clic sur une poignée = taille d'origine.
+    var METRO_DOCK_SIZE_KEY = "trainhub.metroDockSize.v1";
+    function loadMetroDockSize() {
+        try { return JSON.parse(localStorage.getItem(METRO_DOCK_SIZE_KEY)) || {}; } catch (e) { return {}; }
+    }
+    function saveMetroDockSize(sz) {
+        try { localStorage.setItem(METRO_DOCK_SIZE_KEY, JSON.stringify(sz)); } catch (e) {}
+    }
+    function metroDockIsBottom() { return window.matchMedia && window.matchMedia("(max-width: 1099px)").matches; }
+    function applyMetroDockSize() {
+        if (!$metroDock) return;
+        var sz = loadMetroDockSize(), st = $metroDock.style;
+        var topbar = (document.querySelector(".top-bar") || { offsetHeight: 64 }).offsetHeight;
+        ["--metro-dock-w", "--metro-panel-h", "--metro-dock-max-h"].forEach(function (v) { st.removeProperty(v); });
+        if (metroDockIsBottom()) {
+            if (typeof sz.bh === "number") {
+                var bmax = Math.round(window.innerHeight * 0.85);
+                st.setProperty("--metro-panel-h", Math.min(bmax, Math.max(150, sz.bh)) + "px");
+                st.setProperty("--metro-dock-max-h", bmax + "px");
+            }
+        } else {
+            if (typeof sz.w === "number") st.setProperty("--metro-dock-w", Math.min(Math.round(window.innerWidth * 0.6), 760, Math.max(300, sz.w)) + "px");
+            if (typeof sz.h === "number") {
+                var smax = window.innerHeight - topbar - 28;
+                st.setProperty("--metro-panel-h", Math.min(smax, Math.max(220, sz.h)) + "px");
+                st.setProperty("--metro-dock-max-h", smax + "px");
+            }
+        }
+        updateMetroDockMetrics();
+    }
+    function makeMetroDockGrip(kind, panel) {
+        var grip = document.createElement("div");
+        grip.className = "metro-dock-grip metro-dock-grip-" + kind;
+        grip.title = (kind === "w" ? "Glisser pour élargir ou rétrécir le métronome" : "Glisser pour agrandir ou réduire la hauteur du métronome") + " (double-clic : taille d'origine)";
+        var startX = 0, startY = 0, startW = 0, startH = 0, dragging = false;
+        grip.addEventListener("pointerdown", function (e) {
+            if (e.button !== undefined && e.button !== 0) return;
+            e.preventDefault();
+            dragging = true;
+            startX = e.clientX; startY = e.clientY;
+            startW = $metroDock.getBoundingClientRect().width;
+            startH = panel.getBoundingClientRect().height;
+            try { grip.setPointerCapture(e.pointerId); } catch (err) {}
+            document.documentElement.classList.add("metro-dock-resizing");
+        });
+        grip.addEventListener("pointermove", function (e) {
+            if (!dragging) return;
+            var sz = loadMetroDockSize();
+            if (kind === "w") sz.w = startW + (startX - e.clientX); // bord gauche : tirer vers la gauche élargit
+            else if (metroDockIsBottom()) sz.bh = startH + (startY - e.clientY); // bord haut du bandeau
+            else sz.h = startH + (e.clientY - startY); // bord bas de la colonne
+            saveMetroDockSize(sz);
+            applyMetroDockSize();
+        });
+        function stop() { dragging = false; document.documentElement.classList.remove("metro-dock-resizing"); }
+        grip.addEventListener("pointerup", stop);
+        grip.addEventListener("pointercancel", stop);
+        grip.addEventListener("dblclick", function () {
+            var sz = loadMetroDockSize();
+            if (kind === "w") delete sz.w; else if (metroDockIsBottom()) delete sz.bh; else delete sz.h;
+            saveMetroDockSize(sz);
+            applyMetroDockSize();
+        });
+        return grip;
+    }
+
     function attachMetroDock(panel) {
         $metroDock.appendChild(panel);
+        $metroDock.appendChild(makeMetroDockGrip("w", panel));
+        $metroDock.appendChild(makeMetroDockGrip("h", panel));
         $metroDock.hidden = false;
         document.documentElement.classList.add("metro-docked");
-        updateMetroDockMetrics();
+        applyMetroDockSize();
     }
     function releaseMetroDock() {
         closeDockedMetronome = null;
-        if ($metroDock) $metroDock.hidden = true;
+        if ($metroDock) {
+            $metroDock.hidden = true;
+            Array.prototype.forEach.call($metroDock.querySelectorAll(".metro-dock-grip"), function (g) { g.remove(); });
+        }
         document.documentElement.classList.remove("metro-docked");
         document.documentElement.style.removeProperty("--metro-dock-h");
     }
-    window.addEventListener("resize", updateMetroDockMetrics);
+    window.addEventListener("resize", function () { if ($metroDock && !$metroDock.hidden) applyMetroDockSize(); else updateMetroDockMetrics(); });
     if ($metroDock && typeof ResizeObserver !== "undefined") new ResizeObserver(updateMetroDockMetrics).observe($metroDock);
 
     // ---------- taille des fenêtres flottantes (redimensionnables à la main) ----------

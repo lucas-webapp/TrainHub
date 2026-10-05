@@ -1432,7 +1432,7 @@ button.scales-more-btn { min-width: 44px; padding: 0 10px; font-size: var(--fs-m
     --metro-dock-max-h: calc(100vh - var(--topbar-h, 64px) - 28px);
     flex: none;
     /* 380px minimum : c'est la largeur dont a besoin la rangée −10 / − / cadran / + / +10. */
-    width: clamp(380px, 32vw, 440px);
+    width: var(--metro-dock-w, clamp(380px, 32vw, 440px));
     align-self: flex-start;
     position: sticky;
     top: calc(var(--topbar-h, 64px) + 12px);
@@ -1442,7 +1442,7 @@ button.scales-more-btn { min-width: 44px; padding: 0 10px; font-size: var(--fs-m
 .metro-dock .backups-panel.panel-docked {
     position: static !important;
     top: auto !important; left: auto !important; right: auto !important; bottom: auto !important;
-    width: 100% !important; height: auto !important;
+    width: 100% !important; height: var(--metro-panel-h, auto) !important;
     min-width: 0 !important; min-height: 0 !important;
     max-width: none !important;
     max-height: var(--metro-dock-max-h) !important;
@@ -1468,6 +1468,16 @@ html.metro-docked .main { min-width: 0; }
 }
 /* En colonne il y a toute la hauteur : pas de réduction possible (le bouton n'apparaît qu'en bandeau). */
 .panel-dock-collapse { display: none; }
+/* Poignées de redimensionnement du volet (voir makeMetroDockGrip) : zones fines sur les bords, invisibles
+   jusqu'au survol. */
+.metro-dock-grip { position: absolute; z-index: 3; touch-action: none; }
+.metro-dock-grip::after { content: ""; position: absolute; border-radius: 3px; background: var(--accent); opacity: 0; transition: opacity .12s ease; }
+.metro-dock-grip:hover::after, html.metro-dock-resizing .metro-dock-grip::after { opacity: .8; }
+.metro-dock-grip-w { left: -8px; top: 0; bottom: 0; width: 14px; cursor: ew-resize; }
+.metro-dock-grip-w::after { left: 5px; top: 18px; bottom: 18px; width: 3px; }
+.metro-dock-grip-h { left: 0; right: 0; bottom: -8px; height: 14px; cursor: ns-resize; }
+.metro-dock-grip-h::after { left: 18px; right: 18px; top: 5px; height: 3px; }
+html.metro-dock-resizing, html.metro-dock-resizing * { -webkit-user-select: none; user-select: none; }
 button.panel-dock-close, button.panel-dock-collapse, button.metro-pin-btn {
     flex: none;
     box-sizing: border-box;
@@ -1512,6 +1522,10 @@ button.metro-pin-btn.metro-pin-on { color: var(--accent); }
         max-width: 560px !important;
         box-shadow: 0 -4px 18px rgba(0,0,0,.45);
     }
+    .metro-dock-grip-w { display: none; }
+    .metro-dock-grip-h { bottom: auto; top: -6px; left: 8px; right: 8px; }
+    .metro-dock-grip-h::after { top: 5px; }
+    .metro-dock .backups-panel.panel-docked.panel-dock-collapsed { height: auto !important; }
     /* Marge sous la zone principale = hauteur du bandeau, pour pouvoir défiler jusqu'au bas. */
     html.metro-docked .layout { padding-bottom: calc(var(--metro-dock-h, 0px) + 12px); }
     /* Défilement vers un élément (focus, clavier) : s'arrête au-dessus du bandeau et sous la barre du haut. */
