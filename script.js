@@ -108,6 +108,8 @@
             if (!Array.isArray(ex.files)) ex.files = [];
             // Images (captures de partition…) : métadonnées ici, contenu dans IndexedDB comme les fichiers.
             if (!Array.isArray(ex.images)) ex.images = [];
+            // Métronome prédéfini de l'exercice (réglage complet, voir snapshotMetronome) ou absent.
+            if (!ex.metronome || typeof ex.metronome !== "object") ex.metronome = null;
             // Remplace les statuts (à faire/en cours/terminé/à revoir), jugés trop compliqués au
             // quotidien : juste deux cases à cocher, accessibles par clic droit/appui long.
             if (typeof ex.favorite !== "boolean") ex.favorite = false;
@@ -1036,6 +1038,7 @@
             links: cloneLinksForDuplicate(ex.links),
             files: cloneFilesForDuplicate(ex.files),
             images: cloneFilesForDuplicate(ex.images),
+            metronome: ex.metronome ? JSON.parse(JSON.stringify(ex.metronome)) : null,
             pinnedLinkId: null,
             collapsed: true,
             updatedAt: Date.now()
@@ -3258,6 +3261,10 @@
         addLinkRow.appendChild(makeAddFileButton(ex));
         details.appendChild(addLinkRow);
 
+        details.appendChild(buildMetronomePresetRow({
+            get: function () { return ex.metronome; },
+            set: function (p) { setExerciseMetronome(ex, p); }
+        }));
         details.appendChild(buildImagesSection(ex));
         bindImagePaste(details, ex);
 
@@ -4819,6 +4826,115 @@
         setMetroDockPref(toDock ? "1" : "0");
         openMetronomePanel();
         if (wasPlaying && metroPanelApi) metroPanelApi.toggle();
+    }
+
+    // ---------- métronome prédéfini (exercices et sessions) ----------
+    // Un préréglage = une copie des réglages du métronome (tempo, mesure, pavé, progressif, entraînement).
+    // Il se rattache à un exercice (ex.metronome) et, pour une session, peut être surchargé pour un pas
+    // précis (step.metronome). Pendant une session, le préréglage du pas (sinon celui de l'exercice) est
+    // appliqué au métronome à chaque changement d'exercice.
+    var METRO_PRESET_KEYS = ["bpm", "beatsPerMeasure", "rhythmLabel", "subdivision", "advanced", "pattern", "beatPattern", "progressive", "training"];
+    function cloneJson(o) { return JSON.parse(JSON.stringify(o)); }
+    function snapshotMetronome() {
+        var m = state.settings.metronome, o = {};
+        METRO_PRESET_KEYS.forEach(function (k) { o[k] = m[k] === undefined ? null : cloneJson(m[k]); });
+        return o;
+    }
+    function applyMetronomePresetToSettings(p) {
+        var m = state.settings.metronome;
+        METRO_PRESET_KEYS.forEach(function (k) {
+            if (p[k] !== undefined && p[k] !== null) m[k] = cloneJson(p[k]);
+            else if (k === "rhythmLabel") m.rhythmLabel = null;
+        });
+        normalizeMetronomeSettings(state.settings);
+        persist();
+    }
+    function metroPresetSummary(p) {
+        var parts = [p.bpm + " BPM", p.rhythmLabel && p.rhythmLabel !== "None" ? p.rhythmLabel : (p.beatsPerMeasure + " temps")];
+        if (p.advanced) parts.push("détaillé");
+        if (p.progressive && p.progressive.enabled) parts.push("progressif");
+        if (p.training && p.training.enabled) parts.push("entraînement");
+        return parts.join(" · ");
+    }
+    function gsEffectiveMetronome(step, ex) { return step.metronome || (ex && ex.metronome) || null; }
+
+    // Applique un préréglage. Le panneau du métronome (s'il est ouvert) est rouvert pour refléter les
+    // nouveaux réglages ; un métronome qui jouait continue de jouer. opts.open : ouvrir le panneau ;
+    // opts.play : lancer la lecture.
+    function loadMetronomePreset(preset, opts) {
+        opts = opts || {};
+        var wasOpen = !!metroPanelApi, wasPlaying = metroPlaying;
+        if (wasOpen) {
+            if (closeDockedMetronome) closeDockedMetronome();
+            else if (closeActiveModal && activeModalKind === "metronome-panel") closeActiveModal();
+        }
+        applyMetronomePresetToSettings(preset);
+        if (wasOpen || opts.open) openMetronomePanel();
+        if ((wasPlaying || opts.play) && metroPanelApi && !metroPlaying) metroPanelApi.toggle();
+    }
+
+    // Ligne « Métronome » d'un exercice ou d'un pas de session.
+    // cfg : get() -> préréglage propre ; inherited() -> préréglage hérité (facultatif) ; set(preset|null).
+    function buildMetronomePresetRow(cfg) {
+        var row = document.createElement("div");
+        row.className = "metro-preset-row";
+        var cur = cfg.get();
+        var inh = cfg.inherited ? cfg.inherited() : null;
+        var eff = cur || inh;
+        var lab = document.createElement("span");
+        lab.className = "metro-preset-label";
+        lab.textContent = "Métronome";
+        row.appendChild(lab);
+        var sum = document.createElement("span");
+        sum.className = "metro-preset-summary";
+        sum.textContent = eff ? metroPresetSummary(eff) + (!cur && inh ? " (de l'exercice)" : "") : "aucun réglage enregistré";
+        row.appendChild(sum);
+        if (cur) {
+            var bpmIn = document.createElement("input");
+            bpmIn.type = "number";
+            bpmIn.min = "30"; bpmIn.max = "300";
+            bpmIn.className = "metro-preset-bpm";
+            bpmIn.value = cur.bpm;
+            bpmIn.title = "Tempo de ce préréglage";
+            bindScrubInput(bpmIn, 30, 300, { pxPerStep: 5, wheel: true });
+            bpmIn.addEventListener("change", function () {
+                cur.bpm = Math.min(300, Math.max(30, parseInt(bpmIn.value, 10) || cur.bpm));
+                bpmIn.value = cur.bpm;
+                cfg.set(cur);
+            });
+            row.appendChild(bpmIn);
+        }
+        function btn(text, title, fn) {
+            var b = document.createElement("button");
+            b.type = "button";
+            b.className = "metro-preset-btn";
+            b.textContent = text;
+            b.title = title;
+            b.addEventListener("click", fn);
+            row.appendChild(b);
+            return b;
+        }
+        btn("Enregistrer le réglage actuel", "Enregistrer les réglages actuels du métronome (tempo, mesure, progressif, entraînement…)", function () { cfg.set(snapshotMetronome()); });
+        if (eff) btn("▶", "Charger ce réglage dans le métronome et le lancer", function () { loadMetronomePreset(eff, { open: true, play: true }); });
+        if (cur) btn("✕", "Retirer ce réglage", function () { cfg.set(null); });
+        return row;
+    }
+
+    // Mise à jour d'un préréglage d'exercice : propose de répercuter sur les sessions qui en avaient déjà un.
+    function setExerciseMetronome(ex, preset) {
+        ex.metronome = preset;
+        touchExercise(ex);
+        if (preset) {
+            var steps = [];
+            state.settings.guidedSessions.forEach(function (gs) {
+                gs.steps.forEach(function (st) { if (st.exerciseId === ex.id && st.metronome) steps.push(st); });
+            });
+            if (steps.length && window.confirm("Dans les sessions, " + steps.length + " pas de cet exercice ont un métronome prédéfini. Les mettre à jour avec ce réglage ?")) {
+                steps.forEach(function (st) { st.metronome = cloneJson(preset); });
+            }
+        }
+        save();
+        render();
     }
 
     function openMetronomePanel() {
@@ -6565,6 +6681,38 @@
     var gsRunAllocatedSec = 0, gsRunElapsedMs = 0, gsRunStartTs = null, gsRunPaused = true, gsRunInterval = null;
     // Chrono de la session entière : cumule tous les exercices, s'arrête en pause et repart à la reprise.
     var gsTotalMs = 0, gsTotalStartTs = null;
+    // Enchaînement automatique : à la fin du temps d'un exercice, on passe au suivant ; un petit carillon
+    // doux prévient 10 s avant. Réglage propre à l'appareil.
+    var GS_AUTO_KEY = "trainhub.gsAuto.v1";
+    var GS_WARN_SECONDS = 10;
+    var gsWarnKey = null; // "<pas>:warn" / "<pas>:end" : évite de rejouer le même carillon
+    function gsAutoAdvanceOn() { try { return localStorage.getItem(GS_AUTO_KEY) === "1"; } catch (e) { return false; } }
+    function setGsAutoAdvance(on) { try { localStorage.setItem(GS_AUTO_KEY, on ? "1" : "0"); } catch (e) {} }
+    // Carillon : notes sinusoïdales à attaque lente et longue résonance, volume modeste (pas stressant).
+    function playSoftChime(kind) {
+        try {
+            var ctx = ensureMetroAudio();
+            var out = ctx.createGain();
+            out.gain.value = 0.5;
+            out.connect(ctx.destination);
+            var notes = kind === "warn" ? [[659.25, 0], [523.25, 0.45]] : kind === "go" ? [[523.25, 0], [783.99, 0.25]] : [[523.25, 0], [392, 0.4]];
+            var t0 = ctx.currentTime + 0.05;
+            notes.forEach(function (n) {
+                [[1, 0.16], [2, 0.04]].forEach(function (h) {
+                    var osc = ctx.createOscillator(), g = ctx.createGain();
+                    osc.type = "sine";
+                    osc.frequency.value = n[0] * h[0];
+                    var t = t0 + n[1];
+                    g.gain.setValueAtTime(0.0001, t);
+                    g.gain.linearRampToValueAtTime(h[1], t + 0.05);
+                    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.6);
+                    osc.connect(g); g.connect(out);
+                    osc.start(t); osc.stop(t + 1.7);
+                });
+            });
+        } catch (e) {}
+    }
+
     var gsRefreshRunUi = null; // remet à jour bouton Pause/Reprendre + chrono de l'écran de guidage affiché (raccourci Espace)
     var gsLinksChecked = {}; // clé "link:<id>"/"file:<id>" -> coché ou non, le temps de l'écran
     // L'écran des liens/PJ s'ouvre aussi AVANT de lancer la session (depuis la liste ou l'édition) :
@@ -7164,6 +7312,14 @@
                 label.className = "gs-step-label" + (found ? "" : " gs-step-missing");
                 label.textContent = found ? found.ex.title : "(exercice supprimé)";
                 row.appendChild(label);
+                var effMetro = gsEffectiveMetronome(step, found && found.ex);
+                if (effMetro) {
+                    var metroBadge = document.createElement("span");
+                    metroBadge.className = "gs-step-metro-badge";
+                    metroBadge.textContent = "♩ " + effMetro.bpm;
+                    metroBadge.title = "Métronome prédéfini : " + metroPresetSummary(effMetro);
+                    row.appendChild(metroBadge);
+                }
                 var minutesInput = document.createElement("input");
                 minutesInput.type = "number";
                 minutesInput.min = "1";
@@ -7202,6 +7358,19 @@
                 if (detailsOpen) {
                     var details = document.createElement("div");
                     details.className = "gs-step-details";
+                    details.appendChild(buildMetronomePresetRow({
+                        get: function () { return step.metronome || null; },
+                        inherited: function () { return found && found.ex.metronome ? found.ex.metronome : null; },
+                        set: function (p) {
+                            if (p) step.metronome = p; else delete step.metronome;
+                            if (p && found && !found.ex.metronome && window.confirm("Enregistrer aussi ce métronome dans l'exercice « " + found.ex.title + " » (pour ses prochaines utilisations hors session) ?")) {
+                                found.ex.metronome = cloneJson(p);
+                                touchExercise(found.ex);
+                            }
+                            save();
+                            renderSteps();
+                        }
+                    }));
                     var noteLabel = document.createElement("div");
                     noteLabel.className = "section-label";
                     noteLabel.textContent = "Note pour cet exercice (affichée pendant la session)";
@@ -7399,6 +7568,7 @@
 
     // ---- écran de guidage (lecture) ----
     function gsStartRun(session) {
+        if (gsAutoAdvanceOn()) { try { ensureMetroAudio(); } catch (e) {} } // le clic de lancement autorise le son du carillon
         gsRunSession = session;
         gsRunStepIndex = 0;
         gsTotalMs = 0; gsTotalStartTs = null;
@@ -7408,6 +7578,11 @@
     }
 
     function gsEnterRunStep() {
+        var enteredStep = gsRunSession.steps[gsRunStepIndex];
+        var enteredFound = findExerciseById(enteredStep.exerciseId);
+        var presetForStep = gsEffectiveMetronome(enteredStep, enteredFound && enteredFound.ex);
+        if (presetForStep) loadMetronomePreset(presetForStep, {});
+        gsWarnKey = null;
         gsRunAllocatedSec = gsRunSession.steps[gsRunStepIndex].minutes * 60;
         gsRunElapsedMs = 0;
         gsRunStartTs = Date.now();
@@ -7876,6 +8051,27 @@
         content.appendChild(wrap);
     }
 
+    // Appelée à chaque rafraîchissement du chrono : carillon d'avertissement, puis passage au suivant.
+    function gsAutoAdvanceTick(remaining, step, session) {
+        if (!gsAutoAdvanceOn() || gsRunPaused || gsRunSession !== session || session.steps[gsRunStepIndex] !== step) return;
+        var key = step.id + ":" + gsRunStepIndex;
+        if (remaining > GS_WARN_SECONDS) { if (gsWarnKey === key + ":warn") gsWarnKey = null; return; }
+        if (remaining > 0) {
+            if (gsWarnKey !== key + ":warn") { gsWarnKey = key + ":warn"; playSoftChime("warn"); }
+            return;
+        }
+        if (gsWarnKey === key + ":end") return;
+        if (gsRunStepIndex < session.steps.length - 1) {
+            playSoftChime("go");
+            gsRunStepIndex++;
+            gsEnterRunStep();
+            render();
+        } else {
+            gsWarnKey = key + ":end";
+            playSoftChime("end"); // dernier exercice : on prévient, sans fermer la session
+        }
+    }
+
     function renderGsRunScreen(content) {
         var session = gsRunSession;
         var step = session.steps[gsRunStepIndex];
@@ -7892,6 +8088,15 @@
         exTitle.className = "gs-run-title";
         exTitle.textContent = found ? found.ex.title : "(exercice supprimé)";
         content.appendChild(exTitle);
+
+        var presetNow = gsEffectiveMetronome(step, found && found.ex);
+        if (presetNow) {
+            var presetLine = document.createElement("div");
+            presetLine.className = "gs-run-preset";
+            presetLine.textContent = "♩ " + metroPresetSummary(presetNow);
+            presetLine.title = "Réglage du métronome prédéfini pour cet exercice (appliqué au changement d'exercice)";
+            content.appendChild(presetLine);
+        }
 
         // Les liens/fichiers de l'exercice en cours sont visibles tout de suite (pas besoin de
         // cliquer sur "Ouvrir liens/pièces jointes", qui ne sert qu'à ouvrir d'un coup ceux de
@@ -7933,6 +8138,7 @@
             timerEl.textContent = (overtime ? "+" : "") + (mm < 10 ? "0" : "") + mm + ":" + (ss < 10 ? "0" : "") + ss;
             timerEl.classList.toggle("gs-run-timer-overtime", overtime);
             totalEl.textContent = "Total " + gsFormatTotal(gsTotalNowMs());
+            gsAutoAdvanceTick(remaining, step, session);
         }
         refreshTimer();
         if (gsRunInterval) clearInterval(gsRunInterval);
@@ -8022,6 +8228,26 @@
         linksBtn.setAttribute("aria-label", "Liens et pièces jointes de toute la session");
         linksBtn.addEventListener("click", function () { gsOpenLinks(gsRunSession, "run"); });
         toolsRow.appendChild(linksBtn);
+
+        var autoBtn = document.createElement("button");
+        autoBtn.type = "button";
+        autoBtn.className = "gs-run-auto-btn";
+        autoBtn.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M5 4l10 8-10 8z"/><path d="M19 5v14" fill="none" stroke-linecap="round"/></svg>';
+        function refreshAutoBtn() {
+            var on = gsAutoAdvanceOn();
+            autoBtn.classList.toggle("gs-run-auto-on", on);
+            autoBtn.setAttribute("aria-pressed", on ? "true" : "false");
+            autoBtn.title = on ? "Enchaînement automatique activé (carillon 10 s avant) — cliquer pour désactiver" : "Passer automatiquement à l'exercice suivant à la fin du temps (carillon 10 s avant)";
+        }
+        refreshAutoBtn();
+        autoBtn.addEventListener("click", function () {
+            setGsAutoAdvance(!gsAutoAdvanceOn());
+            if (gsAutoAdvanceOn()) ensureMetroAudio(); // réveille l'audio pendant ce clic (autorisé par le navigateur)
+            gsWarnKey = null;
+            refreshAutoBtn();
+            refreshTimer();
+        });
+        toolsRow.appendChild(autoBtn);
         content.appendChild(toolsRow);
 
         var navRow = document.createElement("div");
