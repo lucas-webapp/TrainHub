@@ -158,7 +158,13 @@
     // (voir findExerciseById) et s'affiche/se saute proprement au lieu de planter.
     function normalizeGuidedSessions(s) {
         if (!Array.isArray(s.settings.guidedSessions)) s.settings.guidedSessions = [];
+        // Dossiers de sessions (facultatifs, propres à chaque espace) : [{ id, name, instrumentId, collapsed }].
+        // Aucun dossier au départ ; une session sans dossier valide reste simplement à la racine.
+        if (!Array.isArray(s.settings.sessionFolders)) s.settings.sessionFolders = [];
+        s.settings.sessionFolders = s.settings.sessionFolders.filter(function (f) { return f && typeof f === "object" && typeof f.name === "string"; });
+        s.settings.sessionFolders.forEach(function (f) { if (!f.id) f.id = uid(); f.collapsed = f.collapsed === true; });
         s.settings.guidedSessions.forEach(function (gs) {
+            if (gs.folderId && !s.settings.sessionFolders.some(function (f) { return f.id === gs.folderId; })) delete gs.folderId;
             if (!gs.id) gs.id = uid();
             if (typeof gs.name !== "string" || !gs.name.trim()) gs.name = "Session guidée";
             if (!Array.isArray(gs.steps)) gs.steps = [];
@@ -416,6 +422,7 @@
         if (!entry) return;
         if (entry.type === "session") {
             if (!findById(state.instruments, entry.data.instrumentId)) entry.data.instrumentId = state.activeInstrumentId;
+            if (entry.data.folderId && !state.settings.sessionFolders.some(function (f) { return f.id === entry.data.folderId; })) delete entry.data.folderId;
             state.settings.guidedSessions.push(entry.data);
         } else {
             var inst = findById(state.instruments, entry.instrumentId) || state.instruments[0];
@@ -1557,7 +1564,7 @@
             // Au-dessus d'un dossier de l'arborescence : on le met en évidence et on ne réordonne plus.
             if (opts && opts.onDropOnTarget) {
                 var under = document.elementFromPoint ? document.elementFromPoint(e.clientX, e.clientY) : null;
-                var target = under && under.closest ? under.closest("[data-drop-folder-id]") : null;
+                var target = under && under.closest ? under.closest("[" + ((opts && opts.dropAttr) || "data-drop-folder-id") + "]") : null;
                 if (target !== hoverTarget) {
                     clearDropHover();
                     hoverTarget = target;
@@ -1610,7 +1617,7 @@
                 suppressNextClick = true;
                 setTimeout(function () { suppressNextClick = false; }, 60);
                 var r = dropTarget.getBoundingClientRect();
-                opts.onDropOnTarget(droppedEl, dropTarget.dataset.dropFolderId, r.right, r.top + r.height / 2);
+                opts.onDropOnTarget(droppedEl, dropTarget.getAttribute((opts && opts.dropAttr) || "data-drop-folder-id"), r.right, r.top + r.height / 2);
                 return;
             }
             if (dragEl && moved) {
@@ -1810,6 +1817,7 @@
             if (!window.confirm("Supprimer l'espace « " + inst.name + " », tous ses exercices et ses sessions ?")) return;
             state.instruments = state.instruments.filter(function (i) { return i.id !== instrumentId; });
             state.settings.guidedSessions = state.settings.guidedSessions.filter(function (gs) { return gs.instrumentId !== instrumentId; });
+            state.settings.sessionFolders = state.settings.sessionFolders.filter(function (f) { return f.instrumentId !== instrumentId; });
             delete navPaths[instrumentId];
             if (state.activeInstrumentId === instrumentId) state.activeInstrumentId = state.instruments[0].id;
         } else {
@@ -6543,82 +6551,187 @@
     // ---- écran liste ----
     function renderGsListScreen(content) {
         var allSessions = state.settings.guidedSessions;
+        var folders = state.settings.sessionFolders.filter(function (f) { return f.instrumentId === state.activeInstrumentId; });
         var activeInstId = state.activeInstrumentId;
         // Seules les sessions de l'espace affiché (créées à partir de ses exercices).
         var sessions = allSessions.filter(function (gs) { return gs.instrumentId === activeInstId; });
-        if (!sessions.length) {
-            var empty = document.createElement("div");
-            empty.className = "gs-empty";
-            empty.textContent = "Aucune session pour l'instant.";
-            content.appendChild(empty);
-        } else {
-            var list = document.createElement("div");
-            list.className = "gs-session-list";
-            sessions.forEach(function (session) {
-                var row = document.createElement("div");
-                row.className = "gs-session-row";
-                row.title = "Cliquer pour modifier les exercices de la session";
-                row.addEventListener("click", function (e) {
-                    if (e.target.closest("button")) return;
-                    gsEditingSession = session;
-                    gsScreen = "edit";
-                    render();
-                });
-                var info = document.createElement("div");
-                info.className = "gs-session-info";
-                var name = document.createElement("div");
-                name.className = "gs-session-name";
-                name.textContent = session.name;
-                var meta = document.createElement("div");
-                meta.className = "gs-session-meta";
-                meta.textContent = session.steps.length + " exercice" + (session.steps.length > 1 ? "s" : "") + " · " + sessionTotalMinutes(session) + " min";
-                info.appendChild(name);
-                info.appendChild(meta);
-                row.appendChild(info);
+        var folderIds = folders.map(function (f) { return f.id; });
+        function inFolder(gs, f) { return gs.folderId === f.id; }
+        var loose = sessions.filter(function (gs) { return folderIds.indexOf(gs.folderId) === -1; });
 
-                var actions = document.createElement("div");
-                actions.className = "gs-session-actions";
-                var playBtn = svgIconButton(METRO_PLAY_ICON_SVG, "Lancer cette session", function () {
-                    if (!session.steps.length) return;
-                    gsStartRun(session);
-                });
-                playBtn.classList.add("gs-session-play-btn");
-                var linksBtn = null;
-                if (gsSessionHasItems(session)) {
-                    linksBtn = svgIconButton(LINK_ICONS.link, "Ouvrir les liens et pièces jointes de la session (avant de la lancer)", function () {
-                        gsOpenLinks(session, "list");
-                    });
-                    linksBtn.classList.add("gs-session-links-btn");
-                }
-                var delBtn = iconButton("✕", "Supprimer cette session", function () {
-                    if (!window.confirm("Supprimer la session « " + session.name + " » ?")) return;
-                    addToTrash("session", session, {});
-                    allSessions.splice(allSessions.indexOf(session), 1);
-                    save();
-                    render();
-                });
-                actions.appendChild(playBtn);
-                if (linksBtn) actions.appendChild(linksBtn);
-                actions.appendChild(delBtn);
-                row.appendChild(actions);
-                list.appendChild(row);
-            });
-            content.appendChild(list);
-        }
-
-        var addBtn = document.createElement("button");
-        addBtn.type = "button";
-        addBtn.className = "btn-accent gs-add-session-btn";
-        addBtn.textContent = "+ Nouvelle session";
-        addBtn.addEventListener("click", function () {
+        function newSession(folderId) {
             var session = { id: uid(), name: "Nouvelle session", steps: [], instrumentId: activeInstId };
+            if (folderId) session.folderId = folderId;
             allSessions.push(session);
             gsEditingSession = session;
             gsScreen = "edit";
             save();
             render();
+        }
+
+        function buildRow(session) {
+            var row = document.createElement("div");
+            row.className = "gs-session-row";
+            row.dataset.reorderId = session.id;
+            row.title = "Cliquer pour modifier les exercices de la session";
+            row.addEventListener("click", function (e) {
+                if (e.target.closest("button")) return;
+                if (suppressNextClick) { suppressNextClick = false; return; }
+                gsEditingSession = session;
+                gsScreen = "edit";
+                render();
+            });
+            var info = document.createElement("div");
+            info.className = "gs-session-info";
+            var name = document.createElement("div");
+            name.className = "gs-session-name";
+            name.textContent = session.name;
+            var meta = document.createElement("div");
+            meta.className = "gs-session-meta";
+            meta.textContent = session.steps.length + " exercice" + (session.steps.length > 1 ? "s" : "") + " · " + sessionTotalMinutes(session) + " min";
+            info.appendChild(name);
+            info.appendChild(meta);
+            row.appendChild(info);
+
+            var actions = document.createElement("div");
+            actions.className = "gs-session-actions";
+            var playBtn = svgIconButton(METRO_PLAY_ICON_SVG, "Lancer cette session", function () {
+                if (!session.steps.length) return;
+                gsStartRun(session);
+            });
+            playBtn.classList.add("gs-session-play-btn");
+            var linksBtn = null;
+            if (gsSessionHasItems(session)) {
+                linksBtn = svgIconButton(LINK_ICONS.link, "Ouvrir les liens et pièces jointes de la session (avant de la lancer)", function () {
+                    gsOpenLinks(session, "list");
+                });
+                linksBtn.classList.add("gs-session-links-btn");
+            }
+            var delBtn = iconButton("✕", "Supprimer cette session", function () {
+                if (!window.confirm("Supprimer la session « " + session.name + " » ?")) return;
+                addToTrash("session", session, {});
+                allSessions.splice(allSessions.indexOf(session), 1);
+                save();
+                render();
+            });
+            actions.appendChild(playBtn);
+            if (linksBtn) actions.appendChild(linksBtn);
+            actions.appendChild(delBtn);
+            row.appendChild(actions);
+            return row;
+        }
+
+        // Une liste de lignes qui se réordonne au glisser, et dont une ligne peut être lâchée sur l'en-tête
+        // d'un dossier (ou de « Sans dossier ») pour changer de dossier.
+        function buildList(items) {
+            var list = document.createElement("div");
+            list.className = "gs-session-list";
+            items.forEach(function (gs) { list.appendChild(buildRow(gs)); });
+            setupDragReorder(list, ".gs-session-row", function () { return allSessions; }, "y", {
+                dropAttr: "data-drop-session-folder",
+                onDropOnTarget: function (el, target) {
+                    var session = allSessions.filter(function (gs) { return gs.id === el.dataset.reorderId; })[0];
+                    if (!session) return;
+                    if (target === "__root__") delete session.folderId; else session.folderId = target;
+                    save();
+                    render();
+                }
+            });
+            return list;
+        }
+
+        if (!sessions.length && !folders.length) {
+            var empty = document.createElement("div");
+            empty.className = "gs-empty";
+            empty.textContent = "Aucune session pour l'instant.";
+            content.appendChild(empty);
+        }
+
+        folders.forEach(function (folder) {
+            var mine = sessions.filter(function (gs) { return inFolder(gs, folder); });
+            var wrap = document.createElement("div");
+            wrap.className = "gs-folder";
+            var head = document.createElement("div");
+            head.className = "gs-folder-head";
+            head.setAttribute("data-drop-session-folder", folder.id);
+            var toggle = document.createElement("button");
+            toggle.type = "button";
+            toggle.className = "gs-folder-toggle";
+            toggle.setAttribute("aria-expanded", folder.collapsed ? "false" : "true");
+            var chev = document.createElement("span");
+            chev.className = "gs-folder-chev";
+            chev.textContent = folder.collapsed ? "▸" : "▾";
+            var fname = document.createElement("span");
+            fname.className = "gs-folder-name";
+            fname.textContent = folder.name;
+            var count = document.createElement("span");
+            count.className = "gs-folder-count";
+            count.textContent = String(mine.length);
+            toggle.appendChild(chev); toggle.appendChild(fname); toggle.appendChild(count);
+            toggle.addEventListener("click", function () { folder.collapsed = !folder.collapsed; persist(); render(); });
+            head.appendChild(toggle);
+            var acts = document.createElement("div");
+            acts.className = "gs-session-actions";
+            acts.appendChild(iconButton("+", "Nouvelle session dans ce dossier", function () { newSession(folder.id); }));
+            acts.appendChild(iconButton("✎", "Renommer le dossier", function () {
+                var n = window.prompt("Nom du dossier :", folder.name);
+                if (n === null || !n.trim()) return;
+                folder.name = n.trim();
+                save();
+                render();
+            }));
+            acts.appendChild(iconButton("✕", "Supprimer le dossier (les sessions sont conservées, sans dossier)", function () {
+                if (!window.confirm("Supprimer le dossier « " + folder.name + " » ? Ses sessions sont conservées.")) return;
+                mine.forEach(function (gs) { delete gs.folderId; });
+                state.settings.sessionFolders.splice(state.settings.sessionFolders.indexOf(folder), 1);
+                save();
+                render();
+            }));
+            head.appendChild(acts);
+            wrap.appendChild(head);
+            if (!folder.collapsed) {
+                if (mine.length) wrap.appendChild(buildList(mine));
+                else {
+                    var fe = document.createElement("div");
+                    fe.className = "gs-empty";
+                    fe.textContent = "Dossier vide : glisse une session ici.";
+                    wrap.appendChild(fe);
+                }
+            }
+            content.appendChild(wrap);
         });
-        content.appendChild(addBtn);
+
+        if (folders.length && (loose.length || true)) {
+            var rootHead = document.createElement("div");
+            rootHead.className = "gs-folder-head gs-folder-root";
+            rootHead.setAttribute("data-drop-session-folder", "__root__");
+            rootHead.textContent = "Sans dossier";
+            content.appendChild(rootHead);
+        }
+        if (loose.length) content.appendChild(buildList(loose));
+
+        var addRow = document.createElement("div");
+        addRow.className = "gs-add-row";
+        var addBtn = document.createElement("button");
+        addBtn.type = "button";
+        addBtn.className = "btn-accent gs-add-session-btn";
+        addBtn.textContent = "+ Nouvelle session";
+        addBtn.addEventListener("click", function () { newSession(null); });
+        addRow.appendChild(addBtn);
+        var addFolderBtn = document.createElement("button");
+        addFolderBtn.type = "button";
+        addFolderBtn.className = "gs-add-folder-btn";
+        addFolderBtn.textContent = "+ Dossier";
+        addFolderBtn.title = "Ranger les sessions par dossiers (facultatif)";
+        addFolderBtn.addEventListener("click", function () {
+            var n = window.prompt("Nom du dossier (ex. Vitesse, Gammes, Professeur) :", "");
+            if (n === null || !n.trim()) return;
+            state.settings.sessionFolders.push({ id: uid(), name: n.trim(), instrumentId: activeInstId, collapsed: false });
+            save();
+            render();
+        });
+        addRow.appendChild(addFolderBtn);
+        content.appendChild(addRow);
     }
 
     // ---- écran édition ----
@@ -6642,6 +6755,27 @@
             save();
         });
         content.appendChild(nameInput);
+
+        var sessFolders = state.settings.sessionFolders.filter(function (f) { return f.instrumentId === session.instrumentId; });
+        if (sessFolders.length) {
+            var folderSel = document.createElement("select");
+            folderSel.className = "gs-folder-select";
+            folderSel.setAttribute("aria-label", "Dossier de la session");
+            var none = document.createElement("option");
+            none.value = ""; none.textContent = "Sans dossier";
+            folderSel.appendChild(none);
+            sessFolders.forEach(function (f) {
+                var o = document.createElement("option");
+                o.value = f.id; o.textContent = f.name;
+                if (session.folderId === f.id) o.selected = true;
+                folderSel.appendChild(o);
+            });
+            folderSel.addEventListener("change", function () {
+                if (folderSel.value) session.folderId = folderSel.value; else delete session.folderId;
+                save();
+            });
+            content.appendChild(folderSel);
+        }
 
         var runBtn = document.createElement("button");
         runBtn.type = "button";
