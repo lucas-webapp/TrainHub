@@ -6498,6 +6498,21 @@
     // il reste dans l'exercice et dans l'écran des liens, et on peut le réafficher.
     var ytApiPromise = null;
 
+    // iOS/iPadOS ignorent setVolume dans un lecteur web : le volume y reste celui de l'appareil.
+    function isIosDevice() {
+        return /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    }
+
+    // Barres temps/volume à côté des vidéos : affichées par défaut, désactivables d'un clic (et alors
+    // plus aucun suivi du lecteur). Réglage propre à cet appareil.
+    var YT_BARS_KEY = "trainhub.ytBars.v1";
+    function ytBarsEnabled() {
+        try { return localStorage.getItem(YT_BARS_KEY) !== "0"; } catch (e) { return true; }
+    }
+    function setYtBarsEnabled(on) {
+        try { localStorage.setItem(YT_BARS_KEY, on ? "1" : "0"); } catch (e) {}
+    }
+
     // Les lecteurs sont-ils affichés dans la session ? Réglage d'affichage propre à cet appareil, retenu.
     var YT_SHOWN_KEY = "trainhub.ytShown.v1";
     function ytVideosShown() {
@@ -6576,7 +6591,12 @@
         sizeBtn.className = "btn-ghost gs-yt-btn gs-yt-full-btn";
         sizeBtn.textContent = "⤢ Plein écran";
         sizeBtn.title = "Afficher la vidéo en plein écran (Échap pour en sortir)";
-        function inFullscreen() { return document.fullscreenElement === frame; }
+        var ytPlayer = null; // lecteur YouTube, une fois prêt
+        // Plein écran demandé sur l'iframe de YouTube elle-même (méthode documentée) plutôt que sur notre
+        // boîte autour : c'est YouTube qui reçoit alors toute la surface. L'agencement des boutons en plein
+        // écran (réglages, volume…) reste dessiné par YouTube, hors de notre contrôle.
+        function fsTarget() { return (ytPlayer && ytPlayer.getIframe && ytPlayer.getIframe()) || frame; }
+        function inFullscreen() { var fe = document.fullscreenElement; return !!fe && (fe === frame || fe === fsTarget()); }
         function refreshSizeBtn() {
             var on = inFullscreen() || card.classList.contains("gs-yt-large");
             sizeBtn.textContent = on ? "⤡ Réduire" : "⤢ Plein écran";
@@ -6584,7 +6604,8 @@
         sizeBtn.addEventListener("click", function () {
             if (inFullscreen()) { document.exitFullscreen(); return; }
             if (card.classList.contains("gs-yt-large")) { setYtOverlay(card, false); refreshSizeBtn(); return; }
-            var req = frame.requestFullscreen ? frame.requestFullscreen() : null;
+            var ft = fsTarget();
+            var req = ft.requestFullscreen ? ft.requestFullscreen() : null;
             if (req && req.catch) req.catch(function () { setYtOverlay(card, true); refreshSizeBtn(); });
             else if (!req) { setYtOverlay(card, true); refreshSizeBtn(); }
         });
@@ -6611,23 +6632,150 @@
             hideBtn.addEventListener("click", onHide);
             head.appendChild(hideBtn);
         }
+        // Interrupteur des barres : coupe aussi toute interrogation du lecteur (voir tick ci-dessous).
+        var barsBtn = document.createElement("button");
+        barsBtn.type = "button";
+        barsBtn.className = "btn-ghost gs-yt-btn gs-yt-bars-btn";
+        barsBtn.textContent = "⏱";
+        barsBtn.setAttribute("aria-label", "Barres temps et volume");
+        function refreshBarsBtn() {
+            var on = ytBarsEnabled();
+            card.classList.toggle("gs-yt-bars-off", !on);
+            barsBtn.classList.toggle("gs-yt-bars-btn-on", on);
+            barsBtn.title = on ? "Masquer les barres temps et volume (coupe aussi leur suivi du lecteur)" : "Afficher les barres temps et volume à droite de la vidéo";
+        }
+        // Réglage commun à toutes les vidéos affichées : chaque carte se met à jour (et se désabonne quand
+        // elle n'est plus dans la page).
+        function onBarsChange() {
+            if (!card.isConnected) { document.removeEventListener("trainhub-yt-bars", onBarsChange); return; }
+            refreshBarsBtn();
+            tick();
+        }
+        document.addEventListener("trainhub-yt-bars", onBarsChange);
+        barsBtn.addEventListener("click", function () {
+            setYtBarsEnabled(!ytBarsEnabled());
+            document.dispatchEvent(new Event("trainhub-yt-bars"));
+        });
+        head.insertBefore(barsBtn, head.children[1] || null);
         card.appendChild(head);
 
+        var body = document.createElement("div");
+        body.className = "gs-yt-body";
+        card.appendChild(body);
         var target = document.createElement("div");
         frame.appendChild(target);
         var msg = document.createElement("div");
         msg.className = "gs-yt-msg";
         msg.hidden = true;
         frame.appendChild(msg);
-        card.appendChild(frame);
+        body.appendChild(frame);
+
+        // Barre de temps + volume, à droite de la vidéo (sous elle sur écran étroit). Pour caler deux
+        // vidéos l'une sur l'autre (tablature + morceau sans basse). Prudence vis-à-vis du lecteur :
+        //  - lecture seule 4 fois par seconde (position, durée, volume), uniquement onglet visible et
+        //    barres affichées ; aucune commande envoyée au démarrage ;
+        //  - une commande n'est envoyée que quand on agit : setVolume pendant qu'on déplace le curseur,
+        //    seekTo UNE fois, au relâchement de la barre de temps (comme la barre de YouTube).
+        var side = document.createElement("div");
+        side.className = "gs-yt-side";
+        body.appendChild(side);
+        function sideRow(labelText) {
+            var r = document.createElement("div");
+            r.className = "gs-yt-side-row";
+            var head2 = document.createElement("div");
+            head2.className = "gs-yt-side-head";
+            var l = document.createElement("span");
+            l.textContent = labelText;
+            var v = document.createElement("span");
+            v.className = "gs-yt-side-value";
+            head2.appendChild(l);
+            head2.appendChild(v);
+            var range = document.createElement("input");
+            range.type = "range";
+            r.appendChild(head2);
+            r.appendChild(range);
+            side.appendChild(r);
+            return { range: range, value: v };
+        }
+        var seekRow = sideRow("Temps");
+        seekRow.range.min = "0"; seekRow.range.max = "1000"; seekRow.range.value = "0"; seekRow.range.step = "1";
+        seekRow.range.className = "gs-yt-seek";
+        seekRow.range.disabled = true;
+        seekRow.value.textContent = "–:– / –:–";
+        var volRow = sideRow("Volume");
+        volRow.range.min = "0"; volRow.range.max = "100"; volRow.range.step = "1"; volRow.range.value = "100";
+        volRow.range.className = "gs-yt-vol";
+        volRow.range.disabled = true;
+        volRow.value.textContent = "–";
+        var seeking = false, volTouching = false;
+        function fmtTime(sec) {
+            sec = Math.max(0, Math.floor(sec || 0));
+            var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+            return (h ? h + ":" + (m < 10 ? "0" : "") : "") + m + ":" + (s < 10 ? "0" : "") + s;
+        }
+        function durationOf() { try { return ytPlayer && ytPlayer.getDuration ? (ytPlayer.getDuration() || 0) : 0; } catch (e) { return 0; } }
+        seekRow.range.addEventListener("pointerdown", function () { seeking = true; });
+        seekRow.range.addEventListener("input", function () {
+            seeking = true; // affichage seulement pendant qu'on déplace : aucune commande au lecteur
+            seekRow.value.textContent = fmtTime(seekRow.range.value / 1000 * durationOf()) + " / " + fmtTime(durationOf());
+        });
+        seekRow.range.addEventListener("change", function () {
+            seeking = false;
+            var dur = durationOf();
+            if (ytPlayer && ytPlayer.seekTo && dur > 0) ytPlayer.seekTo(seekRow.range.value / 1000 * dur, true);
+        });
+        volRow.range.addEventListener("pointerdown", function () { volTouching = true; });
+        volRow.range.addEventListener("input", function () {
+            volTouching = true;
+            var v = parseInt(volRow.range.value, 10);
+            volRow.value.textContent = v + " %";
+            if (ytPlayer && ytPlayer.setVolume) {
+                if (v > 0 && ytPlayer.isMuted && ytPlayer.isMuted() && ytPlayer.unMute) ytPlayer.unMute();
+                ytPlayer.setVolume(v);
+            }
+        });
+        volRow.range.addEventListener("change", function () { volTouching = false; });
+        window.addEventListener("pointerup", function () { seeking = false; volTouching = false; });
+        var tickTimer = null;
+        function tick() {
+            if (!card.isConnected) { clearInterval(tickTimer); tickTimer = null; return; } // carte retirée de la page
+            if (!ytPlayer || !ytBarsEnabled() || document.hidden) return;
+            try {
+                var dur = durationOf();
+                var cur = ytPlayer.getCurrentTime ? (ytPlayer.getCurrentTime() || 0) : 0;
+                if (dur > 0) {
+                    seekRow.range.disabled = false;
+                    if (!seeking) {
+                        seekRow.range.value = String(Math.min(1000, Math.round(cur / dur * 1000)));
+                        seekRow.value.textContent = fmtTime(cur) + " / " + fmtTime(dur);
+                    }
+                }
+                if (!isIosDevice() && ytPlayer.getVolume) {
+                    volRow.range.disabled = false;
+                    if (!volTouching) {
+                        var vol = (ytPlayer.isMuted && ytPlayer.isMuted()) ? 0 : ytPlayer.getVolume();
+                        volRow.range.value = String(vol);
+                        volRow.value.textContent = vol + " %";
+                    }
+                }
+            } catch (e) { /* lecteur pas encore prêt : on réessaie au prochain passage */ }
+        }
+        if (isIosDevice()) volRow.value.textContent = "appareil"; // iOS ignore le volume d'une page web
+        refreshBarsBtn();
+        card.appendChild(body);
 
         function showMsg(text) { msg.textContent = text; msg.hidden = false; }
         loadYouTubeApi().then(function () {
-            new window.YT.Player(target, {
+            ytPlayer = new window.YT.Player(target, {
                 width: "100%", height: "100%",
                 videoId: info.id,
                 playerVars: { playsinline: 1, rel: 0, start: info.start || 0 },
                 events: {
+                    onReady: function () {
+                        // Lecture seule ici aussi : on ne règle ni volume ni vitesse au démarrage.
+                        if (!tickTimer) tickTimer = setInterval(tick, 250);
+                        tick();
+                    },
                     onError: function () { showMsg("Cette vidéo ne peut pas être lue ici : utilisez « ↗ YouTube »."); }
                 }
             });
