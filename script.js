@@ -76,16 +76,18 @@
         return f;
     }
 
-    function makeInstrument(name, palette) {
+    // `withDefaultFolders` : chapitres pré-remplis (Technique, Gammes…). Seul l'espace « Basse » de départ
+    // en reçoit ; les autres espaces (Guitare, Piano, et tout espace créé ensuite) démarrent vides.
+    function makeInstrument(name, palette, withDefaultFolders) {
         var pal = palette || COLOR_SCHEMES.default.colors;
-        var categories = DEFAULT_CATEGORIES.map(function (catName, i) {
+        var categories = withDefaultFolders ? DEFAULT_CATEGORIES.map(function (catName, i) {
             return makeFolder(catName, pal[i % pal.length]);
-        });
+        }) : [];
         return { id: uid(), name: name, categories: categories };
     }
 
     function makeDefaultState() {
-        var instruments = DEFAULT_INSTRUMENTS.map(makeInstrument);
+        var instruments = DEFAULT_INSTRUMENTS.map(function (name, i) { return makeInstrument(name, null, i === 0); });
         return { activeInstrumentId: instruments[0].id, instruments: instruments, updatedAt: 0, settings: {} };
     }
 
@@ -188,6 +190,20 @@
         normalizeTrash(s);
         normalizeAppearanceSettings(s);
         if (!Array.isArray(s.instruments)) s.instruments = [];
+        // Une fois : les espaces autres que « Basse » n'ont plus de dossiers pré-remplis. On ne retire que
+        // les chapitres au nom d'origine encore VIDES (ni exercice ni sous-dossier) : rien de ce que
+        // l'utilisateur a rempli ne disparaît.
+        if (!s.settings.emptyDefaultFoldersPruned) {
+            s.settings.emptyDefaultFoldersPruned = true;
+            var keepInst = s.instruments.filter(function (i) { return (i.name || "").trim().toLowerCase() === "basse"; })[0] || s.instruments[0];
+            s.instruments.forEach(function (inst) {
+                if (inst === keepInst || !Array.isArray(inst.categories)) return;
+                inst.categories = inst.categories.filter(function (cat) {
+                    var isEmpty = (!cat.folders || !cat.folders.length) && (!cat.exercises || !cat.exercises.length);
+                    return !(isEmpty && DEFAULT_CATEGORIES.indexOf(cat.name) !== -1);
+                });
+            });
+        }
         s.instruments.forEach(function (inst) {
             if (!Array.isArray(inst.categories)) inst.categories = [];
             // La couleur se pose sur les grands chapitres (repérage des dossiers/sous-dossiers),
@@ -198,7 +214,35 @@
             inst.categories.forEach(normalizeFolder);
             normalizePinnedOrder(inst);
         });
+        assignSessionInstruments(s);
         return s;
+    }
+
+    // ---------- sessions propres à chaque espace ----------
+    // Chaque session appartient à un espace (gs.instrumentId) et ne s'affiche que dans celui-ci. Les
+    // sessions créées avant cette règle sont rattachées à l'espace qui contient le plus de leurs
+    // exercices (à défaut, au premier espace).
+    function assignSessionInstruments(s) {
+        if (!s.instruments.length) return;
+        var ids = {};
+        s.instruments.forEach(function (inst) { ids[inst.id] = true; });
+        function exerciseIds(folders, out) {
+            (folders || []).forEach(function (f) {
+                (f.exercises || []).forEach(function (ex) { out[ex.id] = true; });
+                exerciseIds(f.folders, out);
+            });
+            return out;
+        }
+        var perInstrument = s.instruments.map(function (inst) { return { id: inst.id, ex: exerciseIds(inst.categories, {}) }; });
+        s.settings.guidedSessions.forEach(function (gs) {
+            if (gs.instrumentId && ids[gs.instrumentId]) return;
+            var best = s.instruments[0].id, bestCount = 0;
+            perInstrument.forEach(function (p) {
+                var n = gs.steps.filter(function (step) { return p.ex[step.exerciseId]; }).length;
+                if (n > bestCount) { best = p.id; bestCount = n; }
+            });
+            gs.instrumentId = best;
+        });
     }
 
     var state = normalizeState(load() || makeDefaultState());
@@ -371,6 +415,7 @@
         var entry = state.settings.trash.filter(function (e) { return e.id === entryId; })[0];
         if (!entry) return;
         if (entry.type === "session") {
+            if (!findById(state.instruments, entry.data.instrumentId)) entry.data.instrumentId = state.activeInstrumentId;
             state.settings.guidedSessions.push(entry.data);
         } else {
             var inst = findById(state.instruments, entry.instrumentId) || state.instruments[0];
@@ -1757,13 +1802,14 @@
     function renameInstrument(instrumentId) {
         var inst = state.instruments.filter(function (i) { return i.id === instrumentId; })[0];
         if (!inst) return;
-        var name = window.prompt("Renommer l'instrument :", inst.name);
+        var name = window.prompt("Renommer l'espace (laisser vide pour le supprimer) :", inst.name);
         if (name === null) return;
         name = name.trim();
         if (!name) {
             if (state.instruments.length <= 1) return;
-            if (!window.confirm("Supprimer l'instrument « " + inst.name + " » et tous ses exercices ?")) return;
+            if (!window.confirm("Supprimer l'espace « " + inst.name + " », tous ses exercices et ses sessions ?")) return;
             state.instruments = state.instruments.filter(function (i) { return i.id !== instrumentId; });
+            state.settings.guidedSessions = state.settings.guidedSessions.filter(function (gs) { return gs.instrumentId !== instrumentId; });
             delete navPaths[instrumentId];
             if (state.activeInstrumentId === instrumentId) state.activeInstrumentId = state.instruments[0].id;
         } else {
@@ -3251,9 +3297,9 @@
     });
 
     document.getElementById("add-instrument-btn").addEventListener("click", function () {
-        var name = window.prompt("Nom du nouvel instrument :");
+        var name = window.prompt("Nom du nouvel espace (instrument, groupe, projet…) :");
         if (!name) return;
-        var inst = makeInstrument(name.trim(), currentPalette());
+        var inst = makeInstrument(name.trim(), currentPalette(), false);
         state.instruments.push(inst);
         state.activeInstrumentId = inst.id;
         save();
@@ -5995,6 +6041,9 @@
         $folderContainer.appendChild(content);
 
         gsRefreshRunUi = null;
+        // Changement d'espace pendant qu'on édite une session d'un autre espace : retour à la liste.
+        var gsOpen = gsScreen === "edit" || gsScreen === "pick" ? gsEditingSession : gsScreen === "links" ? gsLinksSession : null;
+        if (gsOpen && gsOpen.instrumentId !== state.activeInstrumentId) { gsEditingSession = null; gsScreen = "list"; }
         if (gsScreen !== "links") gsFileBlobCache = {};
         if (gsScreen === "run" && gsRunSession) renderGsRunScreen(content);
         else if (gsScreen === "links" && gsLinksSession) renderGsLinksScreen(content);
@@ -6005,7 +6054,10 @@
 
     // ---- écran liste ----
     function renderGsListScreen(content) {
-        var sessions = state.settings.guidedSessions;
+        var allSessions = state.settings.guidedSessions;
+        var activeInstId = state.activeInstrumentId;
+        // Seules les sessions de l'espace affiché (créées à partir de ses exercices).
+        var sessions = allSessions.filter(function (gs) { return gs.instrumentId === activeInstId; });
         if (!sessions.length) {
             var empty = document.createElement("div");
             empty.className = "gs-empty";
@@ -6053,7 +6105,7 @@
                 var delBtn = iconButton("✕", "Supprimer cette session", function () {
                     if (!window.confirm("Supprimer la session « " + session.name + " » ?")) return;
                     addToTrash("session", session, {});
-                    sessions.splice(sessions.indexOf(session), 1);
+                    allSessions.splice(allSessions.indexOf(session), 1);
                     save();
                     render();
                 });
@@ -6071,8 +6123,8 @@
         addBtn.className = "btn-accent gs-add-session-btn";
         addBtn.textContent = "+ Nouvelle session";
         addBtn.addEventListener("click", function () {
-            var session = { id: uid(), name: "Nouvelle session", steps: [] };
-            sessions.push(session);
+            var session = { id: uid(), name: "Nouvelle session", steps: [], instrumentId: activeInstId };
+            allSessions.push(session);
             gsEditingSession = session;
             gsScreen = "edit";
             save();
