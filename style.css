@@ -214,7 +214,8 @@ button.session-btn-highlight:hover { background: color-mix(in srgb, var(--accent
 }
 .account-name { font-size: var(--fs-xs); color: var(--text-muted); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sync-status {
-    font-size: 10px;
+    font-size: 15px; /* pastille d'état de la sauvegarde : assez grosse pour la repérer d'un coup d'œil */
+    line-height: 1;
     color: var(--status-a-faire);
     transition: color .2s ease;
 }
