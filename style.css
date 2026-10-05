@@ -1216,6 +1216,15 @@ button.metro-mini-btn.metro-mini-btn-icon .icon { width: 20px; height: 20px; }
 .metro-field input, .metro-field select { font-size: var(--fs-sm); text-align: center; color: var(--text-main); text-transform: none; letter-spacing: normal; width: 100%; box-sizing: border-box; }
 .metro-field input[type="number"] { max-width: 64px; }
 .metro-progressive-field { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+.metro-progressive-fields { flex-direction: column; align-items: center; gap: 8px; }
+.metro-prog-row { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; }
+.metro-prog-hint { font-size: var(--fs-2xs); color: var(--text-muted); text-align: center; max-width: 320px; }
+.metro-prog-stage { display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; font-size: var(--fs-2xs); color: var(--text-muted); }
+.metro-prog-stage input { font-size: var(--fs-sm); text-align: center; color: var(--text-main); width: 58px; }
+.metro-prog-del { border: 1px solid var(--border); background: transparent; color: var(--text-muted); border-radius: var(--radius-sm); width: 26px; height: 26px; cursor: pointer; }
+.metro-prog-del:hover { color: var(--text-main); border-color: var(--accent); }
+.metro-prog-opts { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.metro-prog-check { display: flex; align-items: center; gap: 6px; font-size: var(--fs-2xs); color: var(--text-muted); cursor: pointer; }
 .metro-progressive-field input { font-size: var(--fs-sm); text-align: center; color: var(--text-main); text-transform: none; letter-spacing: normal; width: 64px; }
 
 /* Le pavé est un simple conteneur flex-wrap de groupes (un groupe = un temps, voir renderPad dans
@@ -1823,3 +1832,5 @@ button.gs-plan-move:disabled { opacity: .3; }
     .tuner-panel .tuner-source { margin-bottom: auto; }
     .tuner-panel .tuner-note { font-size: 80px; }
 }
+
+.gs-run-total { text-align: center; font-size: var(--fs-sm); color: var(--text-muted); font-variant-numeric: tabular-nums; margin-top: -2px; }

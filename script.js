@@ -4261,12 +4261,28 @@
         // remplacés une fois par les valeurs par défaut (+1 BPM toutes les 20 s).
         if (!m.progressive || typeof m.progressive !== "object") m.progressive = {};
         if (typeof m.progressive.enabled !== "boolean") m.progressive.enabled = false;
-        if (m.progressive.version !== 2) {
-            m.progressive.version = 2;
+        if (!(m.progressive.version >= 2)) {
             m.progressive.incrementBpm = 1;
             m.progressive.everySeconds = 20;
             delete m.progressive.everyMeasures;
         }
+        // Version 3 : seuil (le tempo monte jusque-là puis reste), paliers successifs et options.
+        // limitBpm 0 = pas de seuil. stages : [{ inc, every, until }] ; le premier palier part du tempo
+        // en cours, chacun monte jusqu'à son "until" puis laisse la place au suivant.
+        m.progressive.version = 3;
+        var pr = m.progressive;
+        pr.limitBpm = (typeof pr.limitBpm === "number" && pr.limitBpm >= 30) ? Math.min(300, Math.round(pr.limitBpm)) : 0;
+        pr.stagesMode = pr.stagesMode === true;
+        if (!Array.isArray(pr.stages)) pr.stages = [];
+        pr.stages = pr.stages.filter(function (st) { return st && typeof st === "object"; }).map(function (st) {
+            return {
+                inc: Math.min(50, Math.max(1, Math.round(Number(st.inc)) || 1)),
+                every: Math.min(600, Math.max(1, Math.round(Number(st.every)) || 20)),
+                until: Math.min(300, Math.max(30, Math.round(Number(st.until)) || 100))
+            };
+        });
+        pr.stopAtLimit = pr.stopAtLimit === true;   // s'arrête une fois le seuil atteint (après un dernier palier de durée)
+        pr.restoreOnStop = pr.restoreOnStop === true; // à l'arrêt, revient au tempo de départ
         if (typeof m.progressive.incrementBpm !== "number" || isNaN(m.progressive.incrementBpm) || m.progressive.incrementBpm <= 0) m.progressive.incrementBpm = 1;
         if (typeof m.progressive.everySeconds !== "number" || isNaN(m.progressive.everySeconds) || m.progressive.everySeconds <= 0) m.progressive.everySeconds = 20;
         return m;
@@ -4280,9 +4296,26 @@
     var metroCurrentStep = 0;
     var metroBeatCallback = null; // met à jour l'affichage (pas qui clignote), posé par le panneau ouvert
     var metroPanelApi = null; // { toggle } du panneau ouvert (flottant ou dans le volet) : sert au raccourci Espace
-    var transportLastTouched = null; // "session" | "metro" : le dernier des deux lancé/arrêté, voir le raccourci Espace
+    var transportLastTouched = null; // "session" | "metro" : le dernier des deux lancé/arrêté
     var metroTempoCallback = null; // prévenu quand le tempo progressif change le BPM (met l'affichage à jour)
     var metroProgNextAt = null;    // instant (horloge audio) de la prochaine augmentation du tempo progressif
+    var metroProgIdx = -1;         // palier en cours (indice dans metroProgStages)
+    var metroProgStopNow = false;
+    var metroProgRan = false;      // le tempo a déjà monté pendant cette lecture
+    var metroProgHoldUntil = null; // "arrêter au seuil" : instant où l'on s'arrête
+    var metroProgStartBpm = null;  // tempo au lancement, pour "revenir au tempo de départ"
+
+    // Liste des paliers effectivement appliqués : les paliers du mode "…" ou, en mode simple, un seul
+    // palier (+inc toutes les N s) jusqu'au seuil éventuel. Triés par seuil croissant.
+    function metroProgStages(p) {
+        if (p.stagesMode && p.stages.length) return p.stages.slice().sort(function (a, b) { return a.until - b.until; });
+        return [{ inc: p.incrementBpm, every: p.everySeconds, until: p.limitBpm > 0 ? p.limitBpm : 300 }];
+    }
+    // Palier à appliquer au tempo donné : le premier dont le seuil n'est pas encore atteint (-1 = terminé).
+    function metroProgStageIndex(stages, bpm) {
+        for (var i = 0; i < stages.length; i++) if (bpm < stages[i].until) return i;
+        return -1;
+    }
     var METRO_LOOKAHEAD_MS = 25;
     var METRO_SCHEDULE_AHEAD_S = 0.12;
 
@@ -4350,19 +4383,41 @@
             // Tempo progressif : mesuré sur l'horloge audio (temps écoulé réel de la lecture), donc le
             // rythme d'augmentation reste le même quel que soit le tempo.
             if (m.progressive.enabled) {
-                if (metroProgNextAt === null) metroProgNextAt = metroNextNoteTime + m.progressive.everySeconds;
-                while (metroNextNoteTime >= metroProgNextAt) {
-                    m.bpm = Math.min(300, m.bpm + m.progressive.incrementBpm);
-                    metroProgNextAt += m.progressive.everySeconds;
-                    persist();
-                    if (metroTempoCallback) metroTempoCallback();
+                var stages = metroProgStages(m.progressive), bpmChanged = false, guard = 0;
+                while (guard++ < 60) {
+                    var idx = metroProgStageIndex(stages, m.bpm);
+                    if (idx < 0) { // seuil atteint : le tempo reste là
+                        metroProgNextAt = null; metroProgIdx = -1;
+                        if (m.progressive.stopAtLimit && metroProgRan) {
+                            if (metroProgHoldUntil === null) metroProgHoldUntil = metroNextNoteTime + stages[stages.length - 1].every;
+                            else if (metroNextNoteTime >= metroProgHoldUntil) { metroProgStopNow = true; }
+                        }
+                        break;
+                    }
+                    var stg = stages[idx];
+                    if (metroProgNextAt === null || metroProgIdx !== idx) { // nouveau palier : son délai part de maintenant
+                        metroProgIdx = idx;
+                        metroProgNextAt = metroNextNoteTime + stg.every;
+                    }
+                    if (metroNextNoteTime < metroProgNextAt) break;
+                    m.bpm = Math.min(300, stg.until, m.bpm + stg.inc);
+                    metroProgNextAt += stg.every;
+                    metroProgRan = true;
+                    bpmChanged = true;
                 }
+                if (bpmChanged) { persist(); if (metroTempoCallback) metroTempoCallback(); }
             } else {
-                metroProgNextAt = null;
+                metroProgNextAt = null; metroProgIdx = -1;
             }
             var secondsPerStep = 60 / m.bpm / layer.subdivision;
             metroNextNoteTime += secondsPerStep;
             metroCurrentStep = (metroCurrentStep + 1) % stepCount;
+            if (metroProgStopNow) break;
+        }
+        if (metroProgStopNow) { // "arrêter au seuil" : même chemin que le bouton Jouer/Arrêter
+            metroProgStopNow = false;
+            if (metroPanelApi) metroPanelApi.toggle(); else stopMetronome();
+            return;
         }
         metroTimer = setTimeout(metroScheduler, METRO_LOOKAHEAD_MS);
     }
@@ -4373,6 +4428,9 @@
         metroPlaying = true;
         metroCurrentStep = 0;
         metroProgNextAt = null; // le décompte du tempo progressif repart à chaque lancement
+        metroProgIdx = -1; metroProgRan = false; metroProgHoldUntil = null;
+        var pm = state.settings.metronome.progressive;
+        metroProgStartBpm = (pm.enabled && pm.restoreOnStop) ? state.settings.metronome.bpm : null;
         metroNextNoteTime = metroAudioCtx.currentTime + 0.05;
         metroScheduler();
     }
@@ -4380,6 +4438,16 @@
     function stopMetronome() {
         metroPlaying = false;
         if (metroTimer) { clearTimeout(metroTimer); metroTimer = null; }
+        // "Revenir au tempo de départ" : le prochain lancement repart du tempo d'origine.
+        if (metroProgStartBpm !== null) {
+            var mm = state.settings.metronome;
+            if (mm.bpm !== metroProgStartBpm) {
+                mm.bpm = metroProgStartBpm;
+                persist();
+                if (metroTempoCallback) metroTempoCallback();
+            }
+            metroProgStartBpm = null;
+        }
     }
 
     // Épingle : accroche le métronome à droite de la fenêtre principale (ou le détache en fenêtre
@@ -4715,42 +4783,130 @@
             progFields.className = "metro-progressive-fields";
             panel.appendChild(progFields);
 
-            var progIncField = document.createElement("label");
-            progIncField.className = "metro-progressive-field";
-            progIncField.textContent = "+ BPM";
-            var progIncInput = document.createElement("input");
-            progIncInput.type = "number";
-            progIncInput.min = "1";
-            progIncInput.max = "50";
-            progIncInput.value = m.progressive.incrementBpm;
-            progIncInput.addEventListener("change", function () {
-                m.progressive.incrementBpm = Math.max(1, parseInt(progIncInput.value, 10) || 1);
-                progIncInput.value = m.progressive.incrementBpm;
-                save();
-            });
-            progIncField.appendChild(progIncInput);
-            progFields.appendChild(progIncField);
+            var SCRUB_BPM = { pxPerStep: 6, wheel: true };
+            // Champ numérique réglable à la saisie, aux chevrons, à la molette et en glissant vers le haut/bas.
+            function progNumber(value, min, max, onChange, extra) {
+                var inp = document.createElement("input");
+                inp.type = "number";
+                inp.min = String(min);
+                inp.max = String(max);
+                inp.value = value > 0 || min > 0 ? value : "";
+                if (extra && extra.placeholder) inp.placeholder = extra.placeholder;
+                inp.addEventListener("change", function () {
+                    var n = parseInt(inp.value, 10);
+                    n = onChange(isNaN(n) ? null : n);
+                    inp.value = n > 0 ? n : "";
+                });
+                bindScrubInput(inp, min, max, { pxPerStep: (extra && extra.pxPerStep) || 6, wheel: true, emptyStart: extra && extra.emptyStart });
+                return inp;
+            }
+            function progField(label, input) {
+                var f = document.createElement("label");
+                f.className = "metro-progressive-field";
+                f.appendChild(document.createTextNode(label));
+                f.appendChild(input);
+                return f;
+            }
+            function progCheck(label, key) {
+                var l = document.createElement("label");
+                l.className = "metro-prog-check";
+                var cb = document.createElement("input");
+                cb.type = "checkbox";
+                cb.checked = !!m.progressive[key];
+                cb.addEventListener("change", function () { m.progressive[key] = cb.checked; save(); });
+                l.appendChild(cb);
+                l.appendChild(document.createTextNode(label));
+                return l;
+            }
+            function progChanged() { metroProgNextAt = null; metroProgHoldUntil = null; save(); }
 
-            var progEveryField = document.createElement("label");
-            progEveryField.className = "metro-progressive-field";
-            progEveryField.textContent = "Toutes les (s)";
-            var progEveryInput = document.createElement("input");
-            progEveryInput.type = "number";
-            progEveryInput.min = "1";
-            progEveryInput.max = "600";
-            progEveryInput.value = m.progressive.everySeconds;
-            progEveryInput.addEventListener("change", function () {
-                m.progressive.everySeconds = Math.min(600, Math.max(1, parseInt(progEveryInput.value, 10) || 20));
-                progEveryInput.value = m.progressive.everySeconds;
-                metroProgNextAt = null; // le nouveau délai repart du prochain pas
-                save();
+            function renderProgFields() {
+                var p = m.progressive;
+                progFields.innerHTML = "";
+                var row = document.createElement("div");
+                row.className = "metro-prog-row";
+                progFields.appendChild(row);
+                if (!p.stagesMode) {
+                    row.appendChild(progField("+ BPM", progNumber(p.incrementBpm, 1, 50, function (n) {
+                        p.incrementBpm = Math.max(1, n || 1); progChanged(); return p.incrementBpm;
+                    })));
+                    row.appendChild(progField("Toutes les (s)", progNumber(p.everySeconds, 1, 600, function (n) {
+                        p.everySeconds = Math.min(600, Math.max(1, n || 20)); progChanged(); return p.everySeconds;
+                    }, { pxPerStep: 4 })));
+                    row.appendChild(progField("Seuil (BPM)", progNumber(p.limitBpm, 0, 300, function (n) {
+                        p.limitBpm = n ? Math.min(300, Math.max(30, n)) : 0; progChanged(); return p.limitBpm;
+                    }, { placeholder: "aucun", emptyStart: m.bpm })));
+                } else {
+                    var hint = document.createElement("div");
+                    hint.className = "metro-prog-hint";
+                    hint.textContent = "Part du tempo en cours. Chaque palier monte jusqu'à son seuil ; le dernier seuil est tenu.";
+                    progFields.appendChild(hint);
+                    p.stages.forEach(function (st, i) {
+                        var line = document.createElement("div");
+                        line.className = "metro-prog-stage";
+                        function txt(t) { var sp = document.createElement("span"); sp.textContent = t; line.appendChild(sp); }
+                        txt("+");
+                        line.appendChild(progNumber(st.inc, 1, 50, function (n) { st.inc = Math.max(1, n || 1); progChanged(); return st.inc; }));
+                        txt("BPM /");
+                        line.appendChild(progNumber(st.every, 1, 600, function (n) { st.every = Math.min(600, Math.max(1, n || 20)); progChanged(); return st.every; }, { pxPerStep: 4 }));
+                        txt("s jusqu'à");
+                        line.appendChild(progNumber(st.until, 30, 300, function (n) { st.until = Math.min(300, Math.max(30, n || 100)); progChanged(); return st.until; }));
+                        var del = document.createElement("button");
+                        del.type = "button";
+                        del.className = "metro-prog-del";
+                        del.textContent = "×";
+                        del.title = "Supprimer ce palier";
+                        del.addEventListener("click", function () {
+                            p.stages.splice(i, 1);
+                            if (!p.stages.length) p.stagesMode = false;
+                            progChanged(); renderProgFields(); refreshMore();
+                        });
+                        line.appendChild(del);
+                        progFields.appendChild(line);
+                    });
+                    var add = document.createElement("button");
+                    add.type = "button";
+                    add.className = "metro-mini-btn metro-prog-add";
+                    add.textContent = "+ Palier";
+                    add.addEventListener("click", function () {
+                        var last = p.stages.length ? p.stages[p.stages.length - 1] : null;
+                        p.stages.push({ inc: last ? last.inc : 1, every: last ? last.every : 20, until: Math.min(300, (last ? last.until : m.bpm) + 10) });
+                        progChanged(); renderProgFields();
+                    });
+                    progFields.appendChild(add);
+                }
+                var opts = document.createElement("div");
+                opts.className = "metro-prog-opts";
+                opts.appendChild(progCheck("Revenir au tempo de départ à l'arrêt", "restoreOnStop"));
+                opts.appendChild(progCheck("S'arrêter après le seuil", "stopAtLimit"));
+                progFields.appendChild(opts);
+            }
+
+            // "…" : bascule vers les paliers successifs (mode avancé).
+            var progMore = document.createElement("button");
+            progMore.type = "button";
+            progMore.className = "metro-mini-btn metro-prog-more";
+            progMore.textContent = "Paliers";
+            progMore.title = "Paliers successifs (ex. +5 BPM / 10 s de 70 à 90, puis +1 BPM / 20 s jusqu'à 100)";
+            toolsRow.appendChild(progMore);
+            function refreshMore() {
+                progMore.hidden = !m.progressive.enabled;
+                progMore.classList.toggle("metro-progressive-active", m.progressive.stagesMode);
+            }
+            progMore.addEventListener("click", function () {
+                var p = m.progressive;
+                p.stagesMode = !p.stagesMode;
+                if (p.stagesMode && !p.stages.length) {
+                    // Premier passage : un palier reprenant le réglage simple, à compléter.
+                    p.stages.push({ inc: p.incrementBpm, every: p.everySeconds, until: p.limitBpm || Math.min(300, m.bpm + 20) });
+                }
+                progChanged(); renderProgFields(); refreshMore();
             });
-            progEveryField.appendChild(progEveryInput);
-            progFields.appendChild(progEveryField);
 
             function refreshProgToggle() {
                 progToggle.classList.toggle("metro-progressive-active", m.progressive.enabled);
                 progFields.hidden = !m.progressive.enabled;
+                refreshMore();
             }
             progToggle.addEventListener("click", function () {
                 m.progressive.enabled = !m.progressive.enabled;
@@ -4758,6 +4914,7 @@
                 save();
                 refreshProgToggle();
             });
+            renderProgFields();
             refreshProgToggle();
 
             // Le scheduler change le BPM lui-même (voir metroScheduler) : on ne fait que rafraîchir l'affichage.
@@ -5860,6 +6017,8 @@
     var gsPickCallback = null;
     var gsRunSession = null, gsRunStepIndex = 0;
     var gsRunAllocatedSec = 0, gsRunElapsedMs = 0, gsRunStartTs = null, gsRunPaused = true, gsRunInterval = null;
+    // Chrono de la session entière : cumule tous les exercices, s'arrête en pause et repart à la reprise.
+    var gsTotalMs = 0, gsTotalStartTs = null;
     var gsRefreshRunUi = null; // remet à jour bouton Pause/Reprendre + chrono de l'écran de guidage affiché (raccourci Espace)
     var gsLinksChecked = {}; // clé "link:<id>"/"file:<id>" -> coché ou non, le temps de l'écran
     // L'écran des liens/PJ s'ouvre aussi AVANT de lancer la session (depuis la liste ou l'édition) :
@@ -5886,7 +6045,12 @@
     // Sensibilité : une minute par 9 px — des durées de 3 à 30 min se règlent en ~250 px d'amplitude
     // sans que 1 px de tremblement ne change la valeur ; seuil de 4 px avant de considérer un glisser.
     var SCRUB_PX_PER_STEP = 9, SCRUB_START_PX = 4, SCRUB_SPINNER_PX = 24;
-    function bindScrubInput(input, min, max) {
+    // opts (facultatif) : pxPerStep = sensibilité du glisser ; wheel = la molette règle aussi la valeur
+    // au survol ; emptyStart = valeur de départ quand le champ est vide.
+    function bindScrubInput(input, min, max, opts) {
+        opts = opts || {};
+        var pxPerStep = opts.pxPerStep || SCRUB_PX_PER_STEP;
+        var emptyStart = typeof opts.emptyStart === "number" ? opts.emptyStart : min;
         var startY = 0, startVal = 0, active = false, scrubbing = false, changed = false;
         function clamp(v) { return Math.min(max, Math.max(min, v)); }
         input.addEventListener("pointerdown", function (e) {
@@ -5895,7 +6059,7 @@
             if (e.clientX > rect.right - SCRUB_SPINNER_PX) return; // zone des chevrons natifs
             active = true; scrubbing = false; changed = false;
             startY = e.clientY;
-            startVal = parseInt(input.value, 10) || min;
+            startVal = parseInt(input.value, 10) || emptyStart;
         });
         window.addEventListener("pointermove", function (e) {
             if (!active) return;
@@ -5908,7 +6072,7 @@
                 document.documentElement.classList.add("scrubbing");
             }
             e.preventDefault();
-            var v = clamp(startVal + Math.round(dy / SCRUB_PX_PER_STEP));
+            var v = clamp(startVal + Math.round(dy / pxPerStep));
             if (String(v) !== input.value) { input.value = String(v); changed = true; }
         });
         function end() {
@@ -5922,7 +6086,17 @@
         }
         window.addEventListener("pointerup", end);
         window.addEventListener("pointercancel", end);
-        input.title = (input.title ? input.title + " — " : "") + "Glisser vers le haut/bas pour changer, ou chevrons / saisie";
+        if (opts.wheel) {
+            input.addEventListener("wheel", function (e) {
+                e.preventDefault();
+                var v = clamp((parseInt(input.value, 10) || emptyStart) + (e.deltaY < 0 ? 1 : -1));
+                if (String(v) !== input.value) {
+                    input.value = String(v);
+                    input.dispatchEvent(new Event("change", { bubbles: true }));
+                }
+            }, { passive: false });
+        }
+        input.title = (input.title ? input.title + " — " : "") + "Glisser vers le haut/bas pour changer" + (opts.wheel ? ", molette" : "") + ", ou chevrons / saisie";
     }
 
     function gsStepHides(step, key) { return (step.hidden || []).indexOf(key) !== -1; }
@@ -6554,6 +6728,7 @@
     function gsStartRun(session) {
         gsRunSession = session;
         gsRunStepIndex = 0;
+        gsTotalMs = 0; gsTotalStartTs = null;
         gsEnterRunStep();
         gsScreen = "run";
         render();
@@ -6564,7 +6739,17 @@
         gsRunElapsedMs = 0;
         gsRunStartTs = Date.now();
         gsRunPaused = false;
+        if (gsTotalStartTs === null) gsTotalStartTs = Date.now(); // 1er exercice, ou changement d'exercice pendant une pause
         transportLastTouched = "session";
+    }
+
+    function gsTotalNowMs() {
+        return gsTotalMs + (gsTotalStartTs === null ? 0 : Date.now() - gsTotalStartTs);
+    }
+    function gsFormatTotal(ms) {
+        var t = Math.floor(ms / 1000), h = Math.floor(t / 3600), mn = Math.floor(t / 60) % 60, sc = t % 60;
+        function p2(n) { return (n < 10 ? "0" : "") + n; }
+        return (h ? h + ":" + p2(mn) : mn) + ":" + p2(sc);
     }
 
     function gsRunElapsedNowMs() {
@@ -6574,6 +6759,7 @@
     function gsPauseRun() {
         if (gsRunPaused) return;
         gsRunElapsedMs += Date.now() - gsRunStartTs;
+        if (gsTotalStartTs !== null) { gsTotalMs += Date.now() - gsTotalStartTs; gsTotalStartTs = null; }
         gsRunPaused = true;
         transportLastTouched = "session";
     }
@@ -6581,6 +6767,7 @@
     function gsResumeRun() {
         if (!gsRunPaused) return;
         gsRunStartTs = Date.now();
+        gsTotalStartTs = Date.now();
         gsRunPaused = false;
         transportLastTouched = "session";
     }
@@ -7060,6 +7247,10 @@
         var timerEl = document.createElement("div");
         timerEl.className = "gs-run-timer";
         content.appendChild(timerEl);
+        var totalEl = document.createElement("div");
+        totalEl.className = "gs-run-total";
+        totalEl.title = "Durée totale de la session (s'arrête pendant la pause)";
+        content.appendChild(totalEl);
 
         function refreshTimer() {
             var remaining = gsRunAllocatedSec - Math.floor(gsRunElapsedNowMs() / 1000);
@@ -7068,6 +7259,7 @@
             var mm = Math.floor(abs / 60), ss = abs % 60;
             timerEl.textContent = (overtime ? "+" : "") + (mm < 10 ? "0" : "") + mm + ":" + (ss < 10 ? "0" : "") + ss;
             timerEl.classList.toggle("gs-run-timer-overtime", overtime);
+            totalEl.textContent = "Total " + gsFormatTotal(gsTotalNowMs());
         }
         refreshTimer();
         if (gsRunInterval) clearInterval(gsRunInterval);
@@ -7119,7 +7311,7 @@
             pauseBtn.classList.toggle("metro-play-btn-active", !gsRunPaused);
         }
         refreshPauseBtn();
-        pauseBtn.title = "Pause / reprise (barre espace)";
+        pauseBtn.title = "Pause / reprise (double appui sur espace)";
         pauseBtn.addEventListener("click", function () {
             if (gsRunPaused) gsResumeRun(); else gsPauseRun();
             refreshPauseBtn();
@@ -7337,39 +7529,49 @@
         }
     });
 
-    // ---------- raccourci clavier : barre espace = pause / reprise ----------
-    // Agit sur ce qui est "présent" : la session guidée en cours de guidage et/ou le métronome (panneau
-    // ouvert). Si l'un des deux tourne, Espace met en pause TOUT ce qui tourne (une pause d'entraînement
-    // arrête le chrono de la session et le clic du métronome ensemble) et retient ce qu'il a arrêté ;
-    // si rien ne tourne, il relance ce qu'il avait mis en pause — et à défaut (rien de retenu), celui des
-    // deux qu'on a lancé/arrêté en dernier. Quand un seul des deux est présent, c'est lui, simplement.
-    var spacePausedSet = [];      // ce que la dernière pression d'Espace a mis en pause : "session" et/ou "metro"
+    // ---------- raccourci clavier : barre espace ----------
+    // Quand la session guidée ET le métronome sont présents :
+    //   - un appui sur Espace = pause / reprise du MÉTRONOME ;
+    //   - deux appuis brefs et rapprochés = pause / reprise de la SESSION (son chrono).
+    // Pour ne pas confondre les deux, le premier appui attend SPACE_DOUBLE_MS : si un second arrive
+    // dans ce délai c'est un double appui (le métronome n'a alors pas bougé), sinon c'est un simple appui.
+    // 300 ms : assez large pour un double appui naturel, assez court pour que le métronome ne semble
+    // pas réagir avec retard. Quand un seul des deux est présent, il n'y a rien à départager : un appui
+    // agit tout de suite sur lui.
+    var SPACE_DOUBLE_MS = 300;
+    var spaceTapTimer = null;
     var spaceKeyHandled = false;  // vrai entre le keydown pris en charge et son keyup (voir plus bas)
 
     function transportSessionPresent() { return !!gsRunSession && guidedSessionViewActive; }
+    function transportToggleSession() {
+        if (!transportSessionPresent()) return;
+        if (gsRunPaused) gsResumeRun(); else gsPauseRun();
+        transportLastTouched = "session";
+        if (gsRefreshRunUi) gsRefreshRunUi();
+    }
+    function transportToggleMetro() {
+        if (metroPanelApi) metroPanelApi.toggle();
+        if (gsRefreshRunUi) gsRefreshRunUi();
+    }
 
-    function transportToggleViaSpace() {
+    function transportSpaceTap() {
         var sessionOn = transportSessionPresent();
         var metroOn = !!metroPanelApi;
         if (!sessionOn && !metroOn) return;
-        var sessionRunning = sessionOn && !gsRunPaused;
-        var metroRunning = metroOn && metroPlaying;
-        if (sessionRunning || metroRunning) {
-            spacePausedSet = [];
-            if (sessionRunning) { gsPauseRun(); spacePausedSet.push("session"); }
-            if (metroRunning) { metroPanelApi.toggle(); spacePausedSet.push("metro"); }
-        } else {
-            var resume = spacePausedSet.filter(function (w) { return w === "session" ? sessionOn : metroOn; });
-            if (!resume.length) {
-                if (transportLastTouched === "metro" && metroOn) resume = ["metro"];
-                else if (transportLastTouched === "session" && sessionOn) resume = ["session"];
-                else resume = [sessionOn ? "session" : "metro"];
-            }
-            spacePausedSet = [];
-            if (resume.indexOf("session") !== -1) gsResumeRun();
-            if (resume.indexOf("metro") !== -1) metroPanelApi.toggle();
+        if (!(sessionOn && metroOn)) {
+            if (sessionOn) transportToggleSession(); else transportToggleMetro();
+            return;
         }
-        if (gsRefreshRunUi) gsRefreshRunUi();
+        if (spaceTapTimer) { // second appui dans le délai : double appui = session
+            clearTimeout(spaceTapTimer);
+            spaceTapTimer = null;
+            transportToggleSession();
+            return;
+        }
+        spaceTapTimer = setTimeout(function () {
+            spaceTapTimer = null;
+            transportToggleMetro();
+        }, SPACE_DOUBLE_MS);
     }
 
     // Espace n'a de sens ici que hors saisie de texte : dans un champ, une liste, une case à cocher
@@ -7401,7 +7603,7 @@
         e.preventDefault();
         if (e.repeat) return;
         spaceKeyHandled = true;
-        transportToggleViaSpace();
+        transportSpaceTap();
     }, true);
     // Certains navigateurs (Firefox) déclenchent le clic du bouton au relâchement de la touche :
     // on annule donc aussi le keyup d'un Espace déjà pris en charge.
