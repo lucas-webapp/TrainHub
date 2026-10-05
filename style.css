@@ -1319,6 +1319,12 @@ button.scales-chip.scales-chip-icon { min-width: 36px; padding: 0; font-size: va
 .scales-summary { font-size: var(--fs-sm); color: var(--text-muted); text-align: left; padding-top: 6px; border-top: 1px solid var(--border); }
 .scales-summary strong { color: var(--text-main); }
 .scales-select { min-width: 210px; max-width: 100%; }
+.scales-row-root .scales-select { min-width: 130px; }
+.scales-inline-group { display: flex; align-items: center; gap: 8px; flex: 1 1 260px; min-width: 260px; max-width: 100%; }
+.scales-inline-group .scales-select { flex: 1; min-width: 150px; }
+.scales-inline-label { flex: none; font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; margin-left: 6px; }
+.scales-row-root .scales-chips { align-items: center; flex-wrap: wrap; row-gap: 8px; }
+.scales-inline-group button.scales-more-btn { flex: none; }
 button.scales-more-btn { min-width: 44px; padding: 0 10px; font-size: var(--fs-md); letter-spacing: 1px; }
 .scales-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 18px; font-size: var(--fs-2xs); color: var(--text-muted); }
 .scales-legend-item { display: inline-flex; align-items: center; gap: 6px; }
@@ -1330,8 +1336,6 @@ button.scales-more-btn { min-width: 44px; padding: 0 10px; font-size: var(--fs-m
 .fretboard-svg { flex: none; display: block; max-width: none; overflow: visible; }
 @media (max-width: 700px) {
     .scales-row { grid-template-columns: 1fr; gap: 4px; }
-    .scales-row-root .scales-chips { display: grid; grid-template-columns: repeat(6, 1fr); }
-    .scales-row-root button.scales-chip { min-width: 0; }
     .scales-segmented { flex-wrap: nowrap; }
     .scales-segmented button.scales-chip { flex: 1; padding: 0 6px; }
     .scales-row-view .scales-chips { flex-wrap: wrap; }
@@ -1342,11 +1346,11 @@ button.scales-more-btn { min-width: 44px; padding: 0 10px; font-size: var(--fs-m
 .fretboard-nut { fill: #d8d8d8; }
 .fretboard-fret { stroke: #777; stroke-width: 1; }
 .fretboard-string { stroke: #777; stroke-width: 1; }
-.fretboard-inlay { fill: #4a4a4a; }
+.fretboard-inlay { fill: #f2f2f2; opacity: .9; }
 .fretboard-fret-label { font-size: 10px; fill: var(--text-muted); text-anchor: middle; }
 .fretboard-note { fill: #0f3d57; stroke: #4fc3f7; stroke-width: 1.5; }
 .fretboard-note-root { stroke: #b9ffd9; stroke-width: 1.5; fill: #00e676; }
-.fretboard-note-label { font-size: 10px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; fill: #e6f6ff; pointer-events: none; }
+.fretboard-note-label { font-size: 10px; font-weight: 700; text-anchor: middle; fill: #e6f6ff; pointer-events: none; }
 .fretboard-note-root + .fretboard-note-label { fill: #04210f; }
 .piano-scale-svg { flex: none; max-width: none; display: block; }
 .piano-key-white { fill: #f2ead9; stroke: #2a2a2a; stroke-width: .7; }
@@ -1463,7 +1467,7 @@ html.metro-docked .main { min-width: 0; }
 }
 /* En colonne il y a toute la hauteur : pas de réduction possible (le bouton n'apparaît qu'en bandeau). */
 .panel-dock-collapse { display: none; }
-button.panel-dock-close, button.panel-dock-collapse {
+button.panel-dock-close, button.panel-dock-collapse, button.metro-pin-btn {
     flex: none;
     box-sizing: border-box;
     width: 40px; height: 40px;
@@ -1473,7 +1477,10 @@ button.panel-dock-close, button.panel-dock-collapse {
     font-size: var(--fs-base);
     line-height: 1;
 }
-button.panel-dock-close:hover, button.panel-dock-collapse:hover { border-color: var(--accent); color: var(--accent); }
+button.panel-dock-close:hover, button.panel-dock-collapse:hover, button.metro-pin-btn:hover { border-color: var(--accent); color: var(--accent); }
+button.metro-pin-btn { display: inline-flex; align-items: center; justify-content: center; }
+button.metro-pin-btn .icon { width: 18px; height: 18px; }
+button.metro-pin-btn.metro-pin-on { color: var(--accent); }
 @media (max-width: 1099px) {
     button.panel-dock-collapse { display: inline-flex; align-items: center; justify-content: center; }
     .panel-docked.panel-dock-collapsed .backups-title .metro-compact-bpm { display: inline; }
@@ -1590,7 +1597,7 @@ button.gs-edit-run-btn:disabled { opacity: .4; cursor: default; }
 .gs-step-handle .icon { width: 16px; height: 16px; }
 .gs-step-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); }
 .gs-step-missing { color: var(--text-muted); font-style: italic; }
-.gs-step-minutes { width: 52px; text-align: center; flex: none; }
+.gs-step-minutes { width: 76px; padding-left: 6px; padding-right: 6px; box-sizing: border-box; text-align: center; flex: none; }
 /* Champs de durée réglables au glisser (voir bindScrubInput) : pas de défilement de la page qui démarre dessus. */
 .gs-step-minutes, .gs-plan-minutes { touch-action: none; cursor: ns-resize; }
 html.scrubbing, html.scrubbing * { cursor: ns-resize !important; -webkit-user-select: none; user-select: none; }
@@ -1744,7 +1751,7 @@ button.gs-plan-toggle { width: 100%; height: 36px; justify-content: flex-start; 
 .gs-plan-row.gs-plan-current { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--card-bg)); }
 .gs-plan-num { flex: none; width: 18px; text-align: center; font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 button.gs-plan-name { flex: 1; min-width: 0; height: 34px; padding: 0 6px; justify-content: flex-start; text-align: left; font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gs-plan-minutes { flex: none; width: 54px; height: 34px; text-align: center; box-sizing: border-box; }
+.gs-plan-minutes { flex: none; width: 76px; height: 34px; padding-left: 6px; padding-right: 6px; text-align: center; box-sizing: border-box; }
 .gs-plan-unit { flex: none; font-size: var(--fs-2xs); color: var(--text-muted); }
 button.gs-plan-move { flex: none; width: 34px; height: 34px; padding: 0; border: 1px solid var(--border); }
 button.gs-plan-move:disabled { opacity: .3; }

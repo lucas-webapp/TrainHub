@@ -592,6 +592,8 @@
     var METRO_PLAY_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5Z"/></svg>';
     var METRO_STOP_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
     var METRO_VOLUME_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v4h4l5 4V6L8 10Z"/><path d="M17 9a4.5 4.5 0 0 1 0 6"/><path d="M19.5 6.5a8.5 8.5 0 0 1 0 11"/></svg>';
+    var METRO_PIN_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4h6l-1.2 6.2L17 13v2H7v-2l3.2-2.8L9 4Z"/><path d="M12 15v6"/></svg>';
+    var METRO_UNPIN_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4h6l-1.2 6.2L17 13v2H7v-2l3.2-2.8L9 4Z"/><path d="M12 15v6"/><path d="M4 4l16 16"/></svg>';
     var METRO_MORE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2.2"/><circle cx="12" cy="12" r="2.2"/><circle cx="19" cy="12" r="2.2"/></svg>';
     var METRO_CHRONO_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2h4"/><path d="M12 6v0"/><circle cx="12" cy="14" r="8"/><path d="M12 14V9.5"/><path d="M17.5 5.5l1.5-1.5"/></svg>';
     var RESET_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>';
@@ -3555,6 +3557,16 @@
     // bandeau en bas quand l'écran est trop étroit, voir style.css). Contrairement à la fenêtre
     // flottante, il ne se referme pas quand on clique ailleurs : on règle la session sans le perdre.
     var $metroDock = document.getElementById("metro-dock");
+    // Préférence « accroché à droite » du métronome : "1" = toujours dans le volet, "0" = toujours en
+    // fenêtre flottante, absent = automatique (volet pendant une session guidée, fenêtre sinon).
+    // Propre à cet appareil (taille d'écran) : localStorage, pas synchronisé.
+    var METRO_DOCK_PREF_KEY = "trainhub.metroDock.v1";
+    function getMetroDockPref() {
+        try { var v = localStorage.getItem(METRO_DOCK_PREF_KEY); return v === "1" || v === "0" ? v : null; } catch (e) { return null; }
+    }
+    function setMetroDockPref(v) {
+        try { localStorage.setItem(METRO_DOCK_PREF_KEY, v); } catch (e) {}
+    }
     var closeDockedMetronome = null; // non nul tant que le métronome est dans le volet
     var metroDockCollapsed = false;  // volet réduit (en-tête + Jouer seulement) : retenu le temps de la page
     function updateMetroDockMetrics() {
@@ -4249,6 +4261,17 @@
         if (metroTimer) { clearTimeout(metroTimer); metroTimer = null; }
     }
 
+    // Épingle : accroche le métronome à droite de la fenêtre principale (ou le détache en fenêtre
+    // flottante) et retient ce choix. Le métronome qui jouait continue de jouer après le changement.
+    function switchMetronomeDock(toDock) {
+        var wasPlaying = metroPlaying;
+        if (closeDockedMetronome) closeDockedMetronome();
+        else if (closeActiveModal && activeModalKind === "metronome-panel") closeActiveModal();
+        setMetroDockPref(toDock ? "1" : "0");
+        openMetronomePanel();
+        if (wasPlaying && metroPanelApi) metroPanelApi.toggle();
+    }
+
     function openMetronomePanel() {
         // Déjà dans le volet : le bouton fait bascule (referme), plutôt que de ne rien faire.
         if (closeDockedMetronome) { closeDockedMetronome(); return; }
@@ -4257,7 +4280,8 @@
         var extraClass = "metronome-panel metro-pos-" + a.metronomePosition + " metro-size-" + a.metronomeSize;
         // Pendant une session guidée : écran scindé (session + métronome côte à côte) plutôt qu'une
         // fenêtre par-dessus la session.
-        var docked = guidedSessionViewActive && !!$metroDock;
+        var dockPref = getMetroDockPref();
+        var docked = !!$metroDock && (dockPref === "1" || (dockPref === null && guidedSessionViewActive));
 
         var closeFn = openModal(extraClass, function (panel, close) {
             // -- en-tête : titre + volume (bien visible, en haut à droite) --
@@ -4301,6 +4325,15 @@
                 if (volumeRow.classList.contains("metro-volume-expanded-row")) volumeSlider.focus();
             });
             headerRow.appendChild(volumeBtn);
+            // Épingle : accrocher à droite / détacher (voir switchMetronomeDock).
+            var pinBtn = document.createElement("button");
+            pinBtn.type = "button";
+            pinBtn.className = "btn-ghost metro-pin-btn" + (docked ? " metro-pin-on" : "");
+            pinBtn.innerHTML = docked ? METRO_UNPIN_ICON_SVG : METRO_PIN_ICON_SVG;
+            pinBtn.title = docked ? "Détacher le métronome (fenêtre flottante)" : "Accrocher le métronome à droite de la fenêtre";
+            pinBtn.setAttribute("aria-label", pinBtn.title);
+            pinBtn.addEventListener("click", function () { switchMetronomeDock(!docked); });
+            headerRow.appendChild(pinBtn);
             panel.appendChild(headerRow);
             volumeRow.appendChild(volumeSlider);
             panel.appendChild(volumeRow);
@@ -5048,17 +5081,22 @@
         }
         var midY = marginTop + stringsSpan / 2;
         var labelY = marginTop + stringsSpan + 23; // sous les pastilles de la dernière corde, pas cachées par elles
+        // Repères des vrais manches : un point blanc aux cases 3, 5, 7, 9 (15, 17, 19, 21), deux points à
+        // la 12 (et à la 24), dessinés sous les notes. Avec un nombre impair de cordes, le centre tombe
+        // sur une corde : les doubles points sont alors écartés d'une corde et demie pour rester
+        // entre deux cordes.
+        var doubleOffset = (n % 2 === 0) ? stringGap : stringGap * 1.5;
         FRETBOARD_SINGLE_MARKERS.forEach(function (fret) {
             if (fret > FRETS) return;
             var mx = marginLeft + (fret - 0.5) * fretGap;
-            svg.appendChild(el("circle", { cx: mx, cy: midY, r: 3, class: "fretboard-inlay" }));
+            svg.appendChild(el("circle", { cx: mx, cy: midY, r: 6, class: "fretboard-inlay" }));
             svg.appendChild(el("text", { x: mx, y: labelY, class: "fretboard-fret-label" })).textContent = fret;
         });
         FRETBOARD_DOUBLE_MARKERS.forEach(function (fret) {
             if (fret > FRETS) return;
             var mx = marginLeft + (fret - 0.5) * fretGap;
-            svg.appendChild(el("circle", { cx: mx, cy: midY - stringGap, r: 3, class: "fretboard-inlay" }));
-            svg.appendChild(el("circle", { cx: mx, cy: midY + stringGap, r: 3, class: "fretboard-inlay" }));
+            svg.appendChild(el("circle", { cx: mx, cy: midY - doubleOffset, r: 6, class: "fretboard-inlay" }));
+            svg.appendChild(el("circle", { cx: mx, cy: midY + doubleOffset, r: 6, class: "fretboard-inlay" }));
             svg.appendChild(el("text", { x: mx, y: labelY, class: "fretboard-fret-label" })).textContent = fret;
         });
 
@@ -5071,9 +5109,11 @@
                 var isRoot = diff === 0;
                 var nx = fret2 === 0 ? marginLeft - 11 : marginLeft + (fret2 - 0.5) * fretGap;
                 var ny = stringY(s2);
-                var r = fret2 === 0 ? 9 : 11;
+                var r = fret2 === 0 ? 8 : 9.5; // un peu plus petits qu'avant (11) : on voit mieux le manche
                 svg.appendChild(el("circle", { cx: nx, cy: ny, r: r, class: "fretboard-note" + (isRoot ? " fretboard-note-root" : "") }));
-                var t = el("text", { x: nx, y: ny + 3, class: "fretboard-note-label" });
+                // Texte au centre exact du cercle : dy = 0,35 em (hauteur de ligne), plutôt qu'un
+                // décalage en px qui le laissait trop bas.
+                var t = el("text", { x: nx, y: ny, dy: "0.35em", class: "fretboard-note-label" });
                 t.textContent = scaleNoteLabel(def, semiIdx, pc, labelMode);
                 svg.appendChild(t);
             }
@@ -5242,12 +5282,20 @@
             var instSelect = select(row("Instrument", "scales-row-inst"), "Instrument", function (v) { prefs.instrument = v; update(); });
             SCALES_INSTRUMENTS.forEach(function (inst) { addOption(instSelect, inst.key, inst.label); });
 
-            var rootSelect = select(row("Tonique", "scales-row-root"), "Tonique", function (v) { prefs.root = parseInt(v, 10); update(); });
+            // Tonique et gamme sur une même ligne (la gamme à droite de la tonique) : moins de hauteur.
+            var rootRowChips = row("Tonique", "scales-row-root");
+            var rootSelect = select(rootRowChips, "Tonique", function (v) { prefs.root = parseInt(v, 10); update(); });
             ROOT_MENU_NAMES.forEach(function (name, pc) { addOption(rootSelect, String(pc), name); });
 
-            var typeRowChips = row("Gamme", "scales-row-types");
-            var typeSelect = select(typeRowChips, "Gamme ou arpège", function (v) { prefs.type = v; update(); });
-            var moreBtn = chip(typeRowChips, "…", "Afficher aussi les gammes peu utilisées ou complexes", function () { prefs.showAll = !prefs.showAll; update(); });
+            var typeGroup = document.createElement("div");
+            typeGroup.className = "scales-row-types scales-inline-group";
+            rootRowChips.appendChild(typeGroup);
+            var typeLabel = document.createElement("span");
+            typeLabel.className = "scales-inline-label";
+            typeLabel.textContent = "Gamme";
+            typeGroup.appendChild(typeLabel);
+            var typeSelect = select(typeGroup, "Gamme ou arpège", function (v) { prefs.type = v; update(); });
+            var moreBtn = chip(typeGroup, "…", "Afficher aussi les gammes peu utilisées ou complexes", function () { prefs.showAll = !prefs.showAll; update(); });
             moreBtn.classList.add("scales-more-btn");
 
             var viewChips = row("Affichage", "scales-row-view");
