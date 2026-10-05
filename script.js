@@ -407,9 +407,102 @@
         function apply(url) { if (url) img.src = url; else if (onMissing) onMissing(); }
         if (meta.id in imageUrlCache) { apply(imageUrlCache[meta.id]); return; }
         getFileBlob(meta.id).then(function (blob) {
+            if (blob) return blob;
+            // Absente de cet appareil : on la récupère dans le cloud si elle y a été envoyée.
+            return cloudFetchImage(meta);
+        }).then(function (blob) {
             imageUrlCache[meta.id] = blob ? URL.createObjectURL(blob) : false;
             apply(imageUrlCache[meta.id]);
         }, function () { imageUrlCache[meta.id] = false; apply(false); });
+    }
+
+    // ---- images dans le cloud (Firestore) ----
+    // Chaque image est un petit document à part (users/<uid>/apps/trainhub-img-<id>, contenu en base64) :
+    // Firebase Storage demande un abonnement payant, pas Firestore. Une image est réduite pour tenir sous
+    // la limite de 1 Mo par document (voir shrinkImageBlob). meta.cloud = true une fois envoyée.
+    function cloudImageDoc(id) {
+        return db.collection("users").doc(currentUser.uid).collection("apps").doc("trainhub-img-" + id);
+    }
+    function blobToDataUrl(blob) {
+        return new Promise(function (resolve, reject) {
+            var r = new FileReader();
+            r.onload = function () { resolve(r.result); };
+            r.onerror = function () { reject(r.error); };
+            r.readAsDataURL(blob);
+        });
+    }
+    function cloudFetchImage(meta) {
+        if (!meta.cloud || !db || !currentUser) return Promise.resolve(null);
+        return cloudImageDoc(meta.id).get().then(function (snap) {
+            if (!snap.exists) return null;
+            return fetch(snap.data().data).then(function (r) { return r.blob(); }).then(function (blob) {
+                storeFileBlob(meta.id, blob); // en cache local pour la prochaine fois
+                return blob;
+            });
+        }).catch(function (e) { console.warn("Image absente du cloud", e); return null; });
+    }
+    function cloudUploadImage(meta) {
+        if (!db || !currentUser) return Promise.resolve(false);
+        return getFileBlob(meta.id).then(function (blob) {
+            if (!blob) return false;
+            return blobToDataUrl(blob).then(function (dataUrl) {
+                return cloudImageDoc(meta.id).set({ data: dataUrl, type: meta.type || blob.type, name: meta.name || "", updatedAt: Date.now() });
+            }).then(function () { meta.cloud = true; persist(); return true; });
+        }).catch(function (e) { console.warn("Envoi de l'image vers le cloud impossible", e); return false; });
+    }
+    function cloudDeleteImage(id) {
+        if (!db || !currentUser) return;
+        cloudImageDoc(id).delete().catch(function () {});
+    }
+    // Après connexion : envoie les images encore locales (une à la fois) et réessaie celles qui manquaient.
+    function syncImagesToCloud() {
+        if (!db || !currentUser) return;
+        Object.keys(imageUrlCache).forEach(function (k) { if (imageUrlCache[k] === false) delete imageUrlCache[k]; });
+        var pending = [];
+        (function walk(folders) {
+            (folders || []).forEach(function (f) {
+                (f.exercises || []).forEach(function (ex) { (ex.images || []).forEach(function (m) { if (!m.cloud) pending.push(m); }); });
+                walk(f.folders);
+            });
+        })([].concat.apply([], state.instruments.map(function (i) { return i.categories || []; })));
+        pending.reduce(function (p, m) { return p.then(function () { return cloudUploadImage(m); }); }, Promise.resolve());
+    }
+
+    // Réduit une image pour qu'elle tienne dans un document Firestore (≈ 700 Ko) : côté max 1800 px, JPEG
+    // à qualité décroissante. Une image déjà assez légère est gardée telle quelle (PNG net conservé).
+    var IMG_MAX_BYTES = 700 * 1024;
+    function shrinkImageBlob(blob) {
+        function decodable() { return typeof createImageBitmap === "function"; }
+        if (blob.size <= IMG_MAX_BYTES && decodable()) {
+            return createImageBitmap(blob).then(function (bmp) {
+                var ok = Math.max(bmp.width, bmp.height) <= 1800;
+                if (bmp.close) bmp.close();
+                return ok ? blob : encode(blob);
+            }, function () { return blob; });
+        }
+        return decodable() ? encode(blob).catch(function () { return blob; }) : Promise.resolve(blob);
+        function encode(src) {
+            return createImageBitmap(src).then(function (bmp) {
+                var edge = 1800, q = 0.88;
+                function attempt() {
+                    var s = Math.min(1, edge / Math.max(bmp.width, bmp.height));
+                    var cv = document.createElement("canvas");
+                    cv.width = Math.max(1, Math.round(bmp.width * s));
+                    cv.height = Math.max(1, Math.round(bmp.height * s));
+                    var cx = cv.getContext("2d");
+                    cx.fillStyle = "#fff";
+                    cx.fillRect(0, 0, cv.width, cv.height);
+                    cx.drawImage(bmp, 0, 0, cv.width, cv.height);
+                    return new Promise(function (resolve) { cv.toBlob(resolve, "image/jpeg", q); }).then(function (out) {
+                        if (!out) return src;
+                        if (out.size <= IMG_MAX_BYTES || edge <= 700) { if (bmp.close) bmp.close(); return out; }
+                        edge = Math.round(edge * 0.85); q = Math.max(0.6, q - 0.05);
+                        return attempt();
+                    });
+                }
+                return attempt();
+            });
+        }
     }
 
     function openImageLightbox(images, startIndex) {
@@ -476,6 +569,7 @@
                     if (!window.confirm("Retirer cette image ?")) return;
                     ex.images = ex.images.filter(function (m) { return m.id !== meta.id; });
                     deleteFileBlob(meta.id);
+                    cloudDeleteImage(meta.id);
                     delete imageUrlCache[meta.id];
                     touchExercise(ex);
                     save();
@@ -492,16 +586,23 @@
         files = files.filter(function (f) { return f && /^image\//.test(f.type); });
         if (!files.length) return;
         ex.images = ex.images || [];
+        var added = [];
         Promise.all(files.map(function (file) {
             var id = uid();
-            return storeFileBlob(id, file).then(function () {
-                ex.images.push({ id: id, name: file.name || "Capture", type: file.type, size: file.size, addedAt: Date.now() });
+            return shrinkImageBlob(file).then(function (blob) {
+                return storeFileBlob(id, blob).then(function () {
+                    var meta = { id: id, name: file.name || "Capture", type: blob.type, size: blob.size, addedAt: Date.now() };
+                    ex.images.push(meta);
+                    added.push(meta);
+                });
             });
         })).then(function () {
             imagesOpenInList[ex.id] = true;
+            if (guidedSessionViewActive && gsScreen === "run") setImagesShownInSession(true); // collée pendant la session : on la voit aussitôt
             touchExercise(ex);
             save();
             render();
+            added.forEach(function (m) { cloudUploadImage(m); });
         }).catch(function () {
             window.alert("Impossible d'enregistrer cette image sur cet appareil (stockage plein ou navigateur privé ?).");
         });
@@ -570,6 +671,37 @@
             addImagesToExercise(ex, files);
         });
     }
+
+    // Collage d'une capture d'écran (presse-papiers) n'importe où : l'image va à l'exercice ouvert — celui
+    // de la session en cours, sinon l'exercice déplié (le dernier touché s'il y en a plusieurs).
+    var lastTouchedExerciseId = null;
+    function noteTouchedExercise(e) {
+        var el = e.target && e.target.closest ? e.target.closest(".exercise") : null;
+        if (el && el.dataset.reorderId) lastTouchedExerciseId = el.dataset.reorderId;
+    }
+    document.addEventListener("pointerdown", noteTouchedExercise, true);
+    document.addEventListener("focusin", noteTouchedExercise, true);
+    function pasteTargetExercise() {
+        if (guidedSessionViewActive && gsScreen === "run" && gsRunSession) {
+            var st = gsRunSession.steps[gsRunStepIndex];
+            var f = st && findExerciseById(st.exerciseId);
+            return f ? f.ex : null;
+        }
+        var open = Array.prototype.filter.call(document.querySelectorAll(".exercise"), function (el) { return !el.classList.contains("collapsed") && el.dataset.reorderId; });
+        var pick = open.filter(function (el) { return el.dataset.reorderId === lastTouchedExerciseId; })[0] || (open.length === 1 ? open[0] : null);
+        var found = pick && findExerciseById(pick.dataset.reorderId);
+        return found ? found.ex : null;
+    }
+    document.addEventListener("paste", function (e) {
+        if (e.defaultPrevented) return;
+        var items = (e.clipboardData && e.clipboardData.items) ? Array.prototype.slice.call(e.clipboardData.items) : [];
+        var files = items.filter(function (it) { return it.kind === "file" && /^image\//.test(it.type); }).map(function (it) { return it.getAsFile(); }).filter(Boolean);
+        if (!files.length) return;
+        var ex = pasteTargetExercise();
+        e.preventDefault();
+        if (!ex) { showToast("Ouvre d'abord un exercice (ou lance une session), puis colle l'image.", 4000); return; }
+        addImagesToExercise(ex, files);
+    });
 
     // ---------- corbeille ----------
     // Filet de sécurité en plus d'annuler/rétablir : un élément supprimé (exercice/dossier/session)
@@ -3539,6 +3671,8 @@
         }).then(function () {
             setSyncStatus("synced");
             attachSnapshotListener();
+            syncImagesToCloud();
+            render();
         }).catch(function (e) {
             console.error("Synchro initiale impossible", e);
             setSyncStatus("error");
