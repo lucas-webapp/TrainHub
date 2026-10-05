@@ -6330,6 +6330,7 @@
         var s = String(url || "").replace(/^https?:\/\/(www\.)?/i, "");
         return s.length > 40 ? s.slice(0, 39) + "…" : s;
     }
+    var gsExDetailsOpen = null; // null = auto (déplié si l'exercice a une note), sinon choix de l'utilisateur
     var gsOpenStepDetails = {}; // id de pas -> bloc "notes et liens" déplié dans l'écran d'édition
     function gsSessionHasItems(session) {
         return session.steps.some(function (step) {
@@ -7725,6 +7726,46 @@
         navRow.appendChild(prevBtn);
         navRow.appendChild(nextBtn);
         content.appendChild(navRow);
+
+        // Notes et liens de l'exercice (ceux de l'exercice lui-même, pas de la session) : lisibles et
+        // modifiables ici, enregistrés dans l'exercice pour la prochaine fois. Dépliés d'office quand
+        // l'exercice a déjà une note ; le choix de l'utilisateur est ensuite retenu.
+        if (found) {
+            var exDetailsOpen = gsExDetailsOpen === null ? !!(found.ex.notes && found.ex.notes.trim()) : gsExDetailsOpen;
+            var detailsWrap = document.createElement("div");
+            detailsWrap.className = "gs-run-exdetails";
+            var detailsToggle = document.createElement("button");
+            detailsToggle.type = "button";
+            detailsToggle.className = "gs-run-exdetails-toggle";
+            detailsToggle.setAttribute("aria-expanded", exDetailsOpen ? "true" : "false");
+            var dtLabel = document.createElement("span");
+            dtLabel.textContent = "Notes et liens de l'exercice";
+            var dtChev = document.createElement("span");
+            dtChev.className = "gs-folder-chev";
+            dtChev.textContent = exDetailsOpen ? "▾" : "▸";
+            detailsToggle.appendChild(dtLabel);
+            detailsToggle.appendChild(dtChev);
+            detailsWrap.appendChild(detailsToggle);
+            var detailsBody = null;
+            function showDetails(open) {
+                exDetailsOpen = open;
+                detailsToggle.setAttribute("aria-expanded", open ? "true" : "false");
+                dtChev.textContent = open ? "▾" : "▸";
+                if (open && !detailsBody) {
+                    detailsBody = renderExerciseDetails(found.ex);
+                    detailsWrap.appendChild(detailsBody);
+                    var ta = detailsBody.querySelector(".notes-textarea");
+                    if (ta) autoGrowNotes(ta);
+                }
+                if (detailsBody) detailsBody.hidden = !open;
+            }
+            detailsToggle.addEventListener("click", function () {
+                gsExDetailsOpen = !exDetailsOpen;
+                showDetails(gsExDetailsOpen);
+            });
+            content.appendChild(detailsWrap);
+            showDetails(exDetailsOpen);
+        }
 
         // Lecteurs YouTube des liens de l'exercice en cours (volume/vitesse retenus par lien).
         if (found) {

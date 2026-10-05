@@ -1872,3 +1872,9 @@ button.gs-folder-toggle { flex: 1; min-width: 0; justify-content: flex-start; ga
 .gs-add-folder-btn { height: 42px; flex: none; padding: 0 16px; }
 .gs-folder-select { width: 100%; margin-bottom: 12px; }
 .gs-session-row.dragging { opacity: .35; }
+
+/* Notes et liens de l'exercice dans l'écran de guidage */
+.gs-run-exdetails { margin: 12px 0; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+button.gs-run-exdetails-toggle { width: 100%; justify-content: space-between; height: var(--gs-btn-h, 44px); padding: 0 14px; background: transparent; border: none; font-size: var(--fs-sm); color: var(--text-muted); }
+.gs-run-exdetails .exercise-details { margin: 0; padding: 10px 12px 12px; border-top: 1px dashed var(--border); }
+.gs-run-exdetails .exercise-details[hidden] { display: none; }
