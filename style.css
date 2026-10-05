@@ -1857,3 +1857,18 @@ button.metro-train-beat-removed { border-style: dashed; opacity: .55; }
 .metro-train-unit { font-size: var(--fs-2xs); color: var(--text-muted); }
 .metro-train-fields select { font-size: var(--fs-xs); max-width: 100%; }
 .metro-train-status { color: var(--accent); }
+
+/* Dossiers de sessions (facultatifs) */
+.gs-folder { margin-bottom: 12px; }
+.gs-folder-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 6px 4px 4px; margin-bottom: 6px; border: 1px solid transparent; border-radius: var(--radius-sm); }
+.gs-folder-head.drop-hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+button.gs-folder-toggle { flex: 1; min-width: 0; justify-content: flex-start; gap: 8px; background: transparent; border-color: transparent; padding: 6px 4px; font-size: var(--fs-sm); font-weight: 800; }
+.gs-folder-chev { width: 12px; color: var(--text-muted); }
+.gs-folder-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-folder-count { font-size: var(--fs-2xs); color: var(--text-muted); font-weight: 600; }
+.gs-folder-root { font-size: var(--fs-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; justify-content: flex-start; }
+.gs-add-row { display: flex; gap: 8px; margin-top: 12px; }
+.gs-add-row .gs-add-session-btn { margin-top: 0; flex: 1; }
+.gs-add-folder-btn { height: 42px; flex: none; padding: 0 16px; }
+.gs-folder-select { width: 100%; margin-bottom: 12px; }
+.gs-session-row.dragging { opacity: .35; }
