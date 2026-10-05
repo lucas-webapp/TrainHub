@@ -1591,6 +1591,9 @@ button.gs-edit-run-btn:disabled { opacity: .4; cursor: default; }
 .gs-step-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); }
 .gs-step-missing { color: var(--text-muted); font-style: italic; }
 .gs-step-minutes { width: 52px; text-align: center; flex: none; }
+/* Champs de durée réglables au glisser (voir bindScrubInput) : pas de défilement de la page qui démarre dessus. */
+.gs-step-minutes, .gs-plan-minutes { touch-action: none; cursor: ns-resize; }
+html.scrubbing, html.scrubbing * { cursor: ns-resize !important; -webkit-user-select: none; user-select: none; }
 .gs-step-min-label { flex: none; font-size: var(--fs-2xs); color: var(--text-muted); }
 button.gs-add-step-btn { margin-top: 10px; width: 100%; height: 42px; border: 1px solid var(--border); }
 .gs-total-row { margin-top: 10px; font-size: var(--fs-sm); color: var(--text-muted); text-align: center; }

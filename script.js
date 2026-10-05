@@ -57,7 +57,7 @@
     // exercice archivé/favori ne reprend pas ce statut — la copie "disparaît" donc de la vue
     // Archivés/Favoris sans qu'on comprenne pourquoi au premier abord).
     var activeToastEl = null, activeToastTimer = null;
-    function showToast(message) {
+    function showToast(message, durationMs) {
         if (activeToastEl) { activeToastEl.remove(); clearTimeout(activeToastTimer); }
         var toast = document.createElement("div");
         toast.className = "toast";
@@ -67,7 +67,7 @@
         activeToastTimer = setTimeout(function () {
             toast.remove();
             if (activeToastEl === toast) activeToastEl = null;
-        }, 3200);
+        }, durationMs || 3200);
     }
 
     function makeFolder(name, color) {
@@ -5698,6 +5698,52 @@
         (ex.files || []).forEach(function (meta) { items.push({ type: "file", key: "file:" + meta.id, label: meta.name, meta: meta }); });
         return items;
     }
+    // Durée réglable au glisser, comme le cadran du métronome : cliquer sur le champ et monter/descendre
+    // la souris (ou le doigt) change la valeur de 1 en 1. Les chevrons natifs et la saisie au clavier
+    // restent possibles : le glisser ne démarre pas sur la zone des chevrons (bord droit) et un simple
+    // clic (sous le seuil) garde son effet habituel (placer le curseur de saisie).
+    // Sensibilité : une minute par 9 px — des durées de 3 à 30 min se règlent en ~250 px d'amplitude
+    // sans que 1 px de tremblement ne change la valeur ; seuil de 4 px avant de considérer un glisser.
+    var SCRUB_PX_PER_STEP = 9, SCRUB_START_PX = 4, SCRUB_SPINNER_PX = 24;
+    function bindScrubInput(input, min, max) {
+        var startY = 0, startVal = 0, active = false, scrubbing = false, changed = false;
+        function clamp(v) { return Math.min(max, Math.max(min, v)); }
+        input.addEventListener("pointerdown", function (e) {
+            if (e.button !== undefined && e.button !== 0) return;
+            var rect = input.getBoundingClientRect();
+            if (e.clientX > rect.right - SCRUB_SPINNER_PX) return; // zone des chevrons natifs
+            active = true; scrubbing = false; changed = false;
+            startY = e.clientY;
+            startVal = parseInt(input.value, 10) || min;
+        });
+        window.addEventListener("pointermove", function (e) {
+            if (!active) return;
+            var dy = startY - e.clientY; // vers le haut = plus
+            if (!scrubbing) {
+                if (Math.abs(dy) < SCRUB_START_PX) return;
+                scrubbing = true;
+                input.blur(); // pas de curseur de saisie pendant le glisser
+                if (window.getSelection) window.getSelection().removeAllRanges();
+                document.documentElement.classList.add("scrubbing");
+            }
+            e.preventDefault();
+            var v = clamp(startVal + Math.round(dy / SCRUB_PX_PER_STEP));
+            if (String(v) !== input.value) { input.value = String(v); changed = true; }
+        });
+        function end() {
+            if (!active) return;
+            active = false;
+            if (scrubbing) {
+                scrubbing = false;
+                document.documentElement.classList.remove("scrubbing");
+                if (changed) input.dispatchEvent(new Event("change", { bubbles: true })); // même chemin que la saisie : enregistre
+            }
+        }
+        window.addEventListener("pointerup", end);
+        window.addEventListener("pointercancel", end);
+        input.title = (input.title ? input.title + " — " : "") + "Glisser vers le haut/bas pour changer, ou chevrons / saisie";
+    }
+
     function gsStepHides(step, key) { return (step.hidden || []).indexOf(key) !== -1; }
     function gsSetStepHidden(step, key, hide) {
         var list = (step.hidden || []).filter(function (k) { return k !== key; });
@@ -5837,45 +5883,53 @@
         });
     }
 
-    // Ouvre plusieurs liens/fichiers d'un coup, chacun dans un ONGLET de la fenêtre du navigateur.
-    // Un lien <a target="_blank"> est le geste "nouvel onglet" que tous les navigateurs respectent ;
-    // window.open(…), lui, peut être interprété comme une fenêtre pop-up séparée (c'est ce qui
-    // donnait une fenêtre par lien). Le clic est déclenché ici, de façon synchrone dans le clic de
-    // l'utilisateur (sinon le navigateur bloque l'ouverture comme un pop-up).
-    function gsOpenInNewTab(url) {
-        var a = document.createElement("a");
-        a.href = url;
-        a.target = "_blank";
-        a.rel = "noopener noreferrer";
-        a.style.display = "none";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
+    // ---------- ouverture de plusieurs liens/fichiers d'un coup ----------
+    // Objectif : un ONGLET par lien, jamais une fenêtre à part.
+    //  a. TrainHub ouvert dans un navigateur : window.open(adresse) — un nouvel onglet du même
+    //     navigateur. Chaque appel est fait de façon synchrone dans le clic de l'utilisateur (sinon le
+    //     navigateur le bloque comme un pop-up). Si l'un est bloqué (le navigateur n'autorise qu'un
+    //     pop-up par défaut), window.open renvoie null : on le signale au lieu d'échouer en silence.
+    //  b. TrainHub installé (dock, appli) : on ouvre avec « noopener » — sans lien avec la fenêtre de
+    //     l'appli, l'adresse part dans le navigateur du système, en onglet, plutôt que dans une
+    //     fenêtre d'appli supplémentaire. Le choix du navigateur (le navigateur par défaut) appartient
+    //     au système : une appli web ne peut pas en désigner un.
+    // L'ancienne méthode (ouvrir d'abord une fenêtre vide « about:blank » puis y charger l'adresse)
+    // créait justement ces fenêtres d'appli séparées.
+    function isStandaloneApp() {
+        return (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true;
     }
-    function gsOpenItems(items) {
-        var unavailable = [];
-        items.forEach(function (item) {
-            if (item.type === "link") { gsOpenInNewTab(item.url); return; }
-            var blob = gsFileBlobCache[item.meta.id];
-            if (blob === false) { unavailable.push(item.label); return; }
-            if (blob) {
-                // Fichier déjà lu à l'affichage de l'écran : ouverture immédiate, comme un lien.
-                var url = URL.createObjectURL(blob);
-                gsOpenInNewTab(url);
-                setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+    function openUrlsInTabs(urls) {
+        var standalone = isStandaloneApp();
+        var blocked = 0;
+        urls.forEach(function (url) {
+            if (standalone) {
+                try { window.open(url, "_blank", "noopener,noreferrer"); } catch (e) { blocked++; }
                 return;
             }
-            // Pas encore lu (écran à peine affiché) : on réserve l'onglet maintenant, dans le clic,
-            // et on y pose le fichier une fois lu — lecture IndexedDB asynchrone, sinon le
-            // navigateur refuserait d'ouvrir l'onglet.
-            var win = window.open("", "_blank");
-            getFileBlob(item.meta.id).then(function (b) {
-                if (!b) { if (win) win.close(); return; }
-                var u = URL.createObjectURL(b);
-                if (win) win.location.href = u;
-                setTimeout(function () { URL.revokeObjectURL(u); }, 60000);
-            });
+            var w = null;
+            try { w = window.open(url, "_blank"); } catch (e) {}
+            if (!w) { blocked++; return; }
+            try { w.opener = null; } catch (e) {}
         });
+        if (blocked) {
+            showToast(blocked + " lien" + (blocked > 1 ? "s" : "") + " bloqué" + (blocked > 1 ? "s" : "") + " par le navigateur : autorisez les pop-ups pour TrainHub (icône dans la barre d'adresse) puis recommencez.", 8000);
+        }
+    }
+
+    function gsOpenItems(items) {
+        var urls = [], unavailable = [], pending = [];
+        items.forEach(function (item) {
+            if (item.type === "link") { urls.push(item.url); return; }
+            var blob = gsFileBlobCache[item.meta.id];
+            if (blob === false) { unavailable.push(item.label); return; }
+            if (!blob) { pending.push(item.label); return; } // lecture pas encore terminée
+            // Fichier déjà lu à l'affichage de l'écran : ouverture immédiate, comme un lien.
+            var url = URL.createObjectURL(blob);
+            urls.push(url);
+            setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+        });
+        openUrlsInTabs(urls);
+        if (pending.length) showToast("Fichier en cours de lecture, réessayez dans un instant : " + pending.join(", "));
         if (unavailable.length) {
             window.alert("Ces fichiers ne sont disponibles que sur l'appareil où ils ont été ajoutés :\n" + unavailable.join("\n"));
         }
@@ -6068,6 +6122,7 @@
                 minutesInput.max = "180";
                 minutesInput.className = "gs-step-minutes";
                 minutesInput.value = step.minutes;
+                bindScrubInput(minutesInput, 1, 180);
                 minutesInput.addEventListener("change", function () {
                     step.minutes = Math.max(1, parseInt(minutesInput.value, 10) || 5);
                     minutesInput.value = step.minutes;
@@ -6521,6 +6576,7 @@
                 mins.className = "gs-plan-minutes";
                 mins.value = String(step.minutes);
                 mins.title = "Durée (minutes), enregistrée dans la session";
+                bindScrubInput(mins, 1, 180);
                 mins.addEventListener("change", function () {
                     var v = Math.round(parseFloat(mins.value));
                     if (!(v >= 1)) v = step.minutes;
