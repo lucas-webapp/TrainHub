@@ -15,6 +15,7 @@
     --card-bg: #161616;
     --card-bg-2: #1c1c1c;
     --text-main: #e0e0e0;
+    --text-dim: #c2c2c2;
     --text-muted: #a0a0a0;
     --border: #333;
     --radius: 12px;
@@ -175,6 +176,23 @@ button.metronome-btn-highlight {
 }
 button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
 .metronome-btn-highlight .icon { width: 22px; height: 22px; }
+/* La session guidée mérite la même mise en avant que le métronome (juste à côté) plutôt que de se
+   fondre parmi les icônes simples : texte + icône, plus large qu'un bouton carré. */
+button.session-btn-highlight {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    height: 36px;
+    box-sizing: border-box;
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    font-weight: 700;
+    font-size: var(--fs-sm);
+}
+button.session-btn-highlight:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.session-btn-highlight .icon { width: 18px; height: 18px; }
 
 /* ---------- auth / synchro ---------- */
 .auth-area { display: flex; align-items: center; }
@@ -196,7 +214,8 @@ button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--acce
 }
 .account-name { font-size: var(--fs-xs); color: var(--text-muted); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sync-status {
-    font-size: 10px;
+    font-size: 15px; /* pastille d'état de la sauvegarde : assez grosse pour la repérer d'un coup d'œil */
+    line-height: 1;
     color: var(--status-a-faire);
     transition: color .2s ease;
 }
@@ -303,6 +322,9 @@ button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--acce
 .virtual-archived { border-color: #9ca3af; background: color-mix(in srgb, #9ca3af 7%, transparent); }
 .virtual-archived.active { background: color-mix(in srgb, #9ca3af 15%, transparent); }
 .virtual-archived .chapter-chip-label, .virtual-archived .chapter-chip-star { color: #9ca3af; }
+.virtual-tags { border-color: #60a5fa; background: color-mix(in srgb, #60a5fa 8%, transparent); }
+.virtual-tags.active { background: color-mix(in srgb, #60a5fa 18%, transparent); }
+.virtual-tags .chapter-chip-label, .virtual-tags .chapter-chip-star { color: #60a5fa; }
 .chapter-chip-star { display: inline-flex; }
 .chapter-chip-star .icon { width: 13px; height: 13px; }
 
@@ -419,6 +441,20 @@ button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--acce
 .exercise-drag-handle:hover { color: var(--text-main); }
 .exercise.dragging { opacity: .5; }
 
+/* La copie flottante qui suit le pointeur pendant un glisser (voir setupDragReorder) : un peu plus
+   grande et plus marquée que l'original, comme une icône "soulevée" sur un écran d'accueil de
+   téléphone, pour bien la distinguer du reste de la liste en-dessous. */
+.drag-ghost {
+    position: fixed;
+    z-index: 970;
+    pointer-events: none;
+    margin: 0 !important;
+    box-shadow: 0 12px 28px rgba(0,0,0,.45);
+    border-radius: var(--radius-sm);
+    transform: scale(1.03);
+    opacity: .97;
+}
+
 .exercise-favorite-badge { flex: none; display: inline-flex; color: #ffd60a; }
 .exercise-favorite-badge .icon { width: 14px; height: 14px; }
 .exercise-archived-badge {
@@ -503,15 +539,39 @@ button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--acce
 .link-chip .link-edit svg { width: 13px; height: 13px; }
 .link-chip .link-edit:hover { color: var(--accent); }
 .link-label-input {
+    box-sizing: border-box;
     background: transparent;
-    border: none;
-    border-bottom: 1px dashed var(--accent);
+    border: 1px dashed var(--accent);
+    border-radius: var(--radius-sm);
+    outline: none;
     color: var(--text-main);
     font-size: var(--fs-xs);
-    padding: 0;
-    min-width: 60px;
-    max-width: 140px;
+    padding: 3px 8px; /* sans marge à gauche, le texte touchait/dépassait le cadre */
+    min-width: 90px;
+    max-width: 220px;
 }
+.file-chip .link-edit {
+    flex: none; display: inline-flex; align-items: center; color: var(--text-muted); cursor: pointer; padding: 0 2px;
+}
+.file-chip .link-edit svg { width: 13px; height: 13px; }
+.file-chip .link-edit:hover { color: var(--accent); }
+/* Dossier survolé pendant qu'on glisse un exercice. */
+.drop-hover { outline: 2px solid var(--accent); outline-offset: -2px; background: color-mix(in srgb, var(--accent) 22%, transparent) !important; border-radius: var(--radius-sm); }
+.ctx-menu-title { padding: 8px 12px 6px; font-size: var(--fs-2xs); color: var(--text-muted); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.ctx-item-muted { color: var(--text-muted); }
+.ctx-menu-dialog { max-width: min(340px, calc(100vw - 16px)); }
+.ctx-menu-title-wrap { white-space: normal; max-width: none; font-weight: 700; color: var(--text-main); font-size: var(--fs-sm); }
+.ctx-menu-text { padding: 4px 12px 10px; font-size: var(--fs-xs); color: var(--text-muted); white-space: pre-line; line-height: 1.4; }
+/* Favoris & co : un titre par dossier, ses exercices dessous. */
+.result-group { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; --group-color: var(--accent); }
+button.result-group-title {
+    display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+    padding: 6px 10px; border: none; border-left: 3px solid var(--group-color);
+    background: color-mix(in srgb, var(--group-color) 10%, transparent);
+    border-radius: var(--radius-sm); color: var(--text-main); font-size: var(--fs-sm); font-weight: 800; cursor: pointer;
+}
+button.result-group-title:hover { background: color-mix(in srgb, var(--group-color) 18%, transparent); }
+.result-group-count { margin-left: auto; font-size: var(--fs-2xs); color: var(--text-muted); font-weight: 700; }
 
 .add-link-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .add-link-row input { flex: 1; min-width: 120px; }
@@ -557,6 +617,47 @@ button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--acce
 
 .add-category-row { display: flex; gap: 8px; }
 .add-category-row input { flex: 1; }
+.folder-depth-limit-note { font-size: var(--fs-xs); color: var(--text-muted); padding: 6px 2px; }
+
+.folder-picker-panel { width: min(420px, calc(100vw - 24px)); height: min(520px, calc(100vh - 24px)); max-height: calc(100vh - 24px); display: flex; flex-direction: column; }
+.folder-picker-tree { flex: 1; min-height: 0; overflow-y: auto; }
+.folder-picker-choose-btn { flex: 1; text-align: left; }
+
+.tags-view-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+button.tags-view-chip {
+    box-sizing: border-box;
+    height: 30px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: rgba(255,255,255,.04);
+    color: var(--text-main);
+    font-size: var(--fs-sm);
+    font-weight: 600;
+}
+button.tags-view-chip:hover { border-color: var(--text-muted); }
+
+.toast {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%);
+    background: var(--card-bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 16px;
+    font-size: var(--fs-sm);
+    color: var(--text-main);
+    box-shadow: 0 6px 20px rgba(0,0,0,.4);
+    z-index: 950;
+    max-width: calc(100vw - 32px);
+    text-align: center;
+    animation: toast-in .15s ease;
+}
+@keyframes toast-in {
+    from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+    to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
 
 /* ---------- arborescence latérale (ordinateur uniquement) ---------- */
 .sidebar-tree {
@@ -595,7 +696,10 @@ button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--acce
     transition: background .12s ease;
 }
 .tree-row:hover { background: rgba(255,255,255,.09) !important; }
-.tree-row.dragging { opacity: .45; cursor: grabbing; }
+/* La classe "dragging" est posée sur .tree-node (l'élément reconnu par setupDragReorder, voir
+   itemSelector=".tree-node"), pas sur .tree-row lui-même : il faut cibler le descendant pour que
+   l'estompage soit réellement visible pendant le glisser. */
+.tree-node.dragging > .tree-row { opacity: .45; cursor: grabbing; }
 .tree-row.selected .tree-label { color: var(--chapter-accent); font-weight: 700; }
 
 /* Ligne fixe "Favoris" au-dessus de l'arborescence : couleur or fixe, pas de glisser (elle n'est
@@ -608,6 +712,9 @@ button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--acce
 .tree-row-fixed.virtual-archived { border-left-color: #9ca3af; background: color-mix(in srgb, #9ca3af 5%, transparent); }
 .tree-row-fixed.virtual-archived.selected { background: color-mix(in srgb, #9ca3af 14%, transparent); }
 .tree-row-fixed.virtual-archived .tree-label, .tree-row-fixed.virtual-archived .tree-fixed-icon { color: #9ca3af; }
+.tree-row-fixed.virtual-tags { border-left-color: #60a5fa; background: color-mix(in srgb, #60a5fa 5%, transparent); }
+.tree-row-fixed.virtual-tags.selected { background: color-mix(in srgb, #60a5fa 14%, transparent); }
+.tree-row-fixed.virtual-tags .tree-label, .tree-row-fixed.virtual-tags .tree-fixed-icon { color: #60a5fa; }
 .tree-fixed-icon { width: 18px; height: 18px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
 .tree-fixed-icon .icon { width: 13px; height: 13px; }
 
@@ -615,12 +722,17 @@ button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--acce
    chapitre (niveau 0) garde la couleur du chapitre en permanence (voir renderTreeNode). Les
    sous-dossiers s'effacent progressivement — texte plus petit, plus discret — pour que la couleur
    reste un repère de chapitre et non un habillage répété à chaque niveau. */
-.tree-row-d0 .tree-label { font-size: calc(var(--fs-sm) * var(--tree-font-scale, 1)); font-weight: 700; }
+.tree-row-d0 .tree-label { font-size: calc(var(--fs-base) * var(--tree-font-scale, 1)); font-weight: 700; color: var(--text-main); }
+.tree-row-d0.selected .tree-label { color: var(--chapter-accent); }
 
-.tree-row-d1 { padding: calc(7px * var(--density-scale, 1)) 8px; border-radius: 6px; }
-.tree-row-d1 .tree-label { font-weight: 600; }
+/* Sous-dossiers resserrés par défaut (padding réduit) pour que la liste tienne plus de dossiers à
+   l'écran sans dérégler le réglage "Densité" des paramètres généraux — var(--density-scale)
+   continue de s'appliquer par-dessus cette base, juste plus petite qu'avant. */
+.tree-row-d1 { padding: calc(5px * var(--density-scale, 1)) 8px; border-radius: 6px; }
+.tree-row-d1 .tree-label { font-weight: 600; color: var(--text-dim); }
+.tree-row-d1.selected .tree-label { color: var(--chapter-accent); }
 
-.tree-row-d2 { padding: calc(5px * var(--density-scale, 1)) 8px; border-radius: 6px; }
+.tree-row-d2 { padding: calc(3px * var(--density-scale, 1)) 8px; border-radius: 6px; }
 .tree-row-d2 .tree-label { font-size: calc(var(--fs-xs) * var(--tree-font-scale, 1)); font-weight: 500; color: var(--text-muted); }
 .tree-row-d2.selected .tree-label { color: var(--chapter-accent); }
 
@@ -727,15 +839,17 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
 }
 .section-group { display: flex; flex-direction: column; gap: calc(8px * var(--density-scale, 1)); }
 /* Disposition de l'écran principal (réglable dans les paramètres) : verticale, comme avant
-   (sous-dossiers au-dessus des exercices), ou horizontale façon Finder (sous-dossiers dans une
-   colonne à droite). */
+   (sous-dossiers au-dessus des exercices), ou horizontale façon Finder — sous-dossiers dans une
+   colonne à GAUCHE (comme la barre latérale du vrai Finder macOS), exercices dans le panneau
+   principal à droite. Une fine bordure sépare les deux colonnes, pour que la coupure soit nette. */
 .folder-browser-vertical { display: flex; flex-direction: column; gap: 18px; }
-.folder-browser-horizontal { display: flex; gap: 22px; align-items: flex-start; }
-.folder-browser-horizontal .exercises-group { flex: 1; min-width: 0; }
-.folder-browser-horizontal .folders-group { flex: 0 0 220px; }
+.folder-browser-horizontal { display: flex; gap: 0; align-items: flex-start; }
+.folder-browser-horizontal .exercises-group { flex: 1; min-width: 0; padding-left: 22px; }
+.folder-browser-horizontal .folders-group { flex: 0 0 220px; padding-right: 22px; border-right: 1px solid var(--border); }
 @media (max-width: 700px) {
     .folder-browser-horizontal { flex-direction: column; gap: 18px; }
-    .folder-browser-horizontal .folders-group { flex: none; width: 100%; }
+    .folder-browser-horizontal .folders-group { flex: none; width: 100%; padding-right: 0; border-right: none; border-bottom: 1px solid var(--border); padding-bottom: 18px; }
+    .folder-browser-horizontal .exercises-group { padding-left: 0; }
 }
 .section-label {
     font-size: var(--fs-2xs);
@@ -749,12 +863,22 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
 .backups-panel {
     position: fixed;
     z-index: 902;
-    top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
+    /* Position posée en px par script.js (openModal/makePanelDraggable) — pas de centrage par
+       transform : une fenêtre qu'on peut faire glisser a besoin d'un top/left mutable, pas d'un
+       point de centrage fixe. */
+    top: 0; left: 0;
     width: min(480px, calc(100vw - 32px));
+    height: auto;
     max-height: min(600px, calc(100vh - 32px));
-    overflow-y: auto;
-    overflow-x: hidden;
+    min-width: 280px;
+    min-height: 180px;
+    max-width: calc(100vw - 24px);
+    /* Redimensionnable à la main (coin bas-droit) — taille retenue par makePanelResizable/
+       savePanelSize. min-width/min-height sont recalculés en continu par recalcPanelFit (script.js)
+       pour qu'ils ne descendent jamais sous la taille réellement nécessaire au contenu : la fenêtre
+       grandit toute seule plutôt que de faire apparaître une barre de défilement. */
+    resize: both;
+    overflow: auto;
     box-sizing: border-box;
     background: var(--card-bg-2);
     border: 1px solid var(--border);
@@ -765,7 +889,61 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
     flex-direction: column;
     gap: 12px;
 }
+/* Zone de préhension pour déplacer la fenêtre à la souris, ajoutée en premier enfant par openModal.
+   Assez épaisse et contrastée pour qu'on la repère du premier coup d'œil (pas qu'une fine bande). */
+.panel-drag-handle {
+    flex: none;
+    margin: -18px -18px 0 -18px;
+    height: 22px;
+    border-radius: var(--radius) var(--radius) 0 0;
+    background: rgba(255,255,255,.05);
+    border-bottom: 1px solid var(--border);
+    cursor: grab;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: none;
+}
+.panel-drag-handle::before {
+    content: "";
+    width: 40px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--text-muted);
+    opacity: .6;
+}
+.panel-drag-handle:hover::before { opacity: 1; background: var(--accent); }
+.panel-drag-handle:active { cursor: grabbing; }
+@media (max-width: 700px) {
+    /* Glisser/redimensionner une fenêtre n'a pas de sens sur téléphone : l'outil prend tout l'écran. */
+    /* Ancré aux 4 bords plutôt que 100vh : sur iPhone, 100vh inclut la zone sous la barre d'adresse
+       de Safari, qui cachait le bas des outils (manche des gammes coupé, bouton Fermer invisible).
+       Les marges "safe-area" évitent l'encoche et la barre d'accueil. */
+    .backups-panel {
+        top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
+        width: auto !important; height: auto !important;
+        max-width: none !important; max-height: none !important;
+        min-width: 0 !important; min-height: 0 !important;
+        border-radius: 0 !important;
+        border: none !important;
+        resize: none !important;
+        padding: calc(14px + env(safe-area-inset-top, 0px)) 14px calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+        gap: 10px;
+    }
+    .panel-drag-handle { display: none; }
+    .panel-drag-by-title { cursor: inherit !important; touch-action: auto !important; }
+}
+/* Fenêtres à contenu ajustable (métronome, voir fitPanelContentZoom dans script.js) : la taille de
+   la fenêtre est libre et c'est le contenu qui se met à l'échelle pour tenir dedans — jamais
+   d'ascenseur, et on peut la réduire bien en dessous de la taille "naturelle" du contenu. */
+.backups-panel.panel-fit-content { overflow: hidden; max-height: calc(100vh - 16px); max-width: calc(100vw - 16px); }
+.panel-fit-box { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.panel-fit-inner { flex: none; display: flex; flex-direction: column; gap: 12px; }
 .backups-title { font-size: var(--fs-md); font-weight: 800; }
+/* Le titre lui-même est aussi une poignée de déplacement (voir openModal) : plus facile à repérer
+   que la seule bande du dessus. */
+.panel-drag-by-title { cursor: grab; touch-action: none; -webkit-user-select: none; user-select: none; }
+.panel-drag-by-title:active { cursor: grabbing; }
 .backups-intro { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.4; }
 .backups-list { display: flex; flex-direction: column; gap: 8px; }
 .backups-empty { color: var(--text-muted); font-size: var(--fs-sm); padding: 8px 0; }
@@ -891,66 +1069,44 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
 .tree-row, .folder-row, .chapter-chip, .link-chip { -webkit-touch-callout: none; -webkit-user-select: none; }
 
 /* ---------- métronome ---------- */
+/* Refonte "cadran" : le BPM est mis en valeur au centre d'un cadran rond ; transport (vitesse +
+   cadran), bascules (tap/progressif), formules rythmiques et pavé sont chacun regroupés sur une
+   ligne, pour que la fenêtre reste courte et ne demande jamais à défiler (recalcPanelFit,
+   script.js). Les boutons reprennent les bords légèrement arrondis du reste de l'appli (--radius /
+   --radius-sm) plutôt que la forme pilule utilisée dans une itération précédente. */
 .metronome-panel { align-items: stretch; text-align: center; }
-/* Position et taille réglables depuis les paramètres généraux (state.settings.appearance). */
-.metronome-panel.metro-pos-top { top: 84px; transform: translateX(-50%); }
-.metronome-panel.metro-pos-bottom { top: auto; bottom: 16px; transform: translateX(-50%); }
-.metronome-panel.metro-pos-corner { top: auto; left: auto; right: 16px; bottom: 16px; transform: none; }
-.metronome-panel.metro-size-small { width: min(320px, calc(100vw - 32px)); }
-.metronome-panel.metro-size-large { width: min(560px, calc(100vw - 32px)); }
-.metro-bpm-row { display: flex; align-items: center; justify-content: center; gap: 8px; }
-.metro-bpm-value {
-    font-size: var(--fs-xl);
-    font-weight: 800;
-    min-width: 110px;
-    letter-spacing: -.01em;
-    background: transparent;
-    border: none;
-    border-radius: 8px;
-    color: var(--text-main);
-    padding: 2px 6px;
-}
-.metro-bpm-value:hover { background: rgba(255,255,255,.06); }
-.metro-bpm-input {
-    font-size: var(--fs-xl);
-    font-weight: 800;
-    min-width: 90px;
-    width: 90px;
-    text-align: center;
-    letter-spacing: -.01em;
-}
-button.metro-bpm-btn {
+/* Plancher de redimensionnement à la main : en dessous, le contenu (mis à l'échelle pour tenir
+   dans la fenêtre) deviendrait illisible. */
+.backups-panel.metronome-panel { min-width: 260px; min-height: 340px; }
+/* Taille réglable depuis les paramètres généraux (state.settings.appearance). La position de
+   départ (centre/haut/bas/coin) est, elle, posée en JS par openModal (voir metronomePosition dans
+   script.js) : la fenêtre étant désormais librement déplaçable à la souris, un simple point de
+   départ ne peut plus être une classe CSS figée comme avant. */
+.metronome-panel.metro-size-small { width: min(340px, calc(100vw - 32px)); }
+.metronome-panel.metro-size-large { width: min(580px, calc(100vw - 32px)); }
+
+/* -- en-tête : titre + volume, bien visible en haut à droite -- */
+.metro-header-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left; }
+button.metro-volume-btn {
     box-sizing: border-box;
-    min-width: 36px;
-    height: 36px;
-    padding: 0 8px;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 40px;
+    padding: 0 16px;
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     background: rgba(255,255,255,.04);
     color: var(--text-main);
+    font-size: var(--fs-sm);
     font-weight: 700;
-    font-size: var(--fs-lg);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
 }
-button.metro-bpm-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(255,255,255,.07); }
-button.metro-bpm-step10 { min-width: 42px; font-size: var(--fs-xs); }
-.metro-bpm-slider { width: 100%; }
-.metro-volume-field { display: flex; align-items: center; justify-content: center; }
-button.metro-volume-btn {
-    width: 40px;
-    height: 40px;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    color: var(--text-muted);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-button.metro-volume-btn:hover { border-color: var(--accent); color: var(--accent); }
-.metro-volume-btn .icon { width: 20px; height: 20px; }
-.metro-volume-row { display: flex; justify-content: center; margin-top: 10px; }
+button.metro-volume-btn:hover, button.metro-volume-btn.metro-volume-expanded { border-color: var(--accent); color: var(--accent); }
+.metro-volume-btn-icon { display: inline-flex; }
+.metro-volume-btn-icon .icon { width: 20px; height: 20px; }
+/* -- volume : barre pleine largeur, repliée par défaut (déclenchée depuis l'en-tête) -- */
+.metro-volume-row { display: flex; justify-content: center; margin-top: 0; }
 .metro-volume-slider {
     width: 0;
     padding: 0;
@@ -960,7 +1116,146 @@ button.metro-volume-btn:hover { border-color: var(--accent); color: var(--accent
     pointer-events: none;
     transition: width .15s ease, opacity .15s ease;
 }
-.metro-volume-expanded .metro-volume-slider { width: 100%; opacity: 1; pointer-events: auto; }
+.metro-volume-expanded-row { margin-top: 8px; }
+.metro-volume-expanded-row .metro-volume-slider { width: 100%; opacity: 1; pointer-events: auto; }
+
+/* -- cadran BPM : cerclage fin façon vitrine, pas une piste de glissière -- */
+.metro-dial {
+    box-sizing: border-box;
+    width: 136px;
+    height: 136px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
+    background: rgba(255,255,255,.03);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    /* Se règle directement : glisser verticalement ou la molette change le tempo (voir script.js). */
+    cursor: ns-resize;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+.metro-dial-value {
+    background: transparent;
+    border: none;
+    padding: 0;
+    line-height: 1;
+    font-size: calc(var(--fs-xl) * 1.25);
+    font-weight: 800;
+    letter-spacing: -.01em;
+    color: var(--text-main);
+    border-radius: var(--radius-sm);
+}
+.metro-dial-value:hover { color: var(--accent); }
+.metro-dial-unit { font-size: var(--fs-2xs); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); margin-top: 2px; }
+.metro-dial-input { font-size: calc(var(--fs-xl) * 1.1); font-weight: 800; width: 88px; text-align: center; }
+
+/* -- transport : vitesse ±1/±10 de part et d'autre du cadran -- */
+.metro-transport-row { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; row-gap: 10px; margin-top: 10px; }
+button.metro-bpm-btn {
+    box-sizing: border-box;
+    min-width: 42px;
+    height: 42px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: rgba(255,255,255,.04);
+    color: var(--text-main);
+    font-weight: 700;
+    font-size: var(--fs-lg);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+}
+button.metro-bpm-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(255,255,255,.07); }
+button.metro-bpm-step10 { min-width: 48px; font-size: var(--fs-sm); }
+/* En dessous de 700px la fenêtre prend tout l'écran (voir .backups-panel), mais ça ne veut pas dire
+   que tout tient sur une seule ligne : à 480px et moins (la quasi-totalité des téléphones en
+   portrait), le cadran et les ±1/±10 autour ne rentraient pas à leur taille normale et un bouton
+   (+10) atterrissait seul sur une 2e ligne — d'où l'impression de mise en page décalée. */
+@media (max-width: 480px) {
+    .metro-dial { width: 112px; height: 112px; }
+    .metro-dial-value { font-size: calc(var(--fs-lg) * 1.25); }
+    .metro-transport-row { gap: 5px; }
+    button.metro-bpm-btn { min-width: 34px; height: 38px; padding: 0 5px; font-size: var(--fs-md); }
+    button.metro-bpm-step10 { min-width: 38px; font-size: var(--fs-xs); }
+}
+
+/* -- bascules secondaires : tap / progressif, même style pour les deux -- */
+.metro-tools-row { display: flex; justify-content: center; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+button.metro-mini-btn {
+    box-sizing: border-box;
+    min-height: 38px;
+    padding: 0 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: rgba(255,255,255,.04);
+    color: var(--text-main);
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+button.metro-mini-btn:hover { border-color: var(--accent); color: var(--accent); }
+button.metro-mini-btn.metro-progressive-active { color: var(--accent); border-color: var(--accent); }
+
+/* -- formules rythmiques courantes + "…" (formules moins courantes / réglage libre) -- */
+.metro-formulas-row { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+button.metro-mini-btn.metro-mini-btn-icon { width: 38px; padding: 0; }
+button.metro-mini-btn.metro-mini-btn-icon .icon { width: 20px; height: 20px; }
+
+/* -- rythme/progressif : champs dépliés au clic -- */
+.metro-rhythm-fields, .metro-progressive-fields { display: flex; justify-content: center; gap: 18px; margin-top: 10px; flex-wrap: wrap; }
+.metro-field { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; text-align: center; }
+.metro-field input, .metro-field select { font-size: var(--fs-sm); text-align: center; color: var(--text-main); text-transform: none; letter-spacing: normal; width: 100%; box-sizing: border-box; }
+.metro-field input[type="number"] { max-width: 64px; }
+.metro-progressive-field { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+.metro-progressive-fields { flex-direction: column; align-items: center; gap: 8px; }
+.metro-prog-row { display: flex; align-items: center; justify-content: center; gap: 14px; flex-wrap: wrap; }
+.metro-prog-hint { font-size: var(--fs-2xs); color: var(--text-muted); text-align: center; max-width: 320px; }
+.metro-prog-stage { display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; font-size: var(--fs-2xs); color: var(--text-muted); }
+.metro-prog-stage input { font-size: var(--fs-sm); text-align: center; color: var(--text-main); width: 58px; }
+.metro-prog-del { border: 1px solid var(--border); background: transparent; color: var(--text-muted); border-radius: var(--radius-sm); width: 26px; height: 26px; cursor: pointer; }
+.metro-prog-del:hover { color: var(--text-main); border-color: var(--accent); }
+.metro-prog-opts { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.metro-prog-check { display: flex; align-items: center; gap: 6px; font-size: var(--fs-2xs); color: var(--text-muted); cursor: pointer; }
+.metro-progressive-field input { font-size: var(--fs-sm); text-align: center; color: var(--text-main); text-transform: none; letter-spacing: normal; width: 64px; }
+
+/* Le pavé est un simple conteneur flex-wrap de groupes (un groupe = un temps, voir renderPad dans
+   script.js) : tient sur une seule ligne tant que la largeur le permet, et ne revient à la ligne
+   qu'un groupe entier à la fois (jamais coupé en deux) si l'espace manque vraiment. Pas d'intitulé,
+   masqué entièrement en mode "None". touch-action: none pour pouvoir glisser d'une case à l'autre au
+   doigt (remplissage de plusieurs cases d'un geste) sans que le navigateur ne le prenne pour un
+   défilement. */
+.metro-pad { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; padding: 4px 0; margin-top: 12px; touch-action: none; }
+.metro-beat-group { display: flex; gap: 4px; }
+.metro-step {
+    width: 30px;
+    height: 30px;
+    border-radius: var(--radius-sm);
+    border: 2px solid var(--border);
+    background: transparent;
+    padding: 0;
+    cursor: pointer;
+}
+/* Case vide (silence) : bien visible (fond légèrement éclairci + contour net) pour savoir où placer
+   ses notes, tout en restant nettement en retrait du gris (normal) et du vert (fort). */
+.metro-step-0 { background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.22); }
+.metro-step-0:hover { border-color: var(--accent); }
+/* 1er pas de chaque temps un peu plus marqué : repère visuel dans les doubles-croches. */
+.metro-beat-group .metro-step-0:first-child { border-color: rgba(255,255,255,.38); }
+.metro-step-1 { background: var(--text-muted); border-color: var(--text-muted); }
+.metro-step-2 { background: var(--accent); border-color: var(--accent); }
+.metro-step-current { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent); }
+
+/* -- pied de panneau : chronomètre -- */
+.metro-footer-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
 .metro-chrono-row {
     display: flex;
     align-items: center;
@@ -974,116 +1269,143 @@ button.metro-volume-btn:hover { border-color: var(--accent); color: var(--accent
 .metro-chrono-value { font-size: var(--fs-md); font-weight: 700; letter-spacing: .02em; }
 .metro-chrono-reset { flex: none; color: var(--text-muted); }
 .metro-chrono-reset .icon { width: 15px; height: 15px; }
-.metro-tap-btn { display: block; margin: 4px auto 0; }
-.metro-progressive-row { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-top: 4px; }
-button.metro-progressive-toggle.metro-progressive-active { color: var(--accent); border-color: var(--accent); }
-.metro-progressive-fields { display: flex; justify-content: center; gap: 18px; }
-.metro-progressive-field { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
-.metro-progressive-field input { font-size: var(--fs-sm); text-align: center; color: var(--text-main); text-transform: none; letter-spacing: normal; width: 64px; }
-.metro-fields-row { display: flex; justify-content: center; align-items: flex-end; gap: 18px; }
-.metro-field { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
-.metro-field input, .metro-field select { font-size: var(--fs-sm); text-align: center; color: var(--text-main); text-transform: none; letter-spacing: normal; }
-.metro-field input[type="number"] { width: 64px; }
-/* Sur téléphone, le volume tout seul sur sa propre ligne (retour à la ligne du flex-wrap normal)
-   avait l'air égaré : temps/mesure et subdivision se partagent la largeur à égalité, le volume
-   passe sciemment en dessous sur toute la largeur, plutôt que de renvoyer à la ligne au hasard. */
-@media (max-width: 420px) {
-    .metro-fields-row { flex-wrap: wrap; }
-    .metro-field { flex: 1 1 0; min-width: 0; }
-    .metro-field select { width: 100%; }
-    .metro-volume-field { flex: 0 0 100%; order: 3; margin-top: 8px; }
-}
 
-.metro-pad-label { margin-top: 4px; }
-/* Le pavé est une pile de lignes (une par groupe de temps réparti symétriquement, voir renderPad
-   dans script.js), chaque ligne regroupant des temps entiers : le retour à la ligne ne coupe
-   jamais un temps en deux, même en doubles-croches sur petit écran. */
-.metro-pad { display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
-.metro-pad-row { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
-.metro-beat-group { display: flex; gap: 4px; }
-.metro-step {
-    width: 24px;
-    height: 24px;
-    border-radius: 6px;
-    border: 2px solid var(--border);
-    background: transparent;
-    padding: 0;
-}
-.metro-step-0 { border-style: dashed; opacity: .45; }
-.metro-step-1 { background: var(--text-muted); border-color: var(--text-muted); }
-.metro-step-2 { background: var(--accent); border-color: var(--accent); }
-.metro-step-current { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent); }
-.metro-pad-reset { font-size: var(--fs-2xs); align-self: center; }
-
-.metro-play-btn {
+/* -- lecture : gros bouton rectangulaire (bords légèrement arrondis), en bas du panneau -- */
+button.metro-play-btn-big {
+    box-sizing: border-box;
+    width: 100%;
+    height: 56px;
+    margin-top: 14px;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: 10px;
     font-size: var(--fs-md);
     font-weight: 700;
-    padding: 12px;
-    border-radius: 12px;
     border: none;
+    border-radius: var(--radius);
     background: var(--accent);
     color: #06210f;
+    flex: none;
 }
 .metro-play-btn-icon { display: inline-flex; }
-.metro-play-btn-icon .icon { width: 22px; height: 22px; }
-.metro-play-btn-active { background: #ff5252; color: #2b0000; }
+.metro-play-btn-icon .icon { width: 24px; height: 24px; }
+button.metro-play-btn-big.metro-play-btn-active { background: #ff5252; color: #2b0000; }
 
 /* ---------- aides : cercle des quintes ---------- */
-.aides-panel { align-items: center; text-align: center; }
-.scales-panel { width: min(820px, calc(100vw - 24px)); max-height: min(720px, calc(100vh - 24px)); }
-.scales-controls-row { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
-.scales-controls-row select { font-size: var(--fs-sm); }
-.scales-label-mode-row { display: flex; justify-content: center; gap: 8px; margin-top: 8px; }
-button.scales-label-btn.scales-label-btn-active { color: var(--accent); border-color: var(--accent); }
-.scales-diagrams { display: flex; flex-direction: column; gap: 16px; margin-top: 14px; }
-.scales-section .section-label { text-align: center; margin-bottom: 6px; }
-.fretboard-scroll { overflow-x: auto; display: flex; justify-content: flex-start; }
-.fretboard-svg { flex: none; }
-.fretboard-nut { fill: #e8e8e8; }
-.fretboard-fret { stroke: #888; stroke-width: 1; }
-.fretboard-string { stroke: #888; stroke-width: 1; }
-.fretboard-inlay { fill: #3a3a3a; }
-.fretboard-fret-label { font-size: 8px; fill: var(--text-muted); text-anchor: middle; }
-.fretboard-note { fill: var(--card-bg-2); stroke: var(--accent); stroke-width: 1.5; }
-.fretboard-note-root { stroke: none; fill: var(--accent); }
-.fretboard-note-label { font-size: 8px; text-anchor: middle; dominant-baseline: middle; fill: var(--text-main); pointer-events: none; }
-.piano-scale-svg { flex: none; }
+.aides-panel { align-items: center; text-align: center; display: flex; flex-direction: column; }
+/* max-height propre (celui de .backups-panel, 600px, plafonnerait sinon la hauteur voulue ici). */
+.aides-panel { width: min(420px, calc(100vw - 24px)); height: min(480px, calc(100vh - 24px)); max-height: calc(100vh - 24px); min-width: 300px; min-height: 320px; }
+/* Hauteur ajustée au contenu (le diagramme a une taille fixe × zoom, voir openScalesPanel) ; la
+   largeur grandit pour le manche jusqu'à la largeur de l'écran (recalcPanelFit), au-delà il défile. */
+.scales-panel { width: min(760px, calc(100vw - 24px)); height: auto; max-height: calc(100vh - 24px); min-width: 320px; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.scales-row { display: grid; grid-template-columns: 92px 1fr; align-items: center; gap: 10px; }
+.scales-row-label { font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; text-align: left; }
+.scales-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.scales-row-view .scales-chips { gap: 10px; }
+.scales-row-view .scales-segmented { gap: 0; }
+button.scales-chip {
+    box-sizing: border-box;
+    min-height: 32px;
+    padding: 0 11px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: rgba(255,255,255,.04);
+    color: var(--text-main);
+    font-size: var(--fs-sm);
+    font-weight: 600;
+}
+button.scales-chip:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+button.scales-chip.scales-chip-active { background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: var(--accent); color: var(--accent); }
+button.scales-chip:disabled { opacity: .35; cursor: default; }
+button.scales-chip.scales-chip-icon { min-width: 36px; padding: 0; font-size: var(--fs-md); }
+.scales-row-root button.scales-chip { min-width: 40px; padding: 0 6px; }
+/* Boutons collés façon interrupteur à plusieurs positions (un seul choix possible). */
+.scales-segmented { gap: 0 !important; flex-wrap: nowrap; }
+.scales-segmented button.scales-chip { border-radius: 0; margin-left: -1px; }
+.scales-segmented button.scales-chip:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); margin-left: 0; }
+.scales-segmented button.scales-chip:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.scales-segmented button.scales-chip-active { position: relative; z-index: 1; }
+.scales-summary { font-size: var(--fs-sm); color: var(--text-muted); text-align: left; padding-top: 6px; border-top: 1px solid var(--border); }
+.scales-summary strong { color: var(--text-main); }
+.scales-select { min-width: 210px; max-width: 100%; }
+.scales-row-root .scales-select { min-width: 130px; }
+.scales-inline-group { display: flex; align-items: center; gap: 8px; flex: 1 1 260px; min-width: 260px; max-width: 100%; }
+.scales-inline-group .scales-select { flex: 1; min-width: 150px; }
+.scales-inline-label { flex: none; font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; margin-left: 6px; }
+.scales-row-root .scales-chips { align-items: center; flex-wrap: wrap; row-gap: 8px; }
+.scales-inline-group button.scales-more-btn { flex: none; }
+button.scales-more-btn { min-width: 44px; padding: 0 10px; font-size: var(--fs-md); letter-spacing: 1px; }
+.scales-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 18px; font-size: var(--fs-2xs); color: var(--text-muted); }
+.scales-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.scales-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; border: 1.5px solid transparent; }
+.scales-dot-root { background: #00e676; border-color: #b9ffd9; }
+.scales-dot-note { background: #2d8fd0; border-color: #7fd0fa; }
+.scales-diagrams { display: flex; justify-content: center; min-height: 0; }
+.fretboard-scroll { flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; display: flex; align-items: center; justify-content: safe center; padding: 14px 4px; }
+.fretboard-svg { flex: none; display: block; max-width: none; overflow: visible; }
+@media (max-width: 700px) {
+    .scales-row { grid-template-columns: 1fr; gap: 4px; }
+    .scales-segmented { flex-wrap: nowrap; }
+    .scales-segmented button.scales-chip { flex: 1; padding: 0 6px; }
+    .scales-row-view .scales-chips { flex-wrap: wrap; }
+}
+/* Fond et notes en gris clair neutre pour l'instant (pas de couleurs vives tant qu'on n'a pas
+   décidé d'un code couleur par note/degré) : seule la racine se distingue, par un remplissage
+   plein plutôt qu'un simple contour. */
+.fretboard-nut { fill: #d8d8d8; }
+.fretboard-fret { stroke: #777; stroke-width: 1; }
+.fretboard-string { stroke: #777; stroke-width: 1; }
+.fretboard-inlay { fill: #f2f2f2; opacity: .9; }
+.fretboard-fret-label { font-size: 10px; fill: var(--text-muted); text-anchor: middle; }
+.fretboard-note { fill: #0f3d57; stroke: #4fc3f7; stroke-width: 1.5; }
+.fretboard-note-root { stroke: #b9ffd9; stroke-width: 1.5; fill: #00e676; }
+.fretboard-note-label { font-size: 10px; font-weight: 700; text-anchor: middle; fill: #e6f6ff; pointer-events: none; }
+.fretboard-note-root + .fretboard-note-label { fill: #04210f; }
+.piano-scale-svg { flex: none; max-width: none; display: block; }
 .piano-key-white { fill: #f2ead9; stroke: #2a2a2a; stroke-width: .7; }
 .piano-key-black { fill: #171310; stroke: #000; stroke-width: .6; }
-.piano-key-active { fill: var(--accent); opacity: .55; }
-.piano-key-root { opacity: 1; }
-.piano-key-label { font-size: 10px; text-anchor: middle; fill: #111; font-weight: 700; }
+/* Touches hors gamme : blanc crème / noir (aspect d'un vrai clavier). Notes de la gamme : bleu clair sur
+   blanche, bleu franc sur noire. Tonique : vert, sur les deux. Les couleurs ne dépendent donc plus
+   du seul niveau de gris (ce qui rendait blanc/gris/noir illisible). */
+.piano-key-white.piano-key-active { fill: #7fd0fa; stroke: #1c6f9c; stroke-width: 1; }
+.piano-key-black.piano-key-active { fill: #1976d2; stroke: #0b3d75; }
+.piano-key-white.piano-key-root { fill: #3df08f; stroke: #0a7a3f; stroke-width: 1.2; }
+.piano-key-black.piano-key-root { fill: #00a152; stroke: #04532a; stroke-width: 1; }
+.piano-key-label { font-size: 13px; text-anchor: middle; fill: #111; font-weight: 700; }
 .piano-key-label-black { fill: #fff; }
-.tuner-controls-row { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
-.tuner-controls-row select { font-size: var(--fs-sm); max-width: 220px; }
-.tuner-reference-row { display: flex; justify-content: center; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
-.tuner-reference-chip { font-size: var(--fs-2xs); font-weight: 700; color: var(--text-muted); background: rgba(255,255,255,.05); border-radius: var(--radius-sm); padding: 2px 8px; }
-button.tuner-start-btn { display: block; margin: 12px auto 0; }
-button.tuner-start-btn-active { background: var(--danger, #ff4d4f); }
-.tuner-display { text-align: center; margin-top: 14px; }
-.tuner-note { font-size: 42px; font-weight: 800; line-height: 1; }
-.tuner-freq { font-size: var(--fs-sm); color: var(--text-muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
-.tuner-needle-track { position: relative; width: 200px; height: 60px; margin: 14px auto 0; overflow: hidden; }
-.tuner-needle-center { position: absolute; left: 50%; bottom: 0; width: 2px; height: 100%; background: var(--border); transform: translateX(-50%); }
-.tuner-needle {
-    position: absolute;
-    left: 50%; bottom: 0;
-    width: 3px; height: 54px;
-    background: var(--accent);
-    border-radius: 2px;
-    transform-origin: bottom center;
-    transform: translateX(-50%) rotate(0deg);
-    transition: transform .12s ease-out, background .15s ease;
-}
-.tuner-needle.tuner-needle-in-tune { background: #4ade80; }
-.cof-wrap { display: flex; justify-content: center; }
+.piano-key-black.piano-key-root + .piano-key-label-black { fill: #fff; }
+/* -- accordeur : cadran façon pédale (arc -50/+50 cents, zone verte ±5, aiguille unique) -- */
+.tuner-panel { text-align: center; }
+.tuner-gauge-wrap { position: relative; width: min(340px, 100%); margin: 6px auto 0; }
+.tuner-gauge { display: block; width: 100%; height: auto; overflow: visible; }
+.tuner-arc { fill: none; stroke: var(--border); stroke-width: 6; stroke-linecap: round; }
+.tuner-arc-zone { fill: none; stroke: #4ade80; stroke-width: 6; stroke-linecap: round; opacity: .55; transition: opacity .2s ease; }
+.tuner-tick { stroke: var(--text-muted); stroke-width: 1.5; opacity: .55; }
+.tuner-tick-major { stroke-width: 2.5; opacity: .9; }
+.tuner-tick-label { fill: var(--text-muted); font-size: 11px; text-anchor: middle; dominant-baseline: middle; font-variant-numeric: tabular-nums; }
+.tuner-side { fill: var(--text-muted); font-size: 26px; font-weight: 700; text-anchor: middle; opacity: .25; transition: opacity .15s ease, fill .15s ease; }
+.tuner-side.tuner-side-on { opacity: 1; fill: #ff9f43; }
+.tuner-needle-line { stroke: var(--text-main); stroke-width: 3; stroke-linecap: round; transition: stroke .2s ease; }
+.tuner-hub { fill: var(--card-bg-2); stroke: var(--text-main); stroke-width: 3; transition: stroke .2s ease; }
+.tuner-gauge-wrap.tuner-idle .tuner-needle-line, .tuner-gauge-wrap.tuner-idle .tuner-hub { stroke: var(--text-muted); }
+.tuner-gauge-wrap.tuner-in-tune .tuner-needle-line, .tuner-gauge-wrap.tuner-in-tune .tuner-hub { stroke: #4ade80; }
+.tuner-gauge-wrap.tuner-in-tune .tuner-arc-zone { opacity: 1; filter: drop-shadow(0 0 6px rgba(74, 222, 128, .8)); }
+.tuner-display { text-align: center; margin-top: -6px; transition: opacity .25s ease; }
+.tuner-display.tuner-idle { opacity: .45; }
+.tuner-note { font-size: 64px; font-weight: 800; line-height: 1; letter-spacing: -.02em; transition: color .2s ease, text-shadow .2s ease; }
+.tuner-octave { font-size: 22px; font-weight: 700; color: var(--text-muted); margin-left: 2px; vertical-align: baseline; }
+.tuner-display.tuner-in-tune .tuner-note { color: #4ade80; text-shadow: 0 0 18px rgba(74, 222, 128, .45); }
+.tuner-freq { font-size: var(--fs-sm); color: var(--text-muted); margin-top: 6px; font-variant-numeric: tabular-nums; min-height: 1.3em; }
+.tuner-source { text-align: center; font-size: var(--fs-xs); color: var(--text-muted); margin-top: 6px; }
+/* flex:1 + min-height:0 : grandit avec la fenêtre (voir .scales-diagrams, même principe). Le SVG
+   garde son ratio 1:1 (viewBox carré) via height:100%/width:auto, max-width:100% au cas où le
+   panneau serait plus large que haut. */
+.cof-wrap { flex: 1; min-height: 0; display: flex; justify-content: center; align-items: center; }
 .circle-of-fifths {
-    width: min(320px, 80vw);
-    height: min(320px, 80vw);
+    width: auto;
+    height: 100%;
+    max-width: 100%;
     filter: drop-shadow(0 2px 10px rgba(0, 0, 0, .18));
 }
 .cof-ring { fill: none; stroke: var(--border); stroke-width: 1.5; }
@@ -1111,10 +1433,123 @@ button.tuner-start-btn-active { background: var(--danger, #ff4d4f); }
 .cof-minor { font-size: 12px; fill: #d8d8d8; }
 .cof-acc { font-size: 11px; font-weight: 700; fill: #d8d8d8; }
 
+/* ---------- métronome intégré à la page (écran scindé pendant une session guidée) ---------- */
+/* Grand écran : colonne à droite de la zone principale (la session reste à gauche). Écran plus
+   étroit : bandeau fixe en bas, la zone principale gagne une marge pour ne rien cacher derrière.
+   --topbar-h et --metro-dock-h sont tenues à jour par script.js (updateMetroDockMetrics). */
+.metro-dock {
+    --metro-dock-max-h: calc(100vh - var(--topbar-h, 64px) - 28px);
+    flex: none;
+    /* 380px minimum : c'est la largeur dont a besoin la rangée −10 / − / cadran / + / +10. */
+    width: var(--metro-dock-w, clamp(380px, 32vw, 440px));
+    align-self: flex-start;
+    position: sticky;
+    top: calc(var(--topbar-h, 64px) + 12px);
+    margin: 12px 16px 12px 0;
+    box-sizing: border-box;
+}
+.metro-dock .backups-panel.panel-docked {
+    position: static !important;
+    top: auto !important; left: auto !important; right: auto !important; bottom: auto !important;
+    width: 100% !important; height: var(--metro-panel-h, auto) !important;
+    min-width: 0 !important; min-height: 0 !important;
+    max-width: none !important;
+    max-height: var(--metro-dock-max-h) !important;
+    resize: none !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius) !important;
+    padding: 12px 14px !important;
+    box-shadow: none;
+}
+.metro-dock .metro-header-row .backups-title { flex: 1; min-width: 0; }
+/* Colonne à droite : la zone principale peut se resserrer jusqu'au bout (sans ça, son contenu lui
+   imposait une largeur minimale et la page débordait sur les écrans un peu justes). */
+html.metro-docked .main { min-width: 0; }
+/* Dans le volet, une rangée qui manquerait de place est réduite (zoom, voir fitPanelContentZoom)
+   plutôt que renvoyée à la ligne : un bouton +10 isolé sous le cadran serait illisible. */
+.metro-dock .metro-transport-row { flex-wrap: nowrap; }
+.backups-title .metro-compact-bpm {
+    display: none;
+    margin-left: 8px;
+    color: var(--accent);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+/* En colonne il y a toute la hauteur : pas de réduction possible (le bouton n'apparaît qu'en bandeau). */
+.panel-dock-collapse { display: none; }
+/* Poignées de redimensionnement du volet (voir makeMetroDockGrip) : zones fines sur les bords, invisibles
+   jusqu'au survol. */
+.metro-dock-grip { position: absolute; z-index: 3; touch-action: none; }
+.metro-dock-grip::after { content: ""; position: absolute; border-radius: 3px; background: var(--accent); opacity: 0; transition: opacity .12s ease; }
+.metro-dock-grip:hover::after, html.metro-dock-resizing .metro-dock-grip::after { opacity: .8; }
+.metro-dock-grip-w { left: -8px; top: 0; bottom: 0; width: 14px; cursor: ew-resize; }
+.metro-dock-grip-w::after { left: 5px; top: 18px; bottom: 18px; width: 3px; }
+.metro-dock-grip-h { left: 0; right: 0; bottom: -8px; height: 14px; cursor: ns-resize; }
+.metro-dock-grip-h::after { left: 18px; right: 18px; top: 5px; height: 3px; }
+html.metro-dock-resizing, html.metro-dock-resizing * { -webkit-user-select: none; user-select: none; }
+button.panel-dock-close, button.panel-dock-collapse, button.metro-pin-btn {
+    flex: none;
+    box-sizing: border-box;
+    width: 40px; height: 40px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-base);
+    line-height: 1;
+}
+button.panel-dock-close:hover, button.panel-dock-collapse:hover, button.metro-pin-btn:hover { border-color: var(--accent); color: var(--accent); }
+button.metro-pin-btn { display: inline-flex; align-items: center; justify-content: center; }
+button.metro-pin-btn .icon { width: 18px; height: 18px; }
+button.metro-pin-btn.metro-pin-on { color: var(--accent); }
+@media (max-width: 1099px) {
+    button.panel-dock-collapse { display: inline-flex; align-items: center; justify-content: center; }
+    .panel-docked.panel-dock-collapsed .backups-title .metro-compact-bpm { display: inline; }
+    .panel-docked.panel-dock-collapsed .panel-fit-inner > :not(.metro-header-row):not(.metro-volume-row):not(.metro-play-btn-big) { display: none; }
+    /* La ligne du curseur de volume n'est affichée réduite que si on l'a dépliée (sinon : un blanc). */
+    .panel-docked.panel-dock-collapsed .metro-volume-row:not(.metro-volume-expanded-row) { display: none; }
+    /* Réduit : l'en-tête tient sur une ligne (bouton Volume sans texte, titre sans retour à la ligne). */
+    .panel-docked.panel-dock-collapsed .backups-title { white-space: nowrap; }
+    .panel-docked.panel-dock-collapsed button.metro-volume-btn { padding: 0; width: 40px; justify-content: center; }
+    .panel-docked.panel-dock-collapsed button.metro-volume-btn > span:last-child { display: none; }
+}
+@media (max-width: 1099px) {
+    .metro-dock {
+        --metro-dock-max-h: min(56vh, 480px);
+        position: fixed;
+        top: auto; left: 0; right: 0; bottom: 0;
+        width: auto;
+        margin: 0;
+        z-index: 30;
+        display: flex;
+        justify-content: center;
+        padding: 0 8px calc(8px + env(safe-area-inset-bottom, 0px));
+        pointer-events: none; /* seul le panneau capte les clics, pas toute la largeur du bandeau */
+    }
+    .metro-dock[hidden] { display: none; }
+    .metro-dock .backups-panel.panel-docked {
+        pointer-events: auto;
+        max-width: 560px !important;
+        box-shadow: 0 -4px 18px rgba(0,0,0,.45);
+    }
+    .metro-dock-grip-w { display: none; }
+    .metro-dock-grip-h { bottom: auto; top: -6px; left: 8px; right: 8px; }
+    .metro-dock-grip-h::after { top: 5px; }
+    .metro-dock .backups-panel.panel-docked.panel-dock-collapsed { height: auto !important; }
+    /* Marge sous la zone principale = hauteur du bandeau, pour pouvoir défiler jusqu'au bas. */
+    html.metro-docked .layout { padding-bottom: calc(var(--metro-dock-h, 0px) + 12px); }
+    /* Défilement vers un élément (focus, clavier) : s'arrête au-dessus du bandeau et sous la barre du haut. */
+    html.metro-docked { scroll-padding-bottom: calc(var(--metro-dock-h, 0px) + 12px); scroll-padding-top: var(--topbar-h, 64px); }
+}
+@media (max-width: 700px) {
+    .metro-dock { padding: 0 6px calc(6px + env(safe-area-inset-bottom, 0px)); }
+}
+
 /* ---------- session guidée ---------- */
 /* Affichée dans la zone principale (pas une fenêtre flottante), comme le reste du contenu : les
    outils flottants (métronome, cercle des quintes) restent utilisables par-dessus. */
 .gs-main { max-width: 560px; margin: 0 auto; width: 100%; }
+/* Écran de guidage avec vidéos : un peu plus large, pour que le lecteur YouTube ne soit pas trop petit. */
+.gs-main.gs-main-wide { max-width: 780px; }
 .gs-empty { font-size: var(--fs-sm); color: var(--text-muted); padding: 8px 2px; }
 
 .gs-theme-badge {
@@ -1172,11 +1607,26 @@ button.gs-back-btn { margin-bottom: 10px; border: 1px solid var(--border); heigh
     border-radius: 8px;
     padding: 6px 8px;
 }
+.gs-step-row { flex-wrap: wrap; }
+button.gs-edit-run-btn { width: 100%; height: 42px; margin-bottom: 10px; }
+button.gs-edit-run-btn:disabled { opacity: .4; cursor: default; }
+.gs-step-details { flex: 0 0 100%; display: flex; flex-direction: column; gap: 6px; padding: 8px 2px 4px; border-top: 1px solid var(--border); margin-top: 2px; }
+.gs-step-note { width: 100%; box-sizing: border-box; resize: vertical; min-height: 54px; font-family: inherit; font-size: var(--fs-sm); }
+.gs-step-details .gs-links-item { align-items: flex-start; }
+.gs-step-details .gs-links-item span { min-width: 0; overflow-wrap: anywhere; }
+.gs-step-details-btn { flex: none; min-width: 34px; }
+.gs-step-details-btn.gs-step-details-open { color: var(--accent); }
+.gs-run-note { margin: 10px auto 0; max-width: 460px; padding: 8px 12px; border-left: 3px solid var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); border-radius: var(--radius-sm); font-size: var(--fs-sm); white-space: pre-wrap; text-align: left; }
+.save-status { margin-left: 8px; font-size: var(--fs-2xs); font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--text-muted); }
+.save-status.saved { color: var(--accent); }
 .gs-step-handle { flex: none; display: inline-flex; color: var(--text-muted); cursor: grab; }
 .gs-step-handle .icon { width: 16px; height: 16px; }
 .gs-step-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); }
 .gs-step-missing { color: var(--text-muted); font-style: italic; }
-.gs-step-minutes { width: 52px; text-align: center; flex: none; }
+.gs-step-minutes { width: 76px; padding-left: 6px; padding-right: 6px; box-sizing: border-box; text-align: center; flex: none; }
+/* Champs de durée réglables au glisser (voir bindScrubInput) : pas de défilement de la page qui démarre dessus. */
+.gs-step-minutes, .gs-plan-minutes { touch-action: none; cursor: ns-resize; }
+html.scrubbing, html.scrubbing * { cursor: ns-resize !important; -webkit-user-select: none; user-select: none; }
 .gs-step-min-label { flex: none; font-size: var(--fs-2xs); color: var(--text-muted); }
 button.gs-add-step-btn { margin-top: 10px; width: 100%; height: 42px; border: 1px solid var(--border); }
 .gs-total-row { margin-top: 10px; font-size: var(--fs-sm); color: var(--text-muted); text-align: center; }
@@ -1222,7 +1672,7 @@ button.gs-add-step-btn { margin-top: 10px; width: 100%; height: 42px; border: 1p
 }
 .gs-pick-exercise-row:hover { background: rgba(255,255,255,.09); color: var(--accent); }
 
-.gs-run-progress { text-align: center; font-size: var(--fs-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+.gs-run-progress { text-align: left; margin-bottom: 18px; font-size: var(--fs-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
 .gs-main .gs-theme-badge { display: block; width: max-content; margin: 8px auto 0; }
 .gs-run-title { text-align: center; font-size: var(--fs-lg); font-weight: 800; margin-top: 6px; }
 .gs-run-resources { justify-content: center; margin: 10px 0 0; }
@@ -1236,25 +1686,36 @@ button.gs-add-step-btn { margin-top: 10px; width: 100%; height: 42px; border: 1p
 }
 .gs-run-timer-overtime { color: #ff6b6b; }
 .gs-run-adjust-row { display: flex; justify-content: center; gap: 10px; margin-bottom: 12px; }
-/* Toutes les commandes de l'écran de guidage partagent la même hauteur, pour un rendu homogène
-   (avant : le bouton métronome prenait toute la largeur et les hauteurs variaient). */
-.gs-run-metro-btn, .gs-run-links-btn, .gs-run-nav-row button {
-    height: 44px;
+/* Commandes de l'écran de guidage : une seule hauteur (44px) et deux largeurs seulement —
+   « souple » (occupe la place restante de sa rangée) et « compacte » (carré de 44px pour une icône,
+   ou 150px pour « Arrêter la session »). */
+.gs-main { --gs-btn-h: 44px; --gs-btn-compact: 150px; }
+.gs-run-metro-btn, .gs-run-links-btn, .gs-run-nav-row button, .gs-run-pause-btn, .gs-run-stop-btn,
+.gs-run-adjust-row button, button.gs-run-keep-btn {
+    height: var(--gs-btn-h);
     padding: 0 14px;
     display: flex;
     align-items: center;
     justify-content: center;
-}
-/* Pause à gauche (l'action principale pendant le guidage, mais pas besoin qu'elle occupe toute la
-   largeur) et Arrêter, plus discret, à sa droite. */
-.gs-run-pausestop-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-.gs-run-pause-btn { flex: 1; height: 40px; font-size: var(--fs-sm); }
-.gs-run-stop-btn { flex: none; height: 40px; padding: 0 14px; font-size: var(--fs-xs); color: var(--text-muted); }
-.gs-run-tools-row { display: flex; gap: 8px; margin-bottom: 12px; }
-.gs-run-metro-btn {
-    flex: none;
-    gap: 8px;
+    box-sizing: border-box;
     font-size: var(--fs-sm);
+}
+.gs-run-adjust-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.gs-run-adjust-row button { flex: 1; }
+.gs-run-pausestop-row, .gs-run-tools-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.gs-run-pause-btn { flex: 1; min-width: 0; }
+/* Arrêter : rouge vif pâle (même principe que le vert translucide : teinte légère + bord marqué). */
+.gs-run-stop-btn {
+    flex: none;
+    width: var(--gs-btn-compact);
+    color: #ff6b6b;
+    border-color: color-mix(in srgb, #ff6b6b 50%, var(--border));
+    background: color-mix(in srgb, #ff6b6b 12%, transparent);
+}
+.gs-run-stop-btn:hover { border-color: #ff6b6b; background: color-mix(in srgb, #ff6b6b 20%, transparent); }
+.gs-run-metro-btn {
+    flex: 1; min-width: 0;
+    gap: 8px;
     font-weight: 700;
     border-radius: 10px;
     color: var(--accent);
@@ -1262,14 +1723,114 @@ button.gs-add-step-btn { margin-top: 10px; width: 100%; height: 42px; border: 1p
     background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 .gs-run-metro-btn .icon { width: 20px; height: 20px; }
-.gs-run-links-btn { flex: 1; font-size: var(--fs-xs); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-run-links-btn { flex: none; width: var(--gs-btn-h); padding: 0; }
+.gs-run-links-btn .icon { width: 20px; height: 20px; }
 .gs-run-nav-row { display: flex; gap: 8px; }
 .gs-run-nav-row button { flex: 1; }
 
 .gs-links-list { display: flex; flex-direction: column; gap: 14px; }
 .gs-links-group-title { font-weight: 700; font-size: var(--fs-sm); margin-bottom: 6px; }
 .gs-links-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: var(--fs-sm); cursor: pointer; }
-.gs-links-open-btn { width: 100%; padding: 10px; margin-top: 12px; }
+.gs-links-open-btn { width: 100%; height: 42px; padding: 0 10px; margin-top: 12px; }
+button.gs-links-open-only-btn { border: 1px solid var(--border); }
+.gs-links-open-run-btn { width: 100%; height: 42px; padding: 0 10px; margin-top: 8px; }
+.gs-edit-tools-row { display: flex; gap: 8px; margin-bottom: 12px; }
+button.gs-pdf-btn, button.gs-edit-links-btn { flex: 1; min-width: 0; height: 36px; border: 1px solid var(--border); font-size: var(--fs-xs); }
+button.gs-edit-links-btn:hover, button.gs-pdf-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ---------- lecteurs YouTube intégrés + plan de session (écran de guidage) ---------- */
+.gs-yt-card {
+    margin-top: 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card-bg);
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.gs-yt-head { display: flex; align-items: center; gap: 6px; }
+.gs-yt-title { flex: 1; min-width: 0; font-weight: 700; font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-yt-btn { flex: none; height: 32px; padding: 0 10px; border: 1px solid var(--border); font-size: var(--fs-2xs); display: inline-flex; align-items: center; text-decoration: none; color: inherit; }
+.gs-yt-btn:hover { border-color: var(--accent); color: var(--accent); }
+/* Disposition selon la LARGEUR DE LA CARTE (container query) : assez large = vidéo + barres sur le
+   côté ; plus étroite (par ex. métronome accroché à droite) = barres en rangée sous la vidéo. */
+.gs-yt-card { container-type: inline-size; container-name: ytcard; }
+.gs-yt-body { display: flex; flex-direction: column; gap: 10px; }
+.gs-yt-body .gs-yt-frame { width: 100%; }
+.gs-yt-side { display: grid; grid-template-columns: repeat(auto-fit, minmax(98px, 1fr)); gap: 8px 14px; padding: 2px 2px 0; }
+.gs-yt-side-row { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.gs-yt-side-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; font-size: 11px; line-height: 1.2; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+.gs-yt-side-value { text-transform: none; letter-spacing: 0; font-variant-numeric: tabular-nums; color: var(--text-main); font-size: 12px; }
+@container ytcard (min-width: 720px) {
+    .gs-yt-body { flex-direction: row; align-items: stretch; }
+    .gs-yt-body .gs-yt-frame { flex: 1 1 auto; width: auto; min-width: 0; }
+    /* Barres réparties sur toute la hauteur de la vidéo, un peu plus larges pour bien régler. */
+    .gs-yt-side { flex: 0 0 240px; display: flex; flex-direction: column; justify-content: space-around; gap: 10px; padding: 4px 2px; }
+}
+/* Barres : la course va exactement d'un bout à l'autre (pas de marge interne, ce que les champs de saisie
+   du reste de l'appli ajoutaient), curseur qui touche les extrémités à 0 % et à 100 %. */
+.gs-yt-side input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 18px; margin: 0; padding: 0; border: none; border-radius: 0; background: transparent;
+    cursor: pointer; --p: 0%; --bar: #4dabf7;
+}
+.gs-yt-side input[type=range]:focus { outline: none; }
+.gs-yt-side input[type=range]:disabled { opacity: .45; cursor: default; }
+.gs-yt-side input[type=range]::-webkit-slider-runnable-track { height: 5px; border-radius: 3px; background: linear-gradient(to right, var(--bar) var(--p), #3a3f47 var(--p)); }
+.gs-yt-side input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; margin-top: -5.5px; border-radius: 50%; background: #fff; border: none; box-shadow: 0 1px 4px rgba(0,0,0,.6); }
+.gs-yt-side input[type=range]::-moz-range-track { height: 5px; border-radius: 3px; background: #3a3f47; }
+.gs-yt-side input[type=range]::-moz-range-progress { height: 5px; border-radius: 3px; background: var(--bar); }
+.gs-yt-side input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: #fff; border: none; box-shadow: 0 1px 4px rgba(0,0,0,.6); }
+.gs-yt-side input[type=range]:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--accent); outline-offset: 1px; }
+.gs-yt-card.gs-yt-bars-off .gs-yt-side { display: none; }
+.gs-yt-btn.gs-yt-bars-btn { padding: 0 9px; }
+.gs-yt-btn.gs-yt-bars-btn-on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.gs-yt-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: var(--radius-sm); overflow: hidden; }
+.gs-yt-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.gs-yt-msg a { color: var(--accent); margin-left: 4px; }
+.gs-yt-msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 16px; font-size: var(--fs-sm); color: var(--text-muted); }
+/* Plein écran réel du navigateur : la vidéo remplit l'écran. */
+.gs-yt-frame:fullscreen { width: 100vw; height: 100vh; aspect-ratio: auto; border-radius: 0; }
+/* Repli (iPhone, sans plein écran d'élément) : le lecteur passe en grand par-dessus la page ; avec le
+   métronome en colonne, on lui laisse sa place à droite. */
+.gs-yt-card.gs-yt-large {
+    position: fixed;
+    top: 3vh; left: 3vw; right: 3vw; bottom: 3vh;
+    z-index: 850;
+    margin: 0;
+    box-shadow: 0 0 0 100vmax rgba(0,0,0,.65);
+}
+.gs-yt-card.gs-yt-large .gs-yt-body { flex: 1; min-height: 0; }
+.gs-yt-card.gs-yt-large .gs-yt-body .gs-yt-frame { flex: 1; align-self: stretch; min-height: 0; aspect-ratio: auto; }
+@media (min-width: 1100px) {
+    html.metro-docked .gs-yt-card.gs-yt-large { right: calc(clamp(380px, 32vw, 440px) + 32px); }
+}
+button.gs-yt-toggle { width: 100%; height: 36px; margin-top: 14px; justify-content: flex-start; padding: 0 12px; border: 1px solid var(--border); font-size: var(--fs-xs); font-weight: 700; text-align: left; }
+.gs-yt-toggle + .gs-yt-card { margin-top: 8px; }
+/* Dans la liste des exercices : lecteur en petit. */
+.gs-yt-card.gs-yt-small { max-width: 960px; }
+button.gs-yt-toggle-ex { margin-top: 8px; }
+.gs-yt-hidden { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+button.gs-yt-show-btn { height: 34px; justify-content: flex-start; padding: 0 12px; border: 1px dashed var(--border); font-size: var(--fs-xs); color: var(--text-muted); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.gs-yt-show-btn:hover { border-color: var(--accent); color: var(--accent); }
+button.gs-run-keep-btn { width: 100%; margin-bottom: 12px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent); font-size: var(--fs-xs); }
+button.gs-run-keep-btn[hidden] { display: none; }
+
+.gs-plan { margin-top: 14px; }
+button.gs-plan-toggle { width: 100%; height: 36px; justify-content: flex-start; padding: 0 12px; border: 1px solid var(--border); font-size: var(--fs-xs); font-weight: 700; text-align: left; }
+.gs-plan-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.gs-plan-row { display: flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card-bg); padding: 4px 6px; }
+.gs-plan-row.gs-plan-current { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--card-bg)); }
+.gs-plan-num { flex: none; width: 18px; text-align: center; font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+button.gs-plan-name { flex: 1; min-width: 0; height: 34px; padding: 0 6px; justify-content: flex-start; text-align: left; font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-plan-minutes { flex: none; width: 76px; height: 34px; padding-left: 6px; padding-right: 6px; text-align: center; box-sizing: border-box; }
+.gs-plan-unit { flex: none; font-size: var(--fs-2xs); color: var(--text-muted); }
+button.gs-plan-move { flex: none; width: 34px; height: 34px; padding: 0; border: 1px solid var(--border); }
+button.gs-plan-move:disabled { opacity: .3; }
+
+/* Bandeau « nouvelle version prête » */
+.update-banner { position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 960; display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--card-bg-2); border: 1px solid var(--accent); border-radius: var(--radius); box-shadow: 0 10px 30px rgba(0,0,0,.5); font-size: var(--fs-sm); max-width: calc(100vw - 24px); flex-wrap: wrap; }
 
 /* ---------- paramètres généraux ---------- */
 .settings-panel { text-align: left; }
@@ -1277,3 +1838,22 @@ button.gs-add-step-btn { margin-top: 10px; width: 100%; height: 42px; border: 1p
 .settings-field { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; }
 .settings-field-label { font-size: var(--fs-sm); color: var(--text-muted); }
 .settings-field select { min-width: 160px; }
+@media (max-width: 700px) {
+    /* Plein écran sur téléphone : l'accordeur se centre verticalement au lieu de rester collé en haut. */
+    .tuner-panel .tuner-gauge-wrap { margin-top: auto; width: min(420px, 100%); }
+    .tuner-panel .tuner-source { margin-bottom: auto; }
+    .tuner-panel .tuner-note { font-size: 80px; }
+}
+
+.gs-run-total { text-align: center; font-size: var(--fs-sm); color: var(--text-muted); font-variant-numeric: tabular-nums; margin: -8px 0 14px; }
+
+/* Entraînement du métronome (silences) */
+.metro-train-fields { align-items: stretch; }
+.metro-train-section { display: flex; flex-direction: column; gap: 6px; align-items: center; }
+.metro-train-label { font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+.metro-train-beat { width: 34px; height: 34px; padding: 0; border-radius: var(--radius-sm); color: var(--text-muted); text-decoration: line-through; }
+button.metro-train-beat-on { color: var(--accent); text-decoration: none; border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+button.metro-train-beat-removed { border-style: dashed; opacity: .55; }
+.metro-train-unit { font-size: var(--fs-2xs); color: var(--text-muted); }
+.metro-train-fields select { font-size: var(--fs-xs); max-width: 100%; }
+.metro-train-status { color: var(--accent); }

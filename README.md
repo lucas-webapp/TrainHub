@@ -8,7 +8,7 @@ Ouvrir `index.html` dans un navigateur, ou héberger le dossier statique (aucune
 
 ## Fonctionnalités v1
 
-- Un espace par instrument (Basse / Guitare / Piano par défaut, ajout/renommage/suppression libres — double-clic sur un onglet).
+- Un espace par instrument, groupe ou projet (Basse / Guitare / Piano par défaut — seule la Basse a des dossiers de départ —, ajout/renommage/suppression libres — double-clic sur un onglet).
 - Bandeau de « grands chapitres » personnalisables par instrument (ajout, renommage, suppression, réorganisation), chacun pouvant contenir des sous-dossiers imbriqués (jusqu'à 5 niveaux, ex. Technique / Elie / Vitesse / Extraits morceaux / Funk), avec fil d'Ariane pour naviguer.
 - Exercices (à n'importe quel niveau) : titre modifiable librement, statut (à faire / en cours / terminé / à revoir), tempo (BPM), notes libres, liens multiples ouverts en un clic, réorganisation manuelle.
 - Recherche par titre dans tout l'instrument (tous chapitres/sous-dossiers confondus), avec le chemin affiché pour chaque résultat.
