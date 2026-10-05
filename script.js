@@ -106,6 +106,8 @@
             // l'état (donc synchronisées) — le contenu réel du fichier vit dans IndexedDB, sur cet
             // appareil uniquement (voir bloc "fichiers joints" plus bas).
             if (!Array.isArray(ex.files)) ex.files = [];
+            // Images (captures de partition…) : métadonnées ici, contenu dans IndexedDB comme les fichiers.
+            if (!Array.isArray(ex.images)) ex.images = [];
             // Remplace les statuts (à faire/en cours/terminé/à revoir), jugés trop compliqués au
             // quotidien : juste deux cases à cocher, accessibles par clic droit/appui long.
             if (typeof ex.favorite !== "boolean") ex.favorite = false;
@@ -381,6 +383,192 @@
         }).catch(function () {});
     }
 
+    // ---------- images des exercices ----------
+    // Captures de partition / passages techniques : affichées en vignettes, en grand au clic. Comme les
+    // fichiers joints, seules les métadonnées (ex.images) sont synchronisées ; l'image elle-même reste
+    // sur l'appareil où elle a été ajoutée (IndexedDB).
+    var IMG_HEIGHTS = { small: 90, medium: 150, large: 240 };
+    var IMG_SIZE_KEYS = { ex: "trainhub.imgSize.ex.v1", gs: "trainhub.imgSize.gs.v1" };
+    var IMG_SIZE_DEFAULTS = { ex: "medium", gs: "small" };
+    function getImgSize(where) {
+        try { var v = localStorage.getItem(IMG_SIZE_KEYS[where]); if (IMG_HEIGHTS[v]) return v; } catch (e) {}
+        return IMG_SIZE_DEFAULTS[where];
+    }
+    function setImgSize(where, v) { try { localStorage.setItem(IMG_SIZE_KEYS[where], v); } catch (e) {} }
+    var IMG_GS_SHOWN_KEY = "trainhub.imgShownSession.v1";
+    function imagesShownInSession() { try { return localStorage.getItem(IMG_GS_SHOWN_KEY) === "1"; } catch (e) { return false; } }
+    function setImagesShownInSession(on) { try { localStorage.setItem(IMG_GS_SHOWN_KEY, on ? "1" : "0"); } catch (e) {} }
+    var imagesOpenInList = {}; // id d'exercice -> section Images dépliée (masquée de base)
+    var imageUrlCache = {};    // id d'image -> adresse blob: (false = absente de cet appareil)
+
+    function loadImageInto(img, meta, onMissing) {
+        function apply(url) { if (url) img.src = url; else if (onMissing) onMissing(); }
+        if (meta.id in imageUrlCache) { apply(imageUrlCache[meta.id]); return; }
+        getFileBlob(meta.id).then(function (blob) {
+            imageUrlCache[meta.id] = blob ? URL.createObjectURL(blob) : false;
+            apply(imageUrlCache[meta.id]);
+        }, function () { imageUrlCache[meta.id] = false; apply(false); });
+    }
+
+    function openImageLightbox(images, startIndex) {
+        var idx = startIndex;
+        var overlay = document.createElement("div");
+        overlay.className = "img-lightbox";
+        var img = document.createElement("img");
+        img.alt = "";
+        var close = document.createElement("button");
+        close.type = "button";
+        close.className = "img-lightbox-close";
+        close.textContent = "✕";
+        close.title = "Fermer (Échap)";
+        var caption = document.createElement("div");
+        caption.className = "img-lightbox-caption";
+        function show() {
+            var meta = images[idx];
+            img.removeAttribute("src");
+            loadImageInto(img, meta, function () { caption.textContent = "Image absente de cet appareil"; });
+            caption.textContent = (images.length > 1 ? (idx + 1) + " / " + images.length + " · " : "") + (meta.name || "");
+        }
+        function step(d) { if (images.length > 1) { idx = (idx + d + images.length) % images.length; show(); } }
+        function closeBox() { document.removeEventListener("keydown", onKey, true); overlay.remove(); }
+        function onKey(e) {
+            if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeBox(); }
+            else if (e.key === "ArrowRight") { e.preventDefault(); step(1); }
+            else if (e.key === "ArrowLeft") { e.preventDefault(); step(-1); }
+        }
+        overlay.addEventListener("click", function (e) { if (e.target !== img) closeBox(); else step(1); });
+        close.addEventListener("click", closeBox);
+        overlay.appendChild(img); overlay.appendChild(close); overlay.appendChild(caption);
+        document.body.appendChild(overlay);
+        document.addEventListener("keydown", onKey, true);
+        show();
+    }
+
+    // Vignettes d'un exercice. editable : bouton ✕ pour retirer.
+    function buildImageStrip(ex, where, editable) {
+        var strip = document.createElement("div");
+        strip.className = "img-strip";
+        strip.style.setProperty("--img-h", IMG_HEIGHTS[getImgSize(where)] + "px");
+        var list = ex.images || [];
+        list.forEach(function (meta, i) {
+            var cell = document.createElement("div");
+            cell.className = "img-thumb";
+            var b = document.createElement("button");
+            b.type = "button";
+            b.className = "img-thumb-btn";
+            b.title = (meta.name || "Image") + " — cliquer pour agrandir";
+            var im = document.createElement("img");
+            im.alt = meta.name || "Image";
+            im.loading = "lazy";
+            loadImageInto(im, meta, function () { b.classList.add("img-missing"); b.textContent = "Image absente de cet appareil"; });
+            b.appendChild(im);
+            b.addEventListener("click", function () { openImageLightbox(list, i); });
+            cell.appendChild(b);
+            if (editable) {
+                var rm = document.createElement("button");
+                rm.type = "button";
+                rm.className = "img-thumb-remove";
+                rm.textContent = "✕";
+                rm.title = "Retirer cette image";
+                rm.addEventListener("click", function () {
+                    if (!window.confirm("Retirer cette image ?")) return;
+                    ex.images = ex.images.filter(function (m) { return m.id !== meta.id; });
+                    deleteFileBlob(meta.id);
+                    delete imageUrlCache[meta.id];
+                    touchExercise(ex);
+                    save();
+                    render();
+                });
+                cell.appendChild(rm);
+            }
+            strip.appendChild(cell);
+        });
+        return strip;
+    }
+
+    function addImagesToExercise(ex, files) {
+        files = files.filter(function (f) { return f && /^image\//.test(f.type); });
+        if (!files.length) return;
+        ex.images = ex.images || [];
+        Promise.all(files.map(function (file) {
+            var id = uid();
+            return storeFileBlob(id, file).then(function () {
+                ex.images.push({ id: id, name: file.name || "Capture", type: file.type, size: file.size, addedAt: Date.now() });
+            });
+        })).then(function () {
+            imagesOpenInList[ex.id] = true;
+            touchExercise(ex);
+            save();
+            render();
+        }).catch(function () {
+            window.alert("Impossible d'enregistrer cette image sur cet appareil (stockage plein ou navigateur privé ?).");
+        });
+    }
+
+    // Section « Images » d'un exercice (liste et session) : barre à cliquer, repliée de base.
+    function buildImagesSection(ex) {
+        var wrap = document.createElement("div");
+        wrap.className = "images-section";
+        var open = !!imagesOpenInList[ex.id];
+        var count = (ex.images || []).length;
+        var bar = document.createElement("button");
+        bar.type = "button";
+        bar.className = "btn-ghost images-toggle";
+        bar.textContent = (open ? "▾ " : "▸ ") + "Images" + (count ? " (" + count + ")" : "") + " — " + (open ? "masquer" : "afficher");
+        bar.addEventListener("click", function () { imagesOpenInList[ex.id] = !open; render(); });
+        wrap.appendChild(bar);
+        if (!open) return wrap;
+        if (count) wrap.appendChild(buildImageStrip(ex, "ex", true));
+        var row = document.createElement("div");
+        row.className = "images-add-row";
+        var input = document.createElement("input");
+        input.type = "file";
+        input.accept = "image/*";
+        input.multiple = true;
+        input.className = "add-file-input";
+        input.addEventListener("change", function () { addImagesToExercise(ex, Array.prototype.slice.call(input.files || [])); input.value = ""; });
+        var addBtn = document.createElement("button");
+        addBtn.type = "button";
+        addBtn.className = "images-add-btn";
+        addBtn.textContent = "+ Ajouter une image";
+        addBtn.addEventListener("click", function () { input.click(); });
+        var pasteBtn = document.createElement("button");
+        pasteBtn.type = "button";
+        pasteBtn.className = "images-add-btn";
+        pasteBtn.textContent = "Coller";
+        pasteBtn.title = "Coller l'image copiée (ou Ctrl+V / ⌘V dans cette fiche)";
+        pasteBtn.addEventListener("click", function () {
+            if (!navigator.clipboard || !navigator.clipboard.read) { window.alert("Collage direct indisponible ici : utilise Ctrl+V / ⌘V dans la fiche de l'exercice."); return; }
+            navigator.clipboard.read().then(function (items) {
+                var blobs = [];
+                return Promise.all(items.map(function (it) {
+                    var t = it.types.filter(function (x) { return /^image\//.test(x); })[0];
+                    return t ? it.getType(t).then(function (b) { blobs.push(b); }) : null;
+                })).then(function () {
+                    if (blobs.length) addImagesToExercise(ex, blobs); else window.alert("Aucune image dans le presse-papiers.");
+                });
+            }).catch(function () { window.alert("Collage refusé par le navigateur : utilise Ctrl+V / ⌘V dans la fiche de l'exercice."); });
+        });
+        row.appendChild(addBtn); row.appendChild(pasteBtn); row.appendChild(input);
+        var hint = document.createElement("span");
+        hint.className = "images-hint";
+        hint.textContent = "ou Ctrl+V / ⌘V ici";
+        row.appendChild(hint);
+        wrap.appendChild(row);
+        return wrap;
+    }
+
+    // Collage (Ctrl+V / ⌘V) d'une capture n'importe où dans la fiche d'un exercice.
+    function bindImagePaste(el, ex) {
+        el.addEventListener("paste", function (e) {
+            var items = (e.clipboardData && e.clipboardData.items) ? Array.prototype.slice.call(e.clipboardData.items) : [];
+            var files = items.filter(function (it) { return it.kind === "file" && /^image\//.test(it.type); }).map(function (it) { return it.getAsFile(); }).filter(Boolean);
+            if (!files.length) return;
+            e.preventDefault();
+            addImagesToExercise(ex, files);
+        });
+    }
+
     // ---------- corbeille ----------
     // Filet de sécurité en plus d'annuler/rétablir : un élément supprimé (exercice/dossier/session)
     // reste récupérable ici même après d'autres actions qui auraient fait sortir l'annulation de
@@ -388,11 +576,11 @@
     // n'est pas purgé (évincé par la limite ou supprimé définitivement) — sinon les rouvrir après
     // restauration échouerait.
     function filesOf(entry) {
-        if (entry.type === "exercise") return entry.data.files || [];
+        if (entry.type === "exercise") return (entry.data.files || []).concat(entry.data.images || []);
         if (entry.type === "folder") {
             var files = [];
             function walk(f) {
-                (f.exercises || []).forEach(function (ex) { files = files.concat(ex.files || []); });
+                (f.exercises || []).forEach(function (ex) { files = files.concat(ex.files || [], ex.images || []); });
                 (f.folders || []).forEach(walk);
             }
             walk(entry.data);
@@ -847,6 +1035,7 @@
             tags: (ex.tags || []).slice(),
             links: cloneLinksForDuplicate(ex.links),
             files: cloneFilesForDuplicate(ex.files),
+            images: cloneFilesForDuplicate(ex.images),
             pinnedLinkId: null,
             collapsed: true,
             updatedAt: Date.now()
@@ -2341,11 +2530,23 @@
         // Les exercices archivés sont rangés hors de la vue normale (voir le filtre "Archivés"
         // dans la recherche) ; ils restent dans le tableau réel, juste absents de ce rendu — voir
         // le commentaire dans setupDragReorder() sur les éléments absents du DOM lors d'un glisser.
-        currentFolder.exercises.filter(function (ex) { return !ex.archived; }).forEach(function (ex) {
+        var allVisible = currentFolder.exercises.filter(function (ex) { return !ex.archived; });
+        var view = loadExView();
+        var shown = applyExView(allVisible, view);
+        if (allVisible.length > 1) exGroup.appendChild(renderExViewBar(view, shown.length, allVisible.length));
+        shown.forEach(function (ex) {
             exercisesWrap.appendChild(renderExercise(currentFolder, ex, true));
         });
+        if (!shown.length && allVisible.length) {
+            var none = document.createElement("div");
+            none.className = "gs-empty";
+            none.textContent = "Aucun exercice ne correspond aux filtres.";
+            exercisesWrap.appendChild(none);
+        }
         exGroup.appendChild(exercisesWrap);
-        setupDragReorder(exercisesWrap, ".exercise", function () { return currentFolder.exercises; }, "y", {
+        // Réordonner à la main n'a de sens que dans l'ordre manuel et sans filtre : sinon l'ordre affiché
+        // n'est pas l'ordre réel.
+        if (exViewIsDefault(view)) setupDragReorder(exercisesWrap, ".exercise", function () { return currentFolder.exercises; }, "y", {
             onDropOnTarget: function (el, destFolderId, x, y) {
                 var ex = currentFolder.exercises.filter(function (e) { return e.id === el.dataset.reorderId; })[0];
                 var dest = findFolderById(getActiveInstrument(), destFolderId);
@@ -2365,6 +2566,97 @@
         mainWrap.appendChild(foldersGroup);
         mainWrap.appendChild(exGroup);
         $folderContainer.appendChild(mainWrap);
+    }
+
+    // ---------- tri et filtres de la liste d'exercices ----------
+    // Réglage d'affichage propre à l'appareil (pas dans les données) : tri + filtres, valables pour tous
+    // les dossiers. « Manuel » = l'ordre choisi à la main (glisser-déposer).
+    var EX_VIEW_KEY = "trainhub.exView.v1";
+    var EX_SORTS = [["manual", "Ordre manuel"], ["az", "A → Z"], ["za", "Z → A"], ["created-desc", "Création : récents d'abord"], ["created-asc", "Création : anciens d'abord"], ["updated", "Modifiés récemment"]];
+    function loadExView() {
+        var v = {};
+        try { v = JSON.parse(localStorage.getItem(EX_VIEW_KEY)) || {}; } catch (e) {}
+        return {
+            sort: EX_SORTS.some(function (s) { return s[0] === v.sort; }) ? v.sort : "manual",
+            att: ["with", "without"].indexOf(v.att) !== -1 ? v.att : "",       // pièces jointes (liens, fichiers, images)
+            notes: ["with", "without"].indexOf(v.notes) !== -1 ? v.notes : "",
+            video: v.video === true,
+            fav: v.fav === true
+        };
+    }
+    function saveExView(v) { try { localStorage.setItem(EX_VIEW_KEY, JSON.stringify(v)); } catch (e) {} }
+    function exViewIsDefault(v) { return v.sort === "manual" && !v.att && !v.notes && !v.video && !v.fav; }
+    function exCreatedAt(ex) { return ex.createdAt || parseInt(String(ex.id).slice(0, 8), 36) || 0; } // l'id commence par l'horodatage de création
+    function exHasAttachments(ex) { return (ex.links || []).length + (ex.files || []).length + (ex.images || []).length > 0; }
+    function applyExView(list, v) {
+        var out = list.filter(function (ex) {
+            if (v.fav && !ex.favorite) return false;
+            if (v.att === "with" && !exHasAttachments(ex)) return false;
+            if (v.att === "without" && exHasAttachments(ex)) return false;
+            var hasNotes = !!(ex.notes && ex.notes.trim());
+            if (v.notes === "with" && !hasNotes) return false;
+            if (v.notes === "without" && hasNotes) return false;
+            if (v.video && !(ex.links || []).some(function (l) { return !!youTubeVideoInfo(l.url); })) return false;
+            return true;
+        });
+        var cmp = {
+            az: function (a, b) { return a.title.localeCompare(b.title, "fr", { sensitivity: "base", numeric: true }); },
+            za: function (a, b) { return b.title.localeCompare(a.title, "fr", { sensitivity: "base", numeric: true }); },
+            "created-desc": function (a, b) { return exCreatedAt(b) - exCreatedAt(a); },
+            "created-asc": function (a, b) { return exCreatedAt(a) - exCreatedAt(b); },
+            updated: function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); }
+        }[v.sort];
+        if (cmp) out.sort(cmp);
+        return out;
+    }
+    function renderExViewBar(view, shownCount, totalCount) {
+        var bar = document.createElement("div");
+        bar.className = "ex-view-bar";
+        function change(patch) { var nv = Object.assign({}, view, patch); saveExView(nv); render(); }
+        function sel(label, options, value, key) {
+            var s = document.createElement("select");
+            s.setAttribute("aria-label", label);
+            s.title = label;
+            options.forEach(function (o) {
+                var op = document.createElement("option");
+                op.value = o[0]; op.textContent = o[1];
+                if (o[0] === value) op.selected = true;
+                s.appendChild(op);
+            });
+            s.addEventListener("change", function () { var p = {}; p[key] = s.value; change(p); });
+            return s;
+        }
+        bar.appendChild(sel("Tri", EX_SORTS, view.sort, "sort"));
+        bar.appendChild(sel("Pièces jointes", [["", "PJ : toutes"], ["with", "Avec PJ"], ["without", "Sans PJ"]], view.att, "att"));
+        bar.appendChild(sel("Notes", [["", "Notes : toutes"], ["with", "Avec notes"], ["without", "Sans notes"]], view.notes, "notes"));
+        function chip(text, on, key) {
+            var b = document.createElement("button");
+            b.type = "button";
+            b.className = "ex-view-chip" + (on ? " ex-view-chip-on" : "");
+            b.textContent = text;
+            b.setAttribute("aria-pressed", on ? "true" : "false");
+            b.addEventListener("click", function () { var p = {}; p[key] = !on; change(p); });
+            return b;
+        }
+        bar.appendChild(chip("★ Favoris", view.fav, "fav"));
+        bar.appendChild(chip("Avec vidéo", view.video, "video"));
+        if (!exViewIsDefault(view)) {
+            var count = document.createElement("span");
+            count.className = "ex-view-count";
+            count.textContent = shownCount + " / " + totalCount;
+            bar.appendChild(count);
+            var reset = document.createElement("button");
+            reset.type = "button";
+            reset.className = "ex-view-chip";
+            reset.textContent = "Réinitialiser";
+            reset.addEventListener("click", function () { saveExView({}); render(); });
+            bar.appendChild(reset);
+            var note = document.createElement("span");
+            note.className = "ex-view-note";
+            note.textContent = "Glisser-déposer désactivé tant qu'un tri ou un filtre est actif";
+            bar.appendChild(note);
+        }
+        return bar;
     }
 
     function renderFolderRow(inst, parentArray, folder, idx, total, path) {
@@ -2965,6 +3257,9 @@
         addLinkRow.appendChild(addLinkBtn);
         addLinkRow.appendChild(makeAddFileButton(ex));
         details.appendChild(addLinkRow);
+
+        details.appendChild(buildImagesSection(ex));
+        bindImagePaste(details, ex);
 
         return details;
     }
@@ -6159,11 +6454,18 @@
             title.textContent = "Paramètres";
             panel.appendChild(title);
 
+            // Réglages rangés par onglets (un onglet = un thème) : ajouter un réglage = le mettre dans le bon
+            // onglet, sans allonger une liste unique. Le dernier onglet ouvert est retenu.
+            var pages = {}, cur = null;
+            var tabBar = document.createElement("div");
+            tabBar.className = "settings-tabs";
+            panel.appendChild(tabBar);
             function section(labelText) {
-                var label = document.createElement("div");
-                label.className = "section-label settings-section-label";
-                label.textContent = labelText;
-                panel.appendChild(label);
+                cur = document.createElement("div");
+                cur.className = "settings-page";
+                cur.hidden = true;
+                panel.appendChild(cur);
+                pages[labelText] = cur;
             }
 
             function selectField(labelText, options, value, onChange) {
@@ -6187,44 +6489,67 @@
             }
 
             section("Métronome");
-            panel.appendChild(selectField("Position", [
+            cur.appendChild(selectField("Position", [
                 ["center", "Centre"], ["top", "Haut"], ["bottom", "Bas"], ["corner", "Coin (bas à droite)"]
             ], a.metronomePosition, function (v) { a.metronomePosition = v; save(); }));
-            panel.appendChild(selectField("Taille", [
+            cur.appendChild(selectField("Taille", [
                 ["small", "Petite"], ["medium", "Moyenne"], ["large", "Grande"]
             ], a.metronomeSize, function (v) { a.metronomeSize = v; save(); }));
 
-            section("Vidéos YouTube");
+            section("Vidéos");
             var volOptions = [["auto", "Automatique (volume de YouTube)"]];
             for (var vv = 10; vv <= 100; vv += 10) volOptions.push([String(vv), vv + " %"]);
             var curStartVol = getYtStartVolume();
-            panel.appendChild(selectField("Barres de réglage (temps, volume, vitesse)", [["1", "Affichées"], ["0", "Masquées"]], ytBarsEnabled() ? "1" : "0", function (v) {
+            cur.appendChild(selectField("Barres de réglage (temps, volume, vitesse)", [["1", "Affichées"], ["0", "Masquées"]], ytBarsEnabled() ? "1" : "0", function (v) {
                 setYtBarsEnabled(v === "1");
                 document.dispatchEvent(new Event("trainhub-yt-bars")); // les vidéos déjà affichées se mettent à jour
             }));
-            panel.appendChild(selectField("Volume de départ", volOptions, curStartVol === null ? "auto" : String(Math.round(curStartVol / 10) * 10), function (v) {
+            cur.appendChild(selectField("Volume de départ", volOptions, curStartVol === null ? "auto" : String(Math.round(curStartVol / 10) * 10), function (v) {
                 setYtStartVolume(v === "auto" ? null : parseInt(v, 10));
             }));
 
             section("Affichage");
-            panel.appendChild(selectField("Couleurs des chapitres", Object.keys(COLOR_SCHEMES).map(function (key) {
+            cur.appendChild(selectField("Couleurs des chapitres", Object.keys(COLOR_SCHEMES).map(function (key) {
                 return [key, COLOR_SCHEMES[key].label];
             }), a.colorScheme, function (v) { applyColorScheme(v); }));
-            panel.appendChild(selectField("Taille du texte des dossiers", [
+            cur.appendChild(selectField("Taille du texte des dossiers", [
                 ["0.85", "Petite"], ["1", "Normale"], ["1.15", "Grande"], ["1.3", "Très grande"]
             ], a.treeFontScale, function (v) {
                 a.treeFontScale = parseFloat(v);
                 save();
                 render();
             }));
-            panel.appendChild(selectField("Densité de l'interface", [
+            cur.appendChild(selectField("Densité de l'interface", [
                 ["compact", "Compacte"], ["comfortable", "Confortable"], ["spacious", "Spacieuse"]
             ], a.density, function (v) { a.density = v; save(); render(); }));
-            panel.appendChild(selectField("Disposition de l'écran principal", [
+            cur.appendChild(selectField("Disposition de l'écran principal", [
                 ["vertical", "Verticale"], ["horizontal", "Horizontale (façon Finder)"]
             ], a.mainLayout, function (v) { a.mainLayout = v; save(); render(); }));
+
+            section("Images");
+            var imgSizes = [["small", "Petite"], ["medium", "Moyenne"], ["large", "Grande"]];
+            cur.appendChild(selectField("Taille des images dans les exercices", imgSizes, getImgSize("ex"), function (v) { setImgSize("ex", v); render(); }));
+            cur.appendChild(selectField("Taille des images dans les sessions", imgSizes, getImgSize("gs"), function (v) { setImgSize("gs", v); render(); }));
+
+            var TAB_ORDER = ["Affichage", "Métronome", "Vidéos", "Images"];
+            function showTab(name) {
+                settingsTab = name;
+                TAB_ORDER.forEach(function (n) { pages[n].hidden = n !== name; });
+                Array.prototype.forEach.call(tabBar.children, function (btn) { btn.classList.toggle("settings-tab-active", btn.dataset.tab === name); });
+            }
+            TAB_ORDER.forEach(function (n) {
+                var tb = document.createElement("button");
+                tb.type = "button";
+                tb.className = "settings-tab";
+                tb.dataset.tab = n;
+                tb.textContent = n;
+                tb.addEventListener("click", function () { showTab(n); });
+                tabBar.appendChild(tb);
+            });
+            showTab(pages[settingsTab] ? settingsTab : TAB_ORDER[0]);
         });
     }
+    var settingsTab = "Affichage";
 
     // ---------- session guidée ----------
     // Un enchaînement d'exercices choisis à l'avance, chacun avec un temps alloué : au lancement,
@@ -7813,6 +8138,19 @@
                 content.appendChild(hiddenRow);
             }
         }
+        // Images de l'exercice (captures de partition), petites sous les vidéos ; masquées de base,
+        // un clic sur la barre les affiche (choix retenu), un clic sur une vignette l'agrandit.
+        if (found && (found.ex.images || []).length) {
+            var imgShown = imagesShownInSession();
+            var imgToggle = document.createElement("button");
+            imgToggle.type = "button";
+            imgToggle.className = "btn-ghost gs-yt-toggle gs-img-toggle";
+            imgToggle.textContent = (imgShown ? "▾ " : "▸ ") + "Images (" + found.ex.images.length + ") — " + (imgShown ? "masquer" : "afficher");
+            imgToggle.title = "Afficher ou masquer les images de l'exercice";
+            imgToggle.addEventListener("click", function () { setImagesShownInSession(!imgShown); render(); });
+            content.appendChild(imgToggle);
+            if (imgShown) content.appendChild(buildImageStrip(found.ex, "gs", false));
+        }
         renderGsRunPlan(content, session);
     }
 
@@ -7979,7 +8317,7 @@
     // par-dessus : l'Espace ne doit pas agir sur la session qu'on ne voit plus.
     function spaceKeyBlockedByOverlay() {
         if (closeActiveModal && activeModalKind !== "metronome-panel") return true;
-        return !!document.querySelector(".ctx-menu");
+        return !!document.querySelector(".ctx-menu, .img-lightbox");
     }
     function isSpaceKeyEvent(e) { return e.code === "Space" || e.key === " " || e.key === "Spacebar"; }
 

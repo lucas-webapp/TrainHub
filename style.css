@@ -1878,3 +1878,37 @@ button.gs-folder-toggle { flex: 1; min-width: 0; justify-content: flex-start; ga
 button.gs-run-exdetails-toggle { width: 100%; justify-content: space-between; height: var(--gs-btn-h, 44px); padding: 0 14px; background: transparent; border: none; font-size: var(--fs-sm); color: var(--text-muted); }
 .gs-run-exdetails .exercise-details { margin: 0; padding: 10px 12px 12px; border-top: 1px dashed var(--border); }
 .gs-run-exdetails .exercise-details[hidden] { display: none; }
+
+/* Images des exercices */
+.images-section { display: flex; flex-direction: column; gap: 8px; }
+button.images-toggle { justify-content: flex-start; width: 100%; height: 34px; padding: 0 10px; border: 1px solid var(--border); font-size: var(--fs-xs); color: var(--text-muted); }
+.img-strip { display: flex; flex-wrap: wrap; gap: 8px; }
+.img-thumb { position: relative; }
+button.img-thumb-btn { padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--card-bg-2); cursor: zoom-in; display: block; }
+.img-thumb-btn img { display: block; height: var(--img-h, 150px); max-width: min(100%, 520px); width: auto; object-fit: contain; }
+.img-thumb-btn.img-missing { height: 60px; padding: 0 12px; font-size: var(--fs-2xs); color: var(--text-muted); cursor: default; }
+button.img-thumb-remove { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; padding: 0; border-radius: 6px; background: rgba(0,0,0,.6); border-color: transparent; color: #fff; font-size: 11px; }
+.images-add-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+button.images-add-btn { height: 34px; padding: 0 12px; font-size: var(--fs-xs); }
+.images-hint { font-size: var(--fs-2xs); color: var(--text-muted); }
+button.gs-img-toggle { width: 100%; justify-content: flex-start; }
+.gs-main .img-strip { margin: 8px 0 12px; }
+.img-lightbox { position: fixed; inset: 0; z-index: 400; background: rgba(0,0,0,.92); display: flex; align-items: center; justify-content: center; padding: 24px; cursor: zoom-out; }
+.img-lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px; cursor: pointer; }
+button.img-lightbox-close { position: fixed; top: calc(12px + env(safe-area-inset-top, 0px)); right: 12px; width: 44px; height: 44px; padding: 0; font-size: 18px; }
+.img-lightbox-caption { position: fixed; left: 0; right: 0; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); text-align: center; font-size: var(--fs-xs); color: #ccc; pointer-events: none; }
+
+/* Paramètres : onglets */
+.settings-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+button.settings-tab { height: 34px; padding: 0 14px; font-size: var(--fs-xs); background: transparent; color: var(--text-muted); }
+button.settings-tab-active { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.settings-page[hidden] { display: none; }
+.settings-page { display: flex; flex-direction: column; gap: 10px; }
+
+/* Tri et filtres de la liste d'exercices */
+.ex-view-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.ex-view-bar select { font-size: var(--fs-xs); height: 32px; max-width: 100%; }
+button.ex-view-chip { height: 32px; padding: 0 10px; font-size: var(--fs-xs); background: transparent; color: var(--text-muted); }
+button.ex-view-chip-on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.ex-view-count { font-size: var(--fs-xs); color: var(--text-muted); }
+.ex-view-note { flex-basis: 100%; font-size: var(--fs-2xs); color: var(--text-muted); }
