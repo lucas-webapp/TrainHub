@@ -5741,6 +5741,14 @@
                 ["small", "Petite"], ["medium", "Moyenne"], ["large", "Grande"]
             ], a.metronomeSize, function (v) { a.metronomeSize = v; save(); }));
 
+            section("Vidéos YouTube");
+            var volOptions = [["auto", "Automatique (volume de YouTube)"]];
+            for (var vv = 10; vv <= 100; vv += 10) volOptions.push([String(vv), vv + " %"]);
+            var curStartVol = getYtStartVolume();
+            panel.appendChild(selectField("Volume de départ", volOptions, curStartVol === null ? "auto" : String(Math.round(curStartVol / 10) * 10), function (v) {
+                setYtStartVolume(v === "auto" ? null : parseInt(v, 10));
+            }));
+
             section("Affichage");
             panel.appendChild(selectField("Couleurs des chapitres", Object.keys(COLOR_SCHEMES).map(function (key) {
                 return [key, COLOR_SCHEMES[key].label];
@@ -6503,6 +6511,17 @@
         return /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
     }
 
+    // Volume de départ des vidéos YouTube (Paramètres) : "auto" = on ne touche à rien (volume habituel de
+    // YouTube). Sinon appliqué UNE fois quand le lecteur est prêt ; il vaut aussi pour les publicités
+    // que YouTube insère, qui passent par le même lecteur. Propre à cet appareil.
+    var YT_START_VOLUME_KEY = "trainhub.ytStartVolume.v1";
+    function getYtStartVolume() {
+        try { var v = localStorage.getItem(YT_START_VOLUME_KEY); var n = parseInt(v, 10); return n >= 0 && n <= 100 ? n : null; } catch (e) { return null; }
+    }
+    function setYtStartVolume(v) {
+        try { if (v === null) localStorage.removeItem(YT_START_VOLUME_KEY); else localStorage.setItem(YT_START_VOLUME_KEY, String(v)); } catch (e) {}
+    }
+
     // Barres temps/volume à côté des vidéos : affichées par défaut, désactivables d'un clic (et alors
     // plus aucun suivi du lecteur). Réglage propre à cet appareil.
     var YT_BARS_KEY = "trainhub.ytBars.v1";
@@ -6611,15 +6630,6 @@
         });
         document.addEventListener("fullscreenchange", refreshSizeBtn);
         head.appendChild(sizeBtn);
-
-        var ytLink = document.createElement("a");
-        ytLink.className = "btn-ghost gs-yt-btn";
-        ytLink.href = link.url;
-        ytLink.target = "_blank";
-        ytLink.rel = "noopener noreferrer";
-        ytLink.textContent = "↗ YouTube";
-        ytLink.title = "Ouvrir sur YouTube (nouvel onglet)";
-        head.appendChild(ytLink);
 
         var hideBtn = document.createElement("button");
         hideBtn.type = "button";
@@ -6764,7 +6774,16 @@
         refreshBarsBtn();
         card.appendChild(body);
 
-        function showMsg(text) { msg.textContent = text; msg.hidden = false; }
+        // Message de repli (vidéo non lisible ici, YouTube injoignable) : le seul cas où on propose un lien
+        // vers YouTube, puisque le lecteur n'affiche alors pas le sien.
+        function showMsg(text) {
+            msg.textContent = text + " ";
+            var a = document.createElement("a");
+            a.href = link.url; a.target = "_blank"; a.rel = "noopener noreferrer";
+            a.textContent = "Ouvrir sur YouTube";
+            msg.appendChild(a);
+            msg.hidden = false;
+        }
         loadYouTubeApi().then(function () {
             ytPlayer = new window.YT.Player(target, {
                 width: "100%", height: "100%",
@@ -6772,15 +6791,18 @@
                 playerVars: { playsinline: 1, rel: 0, start: info.start || 0 },
                 events: {
                     onReady: function () {
-                        // Lecture seule ici aussi : on ne règle ni volume ni vitesse au démarrage.
+                        // Seule commande envoyée au démarrage : le volume de départ choisi dans les Paramètres
+                        // (rien du tout s'il est sur « automatique »). Ni vitesse, ni déplacement.
+                        var startVol = getYtStartVolume();
+                        if (startVol !== null && !isIosDevice() && ytPlayer.setVolume) ytPlayer.setVolume(startVol);
                         if (!tickTimer) tickTimer = setInterval(tick, 250);
                         tick();
                     },
-                    onError: function () { showMsg("Cette vidéo ne peut pas être lue ici : utilisez « ↗ YouTube »."); }
+                    onError: function () { showMsg("Cette vidéo ne peut pas être lue ici."); }
                 }
             });
         }, function () {
-            showMsg("Lecteur YouTube indisponible (hors ligne ?) : utilisez « ↗ YouTube ».");
+            showMsg("Lecteur YouTube indisponible (hors ligne ?).");
         });
         return card;
     }
@@ -7037,6 +7059,7 @@
         // Lecteurs YouTube des liens de l'exercice en cours (volume/vitesse retenus par lien).
         if (found) {
             // Plusieurs liens YouTube : les lecteurs se suivent, les uns sous les autres.
+            // (un lecteur à l'écran : la colonne de guidage s'élargit un peu, voir .gs-main-wide)
             var hiddenVideos = [];
             var ytLinks = (found.ex.links || []).filter(function (link) { return !!youTubeVideoInfo(link.url); });
             var ytShown = ytVideosShown();
@@ -7053,6 +7076,7 @@
             if (ytShown) ytLinks.forEach(function (link) {
                 var info = youTubeVideoInfo(link.url);
                 if (gsStepHides(step, "link:" + link.id)) { hiddenVideos.push(link); return; }
+                content.classList.add("gs-main-wide");
                 content.appendChild(buildYouTubeCard(link, found.ex, info, function () {
                     gsSetStepHidden(step, "link:" + link.id, true);
                     save();
@@ -7278,6 +7302,28 @@
 
     if ("serviceWorker" in navigator) {
         window.addEventListener("load", function () {
+            // Une nouvelle version s'installe en arrière-plan mais n'est utilisée qu'au rechargement suivant :
+            // on prévient (sans recharger d'autorité, ce qui couperait le métronome ou une session).
+            var hadController = !!navigator.serviceWorker.controller;
+            navigator.serviceWorker.addEventListener("controllerchange", function () {
+                if (!hadController || document.querySelector(".update-banner")) return;
+                var bar = document.createElement("div");
+                bar.className = "update-banner";
+                var txt = document.createElement("span");
+                txt.textContent = "Une nouvelle version de TrainHub est prête.";
+                var reload = document.createElement("button");
+                reload.type = "button";
+                reload.className = "btn-accent";
+                reload.textContent = "Recharger";
+                reload.addEventListener("click", function () { window.location.reload(); });
+                var later = document.createElement("button");
+                later.type = "button";
+                later.className = "btn-ghost";
+                later.textContent = "Plus tard";
+                later.addEventListener("click", function () { bar.remove(); });
+                bar.appendChild(txt); bar.appendChild(reload); bar.appendChild(later);
+                document.body.appendChild(bar);
+            });
             navigator.serviceWorker.register("sw.js").catch(function () {});
         });
     }
