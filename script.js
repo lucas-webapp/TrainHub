@@ -3897,6 +3897,145 @@
         }
     }
 
+    // ---------- réimport des images ----------
+    // Réinjecte des images exportées (fichiers « Espace - Titre - n.ext »). Chaque image retrouve son exercice
+    // par l'espace et le titre ; une image déjà présente (même taille) est ignorée, ou simplement restaurée si
+    // son contenu manquait sur cet appareil. Les images dont l'exercice est introuvable (renommé, supprimé) ou
+    // ambigu sont présentées une à une : choisir l'exercice, ou ne pas les importer.
+    function parseExportedImageName(fileName) {
+        var base = fileName.replace(/\.[A-Za-z0-9]+$/, "").replace(/ \(\d+\)$/, "");
+        var parts = base.split(" - ");
+        if (parts.length < 3 || !/^\d+$/.test(parts[parts.length - 1].trim())) return null;
+        return { inst: parts[0].trim(), title: parts.slice(1, -1).join(" - ").trim() };
+    }
+    function normName(s) { return safeFileName(s).toLowerCase(); } // même nettoyage que l'export, pour comparer
+    function allExerciseChoices() {
+        var out = [];
+        state.instruments.forEach(function (inst) {
+            collectExercises(inst, function () { return true; }).forEach(function (r) {
+                out.push({ ex: r.ex, inst: inst, label: inst.name + " › " + r.pathNames.join(" › ") + " › " + r.ex.title });
+            });
+        });
+        return out;
+    }
+    function reimportImages(files) {
+        files = files.filter(function (f) { return /^image\//.test(f.type); });
+        if (!files.length) { window.alert("Aucune image dans la sélection."); return; }
+        var choices = allExerciseChoices();
+        var matched = [], lost = [];
+        files.forEach(function (file) {
+            var parsed = parseExportedImageName(file.name);
+            var cands = parsed ? choices.filter(function (c) { return normName(c.inst.name) === normName(parsed.inst) && normName(c.ex.title) === normName(parsed.title); }) : [];
+            if (cands.length === 1) matched.push({ file: file, ex: cands[0].ex });
+            else lost.push({ file: file, parsed: parsed, cands: cands });
+        });
+        function finish(extra) {
+            var all = matched.concat(extra || []);
+            var stats = { added: 0, restored: 0, skipped: 0 };
+            all.reduce(function (p, m) {
+                return p.then(function () { return placeImportedImage(m.file, m.ex, stats); });
+            }, Promise.resolve()).then(function () {
+                save();
+                render();
+                setTimeout(function () { all.forEach(function () {}); syncImagesToCloud(); }, 0);
+                showToast("Images réimportées : " + stats.added + " ajoutée" + (stats.added > 1 ? "s" : "") + ", " + stats.restored + " restaurée" + (stats.restored > 1 ? "s" : "") + ", " + stats.skipped + " déjà présente" + (stats.skipped > 1 ? "s" : "") + ".", 7000);
+            }).catch(function () { window.alert("Impossible d'enregistrer certaines images sur cet appareil."); });
+        }
+        if (!lost.length) { finish(); return; }
+        askLostImages(lost, choices, matched.length, function (assigned) { finish(assigned); });
+    }
+    function placeImportedImage(file, ex, stats) {
+        ex.images = ex.images || [];
+        var same = ex.images.filter(function (m) { return m.size === file.size; })[0];
+        if (same) {
+            return getFileBlob(same.id).then(function (b) {
+                if (b) { stats.skipped++; return null; }
+                stats.restored++;
+                return storeFileBlob(same.id, file).then(function () { delete imageUrlCache[same.id]; same.cloud = false; });
+            });
+        }
+        var id = uid();
+        return storeFileBlob(id, file).then(function () {
+            ex.images.push({ id: id, name: file.name, type: file.type, size: file.size, addedAt: Date.now() });
+            imagesOpenInList[ex.id] = true;
+            touchExercise(ex);
+            stats.added++;
+        });
+    }
+    // Fenêtre des images « perdues » : une ligne par image, avec aperçu, choix de l'exercice ou « Ne pas importer ».
+    function askLostImages(lost, choices, okCount, done) {
+        var overlay = document.createElement("div");
+        overlay.className = "reimport-overlay";
+        var box = document.createElement("div");
+        box.className = "reimport-box";
+        var h = document.createElement("div");
+        h.className = "backups-title";
+        h.textContent = "Images à rattacher";
+        box.appendChild(h);
+        var intro = document.createElement("div");
+        intro.className = "gs-empty";
+        intro.textContent = (okCount ? okCount + " image" + (okCount > 1 ? "s" : "") + " retrouvée" + (okCount > 1 ? "s" : "") + " automatiquement. " : "") + lost.length + " n'ont pas trouvé leur exercice (nom changé, exercice supprimé, ou plusieurs exercices du même nom). Choisis l'exercice de chacune, ou ne l'importe pas.";
+        box.appendChild(intro);
+        var list = document.createElement("div");
+        list.className = "reimport-list";
+        var selects = [];
+        var urls = [];
+        lost.forEach(function (item) {
+            var row = document.createElement("div");
+            row.className = "reimport-row";
+            var im = document.createElement("img");
+            var url = URL.createObjectURL(item.file); urls.push(url);
+            im.src = url; im.alt = "";
+            var right = document.createElement("div");
+            right.className = "reimport-right";
+            var nm = document.createElement("div");
+            nm.className = "reimport-name";
+            nm.textContent = item.file.name;
+            var sel = document.createElement("select");
+            var skip = document.createElement("option");
+            skip.value = ""; skip.textContent = "Ne pas importer";
+            sel.appendChild(skip);
+            // Exercices du même titre d'abord (même si l'espace a changé), puis tous les autres.
+            var title = item.parsed ? normName(item.parsed.title) : "";
+            var pool = item.cands.length ? item.cands : choices.filter(function (c) { return title && normName(c.ex.title) === title; });
+            var rest = choices.filter(function (c) { return pool.indexOf(c) === -1; });
+            [pool, rest].forEach(function (grp, gi) {
+                grp.forEach(function (c) {
+                    var o = document.createElement("option");
+                    o.value = c.ex.id; o.textContent = (gi === 0 && pool.length ? "★ " : "") + c.label;
+                    sel.appendChild(o);
+                });
+            });
+            if (pool.length === 1) sel.value = pool[0].ex.id; // une seule piste : présélectionnée (à confirmer)
+            selects.push(sel);
+            right.appendChild(nm); right.appendChild(sel);
+            row.appendChild(im); row.appendChild(right);
+            list.appendChild(row);
+        });
+        box.appendChild(list);
+        var actions = document.createElement("div");
+        actions.className = "reimport-actions";
+        function close() { urls.forEach(function (u) { URL.revokeObjectURL(u); }); overlay.remove(); }
+        var cancel = document.createElement("button");
+        cancel.type = "button"; cancel.textContent = "Annuler";
+        cancel.addEventListener("click", close);
+        var ok = document.createElement("button");
+        ok.type = "button"; ok.className = "btn-accent"; ok.textContent = "Importer";
+        ok.addEventListener("click", function () {
+            var assigned = [];
+            lost.forEach(function (item, i) {
+                var f = selects[i].value ? choices.filter(function (c) { return c.ex.id === selects[i].value; })[0] : null;
+                if (f) assigned.push({ file: item.file, ex: f.ex });
+            });
+            close();
+            done(assigned);
+        });
+        actions.appendChild(cancel); actions.appendChild(ok);
+        box.appendChild(actions);
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+    }
+
     document.getElementById("export-btn").addEventListener("click", function () {
         var dateStr = new Date().toISOString().slice(0, 10);
         var images = collectExportImages();
@@ -6920,7 +7059,27 @@
             cur.appendChild(selectField("Taille des images dans les exercices", imgSizes, getImgSize("ex"), function (v) { setImgSize("ex", v); render(); }));
             cur.appendChild(selectField("Taille des images dans les sessions", imgSizes, getImgSize("gs"), function (v) { setImgSize("gs", v); render(); }));
 
-            var TAB_ORDER = ["Affichage", "Métronome", "Vidéos", "Images"];
+            section("Données");
+            var dataNote = document.createElement("div");
+            dataNote.className = "gs-empty";
+            dataNote.textContent = "Réinjecte des images exportées (fichiers « Espace - Titre - n »). Elles retrouvent leur exercice ; celles dont l'exercice a changé de nom te sont proposées une à une.";
+            cur.appendChild(dataNote);
+            var reFile = document.createElement("input");
+            reFile.type = "file"; reFile.accept = "image/*"; reFile.multiple = true; reFile.hidden = true;
+            reFile.addEventListener("change", function () {
+                var files = Array.prototype.slice.call(reFile.files || []);
+                reFile.value = "";
+                if (files.length) { if (closeActiveModal) closeActiveModal(); reimportImages(files); }
+            });
+            var reBtn = document.createElement("button");
+            reBtn.type = "button";
+            reBtn.className = "settings-data-btn";
+            reBtn.textContent = "Réimporter des images…";
+            reBtn.addEventListener("click", function () { reFile.click(); });
+            cur.appendChild(reBtn);
+            cur.appendChild(reFile);
+
+            var TAB_ORDER = ["Affichage", "Métronome", "Vidéos", "Images", "Données"];
             function showTab(name) {
                 settingsTab = name;
                 TAB_ORDER.forEach(function (n) { pages[n].hidden = n !== name; });
