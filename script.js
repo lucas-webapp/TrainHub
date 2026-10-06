@@ -3278,6 +3278,13 @@
         var details = document.createElement("div");
         details.className = "exercise-details";
 
+        // Tempo cible / métronome prédéfini : juste sous le titre, c'est le réglage le plus utile en un coup d'œil.
+        details.appendChild(buildMetronomePresetRow({
+            title: ex.title,
+            get: function () { return ex.metronome; },
+            set: function (p) { setExerciseMetronome(ex, p); }
+        }));
+
         var notesLabel = document.createElement("div");
         notesLabel.className = "section-label";
         notesLabel.textContent = "Notes";
@@ -3526,10 +3533,6 @@
         addLinkRow.appendChild(makeAddFileButton(ex));
         details.appendChild(addLinkRow);
 
-        details.appendChild(buildMetronomePresetRow({
-            get: function () { return ex.metronome; },
-            set: function (p) { setExerciseMetronome(ex, p); }
-        }));
         details.appendChild(buildImagesSection(ex));
         bindImagePaste(details, ex);
 
@@ -5373,7 +5376,8 @@
         persist();
     }
     function metroPresetSummary(p) {
-        var parts = [p.bpm + " BPM", p.rhythmLabel && p.rhythmLabel !== "None" ? p.rhythmLabel : (p.beatsPerMeasure + " temps")];
+        var parts = [p.bpm + " BPM"];
+        if (p.rhythmLabel && p.rhythmLabel !== "None") parts.push(p.rhythmLabel); // « None » : pas de figure à afficher
         if (p.advanced) parts.push("détaillé");
         if (p.progressive && p.progressive.enabled) parts.push("progressif");
         if (p.training && p.training.enabled) parts.push("entraînement");
@@ -5398,15 +5402,21 @@
 
     // Préréglage « vierge » : seulement un tempo, tout le reste par défaut (4/4 simple, sans progressif ni entraînement).
     function blankMetroPreset(bpm) {
-        var tmp = { metronome: { bpm: bpm } };
+        // Par défaut « None » (métronome simple, aucun temps accentué) : le réglage le plus courant.
+        var tmp = { metronome: { bpm: bpm, beatsPerMeasure: 1, rhythmLabel: "None", beatPattern: [1], advanced: false } };
         normalizeMetronomeSettings(tmp);
         var o = {};
         METRO_PRESET_KEYS.forEach(function (k) { o[k] = tmp.metronome[k] === undefined ? null : cloneJson(tmp.metronome[k]); });
         return o;
     }
-    function metroPresetExtras(p) { // résumé sans le tempo : mesure + options
+    function metroPresetExtras(p) { // résumé sans le tempo : figure rythmique + options
         return metroPresetSummary(p).split(" · ").slice(1).join(" · ");
     }
+    // Réglage « spécial » (au-delà d'un simple tempo) : progressif, entraînement ou pavé détaillé.
+    function metroPresetIsSpecial(p) {
+        return !!((p.progressive && p.progressive.enabled) || (p.training && p.training.enabled) || p.advanced);
+    }
+    var GEAR_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>';
 
     // Édition complexe d'un préréglage avec le vrai panneau du métronome (progressif, entraînement, rythme…) :
     // le panneau s'ouvre avec le préréglage, un bandeau propose Enregistrer / Annuler, et les réglages
@@ -5472,33 +5482,49 @@
         var row = document.createElement("div");
         row.className = "metro-preset-row";
         var lab = document.createElement("span");
-        lab.className = "metro-preset-label";
-        lab.textContent = "Tempo cible";
+        lab.className = "metro-preset-icon";
+        lab.innerHTML = METRONOME_ICON_SVG;
+        lab.title = "Tempo cible et réglage du métronome";
         row.appendChild(lab);
         row.appendChild(tempoInput(act, "metro-preset-bpm"));
-        var unit = document.createElement("span");
-        unit.className = "metro-preset-unit";
-        unit.textContent = "BPM";
-        row.appendChild(unit);
         if (act.eff) {
-            var extras = metroPresetExtras(act.eff);
-            var sum = document.createElement("span");
-            sum.className = "metro-preset-summary";
-            sum.textContent = extras + (!act.cur && cfg.inherited && act.eff ? " (de l'exercice)" : "");
-            row.appendChild(sum);
+            var fig = act.eff.rhythmLabel && act.eff.rhythmLabel !== "None" ? act.eff.rhythmLabel : "";
+            if (fig) {
+                var figEl = document.createElement("span");
+                figEl.className = "metro-preset-figure";
+                figEl.textContent = fig;
+                row.appendChild(figEl);
+            }
+            var tags = [];
+            if (act.eff.progressive && act.eff.progressive.enabled) tags.push("progressif");
+            if (act.eff.training && act.eff.training.enabled) tags.push("entraînement");
+            if (act.eff.advanced) tags.push("détaillé");
+            tags.forEach(function (t) {
+                var tg = document.createElement("span");
+                tg.className = "metro-preset-tag";
+                tg.textContent = t;
+                row.appendChild(tg);
+            });
+            if (!act.cur && cfg.inherited) {
+                var inhEl = document.createElement("span");
+                inhEl.className = "metro-preset-summary";
+                inhEl.textContent = "(de l'exercice)";
+                row.appendChild(inhEl);
+            }
         }
-        function btn(text, title, fn) {
+        function btn(html, title, fn, cls) {
             var b = document.createElement("button");
             b.type = "button";
-            b.className = "metro-preset-btn";
-            b.textContent = text;
+            b.className = "metro-preset-btn" + (cls ? " " + cls : "");
+            b.innerHTML = html;
             b.title = title;
+            b.setAttribute("aria-label", title);
             b.addEventListener("click", fn);
             row.appendChild(b);
         }
-        btn("Options…", "Préconfigurer un métronome complet : progressif, entraînement, rythme…", act.options);
-        if (act.eff) btn("▶", "Charger ce réglage dans le métronome et le lancer", act.play);
-        if (act.cur) btn("✕", "Retirer ce réglage", act.remove);
+        btn(GEAR_ICON_SVG, "Options : préconfigurer un métronome complet (progressif, entraînement, rythme…)", act.options, "metro-preset-btn-icon");
+        if (act.eff) btn("▶", "Charger ce réglage dans le métronome et le lancer", act.play, "metro-preset-btn-icon");
+        if (act.cur) btn("✕", "Retirer ce réglage", act.remove, "metro-preset-btn-icon");
         return row;
     }
 
@@ -5509,8 +5535,14 @@
         if (!act.eff && !showEmpty) return null;
         var chip = document.createElement("button");
         chip.type = "button";
-        chip.className = "tempo-chip" + (act.eff ? "" : " tempo-chip-empty");
-        chip.textContent = act.eff ? "♩ " + act.eff.bpm : "♩ +";
+        chip.className = "tempo-chip" + (act.eff ? (metroPresetIsSpecial(act.eff) ? " tempo-chip-special" : "") : " tempo-chip-empty");
+        var note = document.createElement("span");
+        note.className = "tempo-chip-note";
+        note.textContent = "♩";
+        var num = document.createElement("span");
+        num.textContent = act.eff ? String(act.eff.bpm) : "+";
+        chip.appendChild(note);
+        chip.appendChild(num);
         chip.title = act.eff ? "Tempo cible : " + metroPresetSummary(act.eff) + " — cliquer pour modifier" : "Définir un tempo cible";
         chip.addEventListener("click", function (e) {
             e.stopPropagation();
@@ -5539,18 +5571,18 @@
         if (act.eff) {
             var sum = document.createElement("div");
             sum.className = "metro-preset-summary";
-            sum.textContent = metroPresetExtras(act.eff) || "réglage simple";
-            pop.appendChild(sum);
+            sum.textContent = metroPresetExtras(act.eff);
+            if (sum.textContent) pop.appendChild(sum);
         }
         var btns = document.createElement("div");
         btns.className = "tempo-pop-row";
         function pb(text, title, fn) {
             var b = document.createElement("button");
-            b.type = "button"; b.className = "metro-preset-btn"; b.textContent = text; b.title = title;
+            b.type = "button"; b.className = "metro-preset-btn" + (text.charAt(0) === "<" ? " metro-preset-btn-icon" : ""); b.innerHTML = text; b.title = title; b.setAttribute("aria-label", title);
             b.addEventListener("click", function () { close(); fn(); });
             btns.appendChild(b);
         }
-        pb("Options…", "Progressif, entraînement, rythme…", act.options);
+        pb(GEAR_ICON_SVG, "Options : progressif, entraînement, rythme…", act.options);
         if (act.eff) pb("▶", "Charger et lancer", act.play);
         if (act.cur) pb("Retirer", "Retirer ce tempo", act.remove);
         pop.appendChild(btns);
@@ -7704,6 +7736,8 @@
         var gsOpen = gsScreen === "edit" || gsScreen === "pick" ? gsEditingSession : gsScreen === "links" ? gsLinksSession : null;
         if (gsOpen && gsOpen.instrumentId !== state.activeInstrumentId) { gsEditingSession = null; gsScreen = "list"; }
         if (gsScreen !== "links") gsFileBlobCache = {};
+        // Préparation des sessions (liste, édition, choix, liens) : colonne plus large pour des titres lisibles.
+        if (gsScreen !== "run") content.classList.add("gs-main-roomy");
         if (gsScreen === "run" && gsRunSession) renderGsRunScreen(content);
         else if (gsScreen === "links" && gsLinksSession) renderGsLinksScreen(content);
         else if (gsScreen === "pick" && gsEditingSession) renderGsPickScreen(content);
@@ -8028,6 +8062,16 @@
                 minLabel.textContent = "min";
                 row.appendChild(minLabel);
                 var detailsOpen = !!gsOpenStepDetails[step.id];
+                // Un clic sur la barre de l'exercice (hors champs et boutons) déplie ou replie ses détails,
+                // comme dans la liste des exercices.
+                row.title = "Cliquer pour voir ou modifier les détails (note, liens, tempo)";
+                row.style.cursor = "pointer";
+                row.addEventListener("click", function (e) {
+                    if (e.target.closest("button, input, textarea, select, label, .gs-step-details, .gs-step-handle")) return;
+                    if (suppressNextClick) { suppressNextClick = false; return; }
+                    gsOpenStepDetails[step.id] = !gsOpenStepDetails[step.id];
+                    renderSteps();
+                });
                 var detailsBtn = iconButton(step.note && step.note.trim() ? "✎▾" : "▾", "Note et liens affichés pendant la session", function () {
                     gsOpenStepDetails[step.id] = !gsOpenStepDetails[step.id];
                     renderSteps();

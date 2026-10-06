@@ -1987,3 +1987,21 @@ button.tempo-chip-empty { color: var(--text-muted); border-style: dashed; backgr
 .notes-archive-text::before { content: ": "; color: var(--text-muted); }
 button.notes-archive-rm { width: 22px; height: 22px; padding: 0; font-size: 10px; background: transparent; border-color: transparent; color: var(--text-muted); flex: none; }
 button.notes-archive-rm:hover { color: #ff6b6b; }
+
+/* Tempo cible : icône, figure rythmique, pastille */
+.metro-preset-icon { display: inline-flex; color: var(--accent); }
+.metro-preset-icon .icon { width: 20px; height: 20px; }
+.metro-preset-figure { font-size: var(--fs-xs); font-weight: 700; color: var(--text-main); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 2px 8px; }
+.metro-preset-tag { font-size: var(--fs-2xs); font-weight: 700; color: #ffa94d; border: 1px solid color-mix(in srgb, #ffa94d 45%, var(--border)); border-radius: var(--radius-sm); padding: 2px 6px; }
+button.metro-preset-btn-icon { width: 32px; height: 30px; padding: 0; }
+button.metro-preset-btn-icon .icon { width: 16px; height: 16px; }
+.tempo-chip { gap: 6px; }
+.tempo-chip-note { margin-right: 2px; }
+button.tempo-chip-special { color: #ffa94d; border-color: color-mix(in srgb, #ffa94d 55%, var(--border)); background: color-mix(in srgb, #ffa94d 12%, transparent); }
+
+/* Préparation des sessions : on profite de la largeur disponible (le métronome épinglé reste à droite,
+   la zone principale en flex s'adapte) ; les titres d'exercice passent à la ligne au lieu d'être coupés. */
+.gs-main.gs-main-roomy { max-width: 1000px; }
+html.sidebar-hidden .gs-main.gs-main-roomy { max-width: 1200px; }
+.gs-main-roomy .gs-step-label { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; line-height: 1.25; }
+.gs-step-row .gs-step-details { cursor: default; }
