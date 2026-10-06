@@ -1356,8 +1356,8 @@ button.scales-more-btn { min-width: 44px; padding: 0 10px; font-size: var(--fs-m
 .fretboard-nut { fill: #d8d8d8; }
 .fretboard-fret { stroke: #777; stroke-width: 1; }
 .fretboard-string { stroke: #777; stroke-width: 1; }
-.fretboard-inlay { fill: #f2f2f2; opacity: .9; }
-.fretboard-fret-label { font-size: 10px; fill: var(--text-muted); text-anchor: middle; }
+.fretboard-inlay { fill: #f2f2f2; opacity: .95; }
+.fretboard-fret-label { font-size: 11px; font-weight: 600; fill: #cfd8dc; text-anchor: middle; }
 .fretboard-note { fill: #0f3d57; stroke: #4fc3f7; stroke-width: 1.5; }
 .fretboard-note-root { stroke: #b9ffd9; stroke-width: 1.5; fill: #00e676; }
 .fretboard-note-label { font-size: 10px; font-weight: 700; text-anchor: middle; fill: #e6f6ff; pointer-events: none; }
@@ -2018,3 +2018,5 @@ html.sidebar-hidden .gs-main.gs-main-roomy { max-width: 1200px; }
 .top-actions .icon, .top-bar .icon-btn .icon { width: 21px; height: 21px; }
 .top-bar .btn-google .icon { width: 16px; height: 16px; }
 .top-bar .instrument-select-wrap { gap: 6px; }
+
+.scales-seg-label { align-self: center; padding: 0 8px; font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }

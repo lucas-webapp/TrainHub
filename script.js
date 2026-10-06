@@ -6645,8 +6645,8 @@
     ];
 
     var FRETBOARD_TUNINGS = [
-        { key: "bass4", label: "Basse (4 cordes)", midis: [28, 33, 38, 43] },
-        { key: "bass5", label: "Basse (5 cordes)", midis: [23, 28, 33, 38, 43] },
+        { key: "bass4", label: "Basse", midis: [28, 33, 38, 43] },
+        { key: "bass5", label: "Basse 5 cordes", midis: [23, 28, 33, 38, 43] },
         { key: "guitar", label: "Guitare", midis: [40, 45, 50, 55, 59, 64] }
     ];
     var FRETBOARD_DISPLAY_FRETS = 24;
@@ -6657,17 +6657,21 @@
         return labelMode === "notes" ? NOTE_NAMES_SHARP[pc] : def.degrees[semiIdx];
     }
 
-    function buildFretboardSvg(tuning, def, rootPc, labelMode, fretCount) {
+    // sz : { s: échelle de base (taille de l'écran), w / h: réglages de largeur et de hauteur propres à
+    // l'instrument }. Largeur et hauteur ne changent que les ESPACEMENTS (cases et cordes) ; les pastilles
+    // gardent leur taille, elles ne sont jamais déformées.
+    function buildFretboardSvg(tuning, def, rootPc, labelMode, fretCount, sz) {
+        sz = sz || { s: 1, w: 1, h: 1 };
+        var S = sz.s;
         var FRETS = fretCount || FRETBOARD_DISPLAY_FRETS;
         var ns = "http://www.w3.org/2000/svg";
-        // Espacements volontairement plus généreux que des proportions "réalistes" de manche
-        // (stringGap > fretGap/2, au lieu d'un vrai manche plus large que haut) : le but est que les
-        // pastilles de notes ne se touchent jamais, pas de reproduire un vrai manche à l'échelle.
-        var stringGap = 26, fretGap = 38, marginLeft = 24, marginTop = 14, labelRowH = 26;
+        var noteR = 9 * S, openR = 7.6 * S;
+        var stringGap = 26 * S * sz.h, fretGap = 38 * S * sz.w, marginLeft = 24 * S, marginTop = 14 * S, labelRowH = 26 * S;
+        stringGap = Math.max(stringGap, 2 * noteR + 3);
         var n = tuning.midis.length;
         var stringsSpan = stringGap * (n - 1);
-        var width = marginLeft + fretGap * FRETS + 8;
-        var height = marginTop + stringsSpan + labelRowH + 4;
+        var width = Math.round(marginLeft + fretGap * FRETS + 8 * S);
+        var height = Math.round(marginTop + stringsSpan + labelRowH + 4 * S);
         var svg = document.createElementNS(ns, "svg");
         svg.setAttribute("viewBox", "0 0 " + width + " " + height);
         svg.setAttribute("width", width);
@@ -6691,24 +6695,33 @@
             svg.appendChild(el("line", { x1: marginLeft, y1: y, x2: marginLeft + fretGap * FRETS, y2: y, class: "fretboard-string" }));
         }
         var midY = marginTop + stringsSpan / 2;
-        var labelY = marginTop + stringsSpan + 23; // sous les pastilles de la dernière corde, pas cachées par elles
-        // Repères des vrais manches : un point blanc aux cases 3, 5, 7, 9 (15, 17, 19, 21), deux points à
-        // la 12 (et à la 24), dessinés sous les notes. Avec un nombre impair de cordes, le centre tombe
-        // sur une corde : les doubles points sont alors écartés d'une corde et demie pour rester
-        // entre deux cordes.
-        var doubleOffset = (n % 2 === 0) ? stringGap : stringGap * 1.5;
+        var labelY = marginTop + stringsSpan + 23 * S; // sous les pastilles de la dernière corde, pas cachées par elles
+        // Repères des vrais manches : un point aux cases 3, 5, 7, 9 (15, 17, 19, 21), deux à la 12 (et 24),
+        // dessinés sous les notes, ENTRE deux cordes (jamais sous une pastille) : le rayon est borné par la
+        // place qui reste entre le milieu de l'espace et la pastille voisine, pour ne jamais être tronqué.
+        // Nombre impair de cordes : le centre tombe sur une corde, les repères sont alors décalés d'un demi-espace.
+        var odd = n % 2 === 1;
+        var singleY = odd ? midY + stringGap / 2 : midY;
+        var doubleOffset = odd ? stringGap * 1.5 : stringGap;
+        var inlayR = Math.max(1.6, Math.min(3.6 * S, stringGap / 2 - noteR - 0.8));
+        function fretLabel(mx, fret) {
+            var t = el("text", { x: mx, y: labelY, class: "fretboard-fret-label" });
+            t.style.fontSize = (11 * S) + "px";
+            t.textContent = fret;
+            svg.appendChild(t);
+        }
         FRETBOARD_SINGLE_MARKERS.forEach(function (fret) {
             if (fret > FRETS) return;
             var mx = marginLeft + (fret - 0.5) * fretGap;
-            svg.appendChild(el("circle", { cx: mx, cy: midY, r: 6, class: "fretboard-inlay" }));
-            svg.appendChild(el("text", { x: mx, y: labelY, class: "fretboard-fret-label" })).textContent = fret;
+            svg.appendChild(el("circle", { cx: mx, cy: singleY, r: inlayR, class: "fretboard-inlay" }));
+            fretLabel(mx, fret);
         });
         FRETBOARD_DOUBLE_MARKERS.forEach(function (fret) {
             if (fret > FRETS) return;
             var mx = marginLeft + (fret - 0.5) * fretGap;
-            svg.appendChild(el("circle", { cx: mx, cy: midY - doubleOffset, r: 6, class: "fretboard-inlay" }));
-            svg.appendChild(el("circle", { cx: mx, cy: midY + doubleOffset, r: 6, class: "fretboard-inlay" }));
-            svg.appendChild(el("text", { x: mx, y: labelY, class: "fretboard-fret-label" })).textContent = fret;
+            svg.appendChild(el("circle", { cx: mx, cy: midY - doubleOffset, r: inlayR, class: "fretboard-inlay" }));
+            svg.appendChild(el("circle", { cx: mx, cy: midY + doubleOffset, r: inlayR, class: "fretboard-inlay" }));
+            fretLabel(mx, fret);
         });
 
         for (var s2 = 0; s2 < n; s2++) {
@@ -6718,13 +6731,14 @@
                 var semiIdx = def.semis.indexOf(diff);
                 if (semiIdx === -1) continue;
                 var isRoot = diff === 0;
-                var nx = fret2 === 0 ? marginLeft - 11 : marginLeft + (fret2 - 0.5) * fretGap;
+                var nx = fret2 === 0 ? marginLeft - 11 * S : marginLeft + (fret2 - 0.5) * fretGap;
                 var ny = stringY(s2);
-                var r = fret2 === 0 ? 8 : 9.5; // un peu plus petits qu'avant (11) : on voit mieux le manche
+                var r = fret2 === 0 ? openR : noteR;
                 svg.appendChild(el("circle", { cx: nx, cy: ny, r: r, class: "fretboard-note" + (isRoot ? " fretboard-note-root" : "") }));
                 // Texte au centre exact du cercle : dy = 0,35 em (hauteur de ligne), plutôt qu'un
                 // décalage en px qui le laissait trop bas.
                 var t = el("text", { x: nx, y: ny, dy: "0.35em", class: "fretboard-note-label" });
+                t.style.fontSize = (9.5 * S) + "px";
                 t.textContent = scaleNoteLabel(def, semiIdx, pc, labelMode);
                 svg.appendChild(t);
             }
@@ -6799,8 +6813,8 @@
     // Un seul instrument affiché à la fois (menu déroulant) plutôt que 4 manches entassés : le piano
     // n'est qu'un choix de plus dans la même liste, à côté des accordages de cordes.
     var SCALES_INSTRUMENTS = [
-        { key: "bass4", label: "Basse (4 cordes)", short: "Basse 4", type: "fretboard", tuning: FRETBOARD_TUNINGS[0] },
-        { key: "bass5", label: "Basse (5 cordes)", short: "Basse 5", type: "fretboard", tuning: FRETBOARD_TUNINGS[1] },
+        { key: "bass4", label: "Basse", short: "Basse", type: "fretboard", tuning: FRETBOARD_TUNINGS[0] },
+        { key: "bass5", label: "Basse 5 cordes", short: "Basse 5 cordes", type: "fretboard", tuning: FRETBOARD_TUNINGS[1] },
         { key: "guitar", label: "Guitare", short: "Guitare", type: "fretboard", tuning: FRETBOARD_TUNINGS[2] },
         { key: "piano", label: "Piano", short: "Piano", type: "piano" }
     ];
@@ -6822,6 +6836,7 @@
     }
     var ROOT_MENU_NAMES = ["C", "C♯ / D♭", "D", "D♯ / E♭", "E", "F", "F♯ / G♭", "G", "G♯ / A♭", "A", "A♯ / B♭", "B"];
     var SCALES_PREFS_KEY = "trainhub.scalesPrefs.v1";
+    var SIZE_MIN = 0.7, SIZE_MAX = 1.6, SIZE_STEP = 0.1;
     function loadScalesPrefs() {
         var p = {};
         try { p = JSON.parse(localStorage.getItem(SCALES_PREFS_KEY)) || {}; } catch (e) {}
@@ -6833,7 +6848,17 @@
             instrument: SCALES_INSTRUMENTS.some(function (i) { return i.key === p.instrument; }) ? p.instrument : "bass4",
             labelMode: p.labelMode === "notes" ? "notes" : "degrees",
             frets: p.frets === 24 ? 24 : 12,
-            zoom: typeof p.zoom === "number" && p.zoom >= 0.6 && p.zoom <= 1.8 ? p.zoom : (isPhone ? 0.85 : 1.2)
+            zoom: isPhone ? 0.85 : 1.2, // échelle de base selon l'écran (plus de réglage global : voir sizes)
+            // Largeur / hauteur du diagramme, retenues pour chaque instrument : { bass4: { w: 1, h: 1 }, … }
+            sizes: (function (src) {
+                var out = {};
+                SCALES_INSTRUMENTS.forEach(function (i) {
+                    var v = src && src[i.key] || {};
+                    function ok(x) { return typeof x === "number" && x >= SIZE_MIN && x <= SIZE_MAX ? x : 1; }
+                    out[i.key] = { w: ok(v.w), h: ok(v.h) };
+                });
+                return out;
+            })(p.sizes)
         };
     }
     function saveScalesPrefs(p) {
@@ -6920,13 +6945,28 @@
             viewChips.appendChild(fretSeg);
             var frets12Btn = chip(fretSeg, "12 cases", "Manche jusqu'à la 12e case", function () { prefs.frets = 12; update(); });
             var frets24Btn = chip(fretSeg, "24 cases", "Manche complet", function () { prefs.frets = 24; update(); });
-            var zoomSeg = document.createElement("div");
-            zoomSeg.className = "scales-chips scales-segmented";
-            viewChips.appendChild(zoomSeg);
-            var zoomOut = chip(zoomSeg, "−", "Diagramme plus petit", function () { prefs.zoom = Math.max(0.6, Math.round((prefs.zoom - 0.15) * 100) / 100); update(); });
-            var zoomIn = chip(zoomSeg, "+", "Diagramme plus grand", function () { prefs.zoom = Math.min(1.8, Math.round((prefs.zoom + 0.15) * 100) / 100); update(); });
-            zoomOut.classList.add("scales-chip-icon");
-            zoomIn.classList.add("scales-chip-icon");
+            // Largeur et hauteur du diagramme : deux réglages « − / + », retenus pour chaque instrument.
+            function sizeSeg(labelText, key) {
+                var seg = document.createElement("div");
+                seg.className = "scales-chips scales-segmented";
+                var lab = document.createElement("span");
+                lab.className = "scales-seg-label";
+                lab.textContent = labelText;
+                seg.appendChild(lab);
+                function bump(d) {
+                    var cur = prefs.sizes[prefs.instrument];
+                    cur[key] = Math.min(SIZE_MAX, Math.max(SIZE_MIN, Math.round((cur[key] + d) * 100) / 100));
+                    update();
+                }
+                var minus = chip(seg, "−", labelText + " : réduire", function () { bump(-SIZE_STEP); });
+                var plus = chip(seg, "+", labelText + " : augmenter", function () { bump(SIZE_STEP); });
+                minus.classList.add("scales-chip-icon");
+                plus.classList.add("scales-chip-icon");
+                viewChips.appendChild(seg);
+                return { minus: minus, plus: plus };
+            }
+            var widthCtl = sizeSeg("Largeur", "w");
+            var heightCtl = sizeSeg("Hauteur", "h");
 
             var summary = document.createElement("div");
             summary.className = "scales-summary";
@@ -6977,8 +7017,11 @@
                 fretSeg.hidden = inst.type === "piano";
                 frets12Btn.classList.toggle("scales-chip-active", prefs.frets === 12);
                 frets24Btn.classList.toggle("scales-chip-active", prefs.frets === 24);
-                zoomOut.disabled = prefs.zoom <= 0.6;
-                zoomIn.disabled = prefs.zoom >= 1.8;
+                var curSize = prefs.sizes[prefs.instrument];
+                widthCtl.minus.disabled = curSize.w <= SIZE_MIN + 1e-9;
+                widthCtl.plus.disabled = curSize.w >= SIZE_MAX - 1e-9;
+                heightCtl.minus.disabled = curSize.h <= SIZE_MIN + 1e-9;
+                heightCtl.plus.disabled = curSize.h >= SIZE_MAX - 1e-9;
 
                 // Récapitulatif lisible : nom complet + notes de la gamme, utile en soi.
                 var def = SCALE_DEFS.filter(function (d) { return d.key === prefs.type; })[0];
@@ -6992,11 +7035,17 @@
                 diagramsWrap.innerHTML = "";
                 var scroll = document.createElement("div");
                 scroll.className = "fretboard-scroll";
-                var svg = inst.type === "piano" ? buildPianoScaleSvg(def, prefs.root, prefs.labelMode) : buildFretboardSvg(inst.tuning, def, prefs.root, prefs.labelMode, prefs.frets);
-                // Taille fixe (en px) × zoom plutôt qu'étirée sur toute la hauteur dispo : les notes
-                // gardent une taille lisible et constante, quelle que soit la taille de l'écran.
-                svg.setAttribute("width", Math.round(parseFloat(svg.getAttribute("width")) * prefs.zoom));
-                svg.setAttribute("height", Math.round(parseFloat(svg.getAttribute("height")) * prefs.zoom));
+                var svg;
+                if (inst.type === "piano") {
+                    // Clavier : largeur et hauteur étirent le dessin (les touches s'adaptent sans souci).
+                    svg = buildPianoScaleSvg(def, prefs.root, prefs.labelMode);
+                    svg.setAttribute("preserveAspectRatio", "none");
+                    svg.setAttribute("width", Math.round(parseFloat(svg.getAttribute("width")) * prefs.zoom * curSize.w));
+                    svg.setAttribute("height", Math.round(parseFloat(svg.getAttribute("height")) * prefs.zoom * curSize.h));
+                } else {
+                    // Manche : taille réelle en px ; seuls les espacements suivent la largeur et la hauteur.
+                    svg = buildFretboardSvg(inst.tuning, def, prefs.root, prefs.labelMode, prefs.frets, { s: prefs.zoom, w: curSize.w, h: curSize.h });
+                }
                 scroll.appendChild(svg);
                 diagramsWrap.appendChild(scroll);
             }
