@@ -2003,5 +2003,18 @@ button.tempo-chip-special { color: #ffa94d; border-color: color-mix(in srgb, #ff
    la zone principale en flex s'adapte) ; les titres d'exercice passent à la ligne au lieu d'être coupés. */
 .gs-main.gs-main-roomy { max-width: 1000px; }
 html.sidebar-hidden .gs-main.gs-main-roomy { max-width: 1200px; }
-.gs-main-roomy .gs-step-label { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; line-height: 1.25; }
 .gs-step-row .gs-step-details { cursor: default; }
+
+/* Barre du haut : tous les contrôles à la même hauteur (40px), pour un alignement net. */
+.top-bar { --bar-h: 40px; }
+.top-bar button, .top-bar select, .top-bar .account-info { box-sizing: border-box; height: var(--bar-h); }
+.top-bar .icon-btn { width: var(--bar-h); padding: 0; }
+.top-bar button.session-btn-highlight { width: auto; padding: 0 14px; }
+.top-bar .btn-google { padding: 0 12px; }
+.top-bar #instrument-select { padding: 0 10px; }
+.top-bar .account-info { padding: 0 4px 0 12px; }
+.top-bar .account-info button { height: 30px; width: 30px; }
+.top-actions .metronome-btn-highlight .icon { width: 22px; height: 22px; }
+.top-actions .icon, .top-bar .icon-btn .icon { width: 21px; height: 21px; }
+.top-bar .btn-google .icon { width: 16px; height: 16px; }
+.top-bar .instrument-select-wrap { gap: 6px; }
