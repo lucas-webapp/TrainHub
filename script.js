@@ -1990,6 +1990,28 @@
     // ---------- largeur réglable du bandeau gauche (ordinateur) ----------
     // Réglage propre à chaque appareil (taille d'écran différente) : gardé en localStorage, pas
     // synchronisé. La zone principale s'adapte d'elle-même (flex: 1).
+    // Bandeau des dossiers masquable (ordinateur) : plus de place pour la session, le métronome, les vidéos
+    // et les images. Choix retenu sur cet appareil.
+    var SIDEBAR_HIDDEN_KEY = "trainhub.sidebarHidden.v1";
+    (function initSidebarToggle() {
+        var btn = document.getElementById("sidebar-toggle-btn");
+        function isHidden() { try { return localStorage.getItem(SIDEBAR_HIDDEN_KEY) === "1"; } catch (e) { return false; } }
+        function apply(hidden) {
+            document.documentElement.classList.toggle("sidebar-hidden", hidden);
+            if (btn) btn.setAttribute("aria-pressed", hidden ? "true" : "false");
+            try { localStorage.setItem(SIDEBAR_HIDDEN_KEY, hidden ? "1" : "0"); } catch (e) {}
+        }
+        apply(isHidden());
+        if (btn) btn.addEventListener("click", function () { apply(!document.documentElement.classList.contains("sidebar-hidden")); });
+        document.addEventListener("keydown", function (e) {
+            if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "b") return;
+            var t = e.target, tag = t && t.tagName ? t.tagName.toLowerCase() : "";
+            if (tag === "input" || tag === "textarea" || tag === "select" || (t && t.isContentEditable)) return;
+            e.preventDefault();
+            apply(!document.documentElement.classList.contains("sidebar-hidden"));
+        });
+    })();
+
     var SIDEBAR_WIDTH_KEY = "trainhub.sidebarWidth";
     var SIDEBAR_DEFAULT = 280, SIDEBAR_MIN = 200, SIDEBAR_MAX = 560;
     var $sidebarResizer = document.getElementById("sidebar-resizer");
