@@ -110,6 +110,10 @@
             if (!Array.isArray(ex.images)) ex.images = [];
             // Métronome prédéfini de l'exercice (réglage complet, voir snapshotMetronome) ou absent.
             if (!ex.metronome || typeof ex.metronome !== "object") ex.metronome = null;
+            // Archives de notes datées : [{ d: "AAAA-MM-JJ", t: "ligne" }] ; noteDates : date de chaque ligne de ex.notes.
+            if (!Array.isArray(ex.notesArchive)) ex.notesArchive = [];
+            ex.notesArchive = ex.notesArchive.filter(function (e) { return e && typeof e.t === "string"; });
+            if (!Array.isArray(ex.noteDates)) ex.noteDates = [];
             // Remplace les statuts (à faire/en cours/terminé/à revoir), jugés trop compliqués au
             // quotidien : juste deux cases à cocher, accessibles par clic droit/appui long.
             if (typeof ex.favorite !== "boolean") ex.favorite = false;
@@ -981,6 +985,51 @@
         return LINK_ICONS.link;
     }
 
+    // ---------- notes : lignes datées et archives ----------
+    // Les notes d'un exercice restent courtes : seules les NOTES_KEEP_LINES dernières lignes restent visibles,
+    // les plus anciennes passent dans les archives, avec la date de leur écriture. On ne coupe jamais une ligne :
+    // l'archivage se fait quand on quitte la zone de notes, sur des lignes entières (séparées par un retour à la ligne).
+    var NOTES_KEEP_LINES = 6;
+    function todayIso() {
+        var d = new Date();
+        return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2);
+    }
+    function formatNoteDate(iso) {
+        var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+        return m ? m[3] + "/" + m[2] + "/" + m[1].slice(2) : "";
+    }
+    // Garde, pour chaque ligne de ex.notes, la date où elle a été écrite (ou modifiée pour la dernière fois).
+    function updateNoteDates(ex, newText) {
+        var oldLines = (ex.notes || "").split("\n"), oldDates = ex.noteDates || [];
+        var fallback = ex.updatedAt ? (function (t) { var d = new Date(t); return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2); })(ex.updatedAt) : todayIso();
+        var newLines = newText.split("\n"), used = {}, dates = new Array(newLines.length);
+        newLines.forEach(function (l, i) { if (oldLines[i] === l) { dates[i] = oldDates[i] || fallback; used[i] = true; } });
+        newLines.forEach(function (l, i) {
+            if (dates[i]) return;
+            if (!l.trim()) { dates[i] = todayIso(); return; }
+            for (var j = 0; j < oldLines.length; j++) if (!used[j] && oldLines[j] === l) { used[j] = true; dates[i] = oldDates[j] || fallback; return; }
+            dates[i] = todayIso();
+        });
+        ex.noteDates = dates;
+    }
+    // Déplace les lignes en trop (les plus anciennes) vers les archives. Renvoie true si quelque chose a bougé.
+    function archiveOverflowNotes(ex) {
+        var lines = (ex.notes || "").split("\n");
+        var idx = [];
+        lines.forEach(function (l, i) { if (l.trim()) idx.push(i); });
+        if (idx.length <= NOTES_KEEP_LINES) return false;
+        var keepFrom = idx[idx.length - NOTES_KEEP_LINES];
+        var dates = ex.noteDates || [];
+        var fallback = todayIso();
+        ex.notesArchive = ex.notesArchive || [];
+        for (var i = 0; i < keepFrom; i++) {
+            if (lines[i].trim()) ex.notesArchive.push({ d: dates[i] || fallback, t: lines[i].trim() });
+        }
+        ex.notes = lines.slice(keepFrom).join("\n");
+        ex.noteDates = dates.slice(keepFrom);
+        return true;
+    }
+
     function touchExercise(ex) {
         ex.updatedAt = Date.now();
     }
@@ -1171,6 +1220,7 @@
             files: cloneFilesForDuplicate(ex.files),
             images: cloneFilesForDuplicate(ex.images),
             metronome: ex.metronome ? JSON.parse(JSON.stringify(ex.metronome)) : null,
+            notesArchive: (ex.notesArchive || []).map(function (e) { return { d: e.d, t: e.t }; }),
             pinnedLinkId: null,
             collapsed: true,
             updatedAt: Date.now()
@@ -3011,6 +3061,12 @@
         row.appendChild(spacer);
 
         appendExerciseLinkButtons(row, ex);
+        var tempoChip = buildTempoChip({
+            title: ex.title,
+            get: function () { return ex.metronome; },
+            set: function (p) { setExerciseMetronome(ex, p); }
+        }, false);
+        if (tempoChip) row.appendChild(tempoChip);
 
         if (ex.archived) {
             var archBadge = document.createElement("span");
@@ -3235,18 +3291,73 @@
         notes.placeholder = "Remarques, points à retravailler…";
         notes.addEventListener("input", function () { autoGrowNotes(notes); });
         bindAutosaveTextarea(notes, function (value) {
+            updateNoteDates(ex, value);
             ex.notes = value;
             touchExercise(ex);
         }, notesStatus, {
             onLeave: function () {
+                if (archiveOverflowNotes(ex)) {
+                    save();
+                    notes.value = ex.notes;
+                    autoGrowNotes(notes);
+                    refreshArchive();
+                    showToast("Anciennes notes déplacées dans les archives.", 3000);
+                }
                 var text = ex.notes || "";
                 askApplyToSameNamed(ex, text.trim() ? "Remplacer leur note par celle-ci ?" : "Effacer aussi leur note ?",
                     function (o) { return (o.notes || "") !== text; },
                     function (o) { o.notes = text; });
             }
         });
+        // Archives datées (repliées de base) : bouton à côté du titre « Notes ».
+        var archiveBtn = document.createElement("button");
+        archiveBtn.type = "button";
+        archiveBtn.className = "notes-archive-btn";
+        notesLabel.appendChild(archiveBtn);
+        var archiveBox = document.createElement("div");
+        archiveBox.className = "notes-archive";
+        archiveBox.hidden = true;
+        function refreshArchive() {
+            var list = ex.notesArchive || [];
+            archiveBtn.textContent = "Archives" + (list.length ? " (" + list.length + ")" : "");
+            archiveBtn.setAttribute("aria-expanded", archiveBox.hidden ? "false" : "true");
+            archiveBox.innerHTML = "";
+            if (!list.length) {
+                var none = document.createElement("div");
+                none.className = "gs-empty";
+                none.textContent = "Rien d'archivé : au-delà de " + NOTES_KEEP_LINES + " lignes, les plus anciennes arrivent ici, datées.";
+                archiveBox.appendChild(none);
+                return;
+            }
+            list.forEach(function (entry, i) {
+                var line = document.createElement("div");
+                line.className = "notes-archive-line";
+                var d = document.createElement("span");
+                d.className = "notes-archive-date";
+                d.textContent = formatNoteDate(entry.d);
+                var t = document.createElement("span");
+                t.className = "notes-archive-text";
+                t.textContent = entry.t;
+                var rm = document.createElement("button");
+                rm.type = "button";
+                rm.className = "notes-archive-rm";
+                rm.textContent = "✕";
+                rm.title = "Supprimer cette ligne des archives";
+                rm.addEventListener("click", function () {
+                    ex.notesArchive.splice(i, 1);
+                    touchExercise(ex);
+                    save();
+                    refreshArchive();
+                });
+                line.appendChild(d); line.appendChild(t); line.appendChild(rm);
+                archiveBox.appendChild(line);
+            });
+        }
+        archiveBtn.addEventListener("click", function () { archiveBox.hidden = !archiveBox.hidden; refreshArchive(); });
+        refreshArchive();
         details.appendChild(notesLabel);
         details.appendChild(notes);
+        details.appendChild(archiveBox);
 
         // Liens et fichiers regroupés sous un seul intitulé : un titre plus court, une seule liste
         // de puces mélangées, une seule ligne d'ajout — moins de texte à l'écran.
@@ -5285,36 +5396,96 @@
         if ((wasPlaying || opts.play) && metroPanelApi && !metroPlaying) metroPanelApi.toggle();
     }
 
-    // Ligne « Métronome » d'un exercice ou d'un pas de session.
-    // cfg : get() -> préréglage propre ; inherited() -> préréglage hérité (facultatif) ; set(preset|null).
-    function buildMetronomePresetRow(cfg) {
-        var row = document.createElement("div");
-        row.className = "metro-preset-row";
+    // Préréglage « vierge » : seulement un tempo, tout le reste par défaut (4/4 simple, sans progressif ni entraînement).
+    function blankMetroPreset(bpm) {
+        var tmp = { metronome: { bpm: bpm } };
+        normalizeMetronomeSettings(tmp);
+        var o = {};
+        METRO_PRESET_KEYS.forEach(function (k) { o[k] = tmp.metronome[k] === undefined ? null : cloneJson(tmp.metronome[k]); });
+        return o;
+    }
+    function metroPresetExtras(p) { // résumé sans le tempo : mesure + options
+        return metroPresetSummary(p).split(" · ").slice(1).join(" · ");
+    }
+
+    // Édition complexe d'un préréglage avec le vrai panneau du métronome (progressif, entraînement, rythme…) :
+    // le panneau s'ouvre avec le préréglage, un bandeau propose Enregistrer / Annuler, et les réglages
+    // habituels du métronome sont rétablis ensuite (l'édition ne dérange pas ton métronome courant).
+    var metroEdit = null; // { title, onSave, prev }
+    function startMetronomePresetEdit(opts) {
+        if (metroEdit) finishMetronomePresetEdit(false);
+        var prev = snapshotMetronome();
+        if (closeDockedMetronome) closeDockedMetronome();
+        else if (closeActiveModal && activeModalKind === "metronome-panel") closeActiveModal();
+        metroEdit = { title: opts.title, onSave: opts.onSave, prev: prev };
+        applyMetronomePresetToSettings(opts.preset);
+        openMetronomePanel();
+    }
+    function finishMetronomePresetEdit(save) {
+        var e = metroEdit;
+        if (!e) return;
+        metroEdit = null; // d'abord : la fermeture du panneau ne doit pas relancer l'annulation
+        var preset = save ? snapshotMetronome() : null;
+        if (closeDockedMetronome) closeDockedMetronome();
+        else if (closeActiveModal && activeModalKind === "metronome-panel") closeActiveModal();
+        applyMetronomePresetToSettings(e.prev);
+        if (save) e.onSave(preset);
+    }
+
+    // Actions communes à la ligne de la fiche et à la pastille de tempo.
+    // cfg : get() préréglage propre ; inherited() préréglage hérité (facultatif) ; set(preset|null) ; title.
+    function tempoPresetActions(cfg) {
         var cur = cfg.get();
         var inh = cfg.inherited ? cfg.inherited() : null;
-        var eff = cur || inh;
+        var base = cur || inh;
+        return {
+            cur: cur, eff: base,
+            setBpm: function (n) {
+                if (!n) { if (cur) cfg.set(null); return; }
+                var p = base ? cloneJson(base) : blankMetroPreset(n);
+                p.bpm = Math.min(300, Math.max(30, n));
+                cfg.set(p);
+            },
+            options: function () {
+                startMetronomePresetEdit({ title: cfg.title || "cet exercice", preset: base ? cloneJson(base) : blankMetroPreset(state.settings.metronome.bpm), onSave: function (p) { cfg.set(p); } });
+            },
+            play: function () { if (base) loadMetronomePreset(base, { open: true, play: true }); },
+            remove: function () { if (cur) cfg.set(null); }
+        };
+    }
+    function tempoInput(act, className) {
+        var inp = document.createElement("input");
+        inp.type = "number";
+        inp.min = "30"; inp.max = "300";
+        inp.className = className;
+        inp.placeholder = "—";
+        inp.value = act.eff ? act.eff.bpm : "";
+        inp.title = "Tempo cible : glisser vers le haut/bas, molette ou saisie";
+        bindScrubInput(inp, 30, 300, { pxPerStep: 5, wheel: true, emptyStart: 100 });
+        inp.addEventListener("change", function () { act.setBpm(parseInt(inp.value, 10) || 0); });
+        return inp;
+    }
+
+    // Ligne « Tempo cible » d'un exercice ou d'un pas de session.
+    function buildMetronomePresetRow(cfg) {
+        var act = tempoPresetActions(cfg);
+        var row = document.createElement("div");
+        row.className = "metro-preset-row";
         var lab = document.createElement("span");
         lab.className = "metro-preset-label";
-        lab.textContent = "Métronome";
+        lab.textContent = "Tempo cible";
         row.appendChild(lab);
-        var sum = document.createElement("span");
-        sum.className = "metro-preset-summary";
-        sum.textContent = eff ? metroPresetSummary(eff) + (!cur && inh ? " (de l'exercice)" : "") : "aucun réglage enregistré";
-        row.appendChild(sum);
-        if (cur) {
-            var bpmIn = document.createElement("input");
-            bpmIn.type = "number";
-            bpmIn.min = "30"; bpmIn.max = "300";
-            bpmIn.className = "metro-preset-bpm";
-            bpmIn.value = cur.bpm;
-            bpmIn.title = "Tempo de ce préréglage";
-            bindScrubInput(bpmIn, 30, 300, { pxPerStep: 5, wheel: true });
-            bpmIn.addEventListener("change", function () {
-                cur.bpm = Math.min(300, Math.max(30, parseInt(bpmIn.value, 10) || cur.bpm));
-                bpmIn.value = cur.bpm;
-                cfg.set(cur);
-            });
-            row.appendChild(bpmIn);
+        row.appendChild(tempoInput(act, "metro-preset-bpm"));
+        var unit = document.createElement("span");
+        unit.className = "metro-preset-unit";
+        unit.textContent = "BPM";
+        row.appendChild(unit);
+        if (act.eff) {
+            var extras = metroPresetExtras(act.eff);
+            var sum = document.createElement("span");
+            sum.className = "metro-preset-summary";
+            sum.textContent = extras + (!act.cur && cfg.inherited && act.eff ? " (de l'exercice)" : "");
+            row.appendChild(sum);
         }
         function btn(text, title, fn) {
             var b = document.createElement("button");
@@ -5324,12 +5495,86 @@
             b.title = title;
             b.addEventListener("click", fn);
             row.appendChild(b);
-            return b;
         }
-        btn("Enregistrer le réglage actuel", "Enregistrer les réglages actuels du métronome (tempo, mesure, progressif, entraînement…)", function () { cfg.set(snapshotMetronome()); });
-        if (eff) btn("▶", "Charger ce réglage dans le métronome et le lancer", function () { loadMetronomePreset(eff, { open: true, play: true }); });
-        if (cur) btn("✕", "Retirer ce réglage", function () { cfg.set(null); });
+        btn("Options…", "Préconfigurer un métronome complet : progressif, entraînement, rythme…", act.options);
+        if (act.eff) btn("▶", "Charger ce réglage dans le métronome et le lancer", act.play);
+        if (act.cur) btn("✕", "Retirer ce réglage", act.remove);
         return row;
+    }
+
+    // Pastille de tempo (barre de l'exercice, ligne d'un pas de session) : affiche le tempo cible ; un clic
+    // ouvre une petite fenêtre pour le modifier ou ouvrir les options complètes.
+    function buildTempoChip(cfg, showEmpty) {
+        var act = tempoPresetActions(cfg);
+        if (!act.eff && !showEmpty) return null;
+        var chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "tempo-chip" + (act.eff ? "" : " tempo-chip-empty");
+        chip.textContent = act.eff ? "♩ " + act.eff.bpm : "♩ +";
+        chip.title = act.eff ? "Tempo cible : " + metroPresetSummary(act.eff) + " — cliquer pour modifier" : "Définir un tempo cible";
+        chip.addEventListener("click", function (e) {
+            e.stopPropagation();
+            openTempoPopover(chip, cfg);
+        });
+        return chip;
+    }
+    function openTempoPopover(anchor, cfg) {
+        var existing = document.querySelector(".tempo-pop");
+        if (existing) { existing.remove(); }
+        var act = tempoPresetActions(cfg);
+        var pop = document.createElement("div");
+        pop.className = "tempo-pop";
+        var head = document.createElement("div");
+        head.className = "tempo-pop-row";
+        var lab = document.createElement("span");
+        lab.className = "metro-preset-label";
+        lab.textContent = "Tempo cible";
+        var applied = false;
+        var inp = tempoInput({ eff: act.eff, setBpm: function (n) { if (applied) return; applied = true; close(); act.setBpm(n); } }, "metro-preset-bpm");
+        var unit = document.createElement("span");
+        unit.className = "metro-preset-unit";
+        unit.textContent = "BPM";
+        head.appendChild(lab); head.appendChild(inp); head.appendChild(unit);
+        pop.appendChild(head);
+        if (act.eff) {
+            var sum = document.createElement("div");
+            sum.className = "metro-preset-summary";
+            sum.textContent = metroPresetExtras(act.eff) || "réglage simple";
+            pop.appendChild(sum);
+        }
+        var btns = document.createElement("div");
+        btns.className = "tempo-pop-row";
+        function pb(text, title, fn) {
+            var b = document.createElement("button");
+            b.type = "button"; b.className = "metro-preset-btn"; b.textContent = text; b.title = title;
+            b.addEventListener("click", function () { close(); fn(); });
+            btns.appendChild(b);
+        }
+        pb("Options…", "Progressif, entraînement, rythme…", act.options);
+        if (act.eff) pb("▶", "Charger et lancer", act.play);
+        if (act.cur) pb("Retirer", "Retirer ce tempo", act.remove);
+        pop.appendChild(btns);
+        document.body.appendChild(pop);
+        var r = anchor.getBoundingClientRect();
+        pop.style.top = Math.min(window.innerHeight - pop.offsetHeight - 8, r.bottom + 6) + "px";
+        pop.style.left = Math.max(8, Math.min(window.innerWidth - pop.offsetWidth - 8, r.left)) + "px";
+        function onDown(e) { if (!pop.contains(e.target)) close(); }
+        function onKey(e) { if (e.key === "Escape") close(); }
+        var closed = false;
+        function close() { if (closed) return; closed = true; document.removeEventListener("pointerdown", onDown, true); document.removeEventListener("keydown", onKey, true); pop.remove(); }
+        setTimeout(function () { document.addEventListener("pointerdown", onDown, true); }, 0);
+        document.addEventListener("keydown", onKey, true);
+        inp.focus();
+    }
+
+    // Réglage d'un pas de session : surcharge propre au pas ; propose de l'enregistrer aussi dans l'exercice s'il n'en a pas.
+    function gsSetStepMetronome(step, found, p) {
+        if (p) step.metronome = p; else delete step.metronome;
+        if (p && found && !found.ex.metronome && window.confirm("Enregistrer aussi ce métronome dans l'exercice « " + found.ex.title + " » (pour ses prochaines utilisations hors session) ?")) {
+            found.ex.metronome = cloneJson(p);
+            touchExercise(found.ex);
+        }
+        save();
     }
 
     // Mise à jour d'un préréglage d'exercice : propose de répercuter sur les sessions qui en avaient déjà un.
@@ -5362,6 +5607,20 @@
 
         var closeFn = openModal(extraClass, function (panel, close) {
             // -- en-tête : titre + volume (bien visible, en haut à droite) --
+            if (metroEdit) {
+                var editBar = document.createElement("div");
+                editBar.className = "metro-edit-bar";
+                var editTxt = document.createElement("span");
+                editTxt.textContent = "Réglage pour « " + metroEdit.title + " »";
+                var editSave = document.createElement("button");
+                editSave.type = "button"; editSave.className = "btn-accent"; editSave.textContent = "Enregistrer";
+                editSave.addEventListener("click", function () { finishMetronomePresetEdit(true); });
+                var editCancel = document.createElement("button");
+                editCancel.type = "button"; editCancel.textContent = "Annuler";
+                editCancel.addEventListener("click", function () { finishMetronomePresetEdit(false); });
+                editBar.appendChild(editTxt); editBar.appendChild(editSave); editBar.appendChild(editCancel);
+                panel.appendChild(editBar);
+            }
             var headerRow = document.createElement("div");
             headerRow.className = "metro-header-row";
             var title = document.createElement("div");
@@ -5435,11 +5694,7 @@
             bpmValue.className = "metro-dial-value";
             bpmValue.title = "Cliquer pour saisir le BPM au clavier";
             bpmValue.addEventListener("click", startEditBpm);
-            var bpmUnit = document.createElement("div");
-            bpmUnit.className = "metro-dial-unit";
-            bpmUnit.textContent = "BPM";
             dial.appendChild(bpmValue);
-            dial.appendChild(bpmUnit);
 
             var bpmUp = iconButton("+", "Accélérer", function () { setBpm(m.bpm + 1); });
             bpmUp.classList.add("metro-bpm-btn");
@@ -6143,6 +6398,8 @@
             // sans qu'on le voie.
             return function () {
                 stopMetronome();
+                // Fermé pendant l'édition d'un préréglage (sans Enregistrer) : annulation, réglages d'avant rétablis.
+                if (metroEdit) { var abandoned = metroEdit; metroEdit = null; applyMetronomePresetToSettings(abandoned.prev); }
                 if (chronoInterval) clearInterval(chronoInterval);
                 metroBeatCallback = null;
                 metroTempoCallback = null;
@@ -7744,14 +8001,14 @@
                 label.className = "gs-step-label" + (found ? "" : " gs-step-missing");
                 label.textContent = found ? found.ex.title : "(exercice supprimé)";
                 row.appendChild(label);
-                var effMetro = gsEffectiveMetronome(step, found && found.ex);
-                if (effMetro) {
-                    var metroBadge = document.createElement("span");
-                    metroBadge.className = "gs-step-metro-badge";
-                    metroBadge.textContent = "♩ " + effMetro.bpm;
-                    metroBadge.title = "Métronome prédéfini : " + metroPresetSummary(effMetro);
-                    row.appendChild(metroBadge);
-                }
+                var stepTempoCfg = {
+                    title: found ? found.ex.title : "ce pas",
+                    get: function () { return step.metronome || null; },
+                    inherited: function () { return found && found.ex.metronome ? found.ex.metronome : null; },
+                    set: function (p) { gsSetStepMetronome(step, found, p); renderSteps(); }
+                };
+                var stepChip = buildTempoChip(stepTempoCfg, true);
+                row.appendChild(stepChip);
                 var minutesInput = document.createElement("input");
                 minutesInput.type = "number";
                 minutesInput.min = "1";
@@ -7790,19 +8047,7 @@
                 if (detailsOpen) {
                     var details = document.createElement("div");
                     details.className = "gs-step-details";
-                    details.appendChild(buildMetronomePresetRow({
-                        get: function () { return step.metronome || null; },
-                        inherited: function () { return found && found.ex.metronome ? found.ex.metronome : null; },
-                        set: function (p) {
-                            if (p) step.metronome = p; else delete step.metronome;
-                            if (p && found && !found.ex.metronome && window.confirm("Enregistrer aussi ce métronome dans l'exercice « " + found.ex.title + " » (pour ses prochaines utilisations hors session) ?")) {
-                                found.ex.metronome = cloneJson(p);
-                                touchExercise(found.ex);
-                            }
-                            save();
-                            renderSteps();
-                        }
-                    }));
+                    details.appendChild(buildMetronomePresetRow(stepTempoCfg));
                     var noteLabel = document.createElement("div");
                     noteLabel.className = "section-label";
                     noteLabel.textContent = "Note pour cet exercice (affichée pendant la session)";

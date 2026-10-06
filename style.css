@@ -1948,3 +1948,42 @@ button.sidebar-toggle-btn[aria-pressed="true"] { color: var(--accent); }
 .reimport-right select { width: 100%; font-size: var(--fs-xs); }
 .reimport-actions { display: flex; justify-content: flex-end; gap: 8px; }
 button.settings-data-btn { height: 40px; align-self: flex-start; padding: 0 16px; }
+
+/* Tempo cible : pastille et fenêtre de réglage */
+.metro-preset-unit { font-size: var(--fs-2xs); color: var(--text-muted); }
+button.tempo-chip { height: 28px; padding: 0 9px; font-size: var(--fs-xs); font-weight: 700; color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); background: color-mix(in srgb, var(--accent) 10%, transparent); flex: none; font-variant-numeric: tabular-nums; }
+button.tempo-chip-empty { color: var(--text-muted); border-style: dashed; background: transparent; font-weight: 600; }
+.tempo-pop { position: fixed; z-index: 380; background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: 0 8px 28px rgba(0,0,0,.5); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 220px; }
+.tempo-pop-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.metro-edit-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; margin-bottom: 10px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--accent) 10%, transparent); font-size: var(--fs-xs); }
+.metro-edit-bar span { flex: 1; min-width: 0; font-weight: 700; color: var(--accent); }
+.metro-edit-bar button { height: 32px; padding: 0 12px; font-size: var(--fs-xs); }
+
+/* Cadran : le nombre seul, centré */
+.metro-dial-value { text-align: center; width: 100%; }
+
+/* Téléphone : formules rythmiques sur une seule ligne */
+@media (max-width: 480px) {
+    .metro-formulas-row { gap: 5px; flex-wrap: nowrap; }
+    button.metro-mini-btn.metro-formula-btn { padding: 0 8px; min-width: 0; font-size: var(--fs-xs); }
+    button.metro-mini-btn.metro-mini-btn-icon { width: 34px; }
+}
+
+/* Barre d'outils du haut : boutons un peu plus grands */
+.top-actions .icon-btn { padding: 9px; border-radius: 9px; }
+.top-actions .icon { width: 21px; height: 21px; }
+.top-actions .metronome-btn-highlight .icon { width: 24px; height: 24px; }
+.top-actions { gap: 8px; }
+.sidebar-toggle-btn { padding: 9px; }
+.sidebar-toggle-btn .icon { width: 21px; height: 21px; }
+
+/* Archives de notes */
+.section-label .notes-archive-btn { float: right; height: 24px; padding: 0 10px; font-size: var(--fs-2xs); text-transform: none; letter-spacing: 0; }
+.notes-archive { border: 1px dashed var(--border); border-radius: var(--radius-sm); padding: 6px 10px; display: flex; flex-direction: column; gap: 2px; max-height: 240px; overflow-y: auto; }
+.notes-archive[hidden] { display: none; }
+.notes-archive-line { display: flex; gap: 8px; align-items: baseline; font-size: var(--fs-xs); }
+.notes-archive-date { color: var(--accent); font-variant-numeric: tabular-nums; flex: none; }
+.notes-archive-text { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.notes-archive-text::before { content: ": "; color: var(--text-muted); }
+button.notes-archive-rm { width: 22px; height: 22px; padding: 0; font-size: 10px; background: transparent; border-color: transparent; color: var(--text-muted); flex: none; }
+button.notes-archive-rm:hover { color: #ff6b6b; }
