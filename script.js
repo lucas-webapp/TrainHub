@@ -529,7 +529,7 @@
             caption.textContent = (images.length > 1 ? (idx + 1) + " / " + images.length + " · " : "") + (meta.name || "");
         }
         function step(d) { if (images.length > 1) { idx = (idx + d + images.length) % images.length; show(); } }
-        function closeBox() { document.removeEventListener("keydown", onKey, true); overlay.remove(); }
+        function closeBox() { window.removeEventListener("keydown", onKey, true); overlay.remove(); }
         function onKey(e) {
             if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeBox(); }
             else if (e.key === "ArrowRight") { e.preventDefault(); step(1); }
@@ -539,7 +539,7 @@
         close.addEventListener("click", closeBox);
         overlay.appendChild(img); overlay.appendChild(close); overlay.appendChild(caption);
         document.body.appendChild(overlay);
-        document.addEventListener("keydown", onKey, true);
+        window.addEventListener("keydown", onKey, true);
         show();
     }
 
@@ -5593,9 +5593,9 @@
         function onDown(e) { if (!pop.contains(e.target)) close(); }
         function onKey(e) { if (e.key === "Escape") close(); }
         var closed = false;
-        function close() { if (closed) return; closed = true; document.removeEventListener("pointerdown", onDown, true); document.removeEventListener("keydown", onKey, true); pop.remove(); }
+        function close() { if (closed) return; closed = true; document.removeEventListener("pointerdown", onDown, true); window.removeEventListener("keydown", onKey, true); pop.remove(); }
         setTimeout(function () { document.addEventListener("pointerdown", onDown, true); }, 0);
-        document.addEventListener("keydown", onKey, true);
+        window.addEventListener("keydown", onKey, true);
         inp.focus();
     }
 
@@ -6573,13 +6573,13 @@
     function sc(key, kind, label, semis, degrees) { return { key: key, kind: kind, label: label, semis: semis, degrees: degrees }; }
     var SCALE_DEFS = [
         // Gammes courantes
-        sc("major", "Gammes", "Majeur (Ionien)", [0, 2, 4, 5, 7, 9, 11], ["1", "2", "3", "4", "5", "6", "7"]),
-        sc("aeolian", "Gammes", "Mineur naturel (Éolien)", [0, 2, 3, 5, 7, 8, 10], ["1", "2", "♭3", "4", "5", "♭6", "♭7"]),
+        sc("major", "Gammes", "Majeur", [0, 2, 4, 5, 7, 9, 11], ["1", "2", "3", "4", "5", "6", "7"]),
+        sc("aeolian", "Gammes", "Mineur naturel", [0, 2, 3, 5, 7, 8, 10], ["1", "2", "♭3", "4", "5", "♭6", "♭7"]),
         sc("harmonicMinor", "Gammes", "Mineur harmonique", [0, 2, 3, 5, 7, 8, 11], ["1", "2", "♭3", "4", "5", "♭6", "7"]),
         sc("melodicMinor", "Gammes", "Mineur mélodique", [0, 2, 3, 5, 7, 9, 11], ["1", "2", "♭3", "4", "5", "6", "7"]),
         sc("majorPenta", "Gammes", "Pentatonique majeure", [0, 2, 4, 7, 9], ["1", "2", "3", "5", "6"]),
         sc("minorPenta", "Gammes", "Pentatonique mineure", [0, 3, 5, 7, 10], ["1", "♭3", "4", "5", "♭7"]),
-        sc("blues", "Gammes", "Blues (mineur)", [0, 3, 5, 6, 7, 10], ["1", "♭3", "4", "♭5", "5", "♭7"]),
+        sc("blues", "Gammes", "Blues", [0, 3, 5, 6, 7, 10], ["1", "♭3", "4", "♭5", "5", "♭7"]),
         // Modes de la gamme majeure
         sc("dorian", "Gammes", "Dorien", [0, 2, 3, 5, 7, 9, 10], ["1", "2", "♭3", "4", "5", "6", "♭7"]),
         sc("phrygian", "Gammes", "Phrygien", [0, 1, 3, 5, 7, 8, 10], ["1", "♭2", "♭3", "4", "5", "♭6", "♭7"]),
@@ -6865,12 +6865,66 @@
         try { localStorage.setItem(SCALES_PREFS_KEY, JSON.stringify(p)); } catch (e) {}
     }
 
+    // Menu des gammes sur mesure (le menu natif pouvait dépasser de l'écran) : s'ouvre vers le haut ou le bas
+    // selon la place disponible, hauteur bornée à l'écran, défile si besoin. Les familles rares n'apparaissent
+    // qu'avec « … » (la famille de la gamme choisie reste toujours listée).
+    function openScalePicker(anchor, prefs, onPick) {
+        var old = document.querySelector(".scales-picker");
+        if (old) old.remove();
+        var pop = document.createElement("div");
+        pop.className = "scales-picker";
+        pop.setAttribute("role", "listbox");
+        var current = null;
+        SCALE_MENU.forEach(function (g) {
+            if (g.extra && !prefs.showAll && g.keys.indexOf(prefs.type) === -1) return;
+            var h = document.createElement("div");
+            h.className = "scales-picker-group";
+            h.textContent = g.label;
+            pop.appendChild(h);
+            g.keys.forEach(function (key) {
+                var d = SCALE_DEFS.filter(function (x) { return x.key === key; })[0];
+                var b = document.createElement("button");
+                b.type = "button";
+                b.className = "scales-picker-item" + (key === prefs.type ? " scales-picker-item-on" : "");
+                b.textContent = d.label;
+                b.setAttribute("role", "option");
+                b.dataset.key = key;
+                b.addEventListener("click", function () { close(); onPick(key); });
+                pop.appendChild(b);
+                if (key === prefs.type) current = b;
+            });
+        });
+        document.body.appendChild(pop);
+        var r = anchor.getBoundingClientRect();
+        var below = window.innerHeight - r.bottom - 12, above = r.top - 12;
+        var openBelow = below >= Math.min(360, above) || below >= above;
+        pop.style.minWidth = Math.max(r.width, 240) + "px";
+        pop.style.maxHeight = Math.max(140, openBelow ? below : above) + "px";
+        pop.style.left = Math.max(8, Math.min(window.innerWidth - pop.offsetWidth - 8, r.left)) + "px";
+        if (openBelow) pop.style.top = (r.bottom + 4) + "px";
+        else pop.style.top = Math.max(8, r.top - 4 - pop.offsetHeight) + "px";
+        if (current) current.scrollIntoView({ block: "center" });
+        var closed = false;
+        function onDown(e) { if (!pop.contains(e.target) && e.target !== anchor) close(); }
+        function onKey(e) { if (e.key === "Escape") { e.stopPropagation(); close(); } }
+        function close() { if (closed) return; closed = true; document.removeEventListener("pointerdown", onDown, true); window.removeEventListener("keydown", onKey, true); pop.remove(); }
+        setTimeout(function () { document.addEventListener("pointerdown", onDown, true); }, 0);
+        window.addEventListener("keydown", onKey, true);
+    }
+
     function openScalesPanel() {
         openModal("scales-panel", function (panel) {
+            // Deux lignes : en-tête (titre à gauche, instrument à droite) puis une seule rangée de réglages.
+            var headRow = document.createElement("div");
+            headRow.className = "scales-head";
             var title = document.createElement("div");
             title.className = "backups-title";
             title.textContent = "Gammes & arpèges";
-            panel.appendChild(title);
+            headRow.appendChild(title);
+            panel.appendChild(headRow);
+            var controls = document.createElement("div");
+            controls.className = "scales-controls";
+            panel.appendChild(controls);
 
             var prefs = loadScalesPrefs();
 
@@ -6915,58 +6969,61 @@
                 parent.appendChild(o);
             }
 
-            var instSelect = select(row("Instrument", "scales-row-inst"), "Instrument", function (v) { prefs.instrument = v; update(); });
+            var instSelect = select(headRow, "Instrument", function (v) { prefs.instrument = v; update(); });
+            instSelect.classList.add("scales-select-inst");
             SCALES_INSTRUMENTS.forEach(function (inst) { addOption(instSelect, inst.key, inst.label); });
 
-            // Tonique et gamme sur une même ligne (la gamme à droite de la tonique) : moins de hauteur.
-            var rootRowChips = row("Tonique", "scales-row-root");
-            var rootSelect = select(rootRowChips, "Tonique", function (v) { prefs.root = parseInt(v, 10); update(); });
+            // Rangée de réglages : tonique · gamme (menu sur mesure, voir openScalePicker) · « … » · affichage
+            // (intervalles/notes, 12/24 cases, largeur, hauteur). Sans libellés : des infobulles à la place.
+            var rootSelect = select(controls, "Tonique", function (v) { prefs.root = parseInt(v, 10); update(); });
+            rootSelect.classList.add("scales-select-root");
             ROOT_MENU_NAMES.forEach(function (name, pc) { addOption(rootSelect, String(pc), name); });
 
-            var typeGroup = document.createElement("div");
-            typeGroup.className = "scales-row-types scales-inline-group";
-            rootRowChips.appendChild(typeGroup);
-            var typeLabel = document.createElement("span");
-            typeLabel.className = "scales-inline-label";
-            typeLabel.textContent = "Gamme";
-            typeGroup.appendChild(typeLabel);
-            var typeSelect = select(typeGroup, "Gamme ou arpège", function (v) { prefs.type = v; update(); });
-            var moreBtn = chip(typeGroup, "…", "Afficher aussi les gammes peu utilisées ou complexes", function () { prefs.showAll = !prefs.showAll; update(); });
+            var typeBtn = document.createElement("button");
+            typeBtn.type = "button";
+            typeBtn.className = "scales-pick-btn";
+            typeBtn.setAttribute("aria-label", "Gamme ou arpège");
+            typeBtn.setAttribute("aria-haspopup", "listbox");
+            controls.appendChild(typeBtn);
+            var moreBtn = chip(controls, "…", "Afficher aussi les gammes peu utilisées ou complexes", function () { prefs.showAll = !prefs.showAll; update(); });
             moreBtn.classList.add("scales-more-btn");
+            typeBtn.addEventListener("click", function () { openScalePicker(typeBtn, prefs, function (key) { prefs.type = key; update(); }); });
 
-            var viewChips = row("Affichage", "scales-row-view");
             var labelSeg = document.createElement("div");
             labelSeg.className = "scales-chips scales-segmented";
-            viewChips.appendChild(labelSeg);
+            controls.appendChild(labelSeg);
             var degreesBtn = chip(labelSeg, "Intervalles", null, function () { prefs.labelMode = "degrees"; update(); });
             var notesBtn = chip(labelSeg, "Notes", null, function () { prefs.labelMode = "notes"; update(); });
             var fretSeg = document.createElement("div");
             fretSeg.className = "scales-chips scales-segmented";
-            viewChips.appendChild(fretSeg);
-            var frets12Btn = chip(fretSeg, "12 cases", "Manche jusqu'à la 12e case", function () { prefs.frets = 12; update(); });
-            var frets24Btn = chip(fretSeg, "24 cases", "Manche complet", function () { prefs.frets = 24; update(); });
-            // Largeur et hauteur du diagramme : deux réglages « − / + », retenus pour chaque instrument.
-            function sizeSeg(labelText, key) {
+            controls.appendChild(fretSeg);
+            var frets12Btn = chip(fretSeg, "12", "Manche jusqu'à la 12e case", function () { prefs.frets = 12; update(); });
+            var frets24Btn = chip(fretSeg, "24", "Manche complet (24 cases)", function () { prefs.frets = 24; update(); });
+            // Largeur et hauteur du diagramme : « icône − + », retenus pour chaque instrument.
+            var ICON_WIDTH = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h18M7 8l-4 4 4 4M17 8l4 4-4 4"/></svg>';
+            var ICON_HEIGHT = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18M8 7l4-4 4 4M8 17l4 4 4-4"/></svg>';
+            function sizeSeg(iconSvg, titleText, key) {
                 var seg = document.createElement("div");
-                seg.className = "scales-chips scales-segmented";
+                seg.className = "scales-chips scales-segmented scales-size-seg";
+                seg.title = titleText;
                 var lab = document.createElement("span");
-                lab.className = "scales-seg-label";
-                lab.textContent = labelText;
+                lab.className = "scales-seg-icon";
+                lab.innerHTML = iconSvg;
                 seg.appendChild(lab);
                 function bump(d) {
                     var cur = prefs.sizes[prefs.instrument];
                     cur[key] = Math.min(SIZE_MAX, Math.max(SIZE_MIN, Math.round((cur[key] + d) * 100) / 100));
                     update();
                 }
-                var minus = chip(seg, "−", labelText + " : réduire", function () { bump(-SIZE_STEP); });
-                var plus = chip(seg, "+", labelText + " : augmenter", function () { bump(SIZE_STEP); });
+                var minus = chip(seg, "−", titleText + " : réduire", function () { bump(-SIZE_STEP); });
+                var plus = chip(seg, "+", titleText + " : augmenter", function () { bump(SIZE_STEP); });
                 minus.classList.add("scales-chip-icon");
                 plus.classList.add("scales-chip-icon");
-                viewChips.appendChild(seg);
+                controls.appendChild(seg);
                 return { minus: minus, plus: plus };
             }
-            var widthCtl = sizeSeg("Largeur", "w");
-            var heightCtl = sizeSeg("Hauteur", "h");
+            var widthCtl = sizeSeg(ICON_WIDTH, "Largeur du diagramme", "w");
+            var heightCtl = sizeSeg(ICON_HEIGHT, "Hauteur du diagramme", "h");
 
             var summary = document.createElement("div");
             summary.className = "scales-summary";
@@ -6996,20 +7053,10 @@
                 saveScalesPrefs(prefs);
                 instSelect.value = prefs.instrument;
                 rootSelect.value = String(prefs.root);
-                // Menu des gammes reconstruit : familles courantes + (avec « … ») les autres. La famille
-                // de la gamme choisie reste toujours listée, même « … » éteint.
-                typeSelect.innerHTML = "";
-                SCALE_MENU.forEach(function (g) {
-                    if (g.extra && !prefs.showAll && g.keys.indexOf(prefs.type) === -1) return;
-                    var og = document.createElement("optgroup");
-                    og.label = g.label;
-                    g.keys.forEach(function (key) {
-                        var d = SCALE_DEFS.filter(function (x) { return x.key === key; })[0];
-                        addOption(og, key, d.label);
-                    });
-                    typeSelect.appendChild(og);
-                });
-                typeSelect.value = prefs.type;
+                var curDef = SCALE_DEFS.filter(function (d) { return d.key === prefs.type; })[0];
+                typeBtn.textContent = curDef.label;
+                typeBtn.title = curDef.label;
+                typeBtn.dataset.key = prefs.type;
                 moreBtn.classList.toggle("scales-chip-active", prefs.showAll);
                 degreesBtn.classList.toggle("scales-chip-active", prefs.labelMode === "degrees");
                 notesBtn.classList.toggle("scales-chip-active", prefs.labelMode === "notes");
