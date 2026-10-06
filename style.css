@@ -1924,3 +1924,15 @@ button.metro-preset-btn { height: 30px; padding: 0 10px; font-size: var(--fs-xs)
 .gs-run-auto-btn { flex: none; width: var(--gs-btn-h); padding: 0; height: var(--gs-btn-h); box-sizing: border-box; }
 .gs-run-auto-btn .icon { width: 18px; height: 18px; }
 button.gs-run-auto-on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+
+/* Bouton de masquage du bandeau (ordinateur seulement : sur mobile le bandeau n'existe pas) */
+.sidebar-toggle-btn { display: none; }
+@media (min-width: 880px) {
+    .sidebar-toggle-btn { display: inline-flex; margin-right: 4px; }
+    html.sidebar-hidden .sidebar-tree, html.sidebar-hidden .sidebar-resizer { display: none; }
+    /* Bandeau masqué : la colonne de session, les vidéos et les images gagnent de la place. */
+    html.sidebar-hidden .gs-main { max-width: 760px; }
+    html.sidebar-hidden .gs-main.gs-main-wide { max-width: 1080px; }
+    html.sidebar-hidden .img-thumb-btn img { max-width: min(100%, 860px); }
+}
+button.sidebar-toggle-btn[aria-pressed="true"] { color: var(--accent); }
