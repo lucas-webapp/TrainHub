@@ -3762,8 +3762,125 @@
         URL.revokeObjectURL(url);
     }
 
+    // ---------- export des images ----------
+    // Avec l'export JSON, on propose (en demandant d'abord) d'exporter aussi les images : dans un dossier
+    // « images » si le navigateur sait écrire dans un dossier choisi (Chrome/Edge sur ordinateur), sinon
+    // dans une archive ZIP (dossier « images » à l'intérieur) à décompresser.
+    function collectExportImages() {
+        var out = [];
+        state.instruments.forEach(function (inst) {
+            (function walk(folders) {
+                (folders || []).forEach(function (f) {
+                    (f.exercises || []).forEach(function (ex) {
+                        (ex.images || []).forEach(function (meta, i) { out.push({ meta: meta, ex: ex, inst: inst, n: i + 1 }); });
+                    });
+                    walk(f.folders);
+                });
+            })(inst.categories);
+        });
+        return out;
+    }
+    function safeFileName(s) { return String(s || "").replace(/[\\\/:*?"<>|\u0000-\u001f]/g, "_").replace(/\s+/g, " ").trim().slice(0, 60) || "image"; }
+    function imageExt(type) { return ({ "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif" })[type] || "img"; }
+    function exportImageName(it, used) {
+        var base = safeFileName(it.inst.name) + " - " + safeFileName(it.ex.title) + " - " + it.n;
+        var name = base + "." + imageExt(it.meta.type), k = 2;
+        while (used[name]) name = base + " (" + (k++) + ")." + imageExt(it.meta.type);
+        used[name] = true;
+        return name;
+    }
+    var CRC_TABLE = null;
+    function crc32(bytes) {
+        if (!CRC_TABLE) {
+            CRC_TABLE = [];
+            for (var n = 0; n < 256; n++) { var c = n; for (var k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; CRC_TABLE[n] = c >>> 0; }
+        }
+        var crc = 0xFFFFFFFF;
+        for (var i = 0; i < bytes.length; i++) crc = CRC_TABLE[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+        return (crc ^ 0xFFFFFFFF) >>> 0;
+    }
+    // ZIP minimal sans compression (les images sont déjà compressées) : entrées { name, bytes }.
+    function buildZip(entries) {
+        var enc = new TextEncoder(), parts = [], central = [], offset = 0;
+        var d = new Date();
+        var dosTime = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+        var dosDate = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+        entries.forEach(function (e) {
+            var nameBytes = enc.encode(e.name), crc = crc32(e.bytes), size = e.bytes.length;
+            var h = new DataView(new ArrayBuffer(30));
+            h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true);
+            h.setUint16(10, dosTime, true); h.setUint16(12, dosDate, true); h.setUint32(14, crc, true);
+            h.setUint32(18, size, true); h.setUint32(22, size, true); h.setUint16(26, nameBytes.length, true); h.setUint16(28, 0, true);
+            parts.push(new Uint8Array(h.buffer), nameBytes, e.bytes);
+            var c = new DataView(new ArrayBuffer(46));
+            c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true); c.setUint16(10, 0, true);
+            c.setUint16(12, dosTime, true); c.setUint16(14, dosDate, true); c.setUint32(16, crc, true);
+            c.setUint32(20, size, true); c.setUint32(24, size, true); c.setUint16(28, nameBytes.length, true);
+            c.setUint32(42, offset, true);
+            central.push(new Uint8Array(c.buffer), nameBytes);
+            offset += 30 + nameBytes.length + size;
+        });
+        var centralSize = central.reduce(function (s, p) { return s + p.length; }, 0);
+        var end = new DataView(new ArrayBuffer(22));
+        end.setUint32(0, 0x06054b50, true); end.setUint16(8, entries.length, true); end.setUint16(10, entries.length, true);
+        end.setUint32(12, centralSize, true); end.setUint32(16, offset, true);
+        return new Blob(parts.concat(central, [new Uint8Array(end.buffer)]), { type: "application/zip" });
+    }
+    function downloadBlob(blob, filename) {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    }
+    function exportImages(items, dateStr) {
+        var used = {};
+        var named = items.map(function (it) { return { it: it, name: exportImageName(it, used) }; });
+        function blobOf(it) {
+            return getFileBlob(it.meta.id).then(function (b) { return b || cloudFetchImage(it.meta); });
+        }
+        function done(missing, where) {
+            showToast("Images exportées" + where + " (" + (named.length - missing) + "/" + named.length + (missing ? ", " + missing + " absentes de cet appareil" : "") + ").", 6000);
+        }
+        if (typeof window.showDirectoryPicker === "function") {
+            return window.showDirectoryPicker({ mode: "readwrite" }).then(function (dir) {
+                return dir.getDirectoryHandle("images", { create: true }).then(function (imgDir) {
+                    var missing = 0;
+                    return named.reduce(function (p, n) {
+                        return p.then(function () {
+                            return blobOf(n.it).then(function (blob) {
+                                if (!blob) { missing++; return null; }
+                                return imgDir.getFileHandle(n.name, { create: true }).then(function (fh) { return fh.createWritable(); }).then(function (w) { return w.write(blob).then(function () { return w.close(); }); });
+                            });
+                        });
+                    }, Promise.resolve()).then(function () { done(missing, " dans le dossier « images »"); });
+                });
+            }, function (e) { if (e && e.name === "AbortError") return null; return exportImagesZip(); });
+        }
+        return exportImagesZip();
+        function exportImagesZip() {
+            var entries = [], missing = 0;
+            return named.reduce(function (p, n) {
+                return p.then(function () {
+                    return blobOf(n.it).then(function (blob) {
+                        if (!blob) { missing++; return null; }
+                        return blob.arrayBuffer().then(function (buf) { entries.push({ name: "images/" + n.name, bytes: new Uint8Array(buf) }); });
+                    });
+                });
+            }, Promise.resolve()).then(function () {
+                if (!entries.length) { window.alert("Aucune image n'est disponible sur cet appareil."); return; }
+                downloadBlob(buildZip(entries), "trainhub-images-" + dateStr + ".zip");
+                done(missing, " (archive ZIP, dossier « images » à l'intérieur)");
+            });
+        }
+    }
+
     document.getElementById("export-btn").addEventListener("click", function () {
-        downloadJson(state, "trainhub-sauvegarde-" + new Date().toISOString().slice(0, 10) + ".json");
+        var dateStr = new Date().toISOString().slice(0, 10);
+        var images = collectExportImages();
+        var withImages = images.length > 0 && window.confirm("Exporter aussi les " + images.length + " image" + (images.length > 1 ? "s" : "") + " des exercices, dans un dossier « images » indépendant du fichier JSON ?\n\nOK = sauvegarde JSON + images\nAnnuler = sauvegarde JSON seulement");
+        downloadJson(state, "trainhub-sauvegarde-" + dateStr + ".json");
+        if (withImages) exportImages(images, dateStr);
     });
 
     // ---------- panneau des sauvegardes de secours ----------
