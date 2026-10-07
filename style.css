@@ -2102,3 +2102,7 @@ input.metro-prog-input { -moz-appearance: textfield; appearance: textfield; }
 input.metro-prog-input::-webkit-inner-spin-button, input.metro-prog-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 button.metro-prog-more { font-size: inherit; letter-spacing: 0; }
 .metro-progressive-fields { margin-top: 10px; }
+
+/* Pastille de tempo : toujours verte ; le progressif s'écrit « 80→100 » */
+.tempo-chip-arrow { display: inline-flex; align-items: center; margin: 0 -1px; opacity: .85; }
+.metro-preset-tag { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }

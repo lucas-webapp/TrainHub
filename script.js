@@ -5561,6 +5561,17 @@
     function metroPresetExtras(p) { // résumé sans le tempo : figure rythmique + options
         return metroPresetSummary(p).split(" · ").slice(1).join(" · ");
     }
+    // Tempo progressif d'un préréglage : { limit } (0 = pas de seuil) ou null s'il n'est pas progressif.
+    function metroProgressiveTarget(p) {
+        var pr = p.progressive;
+        if (!pr || !pr.enabled) return null;
+        var cap = pr.limitBpm > 0 ? pr.limitBpm : 0;
+        if (pr.stagesMode && pr.stages && pr.stages.length) {
+            var top = Math.max.apply(null, pr.stages.map(function (st) { return st.until; }));
+            return { limit: cap ? Math.min(cap, top) : top };
+        }
+        return { limit: cap };
+    }
     // Réglage « spécial » (au-delà d'un simple tempo) : progressif, entraînement ou pavé détaillé.
     function metroPresetIsSpecial(p) {
         return !!((p.progressive && p.progressive.enabled) || (p.training && p.training.enabled) || p.advanced);
@@ -5684,7 +5695,7 @@
         if (!act.eff && !showEmpty) return null;
         var chip = document.createElement("button");
         chip.type = "button";
-        chip.className = "tempo-chip" + (act.eff ? (metroPresetIsSpecial(act.eff) ? " tempo-chip-special" : "") : " tempo-chip-empty");
+        chip.className = "tempo-chip" + (act.eff ? "" : " tempo-chip-empty");
         var note = document.createElement("span");
         note.className = "tempo-chip-note";
         note.textContent = "♩";
@@ -5692,7 +5703,18 @@
         num.textContent = act.eff ? String(act.eff.bpm) : "+";
         chip.appendChild(note);
         chip.appendChild(num);
-        chip.title = act.eff ? "Tempo cible : " + metroPresetSummary(act.eff) + " — cliquer pour modifier" : "Définir un tempo cible";
+        // Tempo progressif : « 80→100 » (avec seuil) ou « 80→ » (sans seuil : ça monte tant qu'on joue).
+        var progTarget = act.eff ? metroProgressiveTarget(act.eff) : null;
+        if (progTarget) {
+            var arrow = document.createElement("span");
+            arrow.className = "tempo-chip-arrow";
+            arrow.innerHTML = '<svg viewBox="0 0 16 10" width="14" height="9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 5h13M10 1.2 14 5l-4 3.8"/></svg>';
+            chip.appendChild(arrow);
+            if (progTarget.limit) { var lim = document.createElement("span"); lim.textContent = String(progTarget.limit); chip.appendChild(lim); }
+        }
+        chip.title = act.eff
+            ? (progTarget ? "Tempo progressif : de " + act.eff.bpm + (progTarget.limit ? " à " + progTarget.limit : " (sans seuil)") + " BPM" : "Tempo cible : " + act.eff.bpm + " BPM") + " — cliquer pour modifier"
+            : "Définir un tempo cible";
         chip.addEventListener("click", function (e) {
             e.stopPropagation();
             openTempoPopover(chip, cfg);
