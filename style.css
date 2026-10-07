@@ -2412,3 +2412,10 @@ button.img-thumb-full:hover { color: var(--accent); border-color: var(--accent);
 button.gs-run-mini-btn { position: absolute; right: 0; top: 50%; transform: translateY(-50%); width: 34px; height: 30px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; color: var(--text-muted); }
 button.gs-run-mini-btn .icon { width: 18px; height: 18px; }
 button.gs-run-mini-btn:hover, button.gs-run-mini-btn.active { color: var(--accent); border-color: var(--accent); }
+
+.gs-save-run-panel, .gs-history-panel { width: min(480px, 94vw); }
+.gs-history-list { max-height: 60vh; }
+.gs-history-entry { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 2px 0 8px; }
+.gs-history-entry .gs-sync-row { border: none; }
+.gs-history-steps { font-size: var(--fs-xs); color: var(--text-muted); padding: 0 10px; }
+button.gs-tab-archive { margin-left: auto; color: var(--text-muted); }

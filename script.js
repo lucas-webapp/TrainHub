@@ -155,6 +155,7 @@
     // (voir findExerciseById) et s'affiche/se saute proprement au lieu de planter.
     function normalizeGuidedSessions(s) {
         if (!Array.isArray(s.settings.guidedSessions)) s.settings.guidedSessions = [];
+        if (!Array.isArray(s.settings.sessionLog)) s.settings.sessionLog = []; // historique des sessions réalisées
         // Dossiers de sessions (facultatifs, propres à chaque espace) : [{ id, name, instrumentId, collapsed }].
         // Aucun dossier au départ ; une session sans dossier valide reste simplement à la racine.
         if (!Array.isArray(s.settings.sessionFolders)) s.settings.sessionFolders = [];
@@ -6739,7 +6740,7 @@
                 transportLastTouched = "metro";
             }
             playBtn.addEventListener("click", toggleMetroPlayback);
-            metroPanelApi = { toggle: toggleMetroPlayback };
+            metroPanelApi = { toggle: toggleMetroPlayback, setBpm: function (v) { setBpm(v); } };
             panel.appendChild(playBtn);
 
             function setBpm(v) {
@@ -8400,7 +8401,10 @@
         var activeInstId = state.activeInstrumentId;
         var sessions = allSessions.filter(function (gs) { return gs.instrumentId === activeInstId; });
         gsRefreshModified(sessions);
-        if (gsActiveTab !== "all" && !tabs.some(function (t) { return t.id === gsActiveTab; })) gsActiveTab = "all";
+        var archivedAll = sessions.filter(function (gs) { return gs.archived; });
+        sessions = sessions.filter(function (gs) { return !gs.archived; });
+        var showArchived = gsActiveTab === "__archived__";
+        if (gsActiveTab !== "all" && !showArchived && !tabs.some(function (t) { return t.id === gsActiveTab; })) gsActiveTab = "all";
         var activeTab = tabs.filter(function (t) { return t.id === gsActiveTab; })[0] || null;
 
         function newSession() {
@@ -8451,7 +8455,7 @@
                 linksBtn.classList.add("gs-session-links-btn");
             }
             var delBtn = iconButton("✕", activeTab ? "Retirer de cet onglet (la session reste dans « Tout »)" : "Supprimer cette session", function () {
-                if (activeTab) {
+                if (activeTab && !session.archived) {
                     session.tabIds = session.tabIds.filter(function (id) { return id !== activeTab.id; });
                     save(); render();
                     return;
@@ -8462,8 +8466,16 @@
                 save();
                 render();
             });
+            var archBtn = svgIconButton(ARCHIVE_ICON_SVG, session.archived ? "Désarchiver cette session (elle revient dans « Tout »)" : "Archiver cette session (masquée, jamais perdue : onglet « Archivées »)", function () {
+                session.archived = !session.archived;
+                if (session.archived) showToast("« " + session.name + " » archivée (onglet « Archivées »)");
+                save(); render();
+            });
+            archBtn.classList.add("gs-session-archive-btn");
+            if (session.archived) delBtn.title = "Supprimer définitivement cette session";
             actions.appendChild(playBtn);
             if (linksBtn) actions.appendChild(linksBtn);
+            actions.appendChild(archBtn);
             actions.appendChild(delBtn);
             row.appendChild(actions);
             return row;
@@ -8562,6 +8574,10 @@
         tabs.forEach(function (t) {
             tabBtn(t.id, t.name, sessions.filter(function (gs) { return gs.tabIds.indexOf(t.id) !== -1; }).length, t.id);
         });
+        if (archivedAll.length || showArchived) {
+            tabBtn("__archived__", "Archivées", archivedAll.length, "__archived__");
+            bar.lastChild.classList.add("gs-tab-archive");
+        }
         content.appendChild(bar);
 
         // ---- filtre de durée + actions de l'onglet ----
@@ -8642,13 +8658,14 @@
         content.appendChild(tools);
 
         // ---- liste ----
-        var visible = gsSortList(sessions.filter(function (gs) {
-            return (!activeTab || gs.tabIds.indexOf(activeTab.id) !== -1) && gsDurationMatches(gs);
+        var visible = gsSortList((showArchived ? archivedAll : sessions).filter(function (gs) {
+            return (showArchived || !activeTab || gs.tabIds.indexOf(activeTab.id) !== -1) && gsDurationMatches(gs);
         }));
         if (!visible.length) {
             var empty = document.createElement("div");
             empty.className = "gs-empty";
-            empty.textContent = !sessions.length ? "Aucune session pour l'instant."
+            empty.textContent = showArchived && !archivedAll.length ? "Aucune session archivée."
+                : !sessions.length && !showArchived ? "Aucune session pour l'instant."
                 : activeTab && !sessions.some(function (gs) { return gs.tabIds.indexOf(activeTab.id) !== -1; }) ? "Onglet vide : glisse une session sur son onglet."
                 : "Aucune session ne correspond au filtre.";
             content.appendChild(empty);
@@ -8669,6 +8686,8 @@
                 onDropOnTarget: function (el, target, x, y) {
                     var session = allSessions.filter(function (gs) { return gs.id === el.dataset.reorderId; })[0];
                     if (!session) return;
+                    if (target === "__archived__") { session.archived = true; save(); showToast("« " + session.name + " » archivée"); render(); return; }
+                    if (session.archived) { session.archived = false; save(); }
                     openTabDropMenu(x, y, session, target === "__all__" ? "" : target);
                 }
             });
@@ -8698,6 +8717,13 @@
         headActions.className = "gs-head-actions";
         headActions.appendChild(addBtn);
         headActions.appendChild(addTabBtn);
+        var histBtn = document.createElement("button");
+        histBtn.type = "button";
+        histBtn.className = "gs-history-btn";
+        histBtn.textContent = "Historique";
+        histBtn.title = "Sessions réalisées et enregistrées";
+        histBtn.addEventListener("click", openSessionHistory);
+        headActions.appendChild(histBtn);
         if (window.matchMedia && window.matchMedia("(min-width: 880px)").matches) $contentHeading.appendChild(headActions);
         else content.insertBefore(headActions, content.firstChild);
     }
@@ -9159,14 +9185,114 @@
         if (gsAutoAdvanceOn()) { try { ensureMetroAudio(); } catch (e) {} } // le clic de lancement autorise le son du carillon
         gsRunSession = session;
         gsRunStepIndex = 0;
+        gsRunSpent = {}; gsRunCurrentStepId = null; gsRunStartedAt = Date.now();
         gsTotalMs = 0; gsTotalStartTs = null;
         gsEnterRunStep();
         gsScreen = "run";
         render();
     }
 
+    // Temps réellement passé sur chaque exercice (pour l'historique) : cumulé quand on change d'exercice ou qu'on termine.
+    var gsRunSpent = {}, gsRunCurrentStepId = null, gsRunStartedAt = 0;
+    function gsAccumulateStep() {
+        if (!gsRunSession || !gsRunCurrentStepId) return;
+        gsRunSpent[gsRunCurrentStepId] = (gsRunSpent[gsRunCurrentStepId] || 0) + gsRunElapsedNowMs();
+        gsRunCurrentStepId = null;
+    }
+    function gsBuildRunRecord() {
+        if (!gsRunSession) return null;
+        gsAccumulateStep();
+        var steps = [], total = 0;
+        gsRunSession.steps.forEach(function (st) {
+            var ms = gsRunSpent[st.id] || 0;
+            if (ms < 3000) return;
+            var f = findExerciseById(st.exerciseId);
+            steps.push({ title: f ? f.ex.title : "(exercice supprimé)", plannedMin: st.minutes, actualSec: Math.round(ms / 1000) });
+            total += ms;
+        });
+        if (total < 20000) return null; // moins de 20 s : rien à enregistrer
+        return { id: uid(), sessionId: gsRunSession.id, name: gsRunSession.name, instrumentId: gsRunSession.instrumentId, date: gsRunStartedAt || Date.now(), totalSec: Math.round(total / 1000), steps: steps };
+    }
+    function gsFmtDur(sec) { var m = Math.floor(sec / 60), r = sec % 60; return m + " min" + (r ? " " + (r < 10 ? "0" : "") + r + " s" : ""); }
+    function gsFmtDate(ts) { var d = new Date(ts); function p2(n) { return (n < 10 ? "0" : "") + n; } return p2(d.getDate()) + "/" + p2(d.getMonth() + 1) + "/" + String(d.getFullYear()).slice(2) + " " + p2(d.getHours()) + ":" + p2(d.getMinutes()); }
+    // À la fin d'une session : on demande s'il faut l'enregistrer dans l'historique.
+    function gsAskSaveRun(record) {
+        openModal("gs-save-run-panel", function (panel, close) {
+            var title = document.createElement("div");
+            title.className = "backups-title";
+            title.textContent = "Enregistrer cette session ?";
+            panel.appendChild(title);
+            var sum = document.createElement("div");
+            sum.className = "gs-sync-intro";
+            sum.textContent = "« " + record.name + " » · " + gsFmtDur(record.totalSec) + " · " + record.steps.length + " exercice" + (record.steps.length > 1 ? "s" : "");
+            panel.appendChild(sum);
+            var list = document.createElement("div");
+            list.className = "gs-sync-list";
+            record.steps.forEach(function (st) {
+                var line = document.createElement("div");
+                line.className = "gs-sync-row";
+                var nm = document.createElement("span"); nm.className = "gs-sync-name"; nm.textContent = st.title;
+                var du = document.createElement("span"); du.className = "gs-sync-dur"; du.textContent = gsFmtDur(st.actualSec) + " / " + st.plannedMin + " min";
+                line.appendChild(nm); line.appendChild(du);
+                list.appendChild(line);
+            });
+            panel.appendChild(list);
+            var actions = document.createElement("div");
+            actions.className = "gs-sync-actions";
+            var no = document.createElement("button"); no.type = "button"; no.className = "btn-ghost"; no.textContent = "Ne pas enregistrer";
+            no.addEventListener("click", close);
+            var yes = document.createElement("button"); yes.type = "button"; yes.className = "btn-accent"; yes.textContent = "Enregistrer";
+            yes.addEventListener("click", function () {
+                state.settings.sessionLog.push(record);
+                save();
+                showToast("Session enregistrée dans l'historique");
+                close();
+            });
+            actions.appendChild(no); actions.appendChild(yes);
+            panel.appendChild(actions);
+        });
+    }
+    // Historique : sessions enregistrées, de la plus récente à la plus ancienne.
+    function openSessionHistory() {
+        openModal("gs-history-panel", function (panel, close) {
+            var title = document.createElement("div");
+            title.className = "backups-title";
+            title.textContent = "Historique des sessions";
+            panel.appendChild(title);
+            var list = document.createElement("div");
+            list.className = "gs-sync-list gs-history-list";
+            function fill() {
+                list.innerHTML = "";
+                var log = state.settings.sessionLog.filter(function (e) { return !e.instrumentId || e.instrumentId === state.activeInstrumentId; }).slice().reverse();
+                if (!log.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Aucune session enregistrée pour l'instant. À la fin d'une session, on te propose de l'enregistrer."; list.appendChild(none); return; }
+                log.forEach(function (e) {
+                    var box = document.createElement("div");
+                    box.className = "gs-history-entry";
+                    var head = document.createElement("div");
+                    head.className = "gs-sync-row";
+                    var nm = document.createElement("span"); nm.className = "gs-sync-name"; nm.textContent = e.name;
+                    var du = document.createElement("span"); du.className = "gs-sync-dur"; du.textContent = gsFmtDate(e.date) + " · " + gsFmtDur(e.totalSec);
+                    var del = iconButton("✕", "Supprimer cette entrée", function () {
+                        state.settings.sessionLog = state.settings.sessionLog.filter(function (x) { return x.id !== e.id; });
+                        save(); fill();
+                    });
+                    head.appendChild(nm); head.appendChild(du); head.appendChild(del);
+                    var det = document.createElement("div");
+                    det.className = "gs-history-steps";
+                    det.textContent = e.steps.map(function (st) { return st.title + " (" + gsFmtDur(st.actualSec) + ")"; }).join(" · ");
+                    box.appendChild(head); box.appendChild(det);
+                    list.appendChild(box);
+                });
+            }
+            fill();
+            panel.appendChild(list);
+        });
+    }
+
     function gsEnterRunStep() {
+        gsAccumulateStep();
         var enteredStep = gsRunSession.steps[gsRunStepIndex];
+        gsRunCurrentStepId = enteredStep.id;
         var enteredFound = findExerciseById(enteredStep.exerciseId);
         var presetForStep = gsEffectiveMetronome(enteredStep, enteredFound && enteredFound.ex);
         var stepLink = enteredFound ? { exId: enteredFound.ex.id, title: enteredFound.ex.title, fromSession: true } : null;
@@ -9211,12 +9337,14 @@
     }
 
     function gsEndRun() {
+        var runRecord = gsBuildRunRecord();
         if (gsRunInterval) { clearInterval(gsRunInterval); gsRunInterval = null; }
         if (miniWinOpen()) closeMiniWindow();
         if (metroLink && metroLink.fromSession) setMetroLink(null);
         gsRunSession = null;
         gsScreen = "list";
         render();
+        if (runRecord) gsAskSaveRun(runRecord);
     }
 
     // ---------- lecteurs YouTube intégrés (sous la session) ----------
@@ -9673,7 +9801,6 @@
     // à garder visible à côté.
     var miniWin = null, miniIsPip = false, miniTimerId = null;
     var MINI_SIZE_KEY = "trainhub.miniSize.v1";
-    var MINI_PRESETS = [["Mini", 196, 118], ["Horizontal", 460, 118], ["Vertical", 180, 320], ["Carré", 252, 252], ["Grand", 460, 330]];
     function miniWinOpen() { return !!(miniWin && !miniWin.closed); }
     function miniLoadSize() {
         try { var v = JSON.parse(localStorage.getItem(MINI_SIZE_KEY)); if (v && v.w > 100 && v.h > 80) return v; } catch (e) {}
@@ -9710,6 +9837,10 @@
             request = Promise.resolve(w0);
         }
         request.then(function (win) {
+            if (!win && miniIsPip) { // l'« image dans l'image » a été refusée : on se rabat sur une petite fenêtre ordinaire
+                miniIsPip = false;
+                try { win = window.open("", "trainhub-mini", "popup=yes,width=" + size.w + ",height=" + size.h + ",left=40,top=80"); } catch (e) {}
+            }
             if (!win) { showToast("Fenêtre flottante impossible : autorise les pop-ups pour TrainHub, ou utilise Chrome/Edge."); return; }
             setupMiniWindow(win);
         });
@@ -9730,30 +9861,28 @@
             ".r{display:flex;gap:6px}.r button{flex:1;white-space:nowrap}.pp{background:color-mix(in srgb,var(--ac) 18%,#222);border-color:color-mix(in srgb,var(--ac) 55%,var(--bd));color:var(--ac);font-weight:700}.pp.run{color:var(--tx);background:#222;border-color:var(--bd)}" +
             ".mt{display:flex;align-items:center;gap:8px;border-top:1px solid var(--bd);padding-top:6px}.bpm{flex:1;text-align:center;font-size:24px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--mu);border-radius:7px;transition:none;line-height:1.3}.bpm small{font-size:11px;font-weight:600;margin-left:3px}" +
             ".bpm.on{color:#04140a;background:var(--ac)}.bpm.on.acc{background:#fff}.bpm.idle{opacity:.75}" +
-            ".mt button{width:40px;flex:none}.tools{display:flex;gap:4px;justify-content:center;flex-wrap:wrap}.tools button{height:22px;font-size:11px;padding:0 6px;color:var(--mu)}.tools .x{margin-left:auto}" +
+            ".mt button{width:34px;flex:none;padding:0}.tools{display:flex;gap:4px;align-items:center;flex-wrap:wrap}.tools button{height:22px;font-size:11px;padding:0 6px;color:var(--mu)}.tools .x{margin-left:auto}.tools .mode{font-size:10px;color:var(--mu)}" +
             "@media (min-aspect-ratio:2/1){.m{flex-direction:row;align-items:center;flex-wrap:wrap;gap:8px 12px}.m .head{flex:1 1 140px;min-width:0}.m .r{flex:0 0 auto}.m .r button{flex:none}.m .mt{border-top:none;padding-top:0;border-left:1px solid var(--bd);padding-left:10px}.m .tools{flex:1 1 100%}.tm{font-size:34px}}" +
             "@media (max-width:230px){.t{font-size:12px}.tm{font-size:34px}.r button{padding:0 4px;font-size:12px}}" +
             "@media (max-height:150px) and (max-width:300px){.t,.tools{display:none}.tm{font-size:32px}.mt{padding-top:4px}.bpm{font-size:18px}}" +
             "@media (max-height:150px){.tools{display:none}}" +
-            "@media (min-width:380px) and (min-height:280px){.tm{font-size:72px}.t{font-size:17px}.bpm{font-size:40px}button{height:36px;font-size:15px}.mt button{width:56px}.tools button{height:26px;font-size:12px}}";
+            "@media (min-width:380px) and (min-height:280px){.tm{font-size:72px}.t{font-size:17px}.bpm{font-size:40px}button{height:36px;font-size:15px}.mt button{width:48px}.tools button{height:26px;font-size:12px}}";
         doc.head.appendChild(css);
         var root = doc.createElement("div");
         root.className = "m";
         root.innerHTML =
             '<div class="head"><div class="t" id="t"></div><div class="tm" id="tm">--:--</div></div>' +
             '<div class="r"><button id="minus" title="Retirer une minute">−1 min</button><button id="pp" class="pp" title="Pause / reprise de la session">Pause</button><button id="plus" title="Ajouter une minute">+1 min</button></div>' +
-            '<div class="mt"><div class="bpm idle" id="bpm">--<small>BPM</small></div><button id="mp" title="Lecture / pause du métronome">▶</button></div>' +
+            '<div class="mt" id="mt" title="Molette de la souris : régler le tempo"><button id="bm" title="Tempo −1 (Maj : −5)">−</button><div class="bpm idle" id="bpm">--<small>BPM</small></div><button id="bp" title="Tempo +1 (Maj : +5)">+</button><button id="mp" title="Lecture / pause du métronome">▶</button></div>' +
             '<div class="tools" id="tools"></div>';
         doc.body.appendChild(root);
         function $(id) { return doc.getElementById(id); }
         var tools = $("tools");
-        MINI_PRESETS.forEach(function (pr) {
-            var b = doc.createElement("button");
-            b.textContent = pr[0];
-            b.title = "Taille « " + pr[0] + " »";
-            b.addEventListener("click", function () { try { win.resizeTo(pr[1], pr[2]); } catch (e) {} });
-            tools.appendChild(b);
-        });
+        var modeTxt = doc.createElement("span");
+        modeTxt.className = "mode";
+        modeTxt.textContent = miniIsPip ? "📌 reste au-dessus" : "fenêtre simple";
+        modeTxt.title = miniIsPip ? "Cette fenêtre reste au-dessus des autres applications." : "Ce navigateur n'offre pas la fenêtre « toujours au-dessus » : utilise Chrome ou Edge sur ordinateur.";
+        tools.appendChild(modeTxt);
         var hide = doc.createElement("button");
         hide.className = "x"; hide.textContent = "Masquer"; hide.title = "Fermer cette fenêtre (le bouton de la session la rouvre)";
         hide.addEventListener("click", closeMiniWindow);
@@ -9773,6 +9902,18 @@
             if (gsRefreshRunUi) gsRefreshRunUi();
             refresh();
         });
+        function setMiniBpm(v) {
+            v = Math.min(300, Math.max(30, v));
+            if (metroPanelApi && metroPanelApi.setBpm) metroPanelApi.setBpm(v);
+            else { state.settings.metronome.bpm = v; save(); }
+            refresh();
+        }
+        $("bm").addEventListener("click", function (e) { setMiniBpm(state.settings.metronome.bpm - (e.shiftKey ? 5 : 1)); });
+        $("bp").addEventListener("click", function (e) { setMiniBpm(state.settings.metronome.bpm + (e.shiftKey ? 5 : 1)); });
+        $("mt").addEventListener("wheel", function (e) {
+            e.preventDefault();
+            setMiniBpm(state.settings.metronome.bpm + (e.deltaY < 0 ? 1 : -1));
+        }, { passive: false });
         $("mp").addEventListener("click", function () {
             try { if (metroPanelApi) metroPanelApi.toggle(); else if (metroPlaying) stopMetronome(); else startMetronome(); } catch (e) {}
             refresh();
