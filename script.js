@@ -7647,23 +7647,22 @@
     function gsRememberMinutes(step) {
         var f = findExerciseById(step.exerciseId);
         if (f && f.ex.lastMinutes !== step.minutes) f.ex.lastMinutes = step.minutes;
-        // Aucune modification automatique des autres sessions : on propose, une fois la saisie terminée.
-        clearTimeout(gsSyncTimers[step.id]);
-        gsSyncTimers[step.id] = setTimeout(function () { gsOfferSyncMinutes(step); }, 900);
     }
-    // Même exercice dans d'autres sessions avec une autre durée : liste à cocher (durée actuelle de chacune).
-    function gsOfferSyncMinutes(step) {
-        var mine = null;
+    // Autres pas (d'autres sessions) portant le même exercice.
+    function gsOtherStepsOf(step) {
+        var mine = null, rows = [];
         state.settings.guidedSessions.forEach(function (gs) { if (gs.steps.indexOf(step) !== -1) mine = gs; });
-        if (!mine) return;
-        var rows = [];
         state.settings.guidedSessions.forEach(function (gs) {
             if (gs === mine) return;
-            gs.steps.forEach(function (st) {
-                if (st.exerciseId === step.exerciseId && st.minutes !== step.minutes) rows.push({ gs: gs, st: st });
-            });
+            gs.steps.forEach(function (st) { if (st.exerciseId === step.exerciseId) rows.push({ gs: gs, st: st }); });
         });
-        if (!rows.length) return;
+        return { mine: mine, rows: rows };
+    }
+    var GS_APPLY_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V6a2 2 0 0 1 2-2h10"/><path d="M12 14h4M14 12v4"/></svg>';
+    // Même exercice dans d'autres sessions avec une autre durée : liste à cocher (durée actuelle de chacune).
+    function gsOfferSyncMinutes(step) {
+        var other = gsOtherStepsOf(step), mine = other.mine, rows = other.rows;
+        if (!mine || !rows.length) return;
         var found = findExerciseById(step.exerciseId);
         var newMin = step.minutes;
         openModal("gs-sync-panel", function (panel, close) {
@@ -7673,7 +7672,7 @@
             panel.appendChild(title);
             var intro = document.createElement("div");
             intro.className = "gs-sync-intro";
-            intro.textContent = "Réglée à " + newMin + " min dans « " + mine.name + " ». Appliquer aussi à ces sessions ?";
+            intro.textContent = newMin + " min dans « " + mine.name + " ». Appliquer à quelles autres sessions ?";
             panel.appendChild(intro);
             var list = document.createElement("div");
             list.className = "gs-sync-list";
@@ -7683,14 +7682,16 @@
                 line.className = "gs-sync-row";
                 var cb = document.createElement("input");
                 cb.type = "checkbox";
-                cb.checked = true;
+                var same = r.st.minutes === newMin;
+                cb.checked = !same;
+                cb.disabled = same;
                 boxes.push(cb);
                 var nm = document.createElement("span");
                 nm.className = "gs-sync-name";
                 nm.textContent = r.gs.name;
                 var du = document.createElement("span");
                 du.className = "gs-sync-dur";
-                du.textContent = r.st.minutes + " min → " + newMin + " min";
+                du.textContent = same ? "déjà " + newMin + " min" : r.st.minutes + " min → " + newMin + " min";
                 line.appendChild(cb); line.appendChild(nm); line.appendChild(du);
                 list.appendChild(line);
             });
@@ -7704,7 +7705,7 @@
             yes.type = "button"; yes.className = "btn-accent"; yes.textContent = "Appliquer aux sessions cochées";
             yes.addEventListener("click", function () {
                 var n = 0;
-                rows.forEach(function (r, i) { if (boxes[i].checked) { r.st.minutes = newMin; n++; } });
+                rows.forEach(function (r, i) { if (boxes[i].checked && !boxes[i].disabled) { r.st.minutes = newMin; n++; } });
                 if (n) { save(); showToast("Durée mise à jour dans " + n + " session" + (n > 1 ? "s" : "")); }
                 close();
                 render();
@@ -8588,6 +8589,11 @@
                 minLabel.className = "gs-step-min-label";
                 minLabel.textContent = "min";
                 row.appendChild(minLabel);
+                if (gsOtherStepsOf(step).rows.length) {
+                    var applyBtn = svgIconButton(GS_APPLY_ICON_SVG, "Appliquer cette durée à d'autres sessions contenant cet exercice", function () { gsOfferSyncMinutes(step); });
+                    applyBtn.classList.add("gs-step-apply-btn");
+                    row.appendChild(applyBtn);
+                }
                 var detailsOpen = !!gsOpenStepDetails[step.id];
                 // Un clic sur la barre de l'exercice (hors champs et boutons) déplie ou replie ses détails,
                 // comme dans la liste des exercices.
