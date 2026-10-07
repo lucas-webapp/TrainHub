@@ -322,9 +322,6 @@ button.session-btn-highlight:hover { background: color-mix(in srgb, var(--accent
 .virtual-archived { border-color: #9ca3af; background: color-mix(in srgb, #9ca3af 7%, transparent); }
 .virtual-archived.active { background: color-mix(in srgb, #9ca3af 15%, transparent); }
 .virtual-archived .chapter-chip-label, .virtual-archived .chapter-chip-star { color: #9ca3af; }
-.virtual-tags { border-color: #60a5fa; background: color-mix(in srgb, #60a5fa 8%, transparent); }
-.virtual-tags.active { background: color-mix(in srgb, #60a5fa 18%, transparent); }
-.virtual-tags .chapter-chip-label, .virtual-tags .chapter-chip-star { color: #60a5fa; }
 .chapter-chip-star { display: inline-flex; }
 .chapter-chip-star .icon { width: 13px; height: 13px; }
 
@@ -465,15 +462,6 @@ button.session-btn-highlight:hover { background: color-mix(in srgb, var(--accent
     background: rgba(255,255,255,.06);
     border-radius: var(--radius-sm);
     padding: 3px 9px;
-}
-.exercise-tag-badge {
-    flex: none;
-    font-size: var(--fs-2xs);
-    font-weight: 700;
-    background: rgba(255,255,255,.05);
-    border: 1px solid;
-    border-radius: var(--radius-sm);
-    padding: 2px 8px;
 }
 
 /* Accès rapide à un lien (ou au choix entre plusieurs) directement depuis la barre de l'exercice,
@@ -623,19 +611,6 @@ button.result-group-title:hover { background: color-mix(in srgb, var(--group-col
 .folder-picker-tree { flex: 1; min-height: 0; overflow-y: auto; }
 .folder-picker-choose-btn { flex: 1; text-align: left; }
 
-.tags-view-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-button.tags-view-chip {
-    box-sizing: border-box;
-    height: 30px;
-    padding: 0 12px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: rgba(255,255,255,.04);
-    color: var(--text-main);
-    font-size: var(--fs-sm);
-    font-weight: 600;
-}
-button.tags-view-chip:hover { border-color: var(--text-muted); }
 
 .toast {
     position: fixed;
@@ -712,9 +687,6 @@ button.tags-view-chip:hover { border-color: var(--text-muted); }
 .tree-row-fixed.virtual-archived { border-left-color: #9ca3af; background: color-mix(in srgb, #9ca3af 5%, transparent); }
 .tree-row-fixed.virtual-archived.selected { background: color-mix(in srgb, #9ca3af 14%, transparent); }
 .tree-row-fixed.virtual-archived .tree-label, .tree-row-fixed.virtual-archived .tree-fixed-icon { color: #9ca3af; }
-.tree-row-fixed.virtual-tags { border-left-color: #60a5fa; background: color-mix(in srgb, #60a5fa 5%, transparent); }
-.tree-row-fixed.virtual-tags.selected { background: color-mix(in srgb, #60a5fa 14%, transparent); }
-.tree-row-fixed.virtual-tags .tree-label, .tree-row-fixed.virtual-tags .tree-fixed-icon { color: #60a5fa; }
 .tree-fixed-icon { width: 18px; height: 18px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
 .tree-fixed-icon .icon { width: 13px; height: 13px; }
 
@@ -2254,3 +2226,33 @@ button.gs-tabpick-chip.active { background: color-mix(in srgb, var(--accent) 16%
 .gs-head-actions { display: flex; gap: 8px; align-items: center; margin-left: 16px; }
 .gs-head-actions button { height: 34px; margin: 0; padding: 0 14px; width: auto; flex: 0 0 auto; }
 .gs-main > .gs-head-actions { margin: 0 0 12px; }
+
+/* Champs numériques : − nombre + */
+.num-stepper { display: inline-flex; align-items: stretch; gap: 3px; flex: 0 0 auto; vertical-align: middle; }
+button.num-stepper-btn { width: 26px; min-width: 26px; height: auto; padding: 0; font-size: 16px; line-height: 1; border-radius: var(--radius-sm); display: inline-flex; align-items: center; justify-content: center; touch-action: manipulation; }
+.num-stepper > input.num-in { width: 46px; min-width: 0; max-width: none; padding-left: 2px; padding-right: 2px; text-align: center; box-sizing: border-box; -moz-appearance: textfield; appearance: textfield; flex: none; }
+.num-stepper.num-wide > input.num-in { width: 56px; }
+.num-stepper > input.num-in::-webkit-inner-spin-button, .num-stepper > input.num-in::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.gs-pick-exercise-row { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+.gs-pick-note { font-size: var(--fs-xs); color: var(--text-muted); font-weight: 500; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.gs-pick-result .gs-pick-note { display: block; text-align: left; margin-top: 2px; }
+
+/* Onglets de sessions : vrais onglets (ligne de base + onglet actif relié au contenu), pas des boutons */
+.gs-tabbar { display: flex; flex-wrap: wrap; gap: 2px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+button.gs-tab { height: 38px; padding: 0 16px; margin-bottom: -1px; background: transparent; border: none; border-bottom: 2px solid transparent; border-radius: var(--radius-sm) var(--radius-sm) 0 0; color: var(--text-muted); font-weight: 600; }
+button.gs-tab:hover { background: rgba(255,255,255,.05); color: var(--text); border-color: transparent; border-bottom-color: var(--border); }
+button.gs-tab.active { background: transparent; color: var(--accent); border-bottom-color: var(--accent); font-weight: 800; }
+button.gs-tab.drop-hover { background: color-mix(in srgb, var(--accent) 18%, transparent); border-bottom-color: var(--accent); color: var(--text); }
+.gs-listtools { justify-content: flex-start; flex-wrap: wrap; }
+.gs-tools-spacer { flex: 1; }
+button.gs-tool-btn { height: 32px; padding: 0 12px; font-size: var(--fs-sm); font-weight: 600; border-radius: var(--radius-sm); }
+button.gs-tool-btn.active { border-color: var(--accent); color: var(--accent); }
+.gs-pop { min-width: 230px; }
+.gs-dur-form { display: flex; gap: 10px; padding: 6px 10px 8px; }
+.gs-dur-field { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); }
+.gs-dur-unit { color: var(--text-muted); font-size: var(--fs-xs); }
+.gs-sort-current { color: var(--accent); }
+
+.gs-pathlines { display: flex; flex-direction: column; gap: 1px; margin: 0 0 6px; }
+.gs-pathline { font-size: var(--fs-xs); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-pathline-more { font-style: italic; }
