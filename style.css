@@ -2065,3 +2065,40 @@ button.exercise-image-quick { gap: 4px; padding: 0 8px; }
 .audio-player-rate { height: 32px; font-size: var(--fs-xs); }
 button.audio-player-close { width: 30px; height: 30px; padding: 0; }
 .audio-player-error { flex: 0 0 100%; font-size: var(--fs-xs); color: #ff9c9c; }
+
+/* Métronome : volume visible, bandeau relié à l'exercice, progressif simplifié, cadran et chrono plus lisibles */
+.metro-volume-inline { display: inline-flex; align-items: center; gap: 6px; flex: 1; justify-content: flex-end; color: var(--text-muted); cursor: pointer; }
+.metro-volume-inline .icon { width: 18px; height: 18px; }
+input.metro-volume-inline-slider { width: 130px; max-width: 40%; padding: 0; accent-color: var(--accent); }
+.metro-header-row button.metro-volume-btn { display: none; }
+.metro-volume-row { display: none; }
+@media (max-width: 600px) {
+    .metro-volume-inline { display: none; }
+    .metro-header-row button.metro-volume-btn { display: inline-flex; }
+    .metro-volume-row.metro-volume-expanded-row { display: flex; }
+}
+.metro-link-bar { display: flex; align-items: center; gap: 8px; margin: 8px 0 2px; padding: 6px 8px 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--fs-xs); color: var(--text-muted); }
+.metro-link-bar[hidden] { display: none; }
+.metro-link-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.metro-link-bar.metro-link-dirty { border-color: color-mix(in srgb, #ffa94d 55%, var(--border)); background: color-mix(in srgb, #ffa94d 10%, transparent); color: #ffcf99; }
+button.metro-link-save { height: 30px; padding: 0 10px; font-size: var(--fs-xs); flex: none; }
+button.metro-link-save[hidden] { display: none; }
+button.metro-link-close { width: 26px; height: 26px; padding: 0; background: transparent; border-color: transparent; color: var(--text-muted); flex: none; }
+.metro-progressive-field { font-size: var(--fs-2xs); }
+input.metro-prog-input { box-sizing: border-box; height: 38px; width: 78px; font-size: var(--fs-base); font-weight: 700; text-align: center; border-radius: var(--radius-sm); }
+.metro-prog-row { align-items: flex-end; }
+button.metro-prog-more { width: 44px; padding: 0; font-size: var(--fs-lg); letter-spacing: 1px; }
+.metro-prog-stage { font-size: var(--fs-xs); gap: 8px; }
+.metro-prog-stage input.metro-prog-input { width: 70px; }
+button.metro-prog-del { width: 32px; height: 32px; }
+.metro-prog-status { font-size: var(--fs-xs); color: var(--accent); text-align: center; min-height: 1.2em; font-variant-numeric: tabular-nums; }
+.metro-dial-value { font-size: calc(var(--fs-xl) * 1.5); }
+@media (max-width: 480px) { .metro-dial-value { font-size: calc(var(--fs-lg) * 1.5); } }
+.metro-chrono-value { font-size: var(--fs-lg); }
+.metro-chrono-icon .icon { width: 19px; height: 19px; }
+.metro-chrono-reset .icon { width: 18px; height: 18px; }
+
+input.metro-prog-input { -moz-appearance: textfield; appearance: textfield; }
+input.metro-prog-input::-webkit-inner-spin-button, input.metro-prog-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+button.metro-prog-more { font-size: inherit; letter-spacing: 0; }
+.metro-progressive-fields { margin-top: 10px; }
