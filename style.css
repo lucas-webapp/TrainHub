@@ -2315,3 +2315,14 @@ button.num-stepper-btn:hover { background: rgba(255,255,255,.08); color: #e0e0e0
   .gs-step-session { width: auto; margin: 0; border-left: none; background: none; align-self: auto; flex: 1 1 100%; padding: 0; }
   .gs-step-tempo { width: auto; }
 }
+
+/* Vignettes homogènes (liens, images, notes, tempo) : même hauteur, mêmes angles peu arrondis */
+.exercise-link-quick, button.exercise-image-quick, .exercise-note-mark, button.tempo-chip { height: 30px; box-sizing: border-box; border-radius: 6px; }
+.exercise-link-quick { padding: 0 10px; }
+button.exercise-image-quick { min-width: 36px; padding: 0 9px; justify-content: center; }
+button.exercise-image-quick .icon, .exercise-note-mark .icon { width: 18px; height: 18px; }
+.exercise-note-mark { min-width: 36px; padding: 0 9px; justify-content: center; background: rgba(255,255,255,.05); border: 1px solid var(--border); color: var(--text-muted); }
+/* barre de session : alignements corrigés */
+.gs-step-line > .gs-theme-badge { margin: 0; }
+.gs-step-tempo { width: 102px; }
+.gs-step-session { margin-left: 0; width: 184px; padding-left: 16px; }
