@@ -3256,6 +3256,30 @@
     window.addEventListener("beforeunload", flushPendingTextSaves);
     document.addEventListener("visibilitychange", function () { if (document.hidden) flushPendingTextSaves(); });
 
+    // Petit bouton « + date » au-dessus d'une zone de notes : insère « jj/mm/aa : » au début de la ligne du curseur.
+    function buildDateStampBtn(ta) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "note-date-btn";
+        b.textContent = "+ date";
+        b.title = "Ajouter la date d'aujourd'hui devant la note (jj/mm/aa : )";
+        b.addEventListener("mousedown", function (e) { e.preventDefault(); }); // garde le curseur dans la zone
+        b.addEventListener("click", function () {
+            var stamp = formatNoteDate(todayIso()) + " : ";
+            var v = ta.value, pos = ta.selectionStart || 0;
+            var start = v.lastIndexOf("\n", pos - 1) + 1;
+            var lineEnd = v.indexOf("\n", start); if (lineEnd === -1) lineEnd = v.length;
+            var line = v.slice(start, lineEnd);
+            if (line.indexOf(stamp) === 0) { ta.focus(); return; }
+            ta.value = v.slice(0, start) + stamp + v.slice(start);
+            var np = pos + stamp.length;
+            ta.focus();
+            ta.setSelectionRange(np, np);
+            ta.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        return b;
+    }
+
     function renderExerciseDetails(ex) {
         var details = document.createElement("div");
         details.className = "exercise-details";
@@ -3304,6 +3328,7 @@
         archiveBtn.type = "button";
         archiveBtn.className = "notes-archive-btn";
         notesLabel.appendChild(archiveBtn);
+        notesLabel.appendChild(buildDateStampBtn(notes));
         var archiveBox = document.createElement("div");
         archiveBox.className = "notes-archive";
         archiveBox.hidden = true;
@@ -8704,6 +8729,7 @@
                     noteInput.rows = 2;
                     noteInput.placeholder = "Ex. tempo progressif depuis 80 bpm";
                     noteInput.value = step.note || "";
+                    noteLabel.appendChild(buildDateStampBtn(noteInput));
                     bindAutosaveTextarea(noteInput, function (value) {
                         step.note = value;
                         refreshNoteMark();
@@ -9535,7 +9561,7 @@
         refreshKeepBtn();
 
         var pauseStopRow = document.createElement("div");
-        pauseStopRow.className = "gs-run-pausestop-row";
+        pauseStopRow.className = "gs-run-controls";
 
         var pauseBtn = document.createElement("button");
         pauseBtn.type = "button";
@@ -9574,7 +9600,7 @@
         metroBtn.className = "gs-run-metro-btn";
         metroBtn.innerHTML = METRONOME_ICON_SVG + "<span>Métronome</span>";
         metroBtn.addEventListener("click", openMetronomePanel);
-        toolsRow.appendChild(metroBtn);
+        pauseStopRow.appendChild(metroBtn);
 
         var linksBtn = document.createElement("button");
         linksBtn.type = "button";
@@ -9604,7 +9630,7 @@
             refreshTimer();
         });
         toolsRow.appendChild(autoBtn);
-        content.appendChild(toolsRow);
+        pauseStopRow.appendChild(toolsRow);
 
         var navRow = document.createElement("div");
         navRow.className = "gs-run-nav-row";
