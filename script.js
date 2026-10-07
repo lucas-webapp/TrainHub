@@ -7772,9 +7772,9 @@
             }
             function sizeIt() { box.classList.toggle("num-wide", String(input.value || "").length >= 3); }
             parent.insertBefore(box, input);
-            box.appendChild(mk("−", -1, "Diminuer"));
+            box.appendChild(mk("‹", -1, "Diminuer"));
             box.appendChild(input);
-            box.appendChild(mk("+", 1, "Augmenter"));
+            box.appendChild(mk("›", 1, "Augmenter"));
             input.classList.add("num-in");
             input.addEventListener("input", sizeIt);
             input.addEventListener("change", sizeIt);
@@ -8605,12 +8605,11 @@
                     gsOpenStepDetails[step.id] = !gsOpenStepDetails[step.id];
                     renderSteps();
                 });
-                var detailsBtn = iconButton(step.note && step.note.trim() ? "✎▾" : "▾", "Note et liens affichés pendant la session", function () {
-                    gsOpenStepDetails[step.id] = !gsOpenStepDetails[step.id];
-                    renderSteps();
-                });
-                detailsBtn.classList.add("gs-step-details-btn");
-                if (detailsOpen) detailsBtn.classList.add("gs-step-details-open");
+                // Plus de chevron : on déplie en cliquant sur la barre ; un petit stylo signale qu'une note existe.
+                var detailsBtn = document.createElement("span");
+                detailsBtn.className = "gs-step-note-mark";
+                detailsBtn.textContent = step.note && step.note.trim() ? "✎" : "";
+                detailsBtn.title = "Une note est enregistrée pour cet exercice dans la session";
                 row.appendChild(detailsBtn);
                 var removeBtn = iconButton("✕", "Retirer cet exercice", function () {
                     session.steps.splice(session.steps.indexOf(step), 1);
@@ -8641,7 +8640,7 @@
                     noteInput.value = step.note || "";
                     bindAutosaveTextarea(noteInput, function (value) {
                         step.note = value;
-                        detailsBtn.textContent = value.trim() ? "✎▾" : "▾";
+                        detailsBtn.textContent = value.trim() ? "✎" : "";
                     }, noteStatus);
                     details.appendChild(noteInput);
                     var items = found ? gsExerciseItems(found.ex) : [];

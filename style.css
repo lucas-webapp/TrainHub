@@ -2264,3 +2264,14 @@ button.gs-tool-btn.active { border-color: var(--accent); color: var(--accent); }
 .gs-sync-name { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gs-sync-dur { font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .gs-sync-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+
+/* Chevrons ‹ › intégrés au champ numérique (un seul cadre), gris plus clair que le texte secondaire */
+.num-stepper { gap: 0; align-items: stretch; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input, rgba(255,255,255,.04)); overflow: hidden; }
+.num-stepper:focus-within { border-color: var(--accent); }
+button.num-stepper-btn { width: 18px; min-width: 18px; padding: 0 0 2px; font-size: 18px; line-height: 1; background: transparent; border: none; border-radius: 0; color: #9a9a9a; }
+button.num-stepper-btn:hover { background: rgba(255,255,255,.08); color: #e0e0e0; }
+.num-stepper > input.num-in { width: 30px; border: none; border-radius: 0; background: transparent; box-shadow: none; padding-left: 0; padding-right: 0; }
+.num-stepper > input.num-in:focus { outline: none; box-shadow: none; }
+.num-stepper.num-wide > input.num-in { width: 38px; }
+.gs-step-note-mark { flex: none; color: var(--text-muted); font-size: var(--fs-sm); min-width: 0; }
+.gs-step-note-mark:empty { display: none; }
