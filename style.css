@@ -2367,3 +2367,16 @@ button.metro-progressive-toggle, .metro-tools-row button.metro-progressive-toggl
   .gs-step-session { flex: 1 1 100%; width: auto; align-self: auto; margin: 2px -8px -6px; padding: 5px 10px; border-left: none; border-top: 1px solid rgba(255,255,255,.22); border-radius: 0 0 8px 8px; justify-content: flex-end; }
   .gs-step-tempo { margin-left: auto; }
 }
+
+/* Écran de guidage : contrôles en grille 2 colonnes (gauche souple, droite 150 px), largeur maximale, rideau discret */
+.gs-main { --gs-run-max: 560px; }
+.gs-run-controls { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) var(--gs-btn-compact); column-gap: 16px; row-gap: 8px; align-items: center; max-width: var(--gs-run-max); margin: 0 auto 12px; }
+.gs-run-controls::before { content: ""; position: absolute; top: 4px; bottom: 4px; right: calc(var(--gs-btn-compact) + 8px); width: 1px; background: var(--border); pointer-events: none; }
+.gs-run-controls .gs-run-pause-btn, .gs-run-controls .gs-run-metro-btn { width: 100%; flex: none; }
+.gs-run-controls .gs-run-stop-btn { width: 100%; }
+.gs-run-controls .gs-run-tools-row { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
+.gs-run-controls .gs-run-links-btn, .gs-run-controls .gs-run-auto-btn { width: 100%; height: var(--gs-btn-h); padding: 0; }
+.gs-run-nav-row, .gs-run-adjust-row, button.gs-run-keep-btn { max-width: var(--gs-run-max); margin-left: auto; margin-right: auto; width: 100%; box-sizing: border-box; }
+.gs-run-nav-row { margin-bottom: 12px; }
+.gs-pathlines { padding: 0 12px; }
+.note-date-btn { float: right; height: 24px; margin-right: 6px; padding: 0 9px; font-size: var(--fs-2xs); text-transform: none; letter-spacing: 0; border-radius: var(--radius-sm); }
