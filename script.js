@@ -6248,14 +6248,25 @@
                 var row = document.createElement("div");
                 row.className = "metro-prog-row";
                 progFields.appendChild(row);
+                function inlineTxt(parent, t) { var sp = document.createElement("span"); sp.className = "metro-prog-txt"; sp.textContent = t; parent.appendChild(sp); }
                 if (!p.stagesMode) {
-                    row.appendChild(progField("+1 BPM toutes les (s)", progNumber(p.everySeconds, 1, 600, function (n) {
+                    // « +1 bpm / [20] sec » : une seule ligne courte.
+                    var every = document.createElement("div");
+                    every.className = "metro-prog-inline";
+                    inlineTxt(every, "+1 bpm /");
+                    every.appendChild(progNumber(p.everySeconds, 1, 600, function (n) {
                         p.everySeconds = Math.min(600, Math.max(1, n || 20)); progChanged(); return p.everySeconds;
-                    }, { pxPerStep: 4, label: "Secondes entre deux hausses" })));
+                    }, { pxPerStep: 4, label: "Secondes entre deux hausses" }));
+                    inlineTxt(every, "sec");
+                    row.appendChild(every);
                 }
-                row.appendChild(progField("Seuil (BPM)", progNumber(p.limitBpm, 0, 300, function (n) {
+                var seuil = document.createElement("div");
+                seuil.className = "metro-prog-inline";
+                inlineTxt(seuil, "Seuil");
+                seuil.appendChild(progNumber(p.limitBpm, 0, 300, function (n) {
                     p.limitBpm = n ? Math.min(300, Math.max(30, n)) : 0; progChanged(); return p.limitBpm;
-                }, { placeholder: "—", emptyStart: Math.min(300, m.bpm + 10), label: "Tempo seuil" })));
+                }, { placeholder: "—", emptyStart: Math.min(300, m.bpm + 10), label: "Tempo seuil (BPM)" }));
+                row.appendChild(seuil);
                 // « … » : paliers, à l'endroit où on les règle.
                 var more = document.createElement("button");
                 more.type = "button";
@@ -6277,9 +6288,9 @@
                         var line = document.createElement("div");
                         line.className = "metro-prog-stage";
                         function txt(t) { var sp = document.createElement("span"); sp.textContent = t; line.appendChild(sp); }
-                        txt((i + 1) + ".  +1 BPM toutes les");
+                        txt((i + 1) + ".  +1 bpm /");
                         line.appendChild(progNumber(st.every, 1, 600, function (n) { st.every = Math.min(600, Math.max(1, n || 20)); progChanged(); return st.every; }, { pxPerStep: 4, label: "Secondes" }));
-                        txt("s jusqu'à");
+                        txt("sec → seuil");
                         line.appendChild(progNumber(st.until, 30, 300, function (n) { st.until = Math.min(300, Math.max(30, n || 100)); progChanged(); return st.until; }, { label: "Tempo d'arrivée" }));
                         var del = document.createElement("button");
                         del.type = "button";
@@ -6312,7 +6323,8 @@
                 cb.checked = !!p.restoreOnStop;
                 cb.addEventListener("change", function () { p.restoreOnStop = cb.checked; save(); });
                 opt.appendChild(cb);
-                opt.appendChild(document.createTextNode("Revenir au tempo de départ à l'arrêt"));
+                opt.title = "À l'arrêt, le métronome revient au tempo de départ";
+                opt.appendChild(document.createTextNode("Retour tempo après seuil"));
                 progFields.appendChild(opt);
                 progFields.appendChild(progStatus);
                 refreshProgStatus();
@@ -9104,6 +9116,7 @@
         pauseBtn.addEventListener("click", function () {
             if (gsRunPaused) gsResumeRun(); else gsPauseRun();
             refreshPauseBtn();
+            refreshTimer(); // l'affichage se fige tout de suite sur la valeur exacte (pas jusqu'à 250 ms plus tard)
         });
         gsRefreshRunUi = function () { refreshPauseBtn(); refreshTimer(); };
         pauseStopRow.appendChild(pauseBtn);

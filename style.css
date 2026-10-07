@@ -2121,3 +2121,11 @@ button.tempo-chip { gap: 2px; padding: 0 8px; }
 .metro-title-icon { display: inline-flex; align-items: center; gap: 8px; flex: none; color: var(--accent); }
 .metro-title-icon > .icon { width: 26px; height: 26px; }
 .metro-dock .metro-header-row .backups-title.metro-title-icon { flex: none; }
+
+/* Tempo progressif : lignes courtes */
+.metro-prog-inline { display: inline-flex; align-items: center; gap: 8px; }
+.metro-prog-txt { font-size: var(--fs-sm); font-weight: 600; color: var(--text-muted); white-space: nowrap; }
+.metro-prog-row { align-items: center; justify-content: center; gap: 16px; }
+.metro-prog-check { font-size: var(--fs-sm); gap: 10px; color: var(--text-main); }
+.metro-prog-check input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--accent); }
+.metro-prog-stage { font-size: var(--fs-sm); font-weight: 600; }
