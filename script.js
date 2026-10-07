@@ -612,36 +612,27 @@
         });
     }
 
-    // Section « Images » d'un exercice (liste et session) : barre à cliquer, repliée de base.
-    // Coller l'image du presse-papiers dans un exercice (bouton « Coller » de la barre d'ajout).
-    function pasteImagesFromClipboard(ex) {
-        if (!navigator.clipboard || !navigator.clipboard.read) { window.alert("Collage direct indisponible ici : utilise Ctrl+V / ⌘V dans la fiche de l'exercice."); return; }
-        navigator.clipboard.read().then(function (items) {
-            var blobs = [];
-            return Promise.all(items.map(function (it) {
-                var t = it.types.filter(function (x) { return /^image\//.test(x); })[0];
-                return t ? it.getType(t).then(function (bl) { blobs.push(bl); }) : null;
-            })).then(function () {
-                if (blobs.length) addImagesToExercise(ex, blobs); else window.alert("Aucune image dans le presse-papiers.");
-            });
-        }).catch(function () { window.alert("Collage refusé par le navigateur : utilise Ctrl+V / ⌘V dans la fiche de l'exercice."); });
-    }
-
-    // Section « Images » d'un exercice (liste et session) : une barre à cliquer, repliée de base, qui n'existe que
-    // s'il y a des images. L'ajout se fait depuis la barre unique des liens (PJ, Coller, Ctrl+V).
-    function buildImagesSection(ex) {
+    // Section « Images et fichiers » d'un exercice : une barre à cliquer, repliée de base, qui regroupe les liens
+    // (hors vidéos YouTube, qui ont leur propre barre), les fichiers (PDF, audio…) et les images. N'existe que
+    // s'il y a quelque chose à montrer ; l'ajout se fait depuis la barre unique placée sous les sections.
+    function buildFilesSection(ex, chipsList) {
         var wrap = document.createElement("div");
         wrap.className = "images-section";
-        var count = (ex.images || []).length;
+        var nImages = (ex.images || []).length;
+        var nOther = chipsList ? chipsList.querySelectorAll(".link-chip, .file-chip").length : 0;
+        var count = nImages + nOther;
         if (!count) return wrap;
         var open = !!imagesOpenInList[ex.id];
         var bar = document.createElement("button");
         bar.type = "button";
         bar.className = "btn-ghost images-toggle";
-        bar.textContent = (open ? "▾ " : "▸ ") + "Images (" + count + ") — " + (open ? "masquer" : "afficher");
+        bar.textContent = (open ? "▾ " : "▸ ") + "Images et fichiers (" + count + ") — " + (open ? "masquer" : "afficher");
         bar.addEventListener("click", function () { imagesOpenInList[ex.id] = !open; render(); });
         wrap.appendChild(bar);
-        if (open) wrap.appendChild(buildImageStrip(ex, "ex", true));
+        if (open) {
+            if (nOther) wrap.appendChild(chipsList);
+            if (nImages) wrap.appendChild(buildImageStrip(ex, "ex", true));
+        }
         return wrap;
     }
 
@@ -3386,14 +3377,11 @@
         details.appendChild(notes);
         details.appendChild(archiveBox);
 
-        // Liens et fichiers regroupés sous un seul intitulé : un titre plus court, une seule liste
-        // de puces mélangées, une seule ligne d'ajout — moins de texte à l'écran.
-        var resourcesLabel = document.createElement("div");
-        resourcesLabel.className = "section-label";
-        resourcesLabel.textContent = "Liens & fichiers";
-        details.appendChild(resourcesLabel);
-
-        var resourcesList = document.createElement("div");
+        // Ordre de la fiche : notes · vidéos YouTube · images et fichiers (liens hors vidéo, PDF, audio, images)
+        // · barre d'ajout unique tout en bas.
+        var videoChips = document.createElement("div"); // puces des liens YouTube (renommer / retirer), toujours visibles
+        videoChips.className = "links-list";
+        var resourcesList = document.createElement("div"); // liens hors vidéo + fichiers
         resourcesList.className = "links-list";
         (ex.links || []).forEach(function (link, idx) {
             var chip = document.createElement("a");
@@ -3497,16 +3485,16 @@
                     });
             });
             chip.appendChild(removeBtn);
-            resourcesList.appendChild(chip);
+            (youTubeVideoInfo(link.url) ? videoChips : resourcesList).appendChild(chip);
         });
         appendFileChips(resourcesList, ex);
-        details.appendChild(resourcesList);
 
         // Vidéos YouTube de l'exercice : TOUJOURS masquées de base (un lecteur intégré est lourd : rien
         // n'est chargé tant qu'on n'a pas cliqué), en petit, et seulement dans l'exercice déplié.
         // Replier l'exercice referme aussi les vidéos (voir renderExercise).
         var exYtLinks = (ex.links || []).filter(function (l) { return !!youTubeVideoInfo(l.url); });
         if (exYtLinks.length) {
+            details.appendChild(videoChips);
             var exVideosOpen = !!exerciseVideosOpen[ex.id];
             var exYtToggle = document.createElement("button");
             exYtToggle.type = "button";
@@ -3526,6 +3514,8 @@
             }
         }
 
+        details.appendChild(buildFilesSection(ex, resourcesList));
+
         var addLinkRow = document.createElement("div");
         addLinkRow.className = "add-link-row";
         var urlInput = document.createElement("input");
@@ -3540,6 +3530,7 @@
             ex.links.push(newLink);
             pendingRenameKey = "link:" + newLink.id;
             newLinkPropagateId = newLink.id;
+            if (!youTubeVideoInfo(url)) imagesOpenInList[ex.id] = true;
             urlInput.value = "";
             touchExercise(ex);
             save();
@@ -3560,14 +3551,89 @@
         addLinkRow.appendChild(pasteImgBtn);
         details.appendChild(addLinkRow);
 
-        details.appendChild(buildImagesSection(ex));
         bindImagePaste(details, ex);
 
         return details;
     }
 
+    // ---- fichiers audio : toutes les extensions se lisent de la même façon (lecteur intégré) ----
+    // Le type MIME enregistré par le navigateur est parfois vide ou fantaisiste (m4a, mp4, wav… selon le
+    // système) : on le déduit de l'extension, à l'ajout comme à la lecture, pour que tout se comporte pareil.
+    var FILE_MIME_BY_EXT = {
+        mp3: "audio/mpeg", m4a: "audio/mp4", aac: "audio/aac", wav: "audio/wav", wave: "audio/wav", ogg: "audio/ogg", oga: "audio/ogg",
+        opus: "audio/ogg", flac: "audio/flac", weba: "audio/webm", webm: "audio/webm", aif: "audio/aiff", aiff: "audio/aiff", caf: "audio/x-caf",
+        mp4: "video/mp4", m4v: "video/mp4", mov: "video/quicktime", pdf: "application/pdf"
+    };
+    var AUDIO_EXTS = ["mp3", "m4a", "aac", "wav", "wave", "ogg", "oga", "opus", "flac", "weba", "webm", "aif", "aiff", "caf", "mp4", "m4v", "mov"];
+    function fileExt(name) { var m = /\.([A-Za-z0-9]+)$/.exec(name || ""); return m ? m[1].toLowerCase() : ""; }
+    function isAudioFile(meta) {
+        return AUDIO_EXTS.indexOf(fileExt(meta.name)) !== -1 || /^audio\//.test(meta.type || "");
+    }
+    function mimeForFile(name, type) {
+        var byExt = FILE_MIME_BY_EXT[fileExt(name)];
+        if (byExt) return byExt;
+        return type || "";
+    }
+    // Même contenu, type MIME corrigé : l'onglet ou le lecteur sait alors quoi en faire.
+    function playableBlob(blob, meta) {
+        var mime = mimeForFile(meta.name, meta.type || blob.type);
+        return mime && blob.type !== mime ? new Blob([blob], { type: mime }) : blob;
+    }
+    // Lecteur intégré sous la liste de puces : un seul à la fois, avec la vitesse de lecture (utile pour travailler un morceau).
+    function toggleAudioPlayer(container, meta) {
+        var existing = container.querySelector(".audio-player");
+        var sameId = existing && existing.getAttribute("data-file") === meta.id;
+        if (existing) { if (existing._cleanup) existing._cleanup(); existing.remove(); }
+        if (sameId) return;
+        getFileBlob(meta.id).then(function (blob) {
+            if (!blob) { window.alert("Ce fichier n'est disponible que sur l'appareil où il a été ajouté (« " + meta.name + " »)."); return; }
+            var box = document.createElement("div");
+            box.className = "audio-player";
+            box.setAttribute("data-file", meta.id);
+            var name = document.createElement("div");
+            name.className = "audio-player-name";
+            name.textContent = meta.name;
+            var audio = document.createElement("audio");
+            audio.controls = true;
+            audio.preload = "auto";
+            var url = URL.createObjectURL(playableBlob(blob, meta));
+            audio.src = url;
+            var rate = document.createElement("select");
+            rate.className = "audio-player-rate";
+            rate.title = "Vitesse de lecture";
+            [50, 60, 70, 75, 80, 90, 100, 110, 125].forEach(function (r) {
+                var o = document.createElement("option");
+                o.value = String(r / 100); o.textContent = r + " %";
+                if (r === 100) o.selected = true;
+                rate.appendChild(o);
+            });
+            rate.addEventListener("change", function () { audio.playbackRate = parseFloat(rate.value); });
+            var close = document.createElement("button");
+            close.type = "button";
+            close.className = "audio-player-close";
+            close.textContent = "✕";
+            close.title = "Fermer le lecteur";
+            var msg = document.createElement("div");
+            msg.className = "audio-player-error";
+            msg.hidden = true;
+            function cleanup() { try { audio.pause(); } catch (e) {} URL.revokeObjectURL(url); }
+            box._cleanup = cleanup;
+            close.addEventListener("click", function () { cleanup(); box.remove(); });
+            audio.addEventListener("error", function () {
+                msg.hidden = false;
+                msg.textContent = "Ce navigateur ne sait pas lire ce format (." + (fileExt(meta.name) || "?") + "). Convertis le fichier en MP3 ou M4A, ou ouvre-le dans une autre application.";
+            });
+            box.appendChild(name); box.appendChild(audio); box.appendChild(rate); box.appendChild(close); box.appendChild(msg);
+            container.appendChild(box);
+            audio.addEventListener("loadedmetadata", function () { audio.playbackRate = parseFloat(rate.value); });
+            var p = audio.play();
+            if (p && p.catch) p.catch(function () {});
+        });
+    }
+
     function fileKindIcon(mimeOrName) {
-        var isAudio = /audio|\.mp3$/i.test(mimeOrName);
+        mimeOrName = String(mimeOrName || "").trim();
+        var isAudio = /audio|video\/mp4|\.(mp3|m4a|aac|wav|wave|ogg|oga|opus|flac|weba|webm|aiff?|caf|mp4|m4v|mov)$/i.test(mimeOrName);
         return isAudio
             ? '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>'
             : '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg>';
@@ -3585,7 +3651,7 @@
 
             var iconSpan = document.createElement("span");
             iconSpan.className = "link-icon";
-            iconSpan.innerHTML = fileKindIcon(meta.type || meta.name);
+            iconSpan.innerHTML = fileKindIcon((meta.type || "") + " " + (meta.name || ""));
             chip.appendChild(iconSpan);
 
             var openBtn = document.createElement("button");
@@ -3594,12 +3660,13 @@
             function fileCaption() { return meta.name + (meta.size ? " · " + humanFileSize(meta.size) : ""); }
             openBtn.textContent = fileCaption();
             openBtn.addEventListener("click", function () {
+                if (isAudioFile(meta)) { toggleAudioPlayer(list, meta); return; }
                 getFileBlob(meta.id).then(function (blob) {
                     if (!blob) {
                         window.alert("Ce fichier n'est disponible que sur l'appareil où il a été ajouté (« " + meta.name + " »).");
                         return;
                     }
-                    var url = URL.createObjectURL(blob);
+                    var url = URL.createObjectURL(playableBlob(blob, meta));
                     window.open(url, "_blank");
                     setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
                 });
@@ -3674,7 +3741,7 @@
         var fileInput = document.createElement("input");
         fileInput.type = "file";
         fileInput.className = "add-file-input";
-        fileInput.accept = ".pdf,application/pdf,.mp3,audio/*,image/*";
+        fileInput.accept = ".pdf,application/pdf,audio/*,video/mp4,image/*,.mp3,.m4a,.aac,.wav,.ogg,.opus,.flac,.aif,.aiff,.mp4,.m4v,.mov,.weba,.webm";
         fileInput.multiple = true;
         var fileBtn = svgIconButton(FILE_ICON_SVG, "Ajouter un fichier (PDF, MP3…) ou une image — reste sur cet appareil", function () { fileInput.click(); });
         fileBtn.classList.add("btn-ghost");
@@ -3689,10 +3756,13 @@
             ex.files = ex.files || [];
             Promise.all(files.map(function (file) {
                 var id = uid();
-                return storeFileBlob(id, file).then(function () {
-                    ex.files.push({ id: id, name: file.name, type: file.type, size: file.size, addedAt: Date.now() });
+                var mime = mimeForFile(file.name, file.type);
+                var toStore = mime && file.type !== mime ? new Blob([file], { type: mime }) : file;
+                return storeFileBlob(id, toStore).then(function () {
+                    ex.files.push({ id: id, name: file.name, type: mime || file.type, size: file.size, addedAt: Date.now() });
                 });
             })).then(function () {
+                imagesOpenInList[ex.id] = true; // la section « Images et fichiers » s'ouvre pour montrer le nouveau fichier
                 fileInput.value = "";
                 // Un seul fichier ajouté : saisie du nom aussitôt (comme pour un lien).
                 if (files.length === 1) pendingRenameKey = "file:" + ex.files[ex.files.length - 1].id;
@@ -7764,16 +7834,17 @@
             chip.title = "Fichier stocké seulement sur cet appareil (non synchronisé)";
             var iconSpan = document.createElement("span");
             iconSpan.className = "link-icon";
-            iconSpan.innerHTML = fileKindIcon(meta.type || meta.name);
+            iconSpan.innerHTML = fileKindIcon((meta.type || "") + " " + (meta.name || ""));
             chip.appendChild(iconSpan);
             var label = document.createElement("span");
             label.className = "file-open";
             label.textContent = meta.name;
             chip.appendChild(label);
             chip.addEventListener("click", function () {
+                if (isAudioFile(meta)) { toggleAudioPlayer(container, meta); return; }
                 getFileBlob(meta.id).then(function (blob) {
                     if (!blob) { window.alert("Ce fichier n'est disponible que sur l'appareil où il a été ajouté (« " + meta.name + " »)."); return; }
-                    var url = URL.createObjectURL(blob);
+                    var url = URL.createObjectURL(playableBlob(blob, meta));
                     window.open(url, "_blank");
                     setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
                 });
@@ -7837,7 +7908,7 @@
             if (blob === false) { unavailable.push(item.label); return; }
             if (!blob) { pending.push(item.label); return; } // lecture pas encore terminée
             // Fichier déjà lu à l'affichage de l'écran : ouverture immédiate, comme un lien.
-            var url = URL.createObjectURL(blob);
+            var url = URL.createObjectURL(playableBlob(blob, item.meta));
             urls.push(url);
             setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
         });
