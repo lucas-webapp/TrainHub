@@ -2052,3 +2052,8 @@ button.scales-picker-item-on { color: var(--accent); background: color-mix(in sr
 button.scales-pick-btn { max-width: 190px; }
 button.scales-pick-btn { flex: 1 1 110px; min-width: 110px; max-width: 190px; }
 .scales-controls .scales-segmented { flex: none; }
+
+/* Barre d'ajout unique (lien / PJ / Coller) et bouton image de la barre d'exercice */
+button.add-paste-btn { height: 34px; padding: 0 12px; font-size: var(--fs-xs); flex: none; }
+button.exercise-image-quick { gap: 4px; padding: 0 8px; }
+.exercise-image-count { font-size: var(--fs-2xs); font-weight: 700; color: var(--accent); }
