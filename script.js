@@ -172,7 +172,10 @@
         s.settings.sessionFolders = s.settings.sessionFolders.filter(function (f) { return f && typeof f === "object" && typeof f.name === "string"; });
         s.settings.sessionFolders.forEach(function (f) { if (!f.id) f.id = uid(); f.collapsed = f.collapsed === true; });
         s.settings.guidedSessions.forEach(function (gs) {
-            if (gs.folderId && !s.settings.sessionFolders.some(function (f) { return f.id === gs.folderId; })) delete gs.folderId;
+            // Onglets : une session peut figurer dans plusieurs onglets (l'ancien « dossier » devient un onglet).
+            if (!Array.isArray(gs.tabIds)) gs.tabIds = [];
+            if (gs.folderId) { if (gs.tabIds.indexOf(gs.folderId) === -1) gs.tabIds.push(gs.folderId); delete gs.folderId; }
+            gs.tabIds = gs.tabIds.filter(function (id, i, arr) { return arr.indexOf(id) === i && s.settings.sessionFolders.some(function (f) { return f.id === id; }); });
             if (!gs.id) gs.id = uid();
             if (typeof gs.name !== "string" || !gs.name.trim()) gs.name = "Session guidée";
             if (!Array.isArray(gs.steps)) gs.steps = [];
@@ -758,7 +761,7 @@
         if (!entry) return;
         if (entry.type === "session") {
             if (!findById(state.instruments, entry.data.instrumentId)) entry.data.instrumentId = state.activeInstrumentId;
-            if (entry.data.folderId && !state.settings.sessionFolders.some(function (f) { return f.id === entry.data.folderId; })) delete entry.data.folderId;
+            entry.data.tabIds = (entry.data.tabIds || []).filter(function (id) { return state.settings.sessionFolders.some(function (f) { return f.id === id; }); });
             state.settings.guidedSessions.push(entry.data);
         } else {
             var inst = findById(state.instruments, entry.instrumentId) || state.instruments[0];
@@ -7966,20 +7969,31 @@
         else renderGsListScreen(content);
     }
 
-    // ---- écran liste ----
+    // ---- écran liste : onglets (Tout + onglets libres), filtre de durée ----
+    var GS_TAB_KEY = "trainhub.gsTab.v1";
+    var GS_DURATIONS = [["", "Toutes durées"], ["30", "≤ 30 min"], ["45", "31 – 45 min"], ["60", "46 – 60 min"], ["61", "> 60 min"]];
+    var gsActiveTab = "all", gsDurFilter = "";
+    try { var gsSaved = JSON.parse(localStorage.getItem(GS_TAB_KEY)) || {}; if (gsSaved.dur && GS_DURATIONS.some(function (d) { return d[0] === gsSaved.dur; })) gsDurFilter = gsSaved.dur; if (gsSaved.tab) gsActiveTab = gsSaved.tab; } catch (e) {}
+    function gsSaveView() { try { localStorage.setItem(GS_TAB_KEY, JSON.stringify({ tab: gsActiveTab, dur: gsDurFilter })); } catch (e) {} }
+    function gsDurationMatches(session, f) {
+        if (!f) return true;
+        var m = sessionTotalMinutes(session);
+        if (f === "30") return m <= 30;
+        if (f === "45") return m > 30 && m <= 45;
+        if (f === "60") return m > 45 && m <= 60;
+        return m > 60;
+    }
+
     function renderGsListScreen(content) {
         var allSessions = state.settings.guidedSessions;
-        var folders = state.settings.sessionFolders.filter(function (f) { return f.instrumentId === state.activeInstrumentId; });
+        var tabs = state.settings.sessionFolders.filter(function (f) { return f.instrumentId === state.activeInstrumentId; });
         var activeInstId = state.activeInstrumentId;
-        // Seules les sessions de l'espace affiché (créées à partir de ses exercices).
         var sessions = allSessions.filter(function (gs) { return gs.instrumentId === activeInstId; });
-        var folderIds = folders.map(function (f) { return f.id; });
-        function inFolder(gs, f) { return gs.folderId === f.id; }
-        var loose = sessions.filter(function (gs) { return folderIds.indexOf(gs.folderId) === -1; });
+        if (gsActiveTab !== "all" && !tabs.some(function (t) { return t.id === gsActiveTab; })) gsActiveTab = "all";
+        var activeTab = tabs.filter(function (t) { return t.id === gsActiveTab; })[0] || null;
 
-        function newSession(folderId) {
-            var session = { id: uid(), name: "Nouvelle session", steps: [], instrumentId: activeInstId };
-            if (folderId) session.folderId = folderId;
+        function newSession() {
+            var session = { id: uid(), name: "Nouvelle session", steps: [], instrumentId: activeInstId, tabIds: activeTab ? [activeTab.id] : [] };
             allSessions.push(session);
             gsEditingSession = session;
             gsScreen = "edit";
@@ -8001,10 +8015,10 @@
             });
             var info = document.createElement("div");
             info.className = "gs-session-info";
-            var name = document.createElement("div");
+            var name = document.createElement("span");
             name.className = "gs-session-name";
             name.textContent = session.name;
-            var meta = document.createElement("div");
+            var meta = document.createElement("span");
             meta.className = "gs-session-meta";
             meta.textContent = session.steps.length + " exercice" + (session.steps.length > 1 ? "s" : "") + " · " + sessionTotalMinutes(session) + " min";
             info.appendChild(name);
@@ -8025,7 +8039,12 @@
                 });
                 linksBtn.classList.add("gs-session-links-btn");
             }
-            var delBtn = iconButton("✕", "Supprimer cette session", function () {
+            var delBtn = iconButton("✕", activeTab ? "Retirer de cet onglet (la session reste dans « Tout »)" : "Supprimer cette session", function () {
+                if (activeTab) {
+                    session.tabIds = session.tabIds.filter(function (id) { return id !== activeTab.id; });
+                    save(); render();
+                    return;
+                }
                 if (!window.confirm("Supprimer la session « " + session.name + " » ?")) return;
                 addToTrash("session", session, {});
                 allSessions.splice(allSessions.indexOf(session), 1);
@@ -8039,117 +8058,186 @@
             return row;
         }
 
-        // Une liste de lignes qui se réordonne au glisser, et dont une ligne peut être lâchée sur l'en-tête
-        // d'un dossier (ou de « Sans dossier ») pour changer de dossier.
-        function buildList(items) {
-            var list = document.createElement("div");
-            list.className = "gs-session-list";
-            items.forEach(function (gs) { list.appendChild(buildRow(gs)); });
-            setupDragReorder(list, ".gs-session-row", function () { return allSessions; }, "y", {
-                dropAttr: "data-drop-session-folder",
-                onDropOnTarget: function (el, target) {
-                    var session = allSessions.filter(function (gs) { return gs.id === el.dataset.reorderId; })[0];
-                    if (!session) return;
-                    if (target === "__root__") delete session.folderId; else session.folderId = target;
-                    save();
-                    render();
-                }
+        // Session lâchée sur un onglet : déplacer / ajouter aussi / dupliquer.
+        function openTabDropMenu(x, y, session, targetId) {
+            closeFolderMenu();
+            var target = tabs.filter(function (t) { return t.id === targetId; })[0] || null; // null = « Tout »
+            var targetName = target ? target.name : "Tout";
+            var already = target ? session.tabIds.indexOf(target.id) !== -1 : true;
+            if ((target ? target.id : "all") === gsActiveTab) { render(); return; }
+            var backdrop = document.createElement("div");
+            backdrop.className = "ctx-backdrop";
+            function cancel() { closeFolderMenu(); render(); }
+            backdrop.addEventListener("pointerdown", function (e) { e.preventDefault(); cancel(); });
+            backdrop.addEventListener("contextmenu", function (e) { e.preventDefault(); cancel(); });
+            var menu = document.createElement("div");
+            menu.className = "ctx-menu";
+            menu.setAttribute("role", "menu");
+            var heading = document.createElement("div");
+            heading.className = "ctx-menu-title";
+            heading.textContent = "« " + session.name + " » → « " + targetName + " »";
+            menu.appendChild(heading);
+            function choice(text, className, onClick) {
+                var b = document.createElement("button");
+                b.type = "button";
+                b.className = "ctx-item" + (className ? " " + className : "");
+                b.textContent = text;
+                b.addEventListener("click", onClick);
+                menu.appendChild(b);
+            }
+            function addTo(sess) { if (target && sess.tabIds.indexOf(target.id) === -1) sess.tabIds.push(target.id); }
+            if (activeTab) choice(target ? "Déplacer ici" : "Retirer de « " + activeTab.name + " »", "", function () {
+                closeFolderMenu();
+                session.tabIds = session.tabIds.filter(function (id) { return id !== activeTab.id; });
+                addTo(session);
+                save(); render();
             });
-            return list;
+            if (target && !already) choice(activeTab ? "Ajouter aussi ici" : "Ajouter à cet onglet", "", function () {
+                closeFolderMenu();
+                addTo(session);
+                save(); render();
+                showToast("« " + session.name + " » ajoutée à « " + targetName + " »");
+            });
+            choice("Dupliquer ici", "", function () {
+                closeFolderMenu();
+                var copy = JSON.parse(JSON.stringify(session));
+                copy.id = uid();
+                copy.name = session.name + " (copie)";
+                copy.steps.forEach(function (st) { st.id = uid(); });
+                copy.tabIds = target ? [target.id] : (activeTab ? session.tabIds.slice() : []);
+                allSessions.push(copy);
+                save(); render();
+                showToast("« " + session.name + " » dupliquée");
+            });
+            choice("Annuler", "ctx-item-muted", cancel);
+            function onKey(e) { if (e.key === "Escape") cancel(); }
+            document.body.appendChild(backdrop);
+            document.body.appendChild(menu);
+            document.addEventListener("keydown", onKey, true);
+            openMenu = { backdrop: backdrop, menu: menu, onKey: onKey };
+            var mw = menu.offsetWidth || 220, mh = menu.offsetHeight || 130;
+            menu.style.left = Math.min(Math.max(8, x + 6), Math.max(8, window.innerWidth - mw - 8)) + "px";
+            menu.style.top = Math.min(Math.max(8, y - 20), Math.max(8, window.innerHeight - mh - 8)) + "px";
         }
 
-        if (!sessions.length && !folders.length) {
+        // ---- barre d'onglets ----
+        var bar = document.createElement("div");
+        bar.className = "gs-tabbar";
+        bar.setAttribute("role", "tablist");
+        function tabBtn(id, label, count, dropId) {
+            var b = document.createElement("button");
+            b.type = "button";
+            b.className = "gs-tab" + (gsActiveTab === id ? " active" : "");
+            b.setAttribute("role", "tab");
+            b.setAttribute("aria-selected", gsActiveTab === id ? "true" : "false");
+            b.setAttribute("data-drop-session-folder", dropId);
+            b.innerHTML = "";
+            var l = document.createElement("span"); l.className = "gs-tab-name"; l.textContent = label;
+            var c = document.createElement("span"); c.className = "gs-tab-count"; c.textContent = String(count);
+            b.appendChild(l); b.appendChild(c);
+            b.addEventListener("click", function () { gsActiveTab = id; gsSaveView(); render(); });
+            if (id !== "all") b.addEventListener("dblclick", function () { renameTab(id); });
+            bar.appendChild(b);
+        }
+        function renameTab(id) {
+            var t = tabs.filter(function (x) { return x.id === id; })[0];
+            if (!t) return;
+            var n = window.prompt("Nom de l'onglet :", t.name);
+            if (n === null || !n.trim()) return;
+            t.name = n.trim(); save(); render();
+        }
+        tabBtn("all", "Tout", sessions.length, "__all__");
+        tabs.forEach(function (t) {
+            tabBtn(t.id, t.name, sessions.filter(function (gs) { return gs.tabIds.indexOf(t.id) !== -1; }).length, t.id);
+        });
+        content.appendChild(bar);
+
+        // ---- filtre de durée + actions de l'onglet ----
+        var tools = document.createElement("div");
+        tools.className = "gs-listtools";
+        var durSel = document.createElement("select");
+        durSel.className = "gs-dur-select";
+        durSel.setAttribute("aria-label", "Filtrer par durée");
+        GS_DURATIONS.forEach(function (d) {
+            var o = document.createElement("option"); o.value = d[0]; o.textContent = d[0] ? "Durée : " + d[1] : d[1];
+            if (d[0] === gsDurFilter) o.selected = true;
+            durSel.appendChild(o);
+        });
+        durSel.addEventListener("change", function () { gsDurFilter = durSel.value; gsSaveView(); render(); });
+        tools.appendChild(durSel);
+        if (activeTab) {
+            var tAct = document.createElement("div");
+            tAct.className = "gs-session-actions";
+            tAct.appendChild(iconButton("✎", "Renommer l'onglet", function () { renameTab(activeTab.id); }));
+            tAct.appendChild(iconButton("✕", "Supprimer l'onglet (les sessions sont conservées dans « Tout »)", function () {
+                if (!window.confirm("Supprimer l'onglet « " + activeTab.name + " » ? Ses sessions sont conservées.")) return;
+                sessions.forEach(function (gs) { gs.tabIds = gs.tabIds.filter(function (id) { return id !== activeTab.id; }); });
+                state.settings.sessionFolders.splice(state.settings.sessionFolders.indexOf(activeTab), 1);
+                gsActiveTab = "all"; gsSaveView();
+                save(); render();
+            }));
+            tools.appendChild(tAct);
+        }
+        content.appendChild(tools);
+
+        // ---- liste ----
+        var visible = sessions.filter(function (gs) {
+            return (!activeTab || gs.tabIds.indexOf(activeTab.id) !== -1) && gsDurationMatches(gs, gsDurFilter);
+        });
+        if (!visible.length) {
             var empty = document.createElement("div");
             empty.className = "gs-empty";
-            empty.textContent = "Aucune session pour l'instant.";
+            empty.textContent = !sessions.length ? "Aucune session pour l'instant."
+                : activeTab && !sessions.some(function (gs) { return gs.tabIds.indexOf(activeTab.id) !== -1; }) ? "Onglet vide : glisse une session sur son onglet."
+                : "Aucune session ne correspond au filtre.";
             content.appendChild(empty);
-        }
-
-        folders.forEach(function (folder) {
-            var mine = sessions.filter(function (gs) { return inFolder(gs, folder); });
-            var wrap = document.createElement("div");
-            wrap.className = "gs-folder";
-            var head = document.createElement("div");
-            head.className = "gs-folder-head";
-            head.setAttribute("data-drop-session-folder", folder.id);
-            var toggle = document.createElement("button");
-            toggle.type = "button";
-            toggle.className = "gs-folder-toggle";
-            toggle.setAttribute("aria-expanded", folder.collapsed ? "false" : "true");
-            var chev = document.createElement("span");
-            chev.className = "gs-folder-chev";
-            chev.textContent = folder.collapsed ? "▸" : "▾";
-            var fname = document.createElement("span");
-            fname.className = "gs-folder-name";
-            fname.textContent = folder.name;
-            var count = document.createElement("span");
-            count.className = "gs-folder-count";
-            count.textContent = String(mine.length);
-            toggle.appendChild(chev); toggle.appendChild(fname); toggle.appendChild(count);
-            toggle.addEventListener("click", function () { folder.collapsed = !folder.collapsed; persist(); render(); });
-            head.appendChild(toggle);
-            var acts = document.createElement("div");
-            acts.className = "gs-session-actions";
-            acts.appendChild(iconButton("+", "Nouvelle session dans ce dossier", function () { newSession(folder.id); }));
-            acts.appendChild(iconButton("✎", "Renommer le dossier", function () {
-                var n = window.prompt("Nom du dossier :", folder.name);
-                if (n === null || !n.trim()) return;
-                folder.name = n.trim();
-                save();
-                render();
-            }));
-            acts.appendChild(iconButton("✕", "Supprimer le dossier (les sessions sont conservées, sans dossier)", function () {
-                if (!window.confirm("Supprimer le dossier « " + folder.name + " » ? Ses sessions sont conservées.")) return;
-                mine.forEach(function (gs) { delete gs.folderId; });
-                state.settings.sessionFolders.splice(state.settings.sessionFolders.indexOf(folder), 1);
-                save();
-                render();
-            }));
-            head.appendChild(acts);
-            wrap.appendChild(head);
-            if (!folder.collapsed) {
-                if (mine.length) wrap.appendChild(buildList(mine));
-                else {
-                    var fe = document.createElement("div");
-                    fe.className = "gs-empty";
-                    fe.textContent = "Dossier vide : glisse une session ici.";
-                    wrap.appendChild(fe);
+        } else {
+            var list = document.createElement("div");
+            list.className = "gs-session-list";
+            visible.forEach(function (gs) { list.appendChild(buildRow(gs)); });
+            // Réordonner : seules les sessions affichées changent de place entre elles.
+            var visibleProxy = { sort: function (cmp) {
+                var slots = [];
+                allSessions.forEach(function (gs, i) { if (visible.indexOf(gs) !== -1) slots.push(i); });
+                var sorted = visible.slice().sort(cmp);
+                slots.forEach(function (idx, k) { allSessions[idx] = sorted[k]; });
+            } };
+            setupDragReorder(list, ".gs-session-row", function () { return visibleProxy; }, "y", {
+                dropAttr: "data-drop-session-folder",
+                onDropOnTarget: function (el, target, x, y) {
+                    var session = allSessions.filter(function (gs) { return gs.id === el.dataset.reorderId; })[0];
+                    if (!session) return;
+                    openTabDropMenu(x, y, session, target === "__all__" ? "" : target);
                 }
-            }
-            content.appendChild(wrap);
-        });
-
-        if (folders.length && (loose.length || true)) {
-            var rootHead = document.createElement("div");
-            rootHead.className = "gs-folder-head gs-folder-root";
-            rootHead.setAttribute("data-drop-session-folder", "__root__");
-            rootHead.textContent = "Sans dossier";
-            content.appendChild(rootHead);
+            });
+            content.appendChild(list);
         }
-        if (loose.length) content.appendChild(buildList(loose));
 
-        var addRow = document.createElement("div");
-        addRow.className = "gs-add-row";
+        // Boutons d'ajout : en haut, à droite du titre « Session guidée » (ou en tête de liste quand le titre est masqué).
         var addBtn = document.createElement("button");
         addBtn.type = "button";
         addBtn.className = "btn-accent gs-add-session-btn";
         addBtn.textContent = "+ Nouvelle session";
-        addBtn.addEventListener("click", function () { newSession(null); });
-        addRow.appendChild(addBtn);
-        var addFolderBtn = document.createElement("button");
-        addFolderBtn.type = "button";
-        addFolderBtn.className = "gs-add-folder-btn";
-        addFolderBtn.textContent = "+ Dossier";
-        addFolderBtn.title = "Ranger les sessions par dossiers (facultatif)";
-        addFolderBtn.addEventListener("click", function () {
-            var n = window.prompt("Nom du dossier (ex. Vitesse, Gammes, Professeur) :", "");
+        addBtn.addEventListener("click", newSession);
+        var addTabBtn = document.createElement("button");
+        addTabBtn.type = "button";
+        addTabBtn.className = "gs-add-folder-btn";
+        addTabBtn.textContent = "+ Onglet";
+        addTabBtn.title = "Nouvel onglet (ex. Sessions 1 heure, Favorites…)";
+        addTabBtn.addEventListener("click", function () {
+            var n = window.prompt("Nom du nouvel onglet (ex. Sessions 1 heure, Favorites) :", "");
             if (n === null || !n.trim()) return;
-            state.settings.sessionFolders.push({ id: uid(), name: n.trim(), instrumentId: activeInstId, collapsed: false });
-            save();
-            render();
+            var t = { id: uid(), name: n.trim(), instrumentId: activeInstId, collapsed: false };
+            state.settings.sessionFolders.push(t);
+            gsActiveTab = t.id; gsSaveView();
+            save(); render();
         });
-        addRow.appendChild(addFolderBtn);
-        content.appendChild(addRow);
+        var headActions = document.createElement("div");
+        headActions.className = "gs-head-actions";
+        headActions.appendChild(addBtn);
+        headActions.appendChild(addTabBtn);
+        if (window.matchMedia && window.matchMedia("(min-width: 880px)").matches) $contentHeading.appendChild(headActions);
+        else content.insertBefore(headActions, content.firstChild);
     }
 
     // ---- écran édition ----
@@ -8174,25 +8262,29 @@
         });
         content.appendChild(nameInput);
 
-        var sessFolders = state.settings.sessionFolders.filter(function (f) { return f.instrumentId === session.instrumentId; });
-        if (sessFolders.length) {
-            var folderSel = document.createElement("select");
-            folderSel.className = "gs-folder-select";
-            folderSel.setAttribute("aria-label", "Dossier de la session");
-            var none = document.createElement("option");
-            none.value = ""; none.textContent = "Sans dossier";
-            folderSel.appendChild(none);
-            sessFolders.forEach(function (f) {
-                var o = document.createElement("option");
-                o.value = f.id; o.textContent = f.name;
-                if (session.folderId === f.id) o.selected = true;
-                folderSel.appendChild(o);
+        var sessTabs = state.settings.sessionFolders.filter(function (f) { return f.instrumentId === session.instrumentId; });
+        if (sessTabs.length) {
+            var tabPick = document.createElement("div");
+            tabPick.className = "gs-tabpick";
+            tabPick.setAttribute("aria-label", "Onglets de la session");
+            sessTabs.forEach(function (t) {
+                var chip = document.createElement("button");
+                chip.type = "button";
+                var on = session.tabIds.indexOf(t.id) !== -1;
+                chip.className = "gs-tabpick-chip" + (on ? " active" : "");
+                chip.setAttribute("aria-pressed", on ? "true" : "false");
+                chip.textContent = t.name;
+                chip.addEventListener("click", function () {
+                    var i = session.tabIds.indexOf(t.id);
+                    if (i === -1) session.tabIds.push(t.id); else session.tabIds.splice(i, 1);
+                    save();
+                    var now = i === -1;
+                    chip.classList.toggle("active", now);
+                    chip.setAttribute("aria-pressed", now ? "true" : "false");
+                });
+                tabPick.appendChild(chip);
             });
-            folderSel.addEventListener("change", function () {
-                if (folderSel.value) session.folderId = folderSel.value; else delete session.folderId;
-                save();
-            });
-            content.appendChild(folderSel);
+            content.appendChild(tabPick);
         }
 
         var runBtn = document.createElement("button");
