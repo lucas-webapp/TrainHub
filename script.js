@@ -42,7 +42,6 @@
     // marqués favoris et les exercices archivés de TOUT l'instrument, où qu'ils soient rangés.
     var FAVORITES_ID = "__favorites__";
     var ARCHIVED_ID = "__archived__";
-    var TAGS_VIEW_ID = "__tags__";
 
     var searchQuery = "";
     var navPaths = {}; // instrumentId -> [folderId, ...] depuis le grand chapitre (non synchronisé, juste la navigation en cours)
@@ -118,26 +117,16 @@
             // quotidien : juste deux cases à cocher, accessibles par clic droit/appui long.
             if (typeof ex.favorite !== "boolean") ex.favorite = false;
             if (typeof ex.archived !== "boolean") ex.archived = false;
-            if (!Array.isArray(ex.tags)) ex.tags = [];
-            ex.tags = ex.tags.filter(function (t) { return TAGS.hasOwnProperty(t); });
+            delete ex.tags; // les étiquettes ont été retirées de l'application
         });
     }
-
-    // Étiquettes prédéfinies posables sur un exercice (clic droit), simple classification en plus
-    // des dossiers/favoris/archivés — pas de filtre dédié dessus, juste un repère visuel discret.
-    var TAGS = {
-        difficile: { label: "Difficile", color: "#f87171" },
-        prioritaire: { label: "Prioritaire", color: "#fb923c" },
-        termine: { label: "Terminé", color: "#4ade80" },
-        arevoir: { label: "À revoir", color: "#60a5fa" }
-    };
 
     // Ordre d'affichage des chapitres (bandeau mobile + arborescence), synchronisé : mélange les
     // vrais chapitres et les chapitres virtuels (Favoris, Archivés), tous glissables ensemble. Par
     // défaut (ou pour un instrument créé avant cette version), les virtuels sont en tête et les
     // vrais chapitres suivent dans leur ordre existant — rien ne bouge visuellement.
     function normalizePinnedOrder(inst) {
-        var validIds = [FAVORITES_ID, ARCHIVED_ID, TAGS_VIEW_ID].concat(inst.categories.map(function (c) { return c.id; }));
+        var validIds = [FAVORITES_ID, ARCHIVED_ID].concat(inst.categories.map(function (c) { return c.id; }));
         var order = Array.isArray(inst.pinnedOrder) ? inst.pinnedOrder.filter(function (id) { return validIds.indexOf(id) !== -1; }) : [];
         validIds.forEach(function (id) { if (order.indexOf(id) === -1) order.push(id); });
         inst.pinnedOrder = order;
@@ -949,6 +938,34 @@
         return null;
     }
 
+    // Où se trouve l'exercice : son chemin de dossiers, puis ceux des exercices de même nom rangés ailleurs
+    // (copies dans d'autres dossiers). Une ou deux lignes discrètes, sous la barre de l'exercice déplié.
+    function gsExercisePathLines(found) {
+        if (!found) return null;
+        function norm(t) { return String(t || "").replace(/ \(copie\)$/, "").trim().toLowerCase(); }
+        var lines = [found.pathNames.join(" > ")];
+        var others = collectExercises(found.inst, function (ex) {
+            return ex !== found.ex && !ex.archived && norm(ex.title) === norm(found.ex.title);
+        }).map(function (r) { return r.pathNames.join(" > "); }).filter(function (l) { return lines.indexOf(l) === -1; });
+        others.slice(0, 2).forEach(function (l) { lines.push(l); });
+        var wrap = document.createElement("div");
+        wrap.className = "gs-pathlines";
+        lines.forEach(function (l) {
+            var d = document.createElement("div");
+            d.className = "gs-pathline";
+            d.textContent = l;
+            d.title = l;
+            wrap.appendChild(d);
+        });
+        if (others.length > 2) {
+            var more = document.createElement("div");
+            more.className = "gs-pathline gs-pathline-more";
+            more.textContent = "+ " + (others.length - 2) + " autre" + (others.length - 2 > 1 ? "s" : "");
+            wrap.appendChild(more);
+        }
+        return wrap;
+    }
+
     function guessLinkLabel(url) {
         try {
             var host = new URL(url).hostname.replace(/^www\./, "");
@@ -977,7 +994,6 @@
     var GRIP_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>';
     var STAR_FILLED_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.7l2.9 6 6.6.7-4.9 4.5 1.3 6.5L12 17.4l-5.9 3 1.3-6.5-4.9-4.5 6.6-.7Z"/></svg>';
     var ARCHIVE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"/><path d="M10 13h4"/></svg>';
-    var TAG_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.6 12.3 12.3 20.6a2 2 0 0 1-2.8 0l-7-7a2 2 0 0 1 0-2.8L10.9 2.5a2 2 0 0 1 1.4-.6H19a2 2 0 0 1 2 2v6.9a2 2 0 0 1-.4 1.4Z"/><circle cx="16.5" cy="7.5" r="1.5" fill="currentColor" stroke="none"/></svg>';
     var FILE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05 12.25 20.24a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
     var METRONOME_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 21 10 4h4l3 17Z"/><path d="M12 4V2.3"/><path d="M12 18 15.2 6.5"/><circle cx="14.1" cy="10.8" r="1.3" fill="currentColor" stroke="none"/></svg>';
     var METRO_PLAY_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5Z"/></svg>';
@@ -1228,12 +1244,13 @@
             notes: ex.notes || "",
             favorite: false,
             archived: false,
-            tags: (ex.tags || []).slice(),
             links: cloneLinksForDuplicate(ex.links),
             files: cloneFilesForDuplicate(ex.files),
             images: cloneFilesForDuplicate(ex.images),
             metronome: ex.metronome ? JSON.parse(JSON.stringify(ex.metronome)) : null,
             notesArchive: (ex.notesArchive || []).map(function (e) { return { d: e.d, t: e.t }; }),
+            noteDates: (ex.noteDates || []).slice(),
+            lastMinutes: ex.lastMinutes || undefined,
             pinnedLinkId: null,
             collapsed: true,
             updatedAt: Date.now()
@@ -1584,22 +1601,6 @@
             closeFolderMenu();
             render();
         }));
-
-        var tagsSep = document.createElement("div");
-        tagsSep.className = "ctx-title";
-        tagsSep.textContent = "Étiquettes";
-        menu.appendChild(tagsSep);
-        Object.keys(TAGS).forEach(function (key) {
-            var active = ex.tags.indexOf(key) !== -1;
-            menu.appendChild(menuButton((active ? "✓ " : "") + TAGS[key].label, "", function () {
-                var i = ex.tags.indexOf(key);
-                if (i === -1) ex.tags.push(key); else ex.tags.splice(i, 1);
-                touchExercise(ex);
-                save();
-                closeFolderMenu();
-                render();
-            }));
-        });
 
         if (folder) {
             menu.appendChild(menuButton("Dupliquer", "", function () {
@@ -2168,7 +2169,7 @@
         var inst = getActiveInstrument();
         if (!inst) return;
         var path = getNavPath(inst);
-        if (path[0] === FAVORITES_ID || path[0] === ARCHIVED_ID || path[0] === TAGS_VIEW_ID) return;
+        if (path[0] === FAVORITES_ID || path[0] === ARCHIVED_ID) return;
         var nodes = resolvePath(inst, path);
         var currentFolder = nodes[nodes.length - 1];
         if (!currentFolder) return;
@@ -2191,7 +2192,7 @@
         var inst = getActiveInstrument();
         var path = inst ? getNavPath(inst) : [];
         var rootChapter = inst && path.length ? findById(inst.categories, path[0]) : null;
-        var accent = path[0] === FAVORITES_ID ? "#ffd60a" : path[0] === ARCHIVED_ID ? "#9ca3af" : path[0] === TAGS_VIEW_ID ? (TAGS[tagsViewSelectedTag] || {}).color || "#60a5fa" : ((rootChapter && rootChapter.color) || "#00e676");
+        var accent = path[0] === FAVORITES_ID ? "#ffd60a" : path[0] === ARCHIVED_ID ? "#9ca3af" : ((rootChapter && rootChapter.color) || "#00e676");
         document.documentElement.style.setProperty("--chapter-accent", accent);
         document.documentElement.style.setProperty("--tree-font-scale", state.settings.appearance.treeFontScale);
         DENSITIES.forEach(function (d) { document.documentElement.classList.toggle("density-" + d, state.settings.appearance.density === d); });
@@ -2240,14 +2241,13 @@
     // renommer/supprimer, mais glissable au même titre que les vrais chapitres (voir pinnedOrder).
     function virtualChapterMeta(kind) {
         if (kind === ARCHIVED_ID) return { id: ARCHIVED_ID, name: "Archivés", color: "#9ca3af", icon: ARCHIVE_ICON_SVG, cls: "virtual-archived" };
-        if (kind === TAGS_VIEW_ID) return { id: TAGS_VIEW_ID, name: "Étiquettes", color: "#60a5fa", icon: TAG_ICON_SVG, cls: "virtual-tags" };
         return { id: FAVORITES_ID, name: "Favoris", color: "#ffd60a", icon: STAR_FILLED_SVG, cls: "virtual-favorites" };
     }
 
     function orderedChapterItems(inst) {
         normalizePinnedOrder(inst);
         return inst.pinnedOrder.map(function (id) {
-            if (id === FAVORITES_ID || id === ARCHIVED_ID || id === TAGS_VIEW_ID) return virtualChapterMeta(id);
+            if (id === FAVORITES_ID || id === ARCHIVED_ID) return virtualChapterMeta(id);
             return findById(inst.categories, id);
         }).filter(Boolean);
     }
@@ -2259,7 +2259,7 @@
         var activeId = path[0];
 
         orderedChapterItems(inst).forEach(function (item) {
-            var isVirtual = item.id === FAVORITES_ID || item.id === ARCHIVED_ID || item.id === TAGS_VIEW_ID;
+            var isVirtual = item.id === FAVORITES_ID || item.id === ARCHIVED_ID;
             var isActive = item.id === activeId;
             var chip = document.createElement("div");
             chip.className = "chapter-chip" + (isVirtual ? " " + item.cls : "") + (isActive ? " active" : "");
@@ -2375,7 +2375,7 @@
         var list = document.createElement("div");
         list.className = "tree-list";
         orderedChapterItems(inst).forEach(function (item) {
-            if (item.id === FAVORITES_ID || item.id === ARCHIVED_ID || item.id === TAGS_VIEW_ID) {
+            if (item.id === FAVORITES_ID || item.id === ARCHIVED_ID) {
                 list.appendChild(renderVirtualTreeNode(inst, item.id, path));
             } else {
                 list.appendChild(renderTreeNode(inst, item, [], path, item.color, 0));
@@ -2499,7 +2499,7 @@
             return;
         }
         var path = getNavPath(inst);
-        if (path[0] === FAVORITES_ID || path[0] === ARCHIVED_ID || path[0] === TAGS_VIEW_ID) {
+        if (path[0] === FAVORITES_ID || path[0] === ARCHIVED_ID) {
             $breadcrumb.hidden = true;
             $breadcrumb.innerHTML = "";
             renderVirtualChapterView(inst, path[0]);
@@ -2598,45 +2598,16 @@
     // Favoris et Archivés partagent le même rendu : une liste à plat de tout l'instrument, avec le
     // chemin réel de chaque exercice (voir renderResultsList) — seuls le titre et le critère de
     // recherche changent.
-    // Étiquette actuellement choisie dans la vue "Étiquettes" (non synchronisée, juste l'état
-    // d'affichage en cours — comme treeExpanded/navPaths).
-    var tagsViewSelectedTag = Object.keys(TAGS)[0];
-
     function renderVirtualChapterView(inst, kind) {
         $contentHeading.innerHTML = "";
         var h2 = document.createElement("h2");
-        h2.textContent = kind === ARCHIVED_ID ? "Archivés" : kind === TAGS_VIEW_ID ? "Étiquettes" : "★ Favoris";
+        h2.textContent = kind === ARCHIVED_ID ? "Archivés" : "★ Favoris";
         $contentHeading.appendChild(h2);
-
-        if (kind === TAGS_VIEW_ID) {
-            // Une seule vue "Étiquettes" avec un sélecteur, plutôt qu'un chapitre virtuel par
-            // étiquette : ajouter de nouvelles étiquettes plus tard n'encombrera pas le bandeau.
-            var tagsRow = document.createElement("div");
-            tagsRow.className = "tags-view-row";
-            Object.keys(TAGS).forEach(function (key) {
-                var tag = TAGS[key];
-                var chip = document.createElement("button");
-                chip.type = "button";
-                chip.className = "tags-view-chip" + (key === tagsViewSelectedTag ? " tags-view-chip-active" : "");
-                chip.textContent = tag.label;
-                chip.style.borderColor = tag.color;
-                if (key === tagsViewSelectedTag) {
-                    chip.style.color = tag.color;
-                    chip.style.background = "color-mix(in srgb, " + tag.color + " 14%, transparent)";
-                }
-                chip.addEventListener("click", function () { tagsViewSelectedTag = key; render(); });
-                tagsRow.appendChild(chip);
-            });
-            $contentHeading.appendChild(tagsRow);
-        }
 
         var results, emptyText;
         if (kind === ARCHIVED_ID) {
             results = collectExercises(inst, function (ex) { return ex.archived; });
             emptyText = "Aucun exercice archivé pour l'instant. Range-en un depuis son menu (clic droit ou appui long dessus).";
-        } else if (kind === TAGS_VIEW_ID) {
-            results = collectExercises(inst, function (ex) { return !ex.archived && ex.tags.indexOf(tagsViewSelectedTag) !== -1; });
-            emptyText = "Aucun exercice étiqueté « " + TAGS[tagsViewSelectedTag].label + " » pour l'instant.";
         } else {
             results = collectExercises(inst, function (ex) { return ex.favorite && !ex.archived; });
             emptyText = "Aucun favori pour l'instant. Marque un exercice en favori depuis son menu (clic droit ou appui long dessus).";
@@ -2980,7 +2951,6 @@
                 notes: "",
                 favorite: false,
                 archived: false,
-                tags: [],
                 links: [],
                 files: [],
                 collapsed: true,
@@ -3035,17 +3005,6 @@
             favBadge.title = "Favori";
             row.appendChild(favBadge);
         }
-
-        (ex.tags || []).forEach(function (key) {
-            var tag = TAGS[key];
-            if (!tag) return;
-            var tagBadge = document.createElement("span");
-            tagBadge.className = "exercise-tag-badge";
-            tagBadge.textContent = tag.label;
-            tagBadge.style.color = tag.color;
-            tagBadge.style.borderColor = tag.color;
-            row.appendChild(tagBadge);
-        });
 
         var title = document.createElement("input");
         title.type = "text";
@@ -6117,6 +6076,7 @@
                     if (f.noAccent) m.advanced = false;
                     normalizeMetronomeSettings(state.settings);
                     beatsInput.value = m.beatsPerMeasure;
+            attachNumberStepper(beatsInput, 1, 12, {});
                     save();
                     refreshRhythmMode();
                 });
@@ -7665,6 +7625,29 @@
     var gsLinksBack = "list";    // écran où revenir : "list" | "edit" | "run"
     var gsFileBlobCache = {};    // id de pièce jointe -> Blob déjà lu (false = absent de cet appareil)
 
+    // Durée proposée pour un exercice ajouté à une session : la dernière durée réglée pour lui (ex.lastMinutes),
+    // sinon celle d'un pas existant (n'importe quelle session), sinon celle d'un exercice du même nom, sinon 5.
+    function gsDefaultMinutes(ex) {
+        if (ex.lastMinutes > 0) return ex.lastMinutes;
+        var found = 0;
+        state.settings.guidedSessions.forEach(function (gs) {
+            gs.steps.forEach(function (st) { if (st.exerciseId === ex.id && st.minutes > 0) found = st.minutes; });
+        });
+        if (found) return found;
+        var title = (ex.title || "").replace(/ \(copie\)$/, "").trim().toLowerCase();
+        state.settings.guidedSessions.forEach(function (gs) {
+            gs.steps.forEach(function (st) {
+                var o = findExerciseById(st.exerciseId);
+                if (o && o.ex !== ex && st.minutes > 0 && (o.ex.title || "").replace(/ \(copie\)$/, "").trim().toLowerCase() === title) found = st.minutes;
+            });
+        });
+        return found || 5;
+    }
+    function gsRememberMinutes(step) {
+        var f = findExerciseById(step.exerciseId);
+        if (f && f.ex.lastMinutes !== step.minutes) f.ex.lastMinutes = step.minutes;
+    }
+
     function sessionTotalMinutes(session) {
         return session.steps.reduce(function (sum, s) { return sum + s.minutes; }, 0);
     }
@@ -7682,11 +7665,63 @@
     // clic (sous le seuil) garde son effet habituel (placer le curseur de saisie).
     // Sensibilité : une minute par 9 px — des durées de 3 à 30 min se règlent en ~250 px d'amplitude
     // sans que 1 px de tremblement ne change la valeur ; seuil de 4 px avant de considérer un glisser.
+    // Champ numérique : boutons − et + de part et d'autre du nombre (à la place des chevrons natifs, peu pratiques),
+    // largeur adaptée au nombre de chiffres (1–2 chiffres identiques, 3 chiffres un peu plus large).
+    function attachNumberStepper(input, min, max, opts) {
+        if (input._stepper) return;
+        input._stepper = true;
+        var emptyStart = opts && typeof opts.emptyStart === "number" ? opts.emptyStart : min;
+        function wrap(retry) {
+            var parent = input.parentNode;
+            if (!parent) { if (retry) setTimeout(function () { wrap(false); }, 0); return; }
+            var box = document.createElement("span");
+            box.className = "num-stepper";
+            function mk(sign, delta, label) {
+                var b = document.createElement("button");
+                b.type = "button";
+                b.className = "num-stepper-btn";
+                b.textContent = sign;
+                b.tabIndex = -1;
+                b.setAttribute("aria-label", label);
+                var timer = null, rep = null;
+                function bump() {
+                    var cur = parseInt(input.value, 10);
+                    if (isNaN(cur)) cur = emptyStart - (delta > 0 ? 0 : 0);
+                    var v = Math.min(max, Math.max(min, (isNaN(parseInt(input.value, 10)) ? emptyStart : cur + delta)));
+                    if (String(v) !== input.value) { input.value = String(v); input.dispatchEvent(new Event("change", { bubbles: true })); sizeIt(); }
+                }
+                function stop() { clearTimeout(timer); clearInterval(rep); timer = rep = null; }
+                b.addEventListener("pointerdown", function (e) {
+                    if (e.button !== undefined && e.button !== 0) return;
+                    e.preventDefault(); e.stopPropagation();
+                    bump();
+                    timer = setTimeout(function () { rep = setInterval(bump, 70); }, 420);
+                });
+                b.addEventListener("pointerup", stop);
+                b.addEventListener("pointerleave", stop);
+                b.addEventListener("pointercancel", stop);
+                b.addEventListener("click", function (e) { e.stopPropagation(); e.preventDefault(); });
+                return b;
+            }
+            function sizeIt() { box.classList.toggle("num-wide", String(input.value || "").length >= 3); }
+            parent.insertBefore(box, input);
+            box.appendChild(mk("−", -1, "Diminuer"));
+            box.appendChild(input);
+            box.appendChild(mk("+", 1, "Augmenter"));
+            input.classList.add("num-in");
+            input.addEventListener("input", sizeIt);
+            input.addEventListener("change", sizeIt);
+            sizeIt();
+        }
+        Promise.resolve().then(function () { wrap(true); });
+    }
+
     var SCRUB_PX_PER_STEP = 9, SCRUB_START_PX = 4, SCRUB_SPINNER_PX = 24;
     // opts (facultatif) : pxPerStep = sensibilité du glisser ; wheel = la molette règle aussi la valeur
     // au survol ; emptyStart = valeur de départ quand le champ est vide.
     function bindScrubInput(input, min, max, opts) {
         opts = opts || {};
+        attachNumberStepper(input, min, max, opts);
         var pxPerStep = opts.pxPerStep || SCRUB_PX_PER_STEP;
         var emptyStart = typeof opts.emptyStart === "number" ? opts.emptyStart : min;
         var startY = 0, startVal = 0, active = false, scrubbing = false, changed = false;
@@ -7694,7 +7729,7 @@
         input.addEventListener("pointerdown", function (e) {
             if (e.button !== undefined && e.button !== 0) return;
             var rect = input.getBoundingClientRect();
-            if (e.clientX > rect.right - SCRUB_SPINNER_PX) return; // zone des chevrons natifs
+            if (!input._stepper && e.clientX > rect.right - SCRUB_SPINNER_PX) return; // zone des chevrons natifs
             active = true; scrubbing = false; changed = false;
             startY = e.clientY;
             startVal = parseInt(input.value, 10) || emptyStart;
@@ -7971,17 +8006,77 @@
 
     // ---- écran liste : onglets (Tout + onglets libres), filtre de durée ----
     var GS_TAB_KEY = "trainhub.gsTab.v1";
-    var GS_DURATIONS = [["", "Toutes durées"], ["30", "≤ 30 min"], ["45", "31 – 45 min"], ["60", "46 – 60 min"], ["61", "> 60 min"]];
-    var gsActiveTab = "all", gsDurFilter = "";
-    try { var gsSaved = JSON.parse(localStorage.getItem(GS_TAB_KEY)) || {}; if (gsSaved.dur && GS_DURATIONS.some(function (d) { return d[0] === gsSaved.dur; })) gsDurFilter = gsSaved.dur; if (gsSaved.tab) gsActiveTab = gsSaved.tab; } catch (e) {}
-    function gsSaveView() { try { localStorage.setItem(GS_TAB_KEY, JSON.stringify({ tab: gsActiveTab, dur: gsDurFilter })); } catch (e) {} }
-    function gsDurationMatches(session, f) {
-        if (!f) return true;
+    var GS_SORTS = [["manual", "Ordre manuel"], ["dur-asc", "Durée : courtes d'abord"], ["dur-desc", "Durée : longues d'abord"], ["created-desc", "Ajout : récentes d'abord"], ["created-asc", "Ajout : anciennes d'abord"], ["updated", "Modifiées récemment"], ["used-desc", "Les plus utilisées"], ["used-asc", "Les moins utilisées"], ["az", "A → Z"], ["za", "Z → A"]];
+    var gsActiveTab = "all", gsDurMin = null, gsDurMax = null, gsSort = "manual";
+    try {
+        var gsSaved = JSON.parse(localStorage.getItem(GS_TAB_KEY)) || {};
+        if (gsSaved.tab) gsActiveTab = gsSaved.tab;
+        if (typeof gsSaved.min === "number") gsDurMin = gsSaved.min;
+        if (typeof gsSaved.max === "number") gsDurMax = gsSaved.max;
+        if (GS_SORTS.some(function (x) { return x[0] === gsSaved.sort; })) gsSort = gsSaved.sort;
+    } catch (e) {}
+    function gsSaveView() { try { localStorage.setItem(GS_TAB_KEY, JSON.stringify({ tab: gsActiveTab, min: gsDurMin, max: gsDurMax, sort: gsSort })); } catch (e) {} }
+    function gsDurationMatches(session) {
         var m = sessionTotalMinutes(session);
-        if (f === "30") return m <= 30;
-        if (f === "45") return m > 30 && m <= 45;
-        if (f === "60") return m > 45 && m <= 60;
-        return m > 60;
+        return (gsDurMin === null || m >= gsDurMin) && (gsDurMax === null || m <= gsDurMax);
+    }
+    function gsDurLabel() {
+        if (gsDurMin === null && gsDurMax === null) return "Durée : toutes";
+        if (gsDurMin !== null && gsDurMax !== null) return "Durée : " + gsDurMin + " – " + gsDurMax + " min";
+        return gsDurMin !== null ? "Durée : ≥ " + gsDurMin + " min" : "Durée : ≤ " + gsDurMax + " min";
+    }
+    // Dates et usage des sessions : date d'ajout (déduite de l'identifiant pour les anciennes), date de
+    // modification (détectée par comparaison du contenu à l'affichage de la liste), nombre de lancements.
+    function gsCreatedAt(gs) {
+        if (gs.createdAt) return gs.createdAt;
+        var t = parseInt(String(gs.id).slice(0, 8), 36);
+        return t > 1e12 && t < 4e12 ? t : 0;
+    }
+    function gsRefreshModified(list) {
+        var changed = false;
+        list.forEach(function (gs) {
+            var sig = JSON.stringify([gs.name, gs.steps.map(function (st) { return [st.exerciseId, st.minutes]; })]);
+            if (gs.sig === undefined) { gs.sig = sig; changed = true; }
+            else if (gs.sig !== sig) { gs.sig = sig; gs.updatedAt = Date.now(); changed = true; }
+        });
+        if (changed) persist();
+    }
+    function gsSortList(list) {
+        var arr = list.slice();
+        var cmp = {
+            "dur-asc": function (a, b) { return sessionTotalMinutes(a) - sessionTotalMinutes(b); },
+            "dur-desc": function (a, b) { return sessionTotalMinutes(b) - sessionTotalMinutes(a); },
+            "created-desc": function (a, b) { return gsCreatedAt(b) - gsCreatedAt(a); },
+            "created-asc": function (a, b) { return gsCreatedAt(a) - gsCreatedAt(b); },
+            "updated": function (a, b) { return (b.updatedAt || gsCreatedAt(b)) - (a.updatedAt || gsCreatedAt(a)); },
+            "used-desc": function (a, b) { return (b.runCount || 0) - (a.runCount || 0); },
+            "used-asc": function (a, b) { return (a.runCount || 0) - (b.runCount || 0); },
+            "az": function (a, b) { return a.name.localeCompare(b.name, "fr", { sensitivity: "base" }); },
+            "za": function (a, b) { return b.name.localeCompare(a.name, "fr", { sensitivity: "base" }); }
+        }[gsSort];
+        return cmp ? arr.sort(cmp) : arr;
+    }
+
+    // Petite fenêtre ancrée à un bouton (filtre de durée, tri).
+    function openGsPopover(anchor, build) {
+        closeFolderMenu();
+        var backdrop = document.createElement("div");
+        backdrop.className = "ctx-backdrop";
+        var pop = document.createElement("div");
+        pop.className = "ctx-menu gs-pop";
+        function close() { closeFolderMenu(); }
+        backdrop.addEventListener("pointerdown", function (e) { e.preventDefault(); close(); });
+        backdrop.addEventListener("contextmenu", function (e) { e.preventDefault(); close(); });
+        build(pop, close);
+        function onKey(e) { if (e.key === "Escape") close(); }
+        document.body.appendChild(backdrop);
+        document.body.appendChild(pop);
+        document.addEventListener("keydown", onKey, true);
+        openMenu = { backdrop: backdrop, menu: pop, onKey: onKey };
+        var r = anchor.getBoundingClientRect();
+        var w = pop.offsetWidth || 240, h = pop.offsetHeight || 160;
+        pop.style.left = Math.min(Math.max(8, r.left), Math.max(8, window.innerWidth - w - 8)) + "px";
+        pop.style.top = Math.min(r.bottom + 6, Math.max(8, window.innerHeight - h - 8)) + "px";
     }
 
     function renderGsListScreen(content) {
@@ -7989,11 +8084,12 @@
         var tabs = state.settings.sessionFolders.filter(function (f) { return f.instrumentId === state.activeInstrumentId; });
         var activeInstId = state.activeInstrumentId;
         var sessions = allSessions.filter(function (gs) { return gs.instrumentId === activeInstId; });
+        gsRefreshModified(sessions);
         if (gsActiveTab !== "all" && !tabs.some(function (t) { return t.id === gsActiveTab; })) gsActiveTab = "all";
         var activeTab = tabs.filter(function (t) { return t.id === gsActiveTab; })[0] || null;
 
         function newSession() {
-            var session = { id: uid(), name: "Nouvelle session", steps: [], instrumentId: activeInstId, tabIds: activeTab ? [activeTab.id] : [] };
+            var session = { id: uid(), name: "Nouvelle session", steps: [], instrumentId: activeInstId, tabIds: activeTab ? [activeTab.id] : [], createdAt: Date.now() };
             allSessions.push(session);
             gsEditingSession = session;
             gsScreen = "edit";
@@ -8102,6 +8198,7 @@
                 closeFolderMenu();
                 var copy = JSON.parse(JSON.stringify(session));
                 copy.id = uid();
+                copy.createdAt = Date.now(); copy.runCount = 0; delete copy.updatedAt; delete copy.sig;
                 copy.name = session.name + " (copie)";
                 copy.steps.forEach(function (st) { st.id = uid(); });
                 copy.tabIds = target ? [target.id] : (activeTab ? session.tabIds.slice() : []);
@@ -8155,16 +8252,65 @@
         // ---- filtre de durée + actions de l'onglet ----
         var tools = document.createElement("div");
         tools.className = "gs-listtools";
-        var durSel = document.createElement("select");
-        durSel.className = "gs-dur-select";
-        durSel.setAttribute("aria-label", "Filtrer par durée");
-        GS_DURATIONS.forEach(function (d) {
-            var o = document.createElement("option"); o.value = d[0]; o.textContent = d[0] ? "Durée : " + d[1] : d[1];
-            if (d[0] === gsDurFilter) o.selected = true;
-            durSel.appendChild(o);
+        var durBtn = document.createElement("button");
+        durBtn.type = "button";
+        durBtn.className = "gs-tool-btn" + (gsDurMin !== null || gsDurMax !== null ? " active" : "");
+        durBtn.textContent = gsDurLabel();
+        durBtn.title = "Filtrer par durée (min et max)";
+        durBtn.addEventListener("click", function () {
+            openGsPopover(durBtn, function (pop, close) {
+                var title = document.createElement("div"); title.className = "ctx-menu-title"; title.textContent = "Durée de la session";
+                pop.appendChild(title);
+                var form = document.createElement("div"); form.className = "gs-dur-form";
+                function field(label, value, onSet) {
+                    var l = document.createElement("label"); l.className = "gs-dur-field";
+                    var t = document.createElement("span"); t.textContent = label; l.appendChild(t);
+                    var inp = document.createElement("input"); inp.type = "number"; inp.min = "0"; inp.max = "600"; inp.placeholder = "—";
+                    inp.value = value === null ? "" : String(value);
+                    l.appendChild(inp);
+                    var u = document.createElement("span"); u.className = "gs-dur-unit"; u.textContent = "min"; l.appendChild(u);
+                    inp.addEventListener("change", function () {
+                        var n = parseInt(inp.value, 10);
+                        onSet(isNaN(n) ? null : Math.max(0, n));
+                        if (gsDurMin !== null && gsDurMax !== null && gsDurMin > gsDurMax) { var tmp = gsDurMin; gsDurMin = gsDurMax; gsDurMax = tmp; }
+                        gsSaveView();
+                        render(); // le popover (hors de la page) reste ouvert ; la liste et le bouton se mettent à jour
+                    });
+                    bindScrubInput(inp, 0, 600, { pxPerStep: 6, wheel: true, emptyStart: 30 });
+                    form.appendChild(l);
+                }
+                field("Min", gsDurMin, function (n) { gsDurMin = n; });
+                field("Max", gsDurMax, function (n) { gsDurMax = n; });
+                pop.appendChild(form);
+                var reset = document.createElement("button"); reset.type = "button"; reset.className = "ctx-item ctx-item-muted"; reset.textContent = "Réinitialiser";
+                reset.addEventListener("click", function () { gsDurMin = null; gsDurMax = null; gsSaveView(); close(); render(); });
+                pop.appendChild(reset);
+                var ok = document.createElement("button"); ok.type = "button"; ok.className = "ctx-item"; ok.textContent = "OK";
+                ok.addEventListener("click", function () { close(); render(); });
+                pop.appendChild(ok);
+            });
         });
-        durSel.addEventListener("change", function () { gsDurFilter = durSel.value; gsSaveView(); render(); });
-        tools.appendChild(durSel);
+        tools.appendChild(durBtn);
+        var sortBtn = document.createElement("button");
+        sortBtn.type = "button";
+        sortBtn.className = "gs-tool-btn" + (gsSort !== "manual" ? " active" : "");
+        sortBtn.textContent = "⇅ Tri" + (gsSort !== "manual" ? " : " + GS_SORTS.filter(function (x) { return x[0] === gsSort; })[0][1] : "");
+        sortBtn.title = "Trier les sessions";
+        sortBtn.addEventListener("click", function () {
+            openGsPopover(sortBtn, function (pop, close) {
+                var title = document.createElement("div"); title.className = "ctx-menu-title"; title.textContent = "Trier les sessions";
+                pop.appendChild(title);
+                GS_SORTS.forEach(function (x) {
+                    var b = document.createElement("button"); b.type = "button";
+                    b.className = "ctx-item" + (gsSort === x[0] ? " gs-sort-current" : "");
+                    b.textContent = (gsSort === x[0] ? "✓ " : "") + x[1];
+                    b.addEventListener("click", function () { gsSort = x[0]; gsSaveView(); close(); render(); });
+                    pop.appendChild(b);
+                });
+            });
+        });
+        tools.appendChild(sortBtn);
+        var spacer = document.createElement("span"); spacer.className = "gs-tools-spacer"; tools.appendChild(spacer);
         if (activeTab) {
             var tAct = document.createElement("div");
             tAct.className = "gs-session-actions";
@@ -8181,9 +8327,9 @@
         content.appendChild(tools);
 
         // ---- liste ----
-        var visible = sessions.filter(function (gs) {
-            return (!activeTab || gs.tabIds.indexOf(activeTab.id) !== -1) && gsDurationMatches(gs, gsDurFilter);
-        });
+        var visible = gsSortList(sessions.filter(function (gs) {
+            return (!activeTab || gs.tabIds.indexOf(activeTab.id) !== -1) && gsDurationMatches(gs);
+        }));
         if (!visible.length) {
             var empty = document.createElement("div");
             empty.className = "gs-empty";
@@ -8197,6 +8343,7 @@
             visible.forEach(function (gs) { list.appendChild(buildRow(gs)); });
             // Réordonner : seules les sessions affichées changent de place entre elles.
             var visibleProxy = { sort: function (cmp) {
+                if (gsSort !== "manual") return; // ordre calculé : pas de réordonnancement à la main
                 var slots = [];
                 allSessions.forEach(function (gs, i) { if (visible.indexOf(gs) !== -1) slots.push(i); });
                 var sorted = visible.slice().sort(cmp);
@@ -8366,6 +8513,7 @@
                 minutesInput.addEventListener("change", function () {
                     step.minutes = Math.max(1, parseInt(minutesInput.value, 10) || 5);
                     minutesInput.value = step.minutes;
+                    gsRememberMinutes(step);
                     save();
                     refreshTotal();
                 });
@@ -8404,6 +8552,8 @@
                 if (detailsOpen) {
                     var details = document.createElement("div");
                     details.className = "gs-step-details";
+                    var stepPaths = gsExercisePathLines(found);
+                    if (stepPaths) details.appendChild(stepPaths);
                     details.appendChild(buildMetronomePresetRow(stepTempoCfg));
                     var noteLabel = document.createElement("div");
                     noteLabel.className = "section-label";
@@ -8464,7 +8614,7 @@
         addStepBtn.textContent = "+ Ajouter un exercice";
         addStepBtn.addEventListener("click", function () {
             gsPickCallback = function (ex) {
-                session.steps.push({ id: uid(), exerciseId: ex.id, minutes: 5 });
+                session.steps.push({ id: uid(), exerciseId: ex.id, minutes: gsDefaultMinutes(ex) });
                 save();
             };
             gsScreen = "pick";
@@ -8478,6 +8628,18 @@
     // Arborescence en lecture seule (mêmes couleurs de chapitre et même logique de pli/dépli —
     // treeExpanded est partagé avec la barre latérale — que la navigation habituelle) : plus
     // simple pour choisir un exercice que la liste à plat de tous les exercices mélangés.
+    // Dernière ligne de note d'un exercice (aperçu dans le choix d'un exercice) : aide à distinguer des exercices
+    // de même nom (copies) et à retrouver celui où l'on a écrit ses derniers commentaires.
+    function gsNotePreview(ex) {
+        var lines = (ex.notes || "").split("\n").filter(function (l) { return l.trim(); });
+        if (!lines.length) return null;
+        var el = document.createElement("span");
+        el.className = "gs-pick-note";
+        var t = lines[lines.length - 1].trim();
+        el.textContent = "✎ " + (t.length > 70 ? t.slice(0, 69) + "…" : t) + (lines.length > 1 ? "  (+" + (lines.length - 1) + ")" : "");
+        el.title = ex.notes;
+        return el;
+    }
     function renderGsPickTree(container, folders, depth, rootColor) {
         folders.forEach(function (folder) {
             var color = depth === 0 ? folder.color : rootColor;
@@ -8519,7 +8681,12 @@
                     var exBtn = document.createElement("button");
                     exBtn.type = "button";
                     exBtn.className = "gs-pick-exercise-row";
-                    exBtn.textContent = ex.title;
+                    var exTitle = document.createElement("span");
+                    exTitle.className = "gs-pick-ex-title";
+                    exTitle.textContent = ex.title;
+                    exBtn.appendChild(exTitle);
+                    var prev = gsNotePreview(ex);
+                    if (prev) exBtn.appendChild(prev);
                     exBtn.addEventListener("click", function () {
                         gsPickCallback(ex);
                         gsScreen = "edit";
@@ -8587,6 +8754,8 @@
                 titleSpan.textContent = r.ex.title;
                 head.appendChild(titleSpan);
                 btn.appendChild(head);
+                var prev2 = gsNotePreview(r.ex);
+                if (prev2) btn.appendChild(prev2);
                 btn.addEventListener("click", function () {
                     gsPickCallback(r.ex);
                     gsScreen = "edit";
@@ -8602,6 +8771,9 @@
 
     // ---- écran de guidage (lecture) ----
     function gsStartRun(session) {
+        session.runCount = (session.runCount || 0) + 1;
+        session.lastRunAt = Date.now();
+        persist();
         if (gsAutoAdvanceOn()) { try { ensureMetroAudio(); } catch (e) {} } // le clic de lancement autorise le son du carillon
         gsRunSession = session;
         gsRunStepIndex = 0;
@@ -9053,6 +9225,7 @@
                     var v = Math.round(parseFloat(mins.value));
                     if (!(v >= 1)) v = step.minutes;
                     step.minutes = Math.min(180, v);
+                    gsRememberMinutes(step);
                     if (i === gsRunStepIndex) gsRunAllocatedSec = step.minutes * 60;
                     save();
                     render();
@@ -9335,9 +9508,12 @@
             detailsToggle.appendChild(dtLabel);
             detailsToggle.appendChild(dtChev);
             detailsWrap.appendChild(detailsToggle);
+            var runPaths = gsExercisePathLines(found);
+            if (runPaths) detailsWrap.appendChild(runPaths);
             var detailsBody = null;
             function showDetails(open) {
                 exDetailsOpen = open;
+                if (runPaths) runPaths.hidden = !open;
                 detailsToggle.setAttribute("aria-expanded", open ? "true" : "false");
                 dtChev.textContent = open ? "▾" : "▸";
                 if (open && !detailsBody) {
