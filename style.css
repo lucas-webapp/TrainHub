@@ -2111,3 +2111,8 @@ button.metro-prog-more { font-size: inherit; letter-spacing: 0; }
 .metro-volume-inline { flex: 1 1 auto; min-width: 0; gap: 8px; }
 input.metro-volume-inline-slider { flex: 1 1 auto; width: auto; min-width: 140px; max-width: 260px; }
 .metro-volume-inline .icon { width: 20px; height: 20px; }
+
+/* Pastille de tempo compacte : flèche courte, nombres tout près de la flèche */
+button.tempo-chip { gap: 2px; padding: 0 8px; }
+.tempo-chip-note { margin-right: 3px; }
+.tempo-chip-arrow { margin: 0; }
