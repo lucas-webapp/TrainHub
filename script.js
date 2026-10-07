@@ -555,19 +555,57 @@
         }
     }
 
-    function openImageLightbox(images, startIndex) {
+    // Visionneuse d'images : une fenêtre flottante NON modale (le métronome, la session… restent visibles et
+    // utilisables, et la barre espace garde son effet). Déplaçable à la main, redimensionnable (taille et position
+    // retenues pour la prochaine image), ou en plein écran (bouton ⛶, ou ouverture directe depuis la vignette).
+    var EXPAND_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/></svg>';
+    var imageViewerClose = null;
+    function openImageViewer(images, startIndex, startFull) {
+        if (imageViewerClose) imageViewerClose();
         var idx = startIndex;
-        var overlay = document.createElement("div");
-        overlay.className = "img-lightbox";
+        var full = !!startFull || isMobilePanelLayout();
+        var panel = document.createElement("div");
+        panel.className = "img-viewer";
+        var head = document.createElement("div");
+        head.className = "img-viewer-head";
+        head.title = "Faire glisser pour déplacer la fenêtre";
+        var caption = document.createElement("div");
+        caption.className = "img-viewer-caption";
+        function mkBtn(html, title, fn) {
+            var b = document.createElement("button");
+            b.type = "button";
+            b.className = "img-viewer-btn";
+            b.innerHTML = html;
+            b.title = title; b.setAttribute("aria-label", title);
+            b.tabIndex = -1; // la barre espace ne doit jamais « cliquer » un de ces boutons
+            b.addEventListener("mousedown", function (e) { e.preventDefault(); e.stopPropagation(); });
+            b.addEventListener("pointerdown", function (e) { e.stopPropagation(); });
+            b.addEventListener("click", function (e) { e.stopPropagation(); fn(); });
+            return b;
+        }
+        var prevBtn = mkBtn("‹", "Image précédente", function () { step(-1); });
+        var nextBtn = mkBtn("›", "Image suivante", function () { step(1); });
+        var fullBtn = mkBtn(EXPAND_ICON_SVG, "Plein écran / fenêtre", function () { setFull(!full); });
+        var closeBtn = mkBtn("✕", "Fermer (Échap)", function () { closeBox(); });
+        head.appendChild(caption);
+        if (images.length > 1) { head.appendChild(prevBtn); head.appendChild(nextBtn); }
+        head.appendChild(fullBtn);
+        head.appendChild(closeBtn);
+        var body = document.createElement("div");
+        body.className = "img-viewer-body";
         var img = document.createElement("img");
         img.alt = "";
-        var close = document.createElement("button");
-        close.type = "button";
-        close.className = "img-lightbox-close";
-        close.textContent = "✕";
-        close.title = "Fermer (Échap)";
-        var caption = document.createElement("div");
-        caption.className = "img-lightbox-caption";
+        body.appendChild(img);
+        panel.appendChild(head);
+        panel.appendChild(body);
+
+        var cleanupResize = makePanelResizable(panel, "img-viewer");
+        var cleanupDrag = makePanelDraggable(panel, "img-viewer", head);
+        function setFull(on) {
+            full = on;
+            panel.classList.toggle("img-viewer-full", on);
+            fullBtn.classList.toggle("img-viewer-btn-on", on);
+        }
         function show() {
             var meta = images[idx];
             img.removeAttribute("src");
@@ -575,19 +613,38 @@
             caption.textContent = (images.length > 1 ? (idx + 1) + " / " + images.length + " · " : "") + (meta.name || "");
         }
         function step(d) { if (images.length > 1) { idx = (idx + d + images.length) % images.length; show(); } }
-        function closeBox() { window.removeEventListener("keydown", onKey, true); overlay.remove(); }
+        function closeBox() {
+            window.removeEventListener("keydown", onKey, true);
+            cleanupResize(); cleanupDrag();
+            panel.remove();
+            if (imageViewerClose === closeBox) imageViewerClose = null;
+        }
+        function typing() { var t = document.activeElement; return !!(t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)); }
         function onKey(e) {
             if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeBox(); }
-            else if (e.key === "ArrowRight") { e.preventDefault(); step(1); }
-            else if (e.key === "ArrowLeft") { e.preventDefault(); step(-1); }
+            else if (!typing() && e.key === "ArrowRight") { step(1); }
+            else if (!typing() && e.key === "ArrowLeft") { step(-1); }
+            // les autres touches (barre espace…) ne sont pas interceptées
         }
-        overlay.addEventListener("click", function (e) { if (e.target !== img) closeBox(); else step(1); });
-        close.addEventListener("click", closeBox);
-        overlay.appendChild(img); overlay.appendChild(close); overlay.appendChild(caption);
-        document.body.appendChild(overlay);
+        img.addEventListener("click", function () { step(1); });
+        body.addEventListener("dblclick", function () { setFull(!full); });
+        imageViewerClose = closeBox;
+        panel.style.visibility = "hidden";
+        document.body.appendChild(panel);
         window.addEventListener("keydown", onKey, true);
+        setFull(full);
         show();
+        requestAnimationFrame(function () {
+            var rect = panel.getBoundingClientRect();
+            var stored = loadPanelPositions()["img-viewer"];
+            var pos = stored ? clampPanelPosition(stored.left, stored.top, rect.width)
+                : { left: Math.max(8, (window.innerWidth - rect.width) / 2), top: Math.max(8, (window.innerHeight - rect.height) / 3) };
+            panel.style.left = pos.left + "px";
+            panel.style.top = pos.top + "px";
+            panel.style.visibility = "visible";
+        });
     }
+    function openImageLightbox(images, startIndex) { openImageViewer(images, startIndex, false); }
 
     // Vignettes d'un exercice. editable : bouton ✕ pour retirer.
     function buildImageStrip(ex, where, editable) {
@@ -607,8 +664,19 @@
             im.loading = "lazy";
             loadImageInto(im, meta, function (why) { b.classList.add("img-missing"); b.textContent = why === "illisible" ? "Image illisible : format non pris en charge par ce navigateur" : "Image absente de cet appareil"; });
             b.appendChild(im);
-            b.addEventListener("click", function () { openImageLightbox(list, i); });
+            b.addEventListener("click", function () { openImageViewer(list, i, false); });
             cell.appendChild(b);
+            var fs = document.createElement("button");
+            fs.type = "button";
+            fs.className = "img-thumb-full";
+            fs.innerHTML = EXPAND_ICON_SVG;
+            fs.title = "Ouvrir en plein écran";
+            fs.setAttribute("aria-label", "Ouvrir en plein écran");
+            fs.addEventListener("click", function (e) { e.stopPropagation(); openImageViewer(list, i, true); });
+            var side = document.createElement("div");
+            side.className = "img-thumb-side";
+            side.appendChild(fs);
+            cell.appendChild(side);
             if (editable) {
                 var rm = document.createElement("button");
                 rm.type = "button";
@@ -625,7 +693,7 @@
                     save();
                     render();
                 });
-                cell.appendChild(rm);
+                side.appendChild(rm);
             }
             strip.appendChild(cell);
         });
@@ -3709,16 +3777,36 @@
             audio.preload = "auto";
             var url = URL.createObjectURL(playableBlob(blob, meta));
             audio.src = url;
-            var rate = document.createElement("select");
+            function lsGet(k, d) { try { var v = parseFloat(localStorage.getItem(k)); return isNaN(v) ? d : v; } catch (e) { return d; } }
+            function lsSet(k, v) { try { localStorage.setItem(k, String(v)); } catch (e) {} }
+            // Volume : barre réglable, retenue pour les prochains fichiers.
+            var volWrap = document.createElement("label");
+            volWrap.className = "audio-player-ctl";
+            var volIcon = document.createElement("span"); volIcon.innerHTML = METRO_VOLUME_ICON_SVG; volIcon.className = "audio-player-ctl-icon";
+            var vol = document.createElement("input");
+            vol.type = "range"; vol.min = "0"; vol.max = "100"; vol.step = "1";
+            vol.className = "audio-player-vol";
+            vol.title = "Volume";
+            vol.value = String(Math.round(lsGet("trainhub.audioVol", 1) * 100));
+            audio.volume = vol.value / 100;
+            vol.addEventListener("input", function () { audio.volume = vol.value / 100; lsSet("trainhub.audioVol", vol.value / 100); });
+            volWrap.appendChild(volIcon); volWrap.appendChild(vol);
+            // Vitesse : barre de 50 % à 125 % (pour travailler un passage plus lentement), retenue elle aussi.
+            var rateWrap = document.createElement("label");
+            rateWrap.className = "audio-player-ctl";
+            var rateIcon = document.createElement("span"); rateIcon.innerHTML = METRO_CHRONO_ICON_SVG; rateIcon.className = "audio-player-ctl-icon";
+            var rate = document.createElement("input");
+            rate.type = "range"; rate.min = "50"; rate.max = "125"; rate.step = "5";
             rate.className = "audio-player-rate";
             rate.title = "Vitesse de lecture";
-            [50, 60, 70, 75, 80, 90, 100, 110, 125].forEach(function (r) {
-                var o = document.createElement("option");
-                o.value = String(r / 100); o.textContent = r + " %";
-                if (r === 100) o.selected = true;
-                rate.appendChild(o);
-            });
-            rate.addEventListener("change", function () { audio.playbackRate = parseFloat(rate.value); });
+            rate.value = String(Math.round(lsGet("trainhub.audioRate", 1) * 100));
+            var rateTxt = document.createElement("span"); rateTxt.className = "audio-player-rate-txt";
+            function applyRate() { audio.playbackRate = rate.value / 100; rateTxt.textContent = rate.value + " %"; }
+            rate.addEventListener("input", function () { applyRate(); lsSet("trainhub.audioRate", rate.value / 100); });
+            rateTxt.title = "Double clic : vitesse normale";
+            rateTxt.addEventListener("dblclick", function () { rate.value = "100"; applyRate(); lsSet("trainhub.audioRate", 1); });
+            applyRate();
+            rateWrap.appendChild(rateIcon); rateWrap.appendChild(rate); rateWrap.appendChild(rateTxt);
             var close = document.createElement("button");
             close.type = "button";
             close.className = "audio-player-close";
@@ -3734,9 +3822,9 @@
                 msg.hidden = false;
                 msg.textContent = "Ce navigateur ne sait pas lire ce format (." + (fileExt(meta.name) || "?") + "). Convertis le fichier en MP3 ou M4A, ou ouvre-le dans une autre application.";
             });
-            box.appendChild(name); box.appendChild(audio); box.appendChild(rate); box.appendChild(close); box.appendChild(msg);
+            box.appendChild(name); box.appendChild(audio); box.appendChild(volWrap); box.appendChild(rateWrap); box.appendChild(close); box.appendChild(msg);
             container.appendChild(box);
-            audio.addEventListener("loadedmetadata", function () { audio.playbackRate = parseFloat(rate.value); });
+            audio.addEventListener("loadedmetadata", function () { applyRate(); });
             var p = audio.play();
             if (p && p.catch) p.catch(function () {});
         });
@@ -9614,9 +9702,19 @@
             var playersOn = ytVideosShown();
             appendReadOnlyResourceChips(resourcesRow, found.ex, function (kind, obj) {
                 if (gsStepHides(step, (kind === "link" ? "link:" : "file:") + obj.id)) return false;
-                if (kind === "link" && playersOn && youTubeVideoInfo(obj.url)) return false;
-                return true;
+                return true; // les liens YouTube restent accessibles ici d'un clic, sans descendre jusqu'au lecteur
             });
+            if ((found.ex.images || []).length) {
+                var imgChip = document.createElement("button");
+                imgChip.type = "button";
+                imgChip.className = "file-chip gs-resource-chip";
+                imgChip.innerHTML = '<span class="link-icon">' + IMAGE_ICON_SVG + '</span><span class="file-open">Image' + (found.ex.images.length > 1 ? "s (" + found.ex.images.length + ")" : "") + '</span>';
+                imgChip.title = "Ouvrir l'image dans une fenêtre déplaçable (clic droit : plein écran)";
+                imgChip.addEventListener("click", function () { openImageViewer(found.ex.images, 0, false); });
+                imgChip.addEventListener("contextmenu", function (e) { e.preventDefault(); openImageViewer(found.ex.images, 0, true); });
+                resourcesRow.appendChild(imgChip);
+                found.ex.images.forEach(function (m) { loadImageInto(new Image(), m, function () {}); }); // préchargées
+            }
             if (resourcesRow.children.length) content.appendChild(resourcesRow);
         }
 
@@ -10045,7 +10143,7 @@
     // par-dessus : l'Espace ne doit pas agir sur la session qu'on ne voit plus.
     function spaceKeyBlockedByOverlay() {
         if (closeActiveModal && activeModalKind !== "metronome-panel") return true;
-        return !!document.querySelector(".ctx-menu, .img-lightbox");
+        return !!document.querySelector(".ctx-menu");
     }
     function isSpaceKeyEvent(e) { return e.code === "Space" || e.key === " " || e.key === "Spacebar"; }
 
