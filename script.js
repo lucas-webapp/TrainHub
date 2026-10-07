@@ -3071,6 +3071,13 @@
         row.appendChild(spacer);
 
         appendExerciseLinkButtons(row, ex);
+        if (ex.notes && ex.notes.trim()) {
+            var noteMark = document.createElement("span");
+            noteMark.className = "exercise-note-mark";
+            noteMark.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+            noteMark.title = "Cet exercice a des notes";
+            row.appendChild(noteMark);
+        }
         appendExerciseImageButton(row, ex);
         var tempoChip = buildTempoChip({
             title: ex.title,
@@ -6056,8 +6063,11 @@
             var tapTimes = [];
             var tapBtn = document.createElement("button");
             tapBtn.type = "button";
-            tapBtn.className = "metro-mini-btn metro-tap-btn";
-            tapBtn.textContent = "Tap";
+            tapBtn.className = "metro-dial-tap metro-tap-btn";
+            tapBtn.textContent = "TAP";
+            // Le bouton est dans le cadran : son appui ne doit pas déclencher le réglage au glisser du cadran.
+            tapBtn.addEventListener("pointerdown", function (e) { e.stopPropagation(); });
+            tapBtn.addEventListener("wheel", function (e) { e.stopPropagation(); });
             tapBtn.title = "Tapoter au tempo souhaité pour régler le BPM";
             tapBtn.addEventListener("click", function () {
                 var now = Date.now();
@@ -6071,7 +6081,7 @@
                     setBpm(Math.round(60000 / avg));
                 }
             });
-            toolsRow.appendChild(tapBtn);
+            dial.appendChild(tapBtn); // Tap tempo intégré au bas du cadran
 
             // -- formules rythmiques courantes : un clic règle le nombre de temps et remet le motif --
             // "None" (sur la gauche) sert justement à n'avoir aucun temps accentué et masque le pavé
@@ -6196,8 +6206,11 @@
             // paliers successifs (chaque palier a son rythme et son tempo d'arrivée), toujours plafonnés par le seuil.
             var progToggle = document.createElement("button");
             progToggle.type = "button";
-            progToggle.className = "metro-mini-btn metro-progressive-toggle";
-            progToggle.textContent = "Progressif";
+            progToggle.className = "metro-mini-btn metro-mini-btn-icon metro-progressive-toggle";
+            // Logo : trois marches qui montent (le tempo grimpe pas à pas)
+            progToggle.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 20h5v-5.5h5.5V9H19V4"/></svg>';
+            progToggle.title = "Tempo progressif : le tempo monte tout seul, de 1 BPM en 1 BPM";
+            progToggle.setAttribute("aria-label", "Tempo progressif");
             toolsRow.appendChild(progToggle);
 
             var progFields = document.createElement("div");
