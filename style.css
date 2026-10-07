@@ -2197,3 +2197,11 @@ button.metro-q-bl .q-sign, button.metro-q-br .q-sign { font-size: 20px; }
 button.metro-bpm-btn.metro-q:hover .q-sign { color: var(--accent); }
 button.metro-bpm-btn.metro-q:active .q-sign { transform: scale(.9); }
 @media (max-width: 480px) { button.metro-q .q-sign-big { font-size: 28px; } button.metro-q .q-num { font-size: 15px; } button.metro-q-bl .q-sign, button.metro-q-br .q-sign { font-size: 17px; } }
+
+/* Un seul vert pâle pour tout le texte des boutons (signe et nombre) */
+button.metro-q .q-sign, button.metro-q .q-num { color: color-mix(in srgb, var(--accent) 78%, #fff); }
+button.metro-bpm-btn.metro-q:hover .q-sign, button.metro-bpm-btn.metro-q:hover .q-num { color: color-mix(in srgb, var(--accent) 78%, #fff); }
+
+/* Anneau vide plus fin : presque toute la surface visible d'un bouton est cliquable */
+.metro-transport-row.metro-transport-quad { --cut: calc(var(--D) / 2 + 5px); }
+.metro-transport-quad .metro-dial::before { inset: -4px; }
