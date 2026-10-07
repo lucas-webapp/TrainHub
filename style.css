@@ -2326,3 +2326,44 @@ button.exercise-image-quick .icon, .exercise-note-mark .icon { width: 18px; heig
 .gs-step-line > .gs-theme-badge { margin: 0; }
 .gs-step-tempo { width: 102px; }
 .gs-step-session { margin-left: 0; width: 184px; padding-left: 16px; }
+
+/* Tap tempo : vrai bouton dans le cadran (décollé du bord, angles du haut arrondis, texte centré) */
+.metro-dial { --tap-h: 28px; }
+.metro-transport-quad .metro-dial > button.metro-dial-tap {
+    left: 50%; right: auto; width: 92px; margin-left: -46px; bottom: 0; height: 28px;
+    padding: 0 0 7px; border: none; border-radius: 9px 9px 0 0;
+    clip-path: circle(60px at 50% -38px);
+    background: rgba(255,255,255,.1); font-size: 11px; line-height: 1;
+    display: flex; align-items: center; justify-content: center; box-shadow: none;
+}
+.metro-transport-quad .metro-dial > button.metro-dial-tap:hover { background: rgba(255,255,255,.17); }
+.metro-transport-quad .metro-dial > button.metro-dial-tap:active { background: rgba(255,255,255,.24); }
+.metro-transport-quad .metro-dial .metro-dial-value { margin-top: -9px; }
+@media (max-width: 480px) { .metro-dial { --tap-h: 28px; } .metro-transport-quad .metro-dial > button.metro-dial-tap { font-size: 11px; } }
+
+/* Tempo progressif : bouton deux fois plus large, options à sa droite sur deux lignes */
+button.metro-progressive-toggle, .metro-tools-row button.metro-progressive-toggle.metro-mini-btn-icon { width: 96px; min-width: 96px; }
+.metro-tools-row.metro-tools-prog-open { flex-wrap: nowrap; justify-content: center; align-items: center; gap: 14px; }
+.metro-prog-side { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.metro-prog-side[hidden] { display: none; }
+.metro-prog-side .metro-prog-row { justify-content: flex-start; gap: 8px; flex-wrap: nowrap; }
+.metro-prog-side .metro-prog-row:empty { display: none; }
+.metro-prog-side .metro-prog-inline { gap: 6px; }
+
+/* Barre d'exercice de session : s'adapte à la largeur de la LISTE (métronome épinglé, fenêtre réduite…) */
+.gs-steps-list { container-type: inline-size; container-name: gsl; }
+/* tempo collé au rideau, alignées à droite contre lui */
+.gs-step-tempo { width: auto; justify-content: flex-end; margin-left: 0; }
+.gs-step-exdata { justify-content: flex-start; margin-left: auto; }
+@container gsl (max-width: 760px) {
+  .gs-step-exdata .exercise-link-quick-label { display: none; }
+  .gs-step-exdata .exercise-link-quick { padding: 0 9px; max-width: none; }
+  .gs-step-session { width: 150px; padding-left: 10px; padding-right: 6px; }
+  .gs-step-session .gs-step-min-label { margin: 0 0 0 2px; }
+}
+@container gsl (max-width: 520px) {
+  .gs-step-line { flex-wrap: wrap; row-gap: 6px; }
+  .gs-step-line .gs-step-label { flex: 1 1 80px; }
+  .gs-step-session { flex: 1 1 100%; width: auto; align-self: auto; margin: 2px -8px -6px; padding: 5px 10px; border-left: none; border-top: 1px solid rgba(255,255,255,.22); border-radius: 0 0 8px 8px; justify-content: flex-end; }
+  .gs-step-tempo { margin-left: auto; }
+}
