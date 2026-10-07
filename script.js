@@ -5708,7 +5708,7 @@
         if (progTarget) {
             var arrow = document.createElement("span");
             arrow.className = "tempo-chip-arrow";
-            arrow.innerHTML = '<svg viewBox="0 0 16 10" width="14" height="9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 5h13M10 1.2 14 5l-4 3.8"/></svg>';
+            arrow.innerHTML = '<svg viewBox="0 0 12 10" width="10" height="8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 5h9.5M7.3 1.6 10.7 5 7.3 8.4"/></svg>';
             chip.appendChild(arrow);
             if (progTarget.limit) { var lim = document.createElement("span"); lim.textContent = String(progTarget.limit); chip.appendChild(lim); }
         }
