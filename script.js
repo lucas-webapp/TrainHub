@@ -5966,10 +5966,20 @@
             bpmUp.classList.add("metro-bpm-btn");
             var bpmUp10 = iconButton("+10", "Accélérer de 10", function () { setBpm(m.bpm + 10); });
             bpmUp10.classList.add("metro-bpm-btn", "metro-bpm-step10");
-            transportRow.appendChild(bpmDown10);
-            transportRow.appendChild(bpmDown);
+            // Quatre boutons en quarts de couronne autour du cadran : − et + en haut, −10 et +10 en bas.
+            bpmDown.classList.add("metro-q", "metro-q-tl");
+            bpmUp.classList.add("metro-q", "metro-q-tr");
+            bpmDown10.classList.add("metro-q", "metro-q-bl");
+            bpmUp10.classList.add("metro-q", "metro-q-br");
+            // Texte des boutons en deux parties (signe / nombre) pour pouvoir le styler ; le texte reste « −10 », « +1 »…
+            [[bpmDown, "−", ""], [bpmUp, "+", ""], [bpmDown10, "−", "10"], [bpmUp10, "+", "10"]].forEach(function (d) {
+                d[0].innerHTML = '<span class="q-sign' + (d[2] ? "" : " q-sign-big") + '">' + d[1] + "</span>" + (d[2] ? '<span class="q-num">' + d[2] + "</span>" : "");
+            });
+            transportRow.classList.add("metro-transport-quad");
             transportRow.appendChild(dial);
+            transportRow.appendChild(bpmDown);
             transportRow.appendChild(bpmUp);
+            transportRow.appendChild(bpmDown10);
             transportRow.appendChild(bpmUp10);
             panel.appendChild(transportRow);
 

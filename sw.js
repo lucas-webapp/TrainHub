@@ -1,4 +1,4 @@
-const CACHE_NAME = "trainhub-v84";
+const CACHE_NAME = "trainhub-v86";
 const ASSETS = [
     "./",
     "index.html",
