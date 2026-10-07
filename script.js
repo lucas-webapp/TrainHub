@@ -629,7 +629,7 @@
     }
 
     // ---- images : bouton dans la barre de l'exercice, ouverture dans un onglet du navigateur ----
-    var NOTE_BUBBLE_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.5-4.4A8 8 0 1 1 21 12Z"/><path d="M8.5 11h7M8.5 14.5h4"/></svg>';
+    var NOTE_BUBBLE_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 8.2V7a3.5 3.5 0 0 1 3.5-3.5H18A3.5 3.5 0 0 1 21.5 7v3a3.5 3.5 0 0 1-3.5 3.5h-.4l.8 3.2-3.9-3.2h-.5"/><path d="M6 8.5h5a3.5 3.5 0 0 1 3.5 3.5v2a3.5 3.5 0 0 1-3.5 3.5H8l-3.6 3.2.7-3.3A3.5 3.5 0 0 1 2.5 14v-2A3.5 3.5 0 0 1 6 8.5Z"/></svg>';
     var IMAGE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 8"/></svg>';
     function openExerciseImageInTab(meta) {
         var cached = imageUrlCache[meta.id];
