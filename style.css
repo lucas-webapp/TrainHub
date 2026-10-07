@@ -2275,3 +2275,25 @@ button.num-stepper-btn:hover { background: rgba(255,255,255,.08); color: #e0e0e0
 .num-stepper.num-wide > input.num-in { width: 38px; }
 .gs-step-note-mark { flex: none; color: var(--text-muted); font-size: var(--fs-sm); min-width: 0; }
 .gs-step-note-mark:empty { display: none; }
+
+/* Barre d'exercice d'une session : données de l'exercice à gauche, données de la session à droite (alignées) */
+.gs-step-line { flex: 0 0 100%; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.gs-step-line .gs-step-label { flex: 1 1 120px; min-width: 60px; }
+.gs-step-exdata { flex: 0 1 auto; display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-width: 0; flex-wrap: nowrap; overflow: hidden; }
+.gs-step-exdata > * { flex: 0 0 auto; }
+.gs-step-exdata .exercise-link-quick { max-width: 150px; }
+.gs-step-session { flex: none; display: flex; align-items: center; gap: 6px; width: 222px; justify-content: flex-end; padding-left: 10px; margin-left: 2px; border-left: 1px solid var(--border); }
+.gs-step-session .num-stepper { margin-left: 0; }
+.gs-step-session .num-stepper > input.num-in { font-size: var(--fs-lg); height: 34px; }
+.gs-step-session .num-stepper-btn { width: 20px; min-width: 20px; font-size: 20px; }
+.gs-step-session .gs-step-min-label { font-size: var(--fs-sm); width: 28px; }
+.gs-step-session .gs-step-apply-btn, .gs-step-apply-slot { width: 36px; height: 34px; flex: none; }
+.gs-step-session .gs-step-apply-btn .icon { width: 20px; height: 20px; }
+.gs-step-session button.icon-btn, .gs-step-session > button:last-child { flex: none; }
+.gs-step-edit-toggle { align-self: flex-start; }
+.gs-step-title-edit { width: 100%; box-sizing: border-box; font-weight: 700; }
+@media (max-width: 700px) {
+  .gs-step-line { flex-wrap: wrap; }
+  .gs-step-session { width: 100%; border-left: none; padding-left: 0; }
+  .gs-step-exdata { flex: 1 1 100%; justify-content: flex-start; }
+}
