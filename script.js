@@ -399,16 +399,70 @@
     var imagesOpenInList = {}; // id d'exercice -> section Images dépliée (masquée de base)
     var imageUrlCache = {};    // id d'image -> adresse blob: (false = absente de cet appareil)
 
+    // Type réel d'une image d'après ses premiers octets (un type MIME absent ou faux empêche certains navigateurs de l'afficher).
+    function sniffImageBlob(blob) {
+        return new Promise(function (resolve) {
+            var fr = new FileReader();
+            fr.onload = function () {
+                var b = new Uint8Array(fr.result), t = "";
+                function at(i, str) { for (var k = 0; k < str.length; k++) if (b[i + k] !== str.charCodeAt(k)) return false; return true; }
+                if (b[0] === 0x89 && at(1, "PNG")) t = "image/png";
+                else if (b[0] === 0xFF && b[1] === 0xD8) t = "image/jpeg";
+                else if (at(0, "GIF8")) t = "image/gif";
+                else if (at(0, "RIFF") && at(8, "WEBP")) t = "image/webp";
+                else if (at(0, "BM")) t = "image/bmp";
+                else if (at(4, "ftyp")) t = at(8, "heic") || at(8, "heix") || at(8, "mif1") ? "image/heic" : "";
+                resolve(t && blob.type !== t ? new Blob([blob], { type: t }) : blob);
+            };
+            fr.onerror = function () { resolve(blob); };
+            fr.readAsArrayBuffer(blob.slice(0, 16));
+        });
+    }
+    // Dernier recours si l'image ne s'affiche pas : on la redessine (canvas) en JPEG.
+    function repairImageBlob(blob) {
+        if (typeof createImageBitmap !== "function") return Promise.resolve(null);
+        return createImageBitmap(blob).then(function (bmp) {
+            var cv = document.createElement("canvas");
+            cv.width = bmp.width; cv.height = bmp.height;
+            var cx = cv.getContext("2d");
+            cx.fillStyle = "#fff"; cx.fillRect(0, 0, cv.width, cv.height);
+            cx.drawImage(bmp, 0, 0);
+            if (bmp.close) bmp.close();
+            return new Promise(function (resolve) { cv.toBlob(resolve, "image/jpeg", 0.9); });
+        }).catch(function () { return null; });
+    }
+    var imageBlobCache = {};
     function loadImageInto(img, meta, onMissing) {
-        function apply(url) { if (url) img.src = url; else if (onMissing) onMissing(); }
+        function apply(url) {
+            if (!url) { if (onMissing) onMissing("absente"); return; }
+            var repaired = false;
+            img.onerror = function () {
+                if (repaired) { if (onMissing) onMissing("illisible"); return; }
+                repaired = true;
+                var src = imageBlobCache[meta.id];
+                if (!src) { if (onMissing) onMissing("illisible"); return; }
+                repairImageBlob(src).then(function (fixed) {
+                    if (!fixed) { if (onMissing) onMissing("illisible"); return; }
+                    imageBlobCache[meta.id] = fixed;
+                    imageUrlCache[meta.id] = URL.createObjectURL(fixed);
+                    storeFileBlob(meta.id, fixed); // la version réparée remplace l'originale
+                    img.src = imageUrlCache[meta.id];
+                });
+            };
+            img.src = url;
+        }
         if (meta.id in imageUrlCache) { apply(imageUrlCache[meta.id]); return; }
         getFileBlob(meta.id).then(function (blob) {
             if (blob) return blob;
             // Absente de cet appareil : on la récupère dans le cloud si elle y a été envoyée.
             return cloudFetchImage(meta);
         }).then(function (blob) {
-            imageUrlCache[meta.id] = blob ? URL.createObjectURL(blob) : false;
-            apply(imageUrlCache[meta.id]);
+            if (!blob) { imageUrlCache[meta.id] = false; apply(false); return; }
+            return sniffImageBlob(blob).then(function (fixed) {
+                imageBlobCache[meta.id] = fixed;
+                imageUrlCache[meta.id] = URL.createObjectURL(fixed);
+                apply(imageUrlCache[meta.id]);
+            });
         }, function () { imageUrlCache[meta.id] = false; apply(false); });
     }
 
@@ -517,7 +571,7 @@
         function show() {
             var meta = images[idx];
             img.removeAttribute("src");
-            loadImageInto(img, meta, function () { caption.textContent = "Image absente de cet appareil"; });
+            loadImageInto(img, meta, function (why) { caption.textContent = why === "illisible" ? "Image illisible : format non pris en charge par ce navigateur" : "Image absente de cet appareil"; });
             caption.textContent = (images.length > 1 ? (idx + 1) + " / " + images.length + " · " : "") + (meta.name || "");
         }
         function step(d) { if (images.length > 1) { idx = (idx + d + images.length) % images.length; show(); } }
@@ -551,7 +605,7 @@
             var im = document.createElement("img");
             im.alt = meta.name || "Image";
             im.loading = "lazy";
-            loadImageInto(im, meta, function () { b.classList.add("img-missing"); b.textContent = "Image absente de cet appareil"; });
+            loadImageInto(im, meta, function (why) { b.classList.add("img-missing"); b.textContent = why === "illisible" ? "Image illisible : format non pris en charge par ce navigateur" : "Image absente de cet appareil"; });
             b.appendChild(im);
             b.addEventListener("click", function () { openImageLightbox(list, i); });
             cell.appendChild(b);
@@ -967,7 +1021,25 @@
         return wrap;
     }
 
+    // Liens iReal Pro (irealb:// ou irealbook:// : le morceau est dans le lien lui-même, fourni par la fonction
+    // de partage d'iReal Pro). Ils s'ouvrent via l'application du système, pas dans un onglet.
+    var IREAL_SCHEME_RE = /^(irealb|irealbook|ireal):\/\//i;
+    function openExternalLink(url) {
+        if (IREAL_SCHEME_RE.test(url)) {
+            var a = document.createElement("a");
+            a.href = url;
+            a.rel = "noopener";
+            a.style.display = "none";
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(function () { a.remove(); }, 0);
+            return;
+        }
+        window.open(url, "_blank", "noopener,noreferrer");
+    }
+
     function guessLinkLabel(url) {
+        if (IREAL_SCHEME_RE.test(url)) return "iReal Pro";
         try {
             var host = new URL(url).hostname.replace(/^www\./, "");
             if (/youtube\.|youtu\.be/.test(host)) return "YouTube";
@@ -3126,7 +3198,7 @@
         btn.appendChild(label);
         btn.addEventListener("click", function (e) {
             e.stopPropagation();
-            window.open(link.url, "_blank", "noopener,noreferrer");
+            openExternalLink(link.url);
         });
         return btn;
     }
@@ -3170,7 +3242,7 @@
 
         links.forEach(function (link) {
             menu.appendChild(menuButton(link.label, function () {
-                if (link.open) link.open(); else window.open(link.url, "_blank", "noopener,noreferrer");
+                if (link.open) link.open(); else openExternalLink(link.url);
                 closeFolderMenu();
             }));
         });
@@ -3521,7 +3593,7 @@
         function commitLink() {
             var url = urlInput.value.trim();
             if (!url) return;
-            if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+            if (!IREAL_SCHEME_RE.test(url) && !/^https?:\/\//i.test(url)) url = "https://" + url;
             ex.links = ex.links || [];
             var newLink = { id: uid(), label: guessLinkLabel(url), url: url };
             ex.links.push(newLink);
@@ -3576,6 +3648,48 @@
         var mime = mimeForFile(meta.name, meta.type || blob.type);
         return mime && blob.type !== mime ? new Blob([blob], { type: mime }) : blob;
     }
+    // Clic droit / appui long sur un fichier joint : lire dans l'app, onglet du navigateur, ou « ouvrir avec » une autre
+    // application (feuille de partage du système quand le navigateur la propose, sinon enregistrement du fichier).
+    function openFileMenu(x, y, meta, container) {
+        var items = [];
+        if (isAudioFile(meta)) items.push({ label: "Lire dans TrainHub (vitesse réglable)", open: function () { toggleAudioPlayer(container, meta); } });
+        items.push({ label: "Ouvrir dans un onglet du navigateur", open: function () {
+            getFileBlob(meta.id).then(function (blob) {
+                if (!blob) { window.alert("Ce fichier n'est disponible que sur l'appareil où il a été ajouté (« " + meta.name + " »)."); return; }
+                var url = URL.createObjectURL(playableBlob(blob, meta));
+                window.open(url, "_blank");
+                setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+            });
+        } });
+        items.push({ label: "Ouvrir avec une autre application…", open: function () {
+            getFileBlob(meta.id).then(function (blob) {
+                if (!blob) { window.alert("Ce fichier n'est disponible que sur l'appareil où il a été ajouté (« " + meta.name + " »)."); return; }
+                var pb = playableBlob(blob, meta);
+                var file = null;
+                try { file = new File([pb], meta.name || "fichier", { type: pb.type }); } catch (e) {}
+                if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+                    navigator.share({ files: [file], title: meta.name }).catch(function () {});
+                    return;
+                }
+                saveBlobAs(pb, meta.name);
+                showToast("Fichier enregistré : ouvre-le depuis les téléchargements avec l'application de ton choix (clic droit → Ouvrir avec).", 7000);
+            });
+        } });
+        items.push({ label: "Enregistrer le fichier…", open: function () {
+            getFileBlob(meta.id).then(function (blob) { if (blob) saveBlobAs(playableBlob(blob, meta), meta.name); });
+        } });
+        openLinksQuickMenu(x, y, items);
+    }
+    function saveBlobAs(blob, name) {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url; a.download = name || "fichier";
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function () { a.remove(); URL.revokeObjectURL(url); }, 4000);
+    }
+
     // Lecteur intégré sous la liste de puces : un seul à la fois, avec la vitesse de lecture (utile pour travailler un morceau).
     function toggleAudioPlayer(container, meta) {
         var existing = container.querySelector(".audio-player");
@@ -3669,6 +3783,7 @@
                 });
             });
             chip.appendChild(openBtn);
+            bindContextGesture(chip, function (x, y) { openFileMenu(x, y, meta, list); });
 
             // Renommer le fichier (PDF, MP3…) : seul le nom affiché change, pas le fichier stocké.
             function startRenameFile() {
@@ -8004,6 +8119,7 @@
             label.className = "file-open";
             label.textContent = meta.name;
             chip.appendChild(label);
+            bindContextGesture(chip, function (x, y) { openFileMenu(x, y, meta, container); });
             chip.addEventListener("click", function () {
                 if (isAudioFile(meta)) { toggleAudioPlayer(container, meta); return; }
                 getFileBlob(meta.id).then(function (blob) {
@@ -8042,6 +8158,7 @@
         var standalone = isStandaloneApp();
         var blocked = 0, i = 0;
         function openOne(url) {
+            if (IREAL_SCHEME_RE.test(url)) { openExternalLink(url); return; }
             if (standalone) {
                 try { window.open(url, "_blank", "noopener,noreferrer"); } catch (e) { blocked++; }
                 return;
