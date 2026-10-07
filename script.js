@@ -7850,6 +7850,7 @@
         return s.length > 40 ? s.slice(0, 39) + "…" : s;
     }
     var gsExDetailsOpen = null; // null = auto (déplié si l'exercice a une note), sinon choix de l'utilisateur
+    var gsOpenStepEdit = {};    // id de pas -> édition de l'exercice dépliée dans l'écran d'édition
     var gsOpenStepDetails = {}; // id de pas -> bloc "notes et liens" déplié dans l'écran d'édition
     function gsSessionHasItems(session) {
         return session.steps.some(function (step) {
@@ -8553,23 +8554,44 @@
                 var row = document.createElement("div");
                 row.className = "gs-step-row";
                 row.dataset.reorderId = step.id;
+                var line = document.createElement("div");
+                line.className = "gs-step-line";
+                row.appendChild(line);
                 var handle = document.createElement("span");
                 handle.className = "gs-step-handle";
                 handle.innerHTML = GRIP_ICON_SVG;
-                row.appendChild(handle);
-                if (found) row.appendChild(gsThemeBadge(found.pathNames, found.chapterColor));
+                line.appendChild(handle);
+                if (found) line.appendChild(gsThemeBadge(found.pathNames, found.chapterColor));
                 var label = document.createElement("span");
                 label.className = "gs-step-label" + (found ? "" : " gs-step-missing");
                 label.textContent = found ? found.ex.title : "(exercice supprimé)";
-                row.appendChild(label);
+                line.appendChild(label);
                 var stepTempoCfg = {
                     title: found ? found.ex.title : "ce pas",
                     exId: found ? found.ex.id : null,
                     get: function () { return gsEffectiveMetronome(step, found && found.ex); },
                     set: function (p) { gsSetStepMetronome(step, found, p); renderSteps(); }
                 };
-                var stepChip = buildTempoChip(stepTempoCfg, true);
-                row.appendChild(stepChip);
+                // Données propres à l'exercice (tempo, liens, images, notes) : même visuel que la liste normale.
+                var exData = document.createElement("div");
+                exData.className = "gs-step-exdata";
+                exData.appendChild(buildTempoChip(stepTempoCfg, true));
+                if (found) {
+                    appendExerciseLinkButtons(exData, found.ex);
+                    appendExerciseImageButton(exData, found.ex);
+                    if (found.ex.notes && found.ex.notes.trim()) {
+                        var exNote = document.createElement("span");
+                        exNote.className = "exercise-note-mark";
+                        exNote.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+                        exNote.title = "Cet exercice a des notes";
+                        exData.appendChild(exNote);
+                    }
+                }
+                line.appendChild(exData);
+                // Données de la session (durée de chaque exercice, recopier) : zone séparée, alignée à droite.
+                var sessZone = document.createElement("div");
+                sessZone.className = "gs-step-session";
+                line.appendChild(sessZone);
                 var minutesInput = document.createElement("input");
                 minutesInput.type = "number";
                 minutesInput.min = "1";
@@ -8584,15 +8606,19 @@
                     save();
                     refreshTotal();
                 });
-                row.appendChild(minutesInput);
+                sessZone.appendChild(minutesInput);
                 var minLabel = document.createElement("span");
                 minLabel.className = "gs-step-min-label";
                 minLabel.textContent = "min";
-                row.appendChild(minLabel);
+                sessZone.appendChild(minLabel);
                 if (gsOtherStepsOf(step).rows.length) {
                     var applyBtn = svgIconButton(GS_APPLY_ICON_SVG, "Appliquer cette durée à d'autres sessions contenant cet exercice", function () { gsOfferSyncMinutes(step); });
                     applyBtn.classList.add("gs-step-apply-btn");
-                    row.appendChild(applyBtn);
+                    sessZone.appendChild(applyBtn);
+                } else {
+                    var applySlot = document.createElement("span");
+                    applySlot.className = "gs-step-apply-slot";
+                    sessZone.appendChild(applySlot);
                 }
                 var detailsOpen = !!gsOpenStepDetails[step.id];
                 // Un clic sur la barre de l'exercice (hors champs et boutons) déplie ou replie ses détails,
@@ -8610,7 +8636,7 @@
                 detailsBtn.className = "gs-step-note-mark";
                 detailsBtn.textContent = step.note && step.note.trim() ? "✎" : "";
                 detailsBtn.title = "Une note est enregistrée pour cet exercice dans la session";
-                row.appendChild(detailsBtn);
+                exData.appendChild(detailsBtn);
                 var removeBtn = iconButton("✕", "Retirer cet exercice", function () {
                     session.steps.splice(session.steps.indexOf(step), 1);
                     save();
@@ -8618,13 +8644,43 @@
                     refreshTotal();
                     editRunBtn.disabled = !session.steps.length;
                 });
-                row.appendChild(removeBtn);
+                sessZone.appendChild(removeBtn);
 
                 if (detailsOpen) {
                     var details = document.createElement("div");
                     details.className = "gs-step-details";
                     var stepPaths = gsExercisePathLines(found);
                     if (stepPaths) details.appendChild(stepPaths);
+                    // Modifier l'exercice lui-même (titre, tempo, notes, liens, fichiers, images) sans quitter la préparation.
+                    if (found) {
+                        var editOpen = !!gsOpenStepEdit[step.id];
+                        var editToggle = document.createElement("button");
+                        editToggle.type = "button";
+                        editToggle.className = "btn-ghost gs-step-edit-toggle";
+                        editToggle.textContent = (editOpen ? "▾ " : "▸ ") + "Modifier l'exercice (titre, notes, liens, images…)";
+                        editToggle.addEventListener("click", function () { gsOpenStepEdit[step.id] = !editOpen; renderSteps(); });
+                        details.appendChild(editToggle);
+                        if (editOpen) {
+                            var titleEdit = document.createElement("input");
+                            titleEdit.type = "text";
+                            titleEdit.className = "gs-step-title-edit";
+                            titleEdit.value = found.ex.title;
+                            titleEdit.setAttribute("aria-label", "Titre de l'exercice");
+                            titleEdit.addEventListener("change", function () {
+                                var v = titleEdit.value.trim();
+                                if (!v) { titleEdit.value = found.ex.title; return; }
+                                found.ex.title = v;
+                                touchExercise(found.ex);
+                                save();
+                                renderSteps();
+                            });
+                            details.appendChild(titleEdit);
+                            var exEditor = renderExerciseDetails(found.ex);
+                            details.appendChild(exEditor);
+                            var exTa = exEditor.querySelector(".notes-textarea");
+                            if (exTa) setTimeout(function () { autoGrowNotes(exTa); }, 0);
+                        }
+                    }
                     details.appendChild(buildMetronomePresetRow(stepTempoCfg));
                     var noteLabel = document.createElement("div");
                     noteLabel.className = "section-label";
