@@ -2406,3 +2406,9 @@ button.img-thumb-full:hover { color: var(--accent); border-color: var(--accent);
 
 .img-thumb-side { display: flex; flex-direction: column; gap: 4px; flex: none; }
 .img-thumb-side button.img-thumb-remove { position: static; width: 28px; height: 28px; background: transparent; border-color: var(--border); color: var(--text-muted); }
+
+.gs-run-topline { display: flex; align-items: center; justify-content: center; position: relative; }
+.gs-run-topline .gs-run-progress { flex: 1; }
+button.gs-run-mini-btn { position: absolute; right: 0; top: 50%; transform: translateY(-50%); width: 34px; height: 30px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; color: var(--text-muted); }
+button.gs-run-mini-btn .icon { width: 18px; height: 18px; }
+button.gs-run-mini-btn:hover, button.gs-run-mini-btn.active { color: var(--accent); border-color: var(--accent); }

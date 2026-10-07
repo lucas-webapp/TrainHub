@@ -5569,6 +5569,7 @@
         return changed;
     }
 
+    var metroBeatListeners = []; // fonctions (pas, estUnTemps, force) appelées à chaque clic — ex. la fenêtre flottante
     function metroScheduler() {
         var m = state.settings.metronome;
         while (metroNextNoteTime < metroAudioCtx.currentTime + METRO_SCHEDULE_AHEAD_S) {
@@ -5579,9 +5580,14 @@
             if (metroCurrentStep >= stepCount) metroCurrentStep = 0;
             if (metroTrainFadeTick(m) && metroTempoCallback) metroTempoCallback();
             if (!metroTrainMuted(m, metroCurrentStep, layer.subdivision)) metroClick(metroNextNoteTime, layer.pattern[metroCurrentStep]);
-            if (metroBeatCallback) {
+            if (metroBeatCallback || metroBeatListeners.length) {
                 var step = metroCurrentStep, delayMs = Math.max(0, (metroNextNoteTime - metroAudioCtx.currentTime) * 1000);
-                setTimeout(function () { if (metroPlaying && metroBeatCallback) metroBeatCallback(step); }, delayMs);
+                var isBeat = step % Math.max(1, layer.subdivision) === 0, strength = layer.pattern[step];
+                setTimeout(function () {
+                    if (!metroPlaying) return;
+                    if (metroBeatCallback) metroBeatCallback(step);
+                    metroBeatListeners.forEach(function (fn) { try { fn(step, isBeat, strength); } catch (e) {} });
+                }, delayMs);
             }
             // Tempo progressif : mesuré sur l'horloge audio (temps écoulé réel de la lecture), donc le
             // rythme d'augmentation reste le même quel que soit le tempo.
@@ -9206,6 +9212,7 @@
 
     function gsEndRun() {
         if (gsRunInterval) { clearInterval(gsRunInterval); gsRunInterval = null; }
+        if (miniWinOpen()) closeMiniWindow();
         if (metroLink && metroLink.fromSession) setMetroLink(null);
         gsRunSession = null;
         gsScreen = "list";
@@ -9658,15 +9665,170 @@
         }
     }
 
+    // ---------- fenêtre flottante de session (toujours visible) ----------
+    // Pour garder le chrono sous les yeux quand la page TrainHub est cachée (PDF, iReal Pro, vidéo…) : une petite
+    // fenêtre séparée, avec le nom de l'exercice, le temps restant (−1/+1 min, pause) et le métronome (tempo qui
+    // clignote à chaque temps, lecture/pause). Sur Chrome/Edge (bureau) c'est une vraie fenêtre « image dans l'image »
+    // qui reste AU-DESSUS des autres applications ; ailleurs (Safari, Firefox) c'est une petite fenêtre ordinaire,
+    // à garder visible à côté.
+    var miniWin = null, miniIsPip = false, miniTimerId = null;
+    var MINI_SIZE_KEY = "trainhub.miniSize.v1";
+    var MINI_PRESETS = [["Mini", 196, 118], ["Horizontal", 460, 118], ["Vertical", 180, 320], ["Carré", 252, 252], ["Grand", 460, 330]];
+    function miniWinOpen() { return !!(miniWin && !miniWin.closed); }
+    function miniLoadSize() {
+        try { var v = JSON.parse(localStorage.getItem(MINI_SIZE_KEY)); if (v && v.w > 100 && v.h > 80) return v; } catch (e) {}
+        return { w: 252, h: 252 };
+    }
+    function closeMiniWindow() {
+        var w = miniWin;
+        miniWin = null;
+        if (miniTimerId && w) { try { w.clearInterval(miniTimerId); } catch (e) {} }
+        miniTimerId = null;
+        metroBeatListeners = metroBeatListeners.filter(function (fn) { return fn !== miniBeat; });
+        if (w && !w.closed) { try { w.close(); } catch (e) {} }
+        refreshMiniButtons();
+    }
+    var miniBeat = function () {};
+    function refreshMiniButtons() {
+        Array.prototype.forEach.call(document.querySelectorAll(".gs-run-mini-btn"), function (b) {
+            b.classList.toggle("active", miniWinOpen());
+            b.setAttribute("aria-pressed", miniWinOpen() ? "true" : "false");
+        });
+    }
+    function openMiniWindow() {
+        if (miniWinOpen()) { closeMiniWindow(); return; }
+        if (!gsRunSession) return;
+        var size = miniLoadSize();
+        var request;
+        if (window.documentPictureInPicture && documentPictureInPicture.requestWindow) {
+            miniIsPip = true;
+            request = documentPictureInPicture.requestWindow({ width: size.w, height: size.h }).catch(function () { return null; });
+        } else {
+            miniIsPip = false;
+            var w0 = null;
+            try { w0 = window.open("", "trainhub-mini", "popup=yes,width=" + size.w + ",height=" + size.h + ",left=40,top=80"); } catch (e) {}
+            request = Promise.resolve(w0);
+        }
+        request.then(function (win) {
+            if (!win) { showToast("Fenêtre flottante impossible : autorise les pop-ups pour TrainHub, ou utilise Chrome/Edge."); return; }
+            setupMiniWindow(win);
+        });
+    }
+    function setupMiniWindow(win) {
+        miniWin = win;
+        var doc = win.document;
+        doc.title = "TrainHub";
+        doc.body.innerHTML = "";
+        var css = doc.createElement("style");
+        css.textContent =
+            ":root{color-scheme:dark;--ac:#00e676;--bd:#3a3a3a;--bg:#121212;--tx:#eee;--mu:#9a9a9a}" +
+            "*{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);font:13px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow:hidden}" +
+            "button{font:inherit;color:var(--tx);background:#222;border:1px solid var(--bd);border-radius:7px;cursor:pointer;padding:0 8px;height:28px}button:hover{border-color:var(--ac)}" +
+            ".m{height:100%;display:flex;flex-direction:column;justify-content:center;align-items:stretch;gap:6px;padding:8px 10px}" +
+            ".t{font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center}" +
+            ".tm{font-size:40px;font-weight:800;text-align:center;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.02em}.tm.over{color:#ff8a65}" +
+            ".r{display:flex;gap:6px}.r button{flex:1;white-space:nowrap}.pp{background:color-mix(in srgb,var(--ac) 18%,#222);border-color:color-mix(in srgb,var(--ac) 55%,var(--bd));color:var(--ac);font-weight:700}.pp.run{color:var(--tx);background:#222;border-color:var(--bd)}" +
+            ".mt{display:flex;align-items:center;gap:8px;border-top:1px solid var(--bd);padding-top:6px}.bpm{flex:1;text-align:center;font-size:24px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--mu);border-radius:7px;transition:none;line-height:1.3}.bpm small{font-size:11px;font-weight:600;margin-left:3px}" +
+            ".bpm.on{color:#04140a;background:var(--ac)}.bpm.on.acc{background:#fff}.bpm.idle{opacity:.75}" +
+            ".mt button{width:40px;flex:none}.tools{display:flex;gap:4px;justify-content:center;flex-wrap:wrap}.tools button{height:22px;font-size:11px;padding:0 6px;color:var(--mu)}.tools .x{margin-left:auto}" +
+            "@media (min-aspect-ratio:2/1){.m{flex-direction:row;align-items:center;flex-wrap:wrap;gap:8px 12px}.m .head{flex:1 1 140px;min-width:0}.m .r{flex:0 0 auto}.m .r button{flex:none}.m .mt{border-top:none;padding-top:0;border-left:1px solid var(--bd);padding-left:10px}.m .tools{flex:1 1 100%}.tm{font-size:34px}}" +
+            "@media (max-width:230px){.t{font-size:12px}.tm{font-size:34px}.r button{padding:0 4px;font-size:12px}}" +
+            "@media (max-height:150px) and (max-width:300px){.t,.tools{display:none}.tm{font-size:32px}.mt{padding-top:4px}.bpm{font-size:18px}}" +
+            "@media (max-height:150px){.tools{display:none}}" +
+            "@media (min-width:380px) and (min-height:280px){.tm{font-size:72px}.t{font-size:17px}.bpm{font-size:40px}button{height:36px;font-size:15px}.mt button{width:56px}.tools button{height:26px;font-size:12px}}";
+        doc.head.appendChild(css);
+        var root = doc.createElement("div");
+        root.className = "m";
+        root.innerHTML =
+            '<div class="head"><div class="t" id="t"></div><div class="tm" id="tm">--:--</div></div>' +
+            '<div class="r"><button id="minus" title="Retirer une minute">−1 min</button><button id="pp" class="pp" title="Pause / reprise de la session">Pause</button><button id="plus" title="Ajouter une minute">+1 min</button></div>' +
+            '<div class="mt"><div class="bpm idle" id="bpm">--<small>BPM</small></div><button id="mp" title="Lecture / pause du métronome">▶</button></div>' +
+            '<div class="tools" id="tools"></div>';
+        doc.body.appendChild(root);
+        function $(id) { return doc.getElementById(id); }
+        var tools = $("tools");
+        MINI_PRESETS.forEach(function (pr) {
+            var b = doc.createElement("button");
+            b.textContent = pr[0];
+            b.title = "Taille « " + pr[0] + " »";
+            b.addEventListener("click", function () { try { win.resizeTo(pr[1], pr[2]); } catch (e) {} });
+            tools.appendChild(b);
+        });
+        var hide = doc.createElement("button");
+        hide.className = "x"; hide.textContent = "Masquer"; hide.title = "Fermer cette fenêtre (le bouton de la session la rouvre)";
+        hide.addEventListener("click", closeMiniWindow);
+        tools.appendChild(hide);
+
+        function adjust(delta) {
+            if (!gsRunSession) return;
+            gsRunAllocatedSec = Math.max(60, gsRunAllocatedSec + delta);
+            if (gsRefreshRunUi) gsRefreshRunUi();
+            refresh();
+        }
+        $("minus").addEventListener("click", function () { adjust(-60); });
+        $("plus").addEventListener("click", function () { adjust(60); });
+        $("pp").addEventListener("click", function () {
+            if (!gsRunSession) return;
+            if (gsRunPaused) gsResumeRun(); else gsPauseRun();
+            if (gsRefreshRunUi) gsRefreshRunUi();
+            refresh();
+        });
+        $("mp").addEventListener("click", function () {
+            try { if (metroPanelApi) metroPanelApi.toggle(); else if (metroPlaying) stopMetronome(); else startMetronome(); } catch (e) {}
+            refresh();
+        });
+        function refresh() {
+            if (!gsRunSession) { closeMiniWindow(); return; }
+            var step = gsRunSession.steps[gsRunStepIndex];
+            var found = step && findExerciseById(step.exerciseId);
+            $("t").textContent = found ? found.ex.title : "(exercice)";
+            var remaining = gsRunAllocatedSec - Math.floor(gsRunElapsedNowMs() / 1000);
+            var abs = Math.abs(remaining), mm = Math.floor(abs / 60), ss = abs % 60;
+            $("tm").textContent = (remaining < 0 ? "+" : "") + (mm < 10 ? "0" : "") + mm + ":" + (ss < 10 ? "0" : "") + ss;
+            $("tm").classList.toggle("over", remaining < 0);
+            $("pp").textContent = gsRunPaused ? "Reprendre" : "Pause";
+            $("pp").classList.toggle("run", !gsRunPaused);
+            $("bpm").innerHTML = state.settings.metronome.bpm + "<small>BPM</small>";
+            $("bpm").classList.toggle("idle", !metroPlaying);
+            $("mp").textContent = metroPlaying ? "❚❚" : "▶";
+            // la page principale peut être cachée (timers ralentis) : c'est cette fenêtre qui fait avancer l'enchaînement automatique
+            if (step) gsAutoAdvanceTick(remaining, step, gsRunSession);
+        }
+        miniBeat = function (stepIdx, isBeat, strength) {
+            if (!isBeat || !miniWinOpen()) return;
+            var el = $("bpm");
+            if (!el) return;
+            el.classList.add("on");
+            el.classList.toggle("acc", strength === 2);
+            win.setTimeout(function () { el.classList.remove("on"); }, 90);
+        };
+        metroBeatListeners.push(miniBeat);
+        refresh();
+        miniTimerId = win.setInterval(refresh, 250);
+        win.addEventListener("pagehide", function () { if (miniWin === win) { miniWin = null; closeMiniWindow(); } });
+        refreshMiniButtons();
+    }
+
     function renderGsRunScreen(content) {
         var session = gsRunSession;
         var step = session.steps[gsRunStepIndex];
         var found = findExerciseById(step.exerciseId);
 
+        var topLine = document.createElement("div");
+        topLine.className = "gs-run-topline";
         var progress = document.createElement("div");
         progress.className = "gs-run-progress";
         progress.textContent = "Exercice " + (gsRunStepIndex + 1) + " / " + session.steps.length;
-        content.appendChild(progress);
+        topLine.appendChild(progress);
+        var miniBtn = document.createElement("button");
+        miniBtn.type = "button";
+        miniBtn.className = "gs-run-mini-btn";
+        miniBtn.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><rect x="12" y="12" width="7" height="5" rx="1" fill="currentColor"/></svg>';
+        miniBtn.title = "Fenêtre flottante toujours visible : chrono, pause, métronome (utile quand on cache TrainHub pour lire un PDF, iReal Pro, une vidéo…)";
+        miniBtn.setAttribute("aria-label", "Fenêtre flottante de session");
+        miniBtn.addEventListener("click", openMiniWindow);
+        topLine.appendChild(miniBtn);
+        content.appendChild(topLine);
 
         if (found) content.appendChild(gsThemeBadge(found.pathNames, found.chapterColor));
 
@@ -10075,7 +10237,7 @@
     // visible. Reprise toujours manuelle (bouton Reprendre), pour ne pas relancer le chrono par
     // surprise au retour.
     document.addEventListener("visibilitychange", function () {
-        if (document.hidden && gsRunSession && !gsRunPaused) {
+        if (document.hidden && gsRunSession && !gsRunPaused && !miniWinOpen()) {
             gsPauseRun();
             // Pas de render() ici : reconstruire l'écran détruirait les lecteurs YouTube en cours.
             if (guidedSessionViewActive && gsScreen === "run" && gsRefreshRunUi) gsRefreshRunUi();
