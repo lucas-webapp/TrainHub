@@ -6177,6 +6177,10 @@
             progToggle.setAttribute("aria-label", "Tempo progressif");
             toolsRow.appendChild(progToggle);
 
+            // Options à droite du bouton (deux lignes : « +1 BPM toutes les 20 s » puis « Seuil … ⋯ ») ; le reste dessous.
+            var progSide = document.createElement("div");
+            progSide.className = "metro-prog-side";
+            toolsRow.appendChild(progSide);
             var progFields = document.createElement("div");
             progFields.className = "metro-progressive-fields";
             // Juste sous la rangée Tap / Progressif (et non tout en bas, sous les formules rythmiques).
@@ -6232,20 +6236,24 @@
             function renderProgFields() {
                 var p = m.progressive;
                 progFields.innerHTML = "";
+                progSide.innerHTML = "";
+                var row1 = document.createElement("div");
+                row1.className = "metro-prog-row";
                 var row = document.createElement("div");
                 row.className = "metro-prog-row";
-                progFields.appendChild(row);
+                progSide.appendChild(row1);
+                progSide.appendChild(row);
                 function inlineTxt(parent, t) { var sp = document.createElement("span"); sp.className = "metro-prog-txt"; sp.textContent = t; parent.appendChild(sp); }
                 if (!p.stagesMode) {
                     // « +1 bpm / [20] sec » : une seule ligne courte.
                     var every = document.createElement("div");
                     every.className = "metro-prog-inline";
-                    inlineTxt(every, "+1 bpm /");
+                    inlineTxt(every, "+1 BPM toutes les");
                     every.appendChild(progNumber(p.everySeconds, 1, 600, function (n) {
                         p.everySeconds = Math.min(600, Math.max(1, n || 20)); progChanged(); return p.everySeconds;
                     }, { pxPerStep: 4, label: "Secondes entre deux hausses" }));
-                    inlineTxt(every, "sec");
-                    row.appendChild(every);
+                    inlineTxt(every, "s");
+                    row1.appendChild(every);
                 }
                 var seuil = document.createElement("div");
                 seuil.className = "metro-prog-inline";
@@ -6320,6 +6328,8 @@
             function refreshProgToggle() {
                 progToggle.classList.toggle("metro-progressive-active", m.progressive.enabled);
                 progFields.hidden = !m.progressive.enabled;
+                progSide.hidden = !m.progressive.enabled;
+                toolsRow.classList.toggle("metro-tools-prog-open", m.progressive.enabled);
                 refreshProgStatus();
             }
             progToggle.addEventListener("click", function () {
