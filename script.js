@@ -5864,8 +5864,10 @@
             window.addEventListener("pointerup", onPanelPointerUp);
             function onPanelPointerUp() { setTimeout(refreshLinkBar, 0); }
             var title = document.createElement("div");
-            title.className = "backups-title";
-            title.textContent = "Métronome";
+            title.className = "backups-title metro-title-icon";
+            title.innerHTML = METRONOME_ICON_SVG; // logo à la place du mot (le mot gênait la barre de volume)
+            title.title = "Métronome";
+            title.setAttribute("aria-label", "Métronome");
             // BPM rappelé dans le titre, visible seulement quand le volet est réduit (voir CSS).
             var compactBpm = document.createElement("span");
             compactBpm.className = "metro-compact-bpm";

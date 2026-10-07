@@ -2116,3 +2116,8 @@ input.metro-volume-inline-slider { flex: 1 1 auto; width: auto; min-width: 140px
 button.tempo-chip { gap: 2px; padding: 0 8px; }
 .tempo-chip-note { margin-right: 3px; }
 .tempo-chip-arrow { margin: 0; }
+
+/* Titre du métronome : simple logo, sans cadre */
+.metro-title-icon { display: inline-flex; align-items: center; gap: 8px; flex: none; color: var(--accent); }
+.metro-title-icon > .icon { width: 26px; height: 26px; }
+.metro-dock .metro-header-row .backups-title.metro-title-icon { flex: none; }
