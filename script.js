@@ -613,56 +613,75 @@
     }
 
     // Section « Images » d'un exercice (liste et session) : barre à cliquer, repliée de base.
+    // Coller l'image du presse-papiers dans un exercice (bouton « Coller » de la barre d'ajout).
+    function pasteImagesFromClipboard(ex) {
+        if (!navigator.clipboard || !navigator.clipboard.read) { window.alert("Collage direct indisponible ici : utilise Ctrl+V / ⌘V dans la fiche de l'exercice."); return; }
+        navigator.clipboard.read().then(function (items) {
+            var blobs = [];
+            return Promise.all(items.map(function (it) {
+                var t = it.types.filter(function (x) { return /^image\//.test(x); })[0];
+                return t ? it.getType(t).then(function (bl) { blobs.push(bl); }) : null;
+            })).then(function () {
+                if (blobs.length) addImagesToExercise(ex, blobs); else window.alert("Aucune image dans le presse-papiers.");
+            });
+        }).catch(function () { window.alert("Collage refusé par le navigateur : utilise Ctrl+V / ⌘V dans la fiche de l'exercice."); });
+    }
+
+    // Section « Images » d'un exercice (liste et session) : une barre à cliquer, repliée de base, qui n'existe que
+    // s'il y a des images. L'ajout se fait depuis la barre unique des liens (PJ, Coller, Ctrl+V).
     function buildImagesSection(ex) {
         var wrap = document.createElement("div");
         wrap.className = "images-section";
-        var open = !!imagesOpenInList[ex.id];
         var count = (ex.images || []).length;
+        if (!count) return wrap;
+        var open = !!imagesOpenInList[ex.id];
         var bar = document.createElement("button");
         bar.type = "button";
         bar.className = "btn-ghost images-toggle";
-        bar.textContent = (open ? "▾ " : "▸ ") + "Images" + (count ? " (" + count + ")" : "") + " — " + (open ? "masquer" : "afficher");
+        bar.textContent = (open ? "▾ " : "▸ ") + "Images (" + count + ") — " + (open ? "masquer" : "afficher");
         bar.addEventListener("click", function () { imagesOpenInList[ex.id] = !open; render(); });
         wrap.appendChild(bar);
-        if (!open) return wrap;
-        if (count) wrap.appendChild(buildImageStrip(ex, "ex", true));
-        var row = document.createElement("div");
-        row.className = "images-add-row";
-        var input = document.createElement("input");
-        input.type = "file";
-        input.accept = "image/*";
-        input.multiple = true;
-        input.className = "add-file-input";
-        input.addEventListener("change", function () { addImagesToExercise(ex, Array.prototype.slice.call(input.files || [])); input.value = ""; });
-        var addBtn = document.createElement("button");
-        addBtn.type = "button";
-        addBtn.className = "images-add-btn";
-        addBtn.textContent = "+ Ajouter une image";
-        addBtn.addEventListener("click", function () { input.click(); });
-        var pasteBtn = document.createElement("button");
-        pasteBtn.type = "button";
-        pasteBtn.className = "images-add-btn";
-        pasteBtn.textContent = "Coller";
-        pasteBtn.title = "Coller l'image copiée (ou Ctrl+V / ⌘V dans cette fiche)";
-        pasteBtn.addEventListener("click", function () {
-            if (!navigator.clipboard || !navigator.clipboard.read) { window.alert("Collage direct indisponible ici : utilise Ctrl+V / ⌘V dans la fiche de l'exercice."); return; }
-            navigator.clipboard.read().then(function (items) {
-                var blobs = [];
-                return Promise.all(items.map(function (it) {
-                    var t = it.types.filter(function (x) { return /^image\//.test(x); })[0];
-                    return t ? it.getType(t).then(function (b) { blobs.push(b); }) : null;
-                })).then(function () {
-                    if (blobs.length) addImagesToExercise(ex, blobs); else window.alert("Aucune image dans le presse-papiers.");
-                });
-            }).catch(function () { window.alert("Collage refusé par le navigateur : utilise Ctrl+V / ⌘V dans la fiche de l'exercice."); });
-        });
-        row.appendChild(addBtn); row.appendChild(pasteBtn); row.appendChild(input);
-        var hint = document.createElement("span");
-        hint.className = "images-hint";
-        hint.textContent = "ou Ctrl+V / ⌘V ici";
-        row.appendChild(hint);
-        wrap.appendChild(row);
+        if (open) wrap.appendChild(buildImageStrip(ex, "ex", true));
         return wrap;
+    }
+
+    // ---- images : bouton dans la barre de l'exercice, ouverture dans un onglet du navigateur ----
+    var IMAGE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 8"/></svg>';
+    function openExerciseImageInTab(meta) {
+        var cached = imageUrlCache[meta.id];
+        if (cached) { window.open(cached, "_blank"); return; }
+        // Pas encore en mémoire : onglet ouvert tout de suite (geste de l'utilisateur), rempli dès que l'image est lue.
+        var w = window.open("", "_blank");
+        getFileBlob(meta.id).then(function (blob) { return blob || cloudFetchImage(meta); }).then(function (blob) {
+            if (!blob) { if (w) w.close(); showToast("Image absente de cet appareil.", 4000); return; }
+            var url = URL.createObjectURL(blob);
+            imageUrlCache[meta.id] = url;
+            if (w) w.location.href = url; else window.open(url, "_blank");
+        });
+    }
+    function appendExerciseImageButton(row, ex) {
+        var list = ex.images || [];
+        if (!list.length) return;
+        // Préchargées en arrière-plan : le clic peut alors ouvrir l'onglet directement.
+        list.forEach(function (m) {
+            if (m.id in imageUrlCache) return;
+            getFileBlob(m.id).then(function (b) { if (b && !(m.id in imageUrlCache)) imageUrlCache[m.id] = URL.createObjectURL(b); });
+        });
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "exercise-link-quick exercise-image-quick";
+        btn.innerHTML = IMAGE_ICON_SVG + (list.length > 1 ? '<span class="exercise-image-count">' + list.length + "</span>" : "");
+        btn.title = list.length > 1 ? "Ouvrir une image dans un onglet (" + list.length + ")" : "Ouvrir l'image dans un onglet";
+        btn.setAttribute("aria-label", btn.title);
+        btn.addEventListener("click", function (e) {
+            e.stopPropagation();
+            if (list.length === 1) { openExerciseImageInTab(list[0]); return; }
+            var rect = btn.getBoundingClientRect();
+            openLinksQuickMenu(rect.left, rect.bottom, list.map(function (m, i) {
+                return { label: "Image " + (i + 1) + (m.name ? " · " + m.name : ""), open: function () { openExerciseImageInTab(m); } };
+            }));
+        });
+        row.appendChild(btn);
     }
 
     // Collage (Ctrl+V / ⌘V) d'une capture n'importe où dans la fiche d'un exercice.
@@ -3061,6 +3080,7 @@
         row.appendChild(spacer);
 
         appendExerciseLinkButtons(row, ex);
+        appendExerciseImageButton(row, ex);
         var tempoChip = buildTempoChip({
             title: ex.title,
             get: function () { return ex.metronome; },
@@ -3188,7 +3208,7 @@
 
         links.forEach(function (link) {
             menu.appendChild(menuButton(link.label, function () {
-                window.open(link.url, "_blank", "noopener,noreferrer");
+                if (link.open) link.open(); else window.open(link.url, "_blank", "noopener,noreferrer");
                 closeFolderMenu();
             }));
         });
@@ -3531,6 +3551,13 @@
         addLinkRow.appendChild(urlInput);
         addLinkRow.appendChild(addLinkBtn);
         addLinkRow.appendChild(makeAddFileButton(ex));
+        var pasteImgBtn = document.createElement("button");
+        pasteImgBtn.type = "button";
+        pasteImgBtn.className = "add-paste-btn";
+        pasteImgBtn.textContent = "Coller";
+        pasteImgBtn.title = "Coller une capture ou une image copiée (ou Ctrl+V / ⌘V dans la fiche)";
+        pasteImgBtn.addEventListener("click", function () { pasteImagesFromClipboard(ex); });
+        addLinkRow.appendChild(pasteImgBtn);
         details.appendChild(addLinkRow);
 
         details.appendChild(buildImagesSection(ex));
@@ -3647,13 +3674,18 @@
         var fileInput = document.createElement("input");
         fileInput.type = "file";
         fileInput.className = "add-file-input";
-        fileInput.accept = ".pdf,application/pdf,.mp3,audio/*";
+        fileInput.accept = ".pdf,application/pdf,.mp3,audio/*,image/*";
         fileInput.multiple = true;
-        var fileBtn = svgIconButton(FILE_ICON_SVG, "Ajouter un fichier (PDF, MP3…) — reste sur cet appareil", function () { fileInput.click(); });
+        var fileBtn = svgIconButton(FILE_ICON_SVG, "Ajouter un fichier (PDF, MP3…) ou une image — reste sur cet appareil", function () { fileInput.click(); });
         fileBtn.classList.add("btn-ghost");
         fileInput.addEventListener("change", function () {
-            var files = Array.prototype.slice.call(fileInput.files || []);
-            if (!files.length) return;
+            var all = Array.prototype.slice.call(fileInput.files || []);
+            if (!all.length) return;
+            // Les images vont dans la section Images (réduites, synchronisées) ; le reste reste en pièces jointes.
+            var imgs = all.filter(function (f) { return /^image\//.test(f.type); });
+            var files = all.filter(function (f) { return !/^image\//.test(f.type); });
+            if (imgs.length) addImagesToExercise(ex, imgs);
+            if (!files.length) { fileInput.value = ""; return; }
             ex.files = ex.files || [];
             Promise.all(files.map(function (file) {
                 var id = uid();
