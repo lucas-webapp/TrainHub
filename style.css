@@ -2256,3 +2256,11 @@ button.gs-tool-btn.active { border-color: var(--accent); color: var(--accent); }
 .gs-pathlines { display: flex; flex-direction: column; gap: 1px; margin: 0 0 6px; }
 .gs-pathline { font-size: var(--fs-xs); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gs-pathline-more { font-style: italic; }
+
+.gs-sync-panel { width: min(460px, 94vw); }
+.gs-sync-intro { font-size: var(--fs-sm); color: var(--text-muted); margin: 4px 0 10px; }
+.gs-sync-list { display: flex; flex-direction: column; gap: 4px; max-height: 50vh; overflow-y: auto; }
+.gs-sync-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; }
+.gs-sync-name { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-sync-dur { font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.gs-sync-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }

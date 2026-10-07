@@ -7643,9 +7643,75 @@
         });
         return found || 5;
     }
+    var gsSyncTimers = {};
     function gsRememberMinutes(step) {
         var f = findExerciseById(step.exerciseId);
         if (f && f.ex.lastMinutes !== step.minutes) f.ex.lastMinutes = step.minutes;
+        // Aucune modification automatique des autres sessions : on propose, une fois la saisie terminée.
+        clearTimeout(gsSyncTimers[step.id]);
+        gsSyncTimers[step.id] = setTimeout(function () { gsOfferSyncMinutes(step); }, 900);
+    }
+    // Même exercice dans d'autres sessions avec une autre durée : liste à cocher (durée actuelle de chacune).
+    function gsOfferSyncMinutes(step) {
+        var mine = null;
+        state.settings.guidedSessions.forEach(function (gs) { if (gs.steps.indexOf(step) !== -1) mine = gs; });
+        if (!mine) return;
+        var rows = [];
+        state.settings.guidedSessions.forEach(function (gs) {
+            if (gs === mine) return;
+            gs.steps.forEach(function (st) {
+                if (st.exerciseId === step.exerciseId && st.minutes !== step.minutes) rows.push({ gs: gs, st: st });
+            });
+        });
+        if (!rows.length) return;
+        var found = findExerciseById(step.exerciseId);
+        var newMin = step.minutes;
+        openModal("gs-sync-panel", function (panel, close) {
+            var title = document.createElement("div");
+            title.className = "backups-title";
+            title.textContent = "Durée de « " + (found ? found.ex.title : "l'exercice") + " »";
+            panel.appendChild(title);
+            var intro = document.createElement("div");
+            intro.className = "gs-sync-intro";
+            intro.textContent = "Réglée à " + newMin + " min dans « " + mine.name + " ». Appliquer aussi à ces sessions ?";
+            panel.appendChild(intro);
+            var list = document.createElement("div");
+            list.className = "gs-sync-list";
+            var boxes = [];
+            rows.forEach(function (r) {
+                var line = document.createElement("label");
+                line.className = "gs-sync-row";
+                var cb = document.createElement("input");
+                cb.type = "checkbox";
+                cb.checked = true;
+                boxes.push(cb);
+                var nm = document.createElement("span");
+                nm.className = "gs-sync-name";
+                nm.textContent = r.gs.name;
+                var du = document.createElement("span");
+                du.className = "gs-sync-dur";
+                du.textContent = r.st.minutes + " min → " + newMin + " min";
+                line.appendChild(cb); line.appendChild(nm); line.appendChild(du);
+                list.appendChild(line);
+            });
+            panel.appendChild(list);
+            var actions = document.createElement("div");
+            actions.className = "gs-sync-actions";
+            var no = document.createElement("button");
+            no.type = "button"; no.className = "btn-ghost"; no.textContent = "Seulement ici";
+            no.addEventListener("click", close);
+            var yes = document.createElement("button");
+            yes.type = "button"; yes.className = "btn-accent"; yes.textContent = "Appliquer aux sessions cochées";
+            yes.addEventListener("click", function () {
+                var n = 0;
+                rows.forEach(function (r, i) { if (boxes[i].checked) { r.st.minutes = newMin; n++; } });
+                if (n) { save(); showToast("Durée mise à jour dans " + n + " session" + (n > 1 ? "s" : "")); }
+                close();
+                render();
+            });
+            actions.appendChild(no); actions.appendChild(yes);
+            panel.appendChild(actions);
+        });
     }
 
     function sessionTotalMinutes(session) {
