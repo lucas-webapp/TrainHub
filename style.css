@@ -2297,3 +2297,21 @@ button.num-stepper-btn:hover { background: rgba(255,255,255,.08); color: #e0e0e0
   .gs-step-session { width: 100%; border-left: none; padding-left: 0; }
   .gs-step-exdata { flex: 1 1 100%; justify-content: flex-start; }
 }
+
+/* Barre d'exercice de session : affinage (alignements, séparation, tailles) */
+.gs-step-line > .gs-theme-badge { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; height: 22px; padding: 0 8px; line-height: 1; }
+.gs-step-line .gs-step-label { line-height: 22px; }
+.gs-step-exdata { flex: 0 1 auto; margin-left: auto; }
+.exercise-note-mark { color: var(--text-muted); }
+.exercise-note-mark:empty { display: none; }
+.gs-step-tempo { flex: none; width: 112px; display: flex; align-items: center; justify-content: flex-start; }
+.gs-step-session { align-self: stretch; margin: -6px -8px -6px 4px; padding: 0 8px 0 10px; width: 168px; gap: 2px; border-left: 1px solid rgba(255,255,255,.22); background: rgba(0,0,0,.2); border-radius: 0 8px 8px 0; justify-content: flex-end; }
+.gs-step-session .num-stepper > input.num-in { font-size: var(--fs-base); height: 30px; }
+.gs-step-session .num-stepper-btn { width: 17px; min-width: 17px; font-size: 18px; }
+.gs-step-session .gs-step-min-label { font-size: var(--fs-sm); width: auto; margin: 0 2px 0 4px; }
+.gs-step-session .gs-step-apply-btn, .gs-step-apply-slot { width: 30px; height: 30px; padding: 0; }
+.gs-step-session > button:last-child { width: 28px; padding: 0; }
+@media (max-width: 700px) {
+  .gs-step-session { width: auto; margin: 0; border-left: none; background: none; align-self: auto; flex: 1 1 100%; padding: 0; }
+  .gs-step-tempo { width: auto; }
+}

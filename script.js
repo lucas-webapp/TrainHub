@@ -629,6 +629,7 @@
     }
 
     // ---- images : bouton dans la barre de l'exercice, ouverture dans un onglet du navigateur ----
+    var NOTE_BUBBLE_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.5-4.4A8 8 0 1 1 21 12Z"/><path d="M8.5 11h7M8.5 14.5h4"/></svg>';
     var IMAGE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 8"/></svg>';
     function openExerciseImageInTab(meta) {
         var cached = imageUrlCache[meta.id];
@@ -1005,9 +1006,9 @@
     var METRO_CHRONO_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2h4"/><path d="M12 6v0"/><circle cx="12" cy="14" r="8"/><path d="M12 14V9.5"/><path d="M17.5 5.5l1.5-1.5"/></svg>';
     var RESET_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>';
 
-    function linkIconSvg(label) {
+    function linkIconSvg(label, url) {
         var l = (label || "").toLowerCase();
-        if (l.indexOf("youtube") !== -1) return LINK_ICONS.youtube;
+        if (l.indexOf("youtube") !== -1 || /^https?:\/\/([a-z0-9-]+\.)?(youtube\.com|youtu\.be)\//i.test(url || "")) return LINK_ICONS.youtube;
         if (l.indexOf("ireal") !== -1) return LINK_ICONS.note;
         if (l.indexOf("pdf") !== -1) return LINK_ICONS.pdf;
         if (l.indexOf("mp3") !== -1 || l.indexOf("audio") !== -1) return LINK_ICONS.audio;
@@ -3036,7 +3037,7 @@
         if (ex.notes && ex.notes.trim()) {
             var noteMark = document.createElement("span");
             noteMark.className = "exercise-note-mark";
-            noteMark.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+            noteMark.innerHTML = NOTE_BUBBLE_SVG;
             noteMark.title = "Cet exercice a des notes";
             row.appendChild(noteMark);
         }
@@ -3117,7 +3118,7 @@
         btn.title = "Ouvrir : " + link.label;
         var icon = document.createElement("span");
         icon.className = "link-icon";
-        icon.innerHTML = linkIconSvg(link.label);
+        icon.innerHTML = linkIconSvg(link.label, link.url);
         btn.appendChild(icon);
         var label = document.createElement("span");
         label.className = "exercise-link-quick-label";
@@ -3363,7 +3364,7 @@
             bindLinkMenu(chip, ex, link);
             var iconSpan = document.createElement("span");
             iconSpan.className = "link-icon";
-            iconSpan.innerHTML = linkIconSvg(link.label);
+            iconSpan.innerHTML = linkIconSvg(link.label, link.url);
             chip.appendChild(iconSpan);
             var labelSpan = document.createElement("span");
             labelSpan.className = "link-label";
@@ -7946,7 +7947,7 @@
             chip.rel = "noopener noreferrer";
             var iconSpan = document.createElement("span");
             iconSpan.className = "link-icon";
-            iconSpan.innerHTML = linkIconSvg(link.label);
+            iconSpan.innerHTML = linkIconSvg(link.label, link.url);
             chip.appendChild(iconSpan);
             var labelSpan = document.createElement("span");
             labelSpan.className = "link-label";
@@ -8572,22 +8573,27 @@
                     get: function () { return gsEffectiveMetronome(step, found && found.ex); },
                     set: function (p) { gsSetStepMetronome(step, found, p); renderSteps(); }
                 };
-                // Données propres à l'exercice (tempo, liens, images, notes) : même visuel que la liste normale.
+                // Données propres à l'exercice : liens, images, bulle de notes, puis le tempo (colonne alignée à droite).
                 var exData = document.createElement("div");
                 exData.className = "gs-step-exdata";
-                exData.appendChild(buildTempoChip(stepTempoCfg, true));
                 if (found) {
                     appendExerciseLinkButtons(exData, found.ex);
                     appendExerciseImageButton(exData, found.ex);
-                    if (found.ex.notes && found.ex.notes.trim()) {
-                        var exNote = document.createElement("span");
-                        exNote.className = "exercise-note-mark";
-                        exNote.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
-                        exNote.title = "Cet exercice a des notes";
-                        exData.appendChild(exNote);
-                    }
                 }
+                var detailsBtn = document.createElement("span");
+                detailsBtn.className = "exercise-note-mark gs-step-note-mark";
+                function refreshNoteMark() {
+                    var has = !!((found && found.ex.notes && found.ex.notes.trim()) || (step.note && step.note.trim()));
+                    detailsBtn.innerHTML = has ? NOTE_BUBBLE_SVG : "";
+                    detailsBtn.title = "Cet exercice a des notes";
+                }
+                refreshNoteMark();
+                exData.appendChild(detailsBtn);
                 line.appendChild(exData);
+                var tempoSlot = document.createElement("div");
+                tempoSlot.className = "gs-step-tempo";
+                tempoSlot.appendChild(buildTempoChip(stepTempoCfg, true));
+                line.appendChild(tempoSlot);
                 // Données de la session (durée de chaque exercice, recopier) : zone séparée, alignée à droite.
                 var sessZone = document.createElement("div");
                 sessZone.className = "gs-step-session";
@@ -8631,12 +8637,6 @@
                     gsOpenStepDetails[step.id] = !gsOpenStepDetails[step.id];
                     renderSteps();
                 });
-                // Plus de chevron : on déplie en cliquant sur la barre ; un petit stylo signale qu'une note existe.
-                var detailsBtn = document.createElement("span");
-                detailsBtn.className = "gs-step-note-mark";
-                detailsBtn.textContent = step.note && step.note.trim() ? "✎" : "";
-                detailsBtn.title = "Une note est enregistrée pour cet exercice dans la session";
-                exData.appendChild(detailsBtn);
                 var removeBtn = iconButton("✕", "Retirer cet exercice", function () {
                     session.steps.splice(session.steps.indexOf(step), 1);
                     save();
@@ -8696,7 +8696,7 @@
                     noteInput.value = step.note || "";
                     bindAutosaveTextarea(noteInput, function (value) {
                         step.note = value;
-                        detailsBtn.textContent = value.trim() ? "✎" : "";
+                        refreshNoteMark();
                     }, noteStatus);
                     details.appendChild(noteInput);
                     var items = found ? gsExerciseItems(found.ex) : [];
@@ -8731,6 +8731,14 @@
                 stepsList.appendChild(row);
             });
             setupDragReorder(stepsList, ".gs-step-row", function () { return session.steps; }, "y");
+            // Colonne des dossiers : tous les badges prennent la largeur du plus large, pour aligner les titres.
+            function alignBadges() {
+                var w = 0, badges = stepsList.querySelectorAll(".gs-step-line > .gs-theme-badge");
+                Array.prototype.forEach.call(badges, function (bd) { bd.style.minWidth = ""; w = Math.max(w, bd.offsetWidth); });
+                if (w) Array.prototype.forEach.call(badges, function (bd) { bd.style.minWidth = w + "px"; });
+            }
+            alignBadges();
+            requestAnimationFrame(alignBadges);
         }
         renderSteps();
         refreshTotal();
