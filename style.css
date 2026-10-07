@@ -2232,3 +2232,25 @@ button.metro-progressive-toggle .icon { width: 24px; height: 24px; }
 
 .exercise-note-mark { display: inline-flex; align-items: center; flex: 0 0 auto; color: var(--text-muted); padding: 0 2px; }
 .exercise-note-mark .icon { width: 16px; height: 16px; }
+
+/* Session guidée : onglets, lignes compactes */
+.gs-tabbar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+button.gs-tab { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 14px; font-size: var(--fs-base); font-weight: 700; border-radius: var(--radius-sm); background: var(--surface-2, transparent); border: 1px solid var(--border); color: var(--text); }
+button.gs-tab:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+button.gs-tab.active { background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: var(--accent); color: var(--accent); }
+button.gs-tab.drop-hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 24%, transparent); }
+.gs-tab-count { font-size: var(--fs-2xs); font-weight: 600; color: var(--text-muted); }
+button.gs-tab-add { padding: 0 12px; color: var(--text-muted); }
+.gs-listtools { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.gs-dur-select { max-width: 200px; }
+.gs-session-row { padding-top: 8px; padding-bottom: 8px; }
+.gs-session-info { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; row-gap: 0; }
+.gs-session-name { font-weight: 700; font-size: var(--fs-base); }
+.gs-session-meta { font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; }
+.gs-tabpick { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+button.gs-tabpick-chip { height: 30px; padding: 0 12px; font-size: var(--fs-sm); border-radius: var(--radius-sm); }
+button.gs-tabpick-chip.active { background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: var(--accent); color: var(--accent); }
+
+.gs-head-actions { display: flex; gap: 8px; align-items: center; margin-left: 16px; }
+.gs-head-actions button { height: 34px; margin: 0; padding: 0 14px; width: auto; flex: 0 0 auto; }
+.gs-main > .gs-head-actions { margin: 0 0 12px; }
