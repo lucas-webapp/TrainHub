@@ -2492,3 +2492,65 @@ button.gs-hist-tab.active { border-color: var(--accent); color: var(--accent); }
 .gs-spark { display: block; }
 .note-date-btn { width: 30px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
 .note-date-btn .icon { width: 15px; height: 15px; }
+
+/* ===== Sessions : édition avec « Enregistrer », calendrier, onglets, boutons ===== */
+.gs-edit-topbar { display: flex; align-items: center; gap: 8px; position: sticky; top: var(--topbar-h, 64px); z-index: 6; background: var(--bg); padding: 6px 0; margin-bottom: 8px; flex-wrap: wrap; }
+.gs-edit-topbar .gs-back-btn { margin: 0; }
+.gs-edit-topspacer { flex: 1; }
+button.gs-save-btn, button.gs-cancel-btn { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; font-size: var(--fs-sm); font-weight: 700; border-radius: var(--radius-sm); }
+button.gs-save-btn .icon, button.gs-cancel-btn .icon { width: 17px; height: 17px; }
+button.gs-save-btn:disabled { opacity: .5; cursor: default; }
+button.gs-save-btn.gs-save-dirty { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent); }
+.gs-edit-dirty { border-bottom: 1px solid color-mix(in srgb, #ffa94d 55%, transparent); }
+.gs-leave-actions { flex-wrap: wrap; }
+.gs-session-unsaved { font-size: var(--fs-2xs); font-weight: 700; color: #ffa94d; white-space: nowrap; }
+.gs-session-today { font-size: var(--fs-2xs); font-weight: 700; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--border)); border-radius: 10px; padding: 0 8px; white-space: nowrap; }
+.gs-newbar { margin: 0 0 10px; }
+.gs-newbar .gs-add-session-btn { width: 100%; height: 42px; margin: 0; }
+button.gs-tab.gs-tab-new { border: 1px dashed var(--border); border-bottom: 2px solid transparent; background: transparent; color: var(--text-muted); font-weight: 600; margin-left: 4px; }
+button.gs-tab.gs-tab-new:hover { color: var(--accent); border-color: var(--accent); }
+/* nombre de sessions : petite bulle, bien distincte du titre de l'onglet */
+.gs-tab-count { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 2px; border-radius: 10px; background: rgba(255,255,255,.1); color: var(--text-muted); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+button.gs-tab.active .gs-tab-count { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--accent); }
+.gs-head-actions button.gs-calendar-btn { display: inline-flex; align-items: center; gap: 6px; }
+.gs-head-actions button.gs-calendar-btn .icon { width: 16px; height: 16px; }
+/* calendrier */
+.gs-cal-panel { width: min(760px, 96vw); container-type: inline-size; container-name: cal; }
+.cal-nav { display: flex; align-items: center; gap: 8px; margin: 4px 0 10px; }
+.cal-month { flex: 1; text-align: center; font-weight: 800; text-transform: capitalize; }
+button.cal-nav-btn { width: 34px; height: 32px; padding: 0; font-size: 18px; }
+button.cal-today-btn { height: 32px; padding: 0 12px; font-size: var(--fs-sm); }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
+.cal-dow { text-align: center; font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); padding: 2px 0; }
+button.cal-cell { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 2px; min-height: 60px; padding: 4px; text-align: left; border-radius: 8px; background: var(--card-bg-2); border: 1px solid var(--border); min-width: 0; overflow: hidden; }
+button.cal-cell.cal-out { opacity: .4; }
+button.cal-cell.cal-today { border-color: var(--accent); }
+button.cal-cell.cal-selected { background: color-mix(in srgb, var(--accent) 12%, var(--card-bg-2)); box-shadow: 0 0 0 1px var(--accent); }
+.cal-num { font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); }
+.cal-today .cal-num { color: var(--accent); }
+.cal-chips { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cal-chip { display: block; font-size: 10.5px; line-height: 1.25; padding: 1px 5px; border-radius: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-chip-plan { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); font-weight: 600; }
+.cal-chip-missed { background: color-mix(in srgb, #ffa94d 16%, transparent); color: #ffa94d; }
+.cal-chip-done { background: rgba(255,255,255,.07); color: #8a8a8a; } /* historique : grisé */
+.cal-dots { display: none; gap: 3px; flex-wrap: wrap; }
+.cal-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; }
+.cal-dot-plan { background: var(--accent); }
+.cal-dot-done { background: #7a7a7a; }
+@container cal (max-width: 520px) {
+  button.cal-cell { min-height: 46px; padding: 3px; align-items: center; }
+  .cal-chips { display: none; }
+  .cal-dots { display: flex; justify-content: center; }
+}
+.cal-detail { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.cal-detail-title { font-weight: 800; text-transform: capitalize; }
+.cal-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.cal-item-plan { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.cal-item-done { color: #8a8a8a; background: rgba(255,255,255,.03); }
+.cal-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.cal-item-meta { font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.cal-form { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.cal-form select { flex: 1 1 160px; min-width: 0; height: 36px; }
+button.cal-add-btn { height: 36px; padding: 0 14px; }
+.cal-legend { display: flex; gap: 14px; margin-top: 10px; font-size: var(--fs-2xs); color: var(--text-muted); }
+.cal-legend .cal-dot { margin-right: 4px; }
