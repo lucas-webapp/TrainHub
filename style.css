@@ -2529,7 +2529,8 @@ button.cal-cell.cal-selected { background: color-mix(in srgb, var(--accent) 12%,
 .cal-num { font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); }
 .cal-today .cal-num { color: var(--accent); }
 .cal-chips { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.cal-chip { display: block; font-size: 10.5px; line-height: 1.25; padding: 1px 5px; border-radius: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* titres sur plusieurs lignes (1 à 2 sessions par jour) ; la taille suit la largeur de la fenêtre du calendrier */
+.cal-chip { display: block; font-size: 10.5px; font-size: clamp(8.5px, 1.65cqw, 12.5px); line-height: 1.2; padding: 2px 5px; border-radius: 5px; white-space: normal; overflow-wrap: break-word; hyphens: auto; text-align: left; }
 .cal-chip-plan { background: color-mix(in srgb, var(--accent) 26%, transparent); color: var(--accent); font-weight: 700; }
 .cal-chip-missed { background: color-mix(in srgb, #ffa94d 16%, transparent); color: #ffa94d; }
 .cal-chip-done { background: color-mix(in srgb, var(--accent) 8%, transparent); color: color-mix(in srgb, var(--accent) 60%, var(--card-bg-2)); font-weight: 500; } /* réalisées : même teinte, nettement plus pâle que les prévues */
@@ -2537,8 +2538,14 @@ button.cal-cell.cal-selected { background: color-mix(in srgb, var(--accent) 12%,
 .cal-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; }
 .cal-dot-plan { background: var(--accent); }
 .cal-dot-done { background: color-mix(in srgb, var(--accent) 36%, var(--card-bg-2)); }
-@container cal (max-width: 520px) {
-  button.cal-cell { min-height: 46px; padding: 3px; align-items: center; }
+@container cal (max-width: 600px) {
+  button.cal-cell { padding: 3px; gap: 1px; min-height: 56px; }
+  .cal-chips { gap: 1px; }
+  .cal-chip { padding: 1px 2px; border-radius: 4px; font-weight: 600; letter-spacing: -.01em; }
+}
+/* très étroit (téléphone, fenêtre réduite) : des points, le détail est dans le jour sélectionné */
+@container cal (max-width: 420px) {
+  button.cal-cell { min-height: 44px; padding: 3px; align-items: center; }
   .cal-chips { display: none; }
   .cal-dots { display: flex; justify-content: center; }
 }
@@ -2549,7 +2556,7 @@ button.cal-cell.cal-selected { background: color-mix(in srgb, var(--accent) 12%,
 .cal-item-done { display: block; color: color-mix(in srgb, var(--accent) 52%, var(--text-muted)); background: color-mix(in srgb, var(--accent) 5%, transparent); border-color: color-mix(in srgb, var(--accent) 16%, var(--border)); }
 .cal-item-top { display: flex; align-items: center; gap: 8px; }
 .cal-item-steps { margin-top: 4px; font-size: var(--fs-xs); line-height: 1.4; color: var(--text-muted); }
-.cal-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.cal-item-name { flex: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; font-weight: 600; }
 .cal-item-meta { font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
 .cal-form { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
 .cal-form select { flex: 1 1 160px; min-width: 0; height: 36px; }
@@ -2596,7 +2603,7 @@ button.cal-pick-chip.active { background: color-mix(in srgb, var(--accent) 18%, 
 button.cal-pick-row { display: flex; align-items: center; gap: 10px; justify-content: space-between; width: 100%; padding: 8px 10px; text-align: left; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--card-bg-2); }
 button.cal-pick-row:hover:not(:disabled) { border-color: var(--accent); }
 button.cal-pick-row:disabled { opacity: .5; cursor: default; }
-.cal-pick-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.cal-pick-name { flex: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; font-weight: 600; }
 .cal-pick-meta { flex: none; font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .cal-pick-rep { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-xs); color: var(--text-muted); }
 
@@ -2618,3 +2625,53 @@ button.keys-back-btn { height: 32px; padding: 0 12px; font-size: var(--fs-sm); }
 .keys-desc { font-size: var(--fs-sm); line-height: 1.4; min-width: 0; }
 .keys-note { font-size: var(--fs-xs); color: var(--text-muted); font-style: italic; }
 @media (max-width: 520px) { .keys-row { grid-template-columns: minmax(0, 1fr); } }
+
+button.gs-del-armed { width: auto; padding: 0 10px; color: #ff6b6b; border-color: #ff6b6b; font-size: var(--fs-xs); font-weight: 700; }
+
+/* ---------- statistiques : chiffres clés, graphiques, « à ranger » ---------- */
+.gs-history-panel.gs-history-wide { width: min(820px, calc(100vw - 24px)); max-height: calc(100vh - 24px); container-type: inline-size; container-name: sts; }
+.gs-history-wide .gs-history-list { max-height: calc(100vh - 170px); overflow-y: auto; padding-right: 2px; }
+.st-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+@container sts (max-width: 560px) { .st-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.st-tile { min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card-bg-2); }
+.st-tile-v { font-size: var(--fs-lg); font-weight: 800; font-variant-numeric: tabular-nums; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st-tile-l { margin-top: 2px; font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
+.st-chart-wrap { overflow-x: auto; }
+.st-chart { display: block; width: 100%; height: auto; min-width: 440px; }
+.st-heat-wrap .st-chart { min-width: 640px; }
+.st-grid { stroke: var(--border); stroke-width: 1; }
+.st-axis { fill: var(--text-muted); font-size: 10px; font-family: inherit; }
+.st-axis-strong { fill: var(--text-main); font-weight: 700; }
+.st-bar { fill: var(--accent); }
+.st-bar:hover { fill: color-mix(in srgb, var(--accent) 65%, #fff); }
+.st-line { stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.st-dot { fill: var(--card-bg-2); stroke: var(--accent); stroke-width: 2; }
+.st-cell { fill: color-mix(in srgb, var(--text-muted) 16%, transparent); }
+.st-lv1 { fill: color-mix(in srgb, var(--accent) 30%, transparent); }
+.st-lv2 { fill: color-mix(in srgb, var(--accent) 55%, transparent); }
+.st-lv3 { fill: color-mix(in srgb, var(--accent) 78%, transparent); }
+.st-lv4 { fill: var(--accent); }
+.st-today { stroke: var(--text-main); stroke-width: 1.2; }
+.st-caption { font-size: var(--fs-xs); color: var(--text-muted); padding: 2px 8px; }
+.st-stack { display: flex; gap: 2px; height: 12px; margin: 2px 8px 8px; border-radius: 6px; overflow: hidden; }
+.st-seg { display: block; height: 100%; min-width: 3px; }
+.st-tempo-pick, .st-policy-sel { height: 32px; max-width: 100%; min-width: 0; }
+.st-tempo-pick { margin: 0 8px 6px; }
+.st-policy { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 8px; font-size: var(--fs-sm); }
+.st-pair { display: grid; grid-template-columns: minmax(90px, 1.2fr) minmax(80px, 2fr) auto; gap: 10px; align-items: center; padding: 4px 8px; font-size: var(--fs-sm); }
+.st-pair-l { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-pair-track { position: relative; height: 10px; border-radius: 5px; background: rgba(255,255,255,.07); }
+.st-pair-real { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; background: color-mix(in srgb, var(--accent) 70%, transparent); }
+.st-pair-plan { position: absolute; top: -3px; bottom: -3px; width: 2px; border-radius: 1px; background: var(--text-main); }
+.st-pair-r { font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+@container sts (max-width: 520px) { .st-pair { grid-template-columns: minmax(0, 1fr); gap: 4px; } }
+.st-issue-intro { font-size: var(--fs-xs); color: var(--text-muted); margin: 0 2px 6px; }
+.st-issue { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid color-mix(in srgb, #ffa94d 45%, var(--border)); border-radius: var(--radius-sm); background: color-mix(in srgb, #ffa94d 7%, transparent); }
+.st-issue-text { font-size: var(--fs-sm); line-height: 1.4; overflow-wrap: anywhere; }
+.st-issue-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.st-issue-actions button { height: 32px; padding: 0 12px; font-size: var(--fs-sm); }
+.st-issue-select { height: 32px; min-width: 0; max-width: 100%; }
+.st-issue-count { background: color-mix(in srgb, #ffa94d 25%, transparent); color: #ffa94d; }
+button.gs-hist-tab .gs-tab-count, button.gs-history-btn .gs-tab-count { margin-left: 6px; }
+.st-issue-bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 2px; font-size: var(--fs-sm); }
+.st-issue-bulk button { height: 32px; padding: 0 12px; font-size: var(--fs-sm); }
