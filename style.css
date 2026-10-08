@@ -157,6 +157,7 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 }
 .logo { display: flex; align-items: center; gap: 8px; color: var(--text-main); text-decoration: none; margin-right: 8px; }
 .logo-mark { color: var(--accent); display: inline-flex; }
+.logo-mark .icon { width: 30px; height: 30px; }
 .logo-text { font-weight: 800; font-size: var(--fs-lg); letter-spacing: .2px; }
 
 .instrument-select-wrap { display: flex; align-items: center; gap: 4px; }
