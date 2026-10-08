@@ -2876,3 +2876,50 @@ button.cal-rule-day.active { background: color-mix(in srgb, var(--accent) 18%, t
 .cal-recap-row[title] { cursor: context-menu; }
 .gs-pick-tree-row, .gs-pick-exercise-row { user-select: none; -webkit-user-select: none; }
 .cal-recap-was { font-size: var(--fs-xs); color: var(--text-muted); margin-top: -2px; }
+
+/* ---------- remplacer partout / tempo propre à une session ---------- */
+.exercise-picker-panel { width: min(460px, calc(100vw - 24px)); height: min(540px, calc(100vh - 24px)); max-height: calc(100vh - 24px); display: flex; flex-direction: column; }
+.exercise-picker-panel .gs-pick-search { margin-bottom: 8px; }
+.gs-replace-panel { width: min(520px, 94vw); }
+.gs-replace-note { color: var(--text-muted); font-size: var(--fs-xs); }
+.gs-replace-check { display: flex; align-items: flex-start; gap: 8px; margin: 6px 0; font-size: var(--fs-sm); cursor: pointer; }
+.gs-replace-check input { margin-top: 3px; accent-color: var(--accent); }
+.gs-session-broken { color: #ffb74d; font-size: var(--fs-xs); font-weight: 600; }
+.gs-step-owntempo { display: flex; align-items: center; gap: 8px; margin: 2px 0 8px; font-size: var(--fs-sm); color: var(--text-muted); cursor: pointer; }
+.gs-step-owntempo input { accent-color: var(--accent); }
+button.tempo-chip.tempo-chip-own { position: relative; border-style: dashed; }
+button.tempo-chip.tempo-chip-own::after { content: ""; position: absolute; top: -3px; right: -3px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+
+/* ---------- sélection multiple (exercices, sessions) ---------- */
+.ex-sel-box { display: none; flex: none; align-items: center; justify-content: center; width: 18px; height: 18px; margin-right: 8px; border: 1.5px solid var(--border); border-radius: 5px; font-size: 12px; line-height: 1; color: transparent; background: transparent; }
+body.ex-selecting .ex-sel-box { display: inline-flex; }
+.exercise.selected > .exercise-row { background: color-mix(in srgb, var(--accent) 12%, var(--card-bg-2)); box-shadow: inset 3px 0 0 var(--accent); }
+.exercise.selected .ex-sel-box { background: var(--accent); border-color: var(--accent); color: #04130a; font-weight: 800; }
+.gs-pick-exercise-row.selected, .gs-pick-result.selected { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
+.gs-session-row.selected { background: color-mix(in srgb, var(--accent) 12%, var(--card-bg-2)); box-shadow: inset 3px 0 0 var(--accent); }
+.sel-bar { position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 899; display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: calc(100vw - 20px); padding: 8px 10px; background: var(--card-bg-2); border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); border-radius: var(--radius); box-shadow: 0 10px 30px rgba(0,0,0,.5); font-size: var(--fs-sm); }
+.sel-bar-count { font-weight: 700; padding: 0 6px 0 2px; white-space: nowrap; }
+.sel-bar-btn { font: inherit; font-size: var(--fs-sm); color: var(--text-main); background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 5px 10px; cursor: pointer; white-space: nowrap; }
+.sel-bar-btn:hover { border-color: var(--accent); }
+.sel-bar-primary { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: color-mix(in srgb, var(--accent) 60%, transparent); color: var(--accent); font-weight: 700; }
+.sel-bar-danger { color: #ff6b6b; }
+.sel-bar-ghost { background: transparent; color: var(--text-muted); }
+body.ex-selecting .toast, body.sess-selecting .toast { bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
+@media (max-width: 560px) { .sel-bar { left: 8px; right: 8px; transform: none; max-width: none; } }
+
+/* ---------- recherche rapide (Ctrl+F) ---------- */
+.search-quick-btn { flex: none; font-size: var(--fs-sm); padding: 6px 10px; white-space: nowrap; }
+.quickfind-panel { width: min(640px, calc(100vw - 20px)); max-height: calc(100vh - 40px); display: flex; flex-direction: column; }
+.quickfind-input { width: 100%; box-sizing: border-box; font: inherit; font-size: var(--fs-lg, 1.05rem); padding: 11px 14px; color: var(--text-main); background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); outline: none; }
+.quickfind-input:focus { border-color: var(--accent); }
+.quickfind-list { flex: 1; min-height: 80px; max-height: min(58vh, 520px); overflow-y: auto; margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
+.quickfind-section { font-size: var(--fs-xs); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); padding: 8px 8px 3px; }
+.quickfind-row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: var(--radius-sm); border-left: 3px solid var(--qf-color, var(--accent)); cursor: pointer; }
+.quickfind-row.active { background: color-mix(in srgb, var(--qf-color, var(--accent)) 16%, var(--card-bg)); }
+.quickfind-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.quickfind-title { font-weight: 600; overflow-wrap: anywhere; }
+.quickfind-title mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }
+.quickfind-sub { font-size: var(--fs-xs); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quickfind-go { flex: none; }
+.quickfind-more { font-size: var(--fs-xs); color: var(--text-muted); padding: 2px 12px 6px; }
+.quickfind-hint { font-size: var(--fs-xs); color: var(--text-muted); margin-top: 8px; line-height: 1.4; }

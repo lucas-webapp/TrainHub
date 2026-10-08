@@ -521,6 +521,16 @@
         historyIndex = index;
         historyStamp++;
         state = normalizeState(restoreSnapshot(historyStack[historyIndex]));
+        // Sessions : un brouillon sans modification n'est qu'une copie de l'ancienne version (on le jette, il sera
+        // refait depuis la session restaurée) ; un brouillon modifié reste, c'est du travail non enregistré.
+        Object.keys(gsDrafts).forEach(function (id) { if (!gsDraftDirty(id)) delete gsDrafts[id]; });
+        [["gsEditingSession", ["edit", "pick"]], ["gsLinksSession", ["links"]]].forEach(function (pair) {
+            var cur = pair[0] === "gsEditingSession" ? gsEditingSession : gsLinksSession;
+            if (!cur) return;
+            var again = gsFindSession(cur.id);
+            if (pair[0] === "gsEditingSession") gsEditingSession = again; else gsLinksSession = again;
+            if (!again && pair[1].indexOf(gsScreen) !== -1) gsScreen = "list";
+        });
         persist();
         render();
         historyListeners.forEach(function (fn) { try { fn(); } catch (e) {} });
@@ -1700,27 +1710,52 @@
         return true;
     }
 
-    // Suppression d'une session : ses séances prévues au calendrier partent avec elle (et reviennent si on la
-    // restaure depuis la corbeille) ; l'historique des séances déjà faites, lui, ne bouge pas.
-    function deleteSessionGuarded(session, after) {
+    // Met une session à la corbeille avec son planning à venir (sans demander) ; renvoie le nombre de séances retirées du calendrier.
+    function gsTrashSession(session) {
         var today = calTodayKey();
         var plan = state.settings.sessionPlan.filter(function (pe) { return pe.sessionId === session.id; });
-        var future = plan.filter(function (pe) { return pe.date >= today; }).sort(function (a, b) { return a.date < b.date ? -1 : 1; });
-        var msg = "Supprimer la session « " + session.name + " » ?";
-        if (future.length) msg += "\n\n⚠ Elle est prévue " + future.length + " fois au calendrier (prochaine : " + calLongDate(future[0].date) + ") : ces séances seront retirées du calendrier.";
-        if (gsDraftDirty(session.id)) msg += "\n⚠ Ses modifications non enregistrées seront perdues.";
-        msg += "\n\nLes séances déjà faites restent dans l'historique. La session reste récupérable dans la corbeille" + (future.length ? ", avec son planning." : ".");
-        if (!window.confirm(msg)) return false;
+        var future = plan.filter(function (pe) { return pe.date >= today; }).length;
         addToTrash("session", session, { plan: cloneJson(plan) });
         state.settings.sessionPlan = state.settings.sessionPlan.filter(function (pe) { return pe.sessionId !== session.id; });
         delete gsDrafts[session.id];
         if (gsEditingSession && gsEditingSession.id === session.id) { gsEditingSession = null; if (gsScreen === "edit" || gsScreen === "pick") gsScreen = "list"; }
         var arr = state.settings.guidedSessions, k = arr.indexOf(session);
         if (k !== -1) arr.splice(k, 1);
+        return future;
+    }
+    // Suppression d'une session : ses séances prévues au calendrier partent avec elle (et reviennent si on la
+    // restaure depuis la corbeille) ; l'historique des séances déjà faites, lui, ne bouge pas.
+    function deleteSessionGuarded(session, after) {
+        var today = calTodayKey();
+        var future = state.settings.sessionPlan.filter(function (pe) { return pe.sessionId === session.id && pe.date >= today; }).sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+        var msg = "Supprimer la session « " + session.name + " » ?";
+        if (future.length) msg += "\n\n⚠ Elle est prévue " + future.length + " fois au calendrier (prochaine : " + calLongDate(future[0].date) + ") : ces séances seront retirées du calendrier.";
+        if (gsDraftDirty(session.id)) msg += "\n⚠ Ses modifications non enregistrées seront perdues.";
+        msg += "\n\nLes séances déjà faites restent dans l'historique. La session reste récupérable dans la corbeille" + (future.length ? ", avec son planning." : ".");
+        if (!window.confirm(msg)) return false;
+        var nFuture = gsTrashSession(session);
         save();
         render();
         if (after) after();
-        toastUndo("Session « " + session.name + " » mise à la corbeille" + (future.length ? " (et " + future.length + " séance" + (future.length > 1 ? "s" : "") + " du calendrier)" : ""));
+        toastUndo("Session « " + session.name + " » mise à la corbeille" + (nFuture ? " (et " + nFuture + " séance" + (nFuture > 1 ? "s" : "") + " du calendrier)" : ""));
+        return true;
+    }
+    function deleteSessionsGuarded(list) {
+        if (list.length === 1) return deleteSessionGuarded(list[0]);
+        var today = calTodayKey(), ids = {}, dirty = 0;
+        list.forEach(function (g) { ids[g.id] = true; if (gsDraftDirty(g.id)) dirty++; });
+        var nPlan = state.settings.sessionPlan.filter(function (pe) { return ids[pe.sessionId] && pe.date >= today; }).length;
+        var msg = "Supprimer " + list.length + " sessions ?\n\n" + list.slice(0, 8).map(function (g) { return "• " + g.name; }).join("\n") + (list.length > 8 ? "\n… et " + (list.length - 8) + " autres" : "");
+        if (nPlan) msg += "\n\n⚠ " + nPlan + " séance" + (nPlan > 1 ? "s" : "") + " au calendrier seront retirées.";
+        if (dirty) msg += "\n⚠ " + dirty + " session" + (dirty > 1 ? "s ont" : " a") + " des modifications non enregistrées, perdues.";
+        msg += "\n\nLes séances déjà faites restent dans l'historique. Tout reste récupérable dans la corbeille" + (nPlan ? ", avec le planning." : ".");
+        if (state.settings.trash.length + list.length > TRASH_LIMIT) msg += "\n⚠ La corbeille garde au plus " + TRASH_LIMIT + " éléments : les plus anciens seront supprimés pour de bon.";
+        if (!window.confirm(msg)) return false;
+        list.forEach(gsTrashSession);
+        sessSel = {}; sessSelAnchor = null;
+        save();
+        render();
+        toastUndo(list.length + " sessions mises à la corbeille" + (nPlan ? " (et " + nPlan + " séance" + (nPlan > 1 ? "s" : "") + " du calendrier)" : ""));
         return true;
     }
 
@@ -2082,33 +2117,265 @@
         toastUndo("« " + old + " » renommé en « " + n + " »" + (u.sessions.length ? " (à jour dans " + u.sessions.length + " session" + (u.sessions.length > 1 ? "s" : "") + ")" : ""));
         return true;
     }
-    // Ajoute un exercice à une session enregistrée (et à son brouillon ouvert, pour que rien ne s'écrase).
-    function gsAddExerciseToSession(session, ex) {
-        var step = { id: uid(), exerciseId: ex.id, minutes: gsDefaultMinutes(ex) };
-        var de = gsDrafts[session.id], clean = de ? !gsDraftDirty(session.id) : true;
-        session.steps.push(step);
-        if (de) { de.draft.steps.push(cloneJson(step)); if (clean) de.base = gsDraftSig(de); }
+    // Ajoute un ou plusieurs exercices à une session enregistrée (et à son brouillon ouvert, pour que rien ne s'écrase).
+    function gsAddExerciseToSession(session, exs) {
+        exs = Array.isArray(exs) ? exs : [exs];
+        var de = gsDrafts[session.id], clean = de ? !gsDraftDirty(session.id) : true, total = 0;
+        exs.forEach(function (ex) {
+            var step = { id: uid(), exerciseId: ex.id, minutes: gsDefaultMinutes(ex) };
+            session.steps.push(step);
+            if (de) de.draft.steps.push(cloneJson(step));
+            total += step.minutes;
+        });
+        if (de && clean) de.base = gsDraftSig(de);
         save();
         render();
-        toastUndo("« " + ex.title + " » ajouté à « " + session.name + " » (" + step.minutes + " min)");
+        toastUndo(exs.length === 1 ? "« " + exs[0].title + " » ajouté à « " + session.name + " » (" + total + " min)" : exs.length + " exercices ajoutés à « " + session.name + " » (" + total + " min)");
     }
-    function openAddToSessionMenu(x, y, ex) {
-        var inst = (findExerciseById(ex.id) || {}).inst || getActiveInstrument();
+    function openAddToSessionMenu(x, y, exs, above) {
+        exs = Array.isArray(exs) ? exs : [exs];
+        var first = exs[0], inst = (findExerciseById(first.id) || {}).inst || getActiveInstrument();
         var list = state.settings.guidedSessions.filter(function (g) { return g.instrumentId === inst.id && !g.archived; })
             .sort(function (a, b) { return a.name.localeCompare(b.name, "fr", { sensitivity: "base" }); });
-        var items = [{ label: "＋ Nouvelle session avec cet exercice", open: function () {
-            var name = window.prompt("Nom de la nouvelle session :", ex.title);
+        var items = [{ label: "＋ Nouvelle session avec " + (exs.length > 1 ? "ces " + exs.length + " exercices" : "cet exercice"), open: function () {
+            var name = window.prompt("Nom de la nouvelle session :", first.title);
             if (name === null || !name.trim()) return;
             var sess = { id: uid(), name: name.trim(), steps: [], instrumentId: inst.id, tabIds: [], createdAt: Date.now() };
             state.settings.guidedSessions.push(sess);
-            gsAddExerciseToSession(sess, ex);
+            gsAddExerciseToSession(sess, exs);
+            exSelClear();
         } }];
         list.forEach(function (g) {
-            var n = g.steps.filter(function (st) { return st.exerciseId === ex.id; }).length;
-            items.push({ label: g.name + (n ? "  (déjà " + (n > 1 ? n + " fois" : "dedans") + ")" : ""), open: function () { gsAddExerciseToSession(g, ex); } });
+            var n = g.steps.filter(function (st) { return exs.some(function (ex) { return ex.id === st.exerciseId; }); }).length;
+            items.push({ label: g.name + (n ? "  (" + (exs.length === 1 ? "déjà dedans" : n + " déjà dedans") + ")" : ""), open: function () { gsAddExerciseToSession(g, exs); exSelClear(); } });
         });
-        openLinksQuickMenu(x, y, items);
+        openLinksQuickMenu(x, y, items, above);
     }
+
+    // ---------- sélection multiple d'exercices (Ctrl/⌘ + clic, Maj + clic) ----------
+    // Une sélection d'exercices peut traverser plusieurs dossiers : on retient leurs identifiants (dans l'ordre des
+    // clics) et on les retrouve au moment d'agir. Une barre en bas propose les actions groupées.
+    var exSel = {}, exSelSeq = 0, exSelAnchor = null;
+    function exSelCount() { return Object.keys(exSel).length; }
+    function exSelIds() { return Object.keys(exSel).sort(function (a, b) { return exSel[a] - exSel[b]; }); }
+    function exSelItems() {
+        return exSelIds().map(function (id) { var f = findExerciseById(id); return f ? { ex: f.ex, folder: f.folder, inst: f.inst, pathNames: f.pathNames } : null; }).filter(Boolean);
+    }
+    function exSelSet(id, on) { if (on) { if (!(id in exSel)) exSel[id] = ++exSelSeq; } else delete exSel[id]; }
+    function exSelClear() { exSel = {}; exSelAnchor = null; exSelRefreshUI(); }
+    function exSelToggle(id) { exSelSet(id, !(id in exSel)); exSelAnchor = id; exSelRefreshUI(); }
+    function exSelVisibleIds() { return Array.prototype.map.call($folderContainer.querySelectorAll("[data-ex-id]"), function (el) { return el.dataset.exId; }); }
+    function exSelRange(toId) {
+        var ids = exSelVisibleIds(), a = ids.indexOf(exSelAnchor), b = ids.indexOf(toId);
+        if (a === -1 || b === -1) { exSelToggle(toId); return; }
+        for (var i = Math.min(a, b); i <= Math.max(a, b); i++) exSelSet(ids[i], true);
+        exSelRefreshUI();
+    }
+    // Ce clic sur une ligne d'exercice sert-il à (dé)sélectionner ? Oui avec Ctrl/⌘/Maj, ou dès qu'une sélection existe.
+    function exSelWantsClick(e) {
+        var inner = e.target.closest && e.target.closest("button, a, textarea, select");
+        if (inner && inner !== e.currentTarget) return false; // un bouton DANS la ligne garde son rôle (la ligne peut elle-même être un bouton)
+        return !!(e.ctrlKey || e.metaKey || e.shiftKey) || exSelCount() > 0;
+    }
+    function exSelClick(e, id) {
+        if (e.target.closest && e.target.closest("input") && document.activeElement && document.activeElement.blur) document.activeElement.blur();
+        if (e.shiftKey && exSelAnchor) exSelRange(id); else exSelToggle(id);
+    }
+
+    function exSelMove(items, dest) {
+        var moved = items.filter(function (it) { return it.folder !== dest; });
+        if (!moved.length) { showToast("Déjà dans « " + dest.name + " »"); return false; }
+        var coll = moved.filter(function (it) { return exerciseTitleTaken(dest.exercises, it.ex.title); }).length;
+        if (coll && !window.confirm(coll + " exercice" + (coll > 1 ? "s portent" : " porte") + " déjà le même nom dans « " + dest.name + " ». Continuer quand même ?")) return false;
+        moved.forEach(function (it) { it.folder.exercises.splice(it.folder.exercises.indexOf(it.ex), 1); dest.exercises.push(it.ex); });
+        exSel = {}; exSelAnchor = null;
+        save(); render();
+        toastUndo(moved.length + " exercice" + (moved.length > 1 ? "s" : "") + " déplacé" + (moved.length > 1 ? "s" : "") + " vers « " + dest.name + " »");
+        return true;
+    }
+    function exSelCopy(items, dest) {
+        items.forEach(function (it) {
+            var copy = duplicateExercise(it.ex);
+            if (!exerciseTitleTaken(dest.exercises, it.ex.title)) copy.title = it.ex.title; // dans un autre dossier : pas de « (copie) » sauf si le nom y existe déjà
+            dest.exercises.push(copy);
+        });
+        exSel = {}; exSelAnchor = null;
+        save(); render();
+        toastUndo(items.length + " exercice" + (items.length > 1 ? "s" : "") + " copié" + (items.length > 1 ? "s" : "") + " dans « " + dest.name + " »");
+    }
+    function exSelDelete(items) {
+        var u = exerciseUsage(items.map(function (it) { return it.ex.id; }));
+        var msg = "Supprimer " + items.length + " exercice" + (items.length > 1 ? "s" : "") + " ?\n\n" + items.slice(0, 8).map(function (it) { return "• " + it.ex.title; }).join("\n") + (items.length > 8 ? "\n… et " + (items.length - 8) + " autres" : "");
+        if (u.sessions.length) msg += "\n\n⚠ " + u.steps + " pas de " + u.sessions.length + " session" + (u.sessions.length > 1 ? "s" : "") + " les utilisent (" + u.sessions.slice(0, 4).map(function (g) { return "« " + g.name + " »"; }).join(", ") + (u.sessions.length > 4 ? "…" : "") + ") : ils afficheront « exercice supprimé ».";
+        if (state.settings.trash.length + items.length > TRASH_LIMIT) msg += "\n\n⚠ La corbeille garde au plus " + TRASH_LIMIT + " éléments : les plus anciens seront supprimés pour de bon.";
+        msg += "\n\nIls restent récupérables dans la corbeille.";
+        if (!window.confirm(msg)) return false;
+        items.forEach(function (it) {
+            addToTrash("exercise", it.ex, { instrumentId: it.inst.id, parentFolderId: it.folder.id });
+            it.folder.exercises.splice(it.folder.exercises.indexOf(it.ex), 1);
+        });
+        exSel = {}; exSelAnchor = null;
+        save(); render();
+        toastUndo(items.length + " exercice" + (items.length > 1 ? "s" : "") + " mis à la corbeille");
+        return true;
+    }
+    // Favori / archivé : si tous l'ont déjà, on le retire à tous ; sinon on l'ajoute à tous.
+    function exSelFlag(items, field, labelOn, labelOff) {
+        var all = items.every(function (it) { return !!it.ex[field]; });
+        items.forEach(function (it) { it.ex[field] = !all; touchExercise(it.ex); });
+        exSel = {}; exSelAnchor = null;
+        save(); render();
+        toastUndo(items.length + " exercice" + (items.length > 1 ? "s" : "") + " " + (all ? labelOff : labelOn));
+    }
+    function exSelPlace(items, move, btn) {
+        openFolderPickerModal((move ? "Déplacer " : "Copier ") + items.length + " exercice" + (items.length > 1 ? "s" : "") + " vers…", [], function (dest) {
+            var fresh = exSelItems();
+            if (move) exSelMove(fresh.length ? fresh : items, dest); else exSelCopy(fresh.length ? fresh : items, dest);
+        });
+    }
+    // Les actions groupées (barre du bas et clic droit sur une sélection).
+    function exSelActions() {
+        var items = exSelItems(), n = items.length, acts = [];
+        if (!n) return acts;
+        var plural = n > 1 ? "s" : "";
+        if (guidedSessionViewActive && gsScreen === "pick" && gsPickMulti) {
+            acts.push({ text: "＋ Ajouter à la session", primary: true, run: function () {
+                var list = exSelItems().map(function (it) { return it.ex; });
+                exSel = {}; exSelAnchor = null;
+                gsPickMulti(list);
+                gsScreen = "edit";
+                render();
+            } });
+        } else {
+            acts.push({ text: "＋ Session…", run: function (btn) { var r = btn.getBoundingClientRect(); openAddToSessionMenu(r.left, r.top, exSelItems().map(function (it) { return it.ex; }), true); } });
+        }
+        acts.push({ text: "Déplacer vers…", run: function () { exSelPlace(exSelItems(), true); } });
+        acts.push({ text: "Copier vers…", run: function () { exSelPlace(exSelItems(), false); } });
+        acts.push({ text: items.every(function (it) { return it.ex.favorite; }) ? "★ Retirer des favoris" : "☆ Favori", run: function () { exSelFlag(exSelItems(), "favorite", "ajouté" + plural + " aux favoris", "retiré" + plural + " des favoris"); } });
+        acts.push({ text: items.every(function (it) { return it.ex.archived; }) ? "Désarchiver" : "Archiver", run: function () { exSelFlag(exSelItems(), "archived", "archivé" + plural, "désarchivé" + plural); } });
+        acts.push({ text: "Supprimer…", danger: true, run: function () { exSelDelete(exSelItems()); } });
+        return acts;
+    }
+    // Exercices lâchés (glisser) sur un dossier : déplacer ou copier toute la sélection.
+    function openExercisesDropMenu(x, y, items, dest) {
+        render(); // remet la liste en ordre (le glisser a pu la réordonner à l'écran)
+        var n = items.length;
+        openLinksQuickMenu(x, y, [
+            { label: "Déplacer ici (" + n + " exercices)", open: function () { exSelMove(items, dest); } },
+            { label: "Copier ici (" + n + " exercices)", open: function () { exSelCopy(items, dest); } },
+            { label: "Annuler", open: function () {} }
+        ]);
+    }
+
+    // Sessions : même principe (Ctrl/⌘ + clic) pour archiver, ranger dans un onglet ou supprimer plusieurs d'un coup.
+    var sessSel = {}, sessSelAnchor = null;
+    function sessSelCount() { return Object.keys(sessSel).length; }
+    function sessSelList() { return state.settings.guidedSessions.filter(function (g) { return sessSel[g.id]; }); }
+    function sessSelClear() { sessSel = {}; sessSelAnchor = null; exSelRefreshUI(); }
+    function sessSelToggle(id) { if (sessSel[id]) delete sessSel[id]; else sessSel[id] = true; sessSelAnchor = id; exSelRefreshUI(); }
+    function sessSelRange(toId) {
+        var ids = Array.prototype.map.call($folderContainer.querySelectorAll(".gs-session-row[data-reorder-id]"), function (el) { return el.dataset.reorderId; });
+        var a = ids.indexOf(sessSelAnchor), b = ids.indexOf(toId);
+        if (a === -1 || b === -1) { sessSelToggle(toId); return; }
+        for (var i = Math.min(a, b); i <= Math.max(a, b); i++) sessSel[ids[i]] = true;
+        exSelRefreshUI();
+    }
+    function sessSelWantsClick(e) {
+        var inner = e.target.closest && e.target.closest("button, a, input, textarea, select");
+        if (inner && inner !== e.currentTarget) return false;
+        return !!(e.ctrlKey || e.metaKey || e.shiftKey) || sessSelCount() > 0;
+    }
+    function sessSelClick(e, id) { if (e.shiftKey && sessSelAnchor) sessSelRange(id); else sessSelToggle(id); }
+    function sessSelActions() {
+        var list = sessSelList(), n = list.length, acts = [];
+        if (!n) return acts;
+        var tabs = state.settings.sessionFolders.filter(function (f) { return f.instrumentId === state.activeInstrumentId; });
+        acts.push({ text: list.every(function (g) { return g.archived; }) ? "Désarchiver" : "Archiver", run: function () {
+            var all = list.every(function (g) { return g.archived; });
+            list.forEach(function (g) { g.archived = !all; });
+            sessSel = {}; sessSelAnchor = null; save(); render();
+            toastUndo(n + " session" + (n > 1 ? "s" : "") + (all ? " désarchivée" : " archivée") + (n > 1 ? "s" : ""));
+        } });
+        if (tabs.length) acts.push({ text: "Onglet…", run: function (btn) {
+            var r = btn.getBoundingClientRect();
+            openLinksQuickMenu(r.left, r.top, tabs.map(function (t) {
+                var all = list.every(function (g) { return g.tabIds.indexOf(t.id) !== -1; });
+                return { label: (all ? "✓ " : "＋ ") + "Onglet « " + t.name + " »" + (all ? " (retirer)" : ""), open: function () {
+                    list.forEach(function (g) {
+                        if (all) g.tabIds = g.tabIds.filter(function (id) { return id !== t.id; }); else if (g.tabIds.indexOf(t.id) === -1) g.tabIds.push(t.id);
+                        var de = gsDrafts[g.id];
+                        if (de) { var clean = !gsDraftDirty(g.id); de.draft.tabIds = g.tabIds.slice(); if (clean) de.base = gsDraftSig(de); }
+                    });
+                    sessSel = {}; sessSelAnchor = null; save(); render();
+                    toastUndo(n + " session" + (n > 1 ? "s" : "") + (all ? " retirée" : " ajoutée") + (n > 1 ? "s" : "") + " de l'onglet « " + t.name + " »");
+                } };
+            }), true);
+        } });
+        acts.push({ text: "Supprimer…", danger: true, run: function () { deleteSessionsGuarded(list); } });
+        return acts;
+    }
+
+    // La barre d'actions (sélection d'exercices OU de sessions) et la mise en évidence des lignes sélectionnées.
+    var selBarEl = null;
+    function selBarRender(cfg) {
+        if (!cfg) { if (selBarEl) { selBarEl.remove(); selBarEl = null; } return; }
+        if (!selBarEl) { selBarEl = document.createElement("div"); selBarEl.className = "sel-bar"; selBarEl.setAttribute("role", "toolbar"); selBarEl.setAttribute("aria-label", "Actions sur la sélection"); document.body.appendChild(selBarEl); }
+        selBarEl.innerHTML = "";
+        var lb = document.createElement("span"); lb.className = "sel-bar-count"; lb.textContent = cfg.label; selBarEl.appendChild(lb);
+        cfg.actions.forEach(function (a) {
+            var b = document.createElement("button"); b.type = "button";
+            b.className = "sel-bar-btn" + (a.primary ? " sel-bar-primary" : "") + (a.danger ? " sel-bar-danger" : "");
+            b.textContent = a.text;
+            b.addEventListener("click", function () { a.run(b); });
+            selBarEl.appendChild(b);
+        });
+        var all = document.createElement("button"); all.type = "button"; all.className = "sel-bar-btn sel-bar-ghost"; all.textContent = "Tout"; all.title = "Tout sélectionner dans cette liste";
+        all.addEventListener("click", cfg.selectAll);
+        selBarEl.appendChild(all);
+        var x = document.createElement("button"); x.type = "button"; x.className = "sel-bar-btn sel-bar-ghost sel-bar-x"; x.textContent = "✕"; x.title = "Désélectionner (Échap)"; x.setAttribute("aria-label", "Désélectionner");
+        x.addEventListener("click", cfg.clear);
+        selBarEl.appendChild(x);
+    }
+    function exSelRefreshUI() {
+        if (!$folderContainer) return;
+        // Cas courant (rien de sélectionné, pas de barre à retirer) : aucun travail. Ce rafraîchissement a lieu à CHAQUE
+        // affichage ; son coût entre dans la mesure `lastRenderMs`, qui décide si la recherche attend la fin de la frappe.
+        if (!selBarEl && !exSelCount() && !sessSelCount()) return;
+        var exOn = exSelCount() > 0, sessOn = false;
+        if (exOn) { // exercices disparus (supprimés, autre espace) : retirés de la sélection
+            var live = exerciseIdSet();
+            Object.keys(exSel).forEach(function (id) { if (!live[id]) delete exSel[id]; });
+            if (guidedSessionViewActive && gsScreen !== "pick") exSel = {}; // les écrans de session n'affichent pas ces exercices
+            exOn = exSelCount() > 0;
+        }
+        var inList = guidedSessionViewActive && gsScreen === "list";
+        if (!inList) sessSel = {};
+        else { var ids = {}; state.settings.guidedSessions.forEach(function (g) { ids[g.id] = true; }); Object.keys(sessSel).forEach(function (id) { if (!ids[id]) delete sessSel[id]; }); }
+        sessOn = sessSelCount() > 0;
+        Array.prototype.forEach.call($folderContainer.querySelectorAll("[data-ex-id]"), function (el) { el.classList.toggle("selected", el.dataset.exId in exSel); });
+        Array.prototype.forEach.call($folderContainer.querySelectorAll(".gs-session-row[data-reorder-id]"), function (el) { el.classList.toggle("selected", !!sessSel[el.dataset.reorderId]); });
+        document.body.classList.toggle("ex-selecting", exOn);
+        document.body.classList.toggle("sess-selecting", sessOn);
+        if (exOn) {
+            var n = exSelCount();
+            selBarRender({ label: n + " exercice" + (n > 1 ? "s" : "") + " sélectionné" + (n > 1 ? "s" : ""), actions: exSelActions(), clear: exSelClear,
+                selectAll: function () { exSelVisibleIds().forEach(function (id) { exSelSet(id, true); }); exSelRefreshUI(); } });
+        } else if (sessOn) {
+            var m = sessSelCount();
+            selBarRender({ label: m + " session" + (m > 1 ? "s" : "") + " sélectionnée" + (m > 1 ? "s" : ""), actions: sessSelActions(), clear: sessSelClear,
+                selectAll: function () { Array.prototype.forEach.call($folderContainer.querySelectorAll(".gs-session-row[data-reorder-id]"), function (el) { sessSel[el.dataset.reorderId] = true; }); exSelRefreshUI(); } });
+        } else selBarRender(null);
+    }
+    document.addEventListener("keydown", function (e) {
+        var t = e.target, typing = t && t.tagName && (/^(input|textarea|select)$/i.test(t.tagName) || t.isContentEditable);
+        if (e.key === "Escape" && (exSelCount() || sessSelCount()) && !document.querySelector(".ctx-menu, .backups-panel")) { exSel = {}; exSelAnchor = null; sessSel = {}; sessSelAnchor = null; exSelRefreshUI(); }
+        else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "a" && !typing && (exSelCount() || sessSelCount()) && !document.querySelector(".ctx-menu, .backups-panel")) {
+            e.preventDefault();
+            if (exSelCount()) exSelVisibleIds().forEach(function (id) { exSelSet(id, true); });
+            else Array.prototype.forEach.call($folderContainer.querySelectorAll(".gs-session-row[data-reorder-id]"), function (el) { sessSel[el.dataset.reorderId] = true; });
+            exSelRefreshUI();
+        }
+    }, true); // en phase de capture : un menu ouvert se referme d'abord (Échap), la sélection ne part qu'au 2e appui
 
     // Menu d'un exercice (clic droit / appui long), le même partout : liste des exercices, choix d'un exercice
     // pour une session, statistiques. `opts.reveal` : proposer « Ouvrir dans son dossier » ; `opts.after` :
@@ -2168,6 +2435,8 @@
         if (opts.reveal) menu.appendChild(menuButton("Ouvrir dans son dossier", "", function () { closeFolderMenu(); revealExercise(ex.id); }));
         menu.appendChild(menuButton("Renommer…", "", function () { closeFolderMenu(); renameExercisePrompt(ex, folder, opts.after); }));
         if (!opts.noAddToSession) menu.appendChild(menuButton("Ajouter à une session…", "", function () { closeFolderMenu(); openAddToSessionMenu(x, y, ex); }));
+        menu.appendChild(menuButton("Remplacer partout par…", "", function () { closeFolderMenu(); startReplaceEverywhere(ex.id, ex.title); }));
+        if (!opts.noSelect) menu.appendChild(menuButton(ex.id in exSel ? "☐ Désélectionner" : "☑ Sélectionner (plusieurs)", "", function () { closeFolderMenu(); exSelToggle(ex.id); }));
         menu.appendChild(menuButton(ex.favorite ? "★ Retirer des favoris" : "☆ Marquer en favori", "", function () {
             ex.favorite = !ex.favorite;
             touchExercise(ex);
@@ -2634,6 +2903,8 @@
     var $searchInput = document.getElementById("search-input");
     var $searchToggleBtn = document.getElementById("search-toggle-btn");
     var $searchCloseBtn = document.getElementById("search-close-btn");
+    var $quickFindBtn = document.getElementById("quickfind-btn");
+    if ($quickFindBtn) $quickFindBtn.addEventListener("click", function () { openQuickFind(""); });
     var $undoBtn = document.getElementById("undo-btn");
     var $redoBtn = document.getElementById("redo-btn");
 
@@ -2794,6 +3065,7 @@
         updateUndoRedoButtons();
         autoGrowAllNotes();
         autoSizeAllExerciseTitles();
+        exSelRefreshUI();
         lastRenderMs = performance.now() - renderT0;
     }
 
@@ -3345,7 +3617,8 @@
             onDropOnTarget: function (el, destFolderId, x, y) {
                 var ex = currentFolder.exercises.filter(function (e) { return e.id === el.dataset.reorderId; })[0];
                 var dest = findFolderById(getActiveInstrument(), destFolderId);
-                if (ex && dest) openExerciseDropMenu(x, y, ex, currentFolder, dest);
+                if (ex && dest && exSelCount() > 1 && (ex.id in exSel)) openExercisesDropMenu(x, y, exSelItems(), dest); // toute la sélection suit
+                else if (ex && dest) openExerciseDropMenu(x, y, ex, currentFolder, dest);
                 else render();
             }
         });
@@ -3574,16 +3847,21 @@
 
     function renderExercise(folder, ex, orderingEnabled) {
         var el = document.createElement("div");
-        el.className = "exercise" + (ex.collapsed ? " collapsed" : "");
+        el.className = "exercise" + (ex.collapsed ? " collapsed" : "") + (ex.id in exSel ? " selected" : "");
         el.dataset.reorderId = ex.id;
+        el.dataset.exId = ex.id; // sélection multiple
 
         var row = document.createElement("div");
         row.className = "exercise-row";
-        row.title = "Cliquer pour les détails (notes, liens…) · clic droit ou appui long : renommer, déplacer, ajouter à une session…";
+        row.title = "Cliquer pour les détails (notes, liens…) · clic droit ou appui long : renommer, déplacer, ajouter à une session… · Ctrl/⌘ + clic : sélectionner plusieurs exercices";
         // Hors de la vue d'un dossier (recherche, favoris, archivés) : le menu propose aussi d'ouvrir son dossier.
-        bindContextGesture(row, function (x, y) { openExerciseMenu(x, y, ex, folder, { reveal: !orderingEnabled }); });
+        bindContextGesture(row, function (x, y) {
+            if (exSelCount() > 1 && ex.id in exSel) openLinksQuickMenu(x, y, exSelActions().map(function (a) { return { label: a.text, open: function () { a.run(row); } }; }));
+            else openExerciseMenu(x, y, ex, folder, { reveal: !orderingEnabled });
+        });
         row.addEventListener("click", function (e) {
             if (suppressNextClick) { suppressNextClick = false; return; }
+            if (exSelWantsClick(e)) { exSelClick(e, ex.id); return; } // Ctrl/⌘/Maj + clic, ou sélection en cours
             // Le titre (et les boutons) gardent leur propre clic : cliquer le reste de la ligne
             // déplie/replie les détails (remplace le chevron dédié, retiré pour épurer la ligne).
             if (e.target.closest("button, input, textarea, select")) return;
@@ -3591,6 +3869,12 @@
             save();
             render();
         });
+
+        var selBox = document.createElement("span");
+        selBox.className = "ex-sel-box";
+        selBox.setAttribute("aria-hidden", "true");
+        selBox.textContent = "✓";
+        row.appendChild(selBox);
 
         // Poignée de glisser-déposer pour réordonner (remplace les flèches ↑/↓) : seulement dans
         // la vue normale d'un dossier, pas dans les listes à plat (recherche/favoris/archivés) où
@@ -3735,7 +4019,7 @@
         return btn;
     }
 
-    function openLinksQuickMenu(x, y, links) {
+    function openLinksQuickMenu(x, y, links, above) { // above : le menu s'ouvre AU-DESSUS du point (y), ex. depuis la barre du bas
         closeFolderMenu();
 
         var backdrop = document.createElement("div");
@@ -3768,7 +4052,7 @@
             var w = menu.offsetWidth || 200;
             var h = menu.offsetHeight || 100;
             var left = Math.min(Math.max(8, x), Math.max(8, window.innerWidth - w - 8));
-            var top = Math.min(Math.max(8, y), Math.max(8, window.innerHeight - h - 8));
+            var top = above ? Math.max(8, y - h - 6) : Math.min(Math.max(8, y), Math.max(8, window.innerHeight - h - 8));
             menu.style.left = left + "px";
             menu.style.top = top + "px";
         }
@@ -4707,6 +4991,7 @@
     // ---------- top actions ----------
 
     $instrumentSelect.addEventListener("change", function () {
+        exSel = {}; exSelAnchor = null; sessSel = {}; sessSelAnchor = null;
         state.activeInstrumentId = $instrumentSelect.value;
         save();
         render();
@@ -6467,6 +6752,7 @@
         chip.title = act.eff
             ? (progTarget ? "Tempo progressif : de " + act.eff.bpm + (progTarget.limit ? " à " + progTarget.limit : " (sans seuil)") + " BPM" : "Tempo cible : " + act.eff.bpm + " BPM") + " — cliquer pour modifier"
             : "Définir un tempo cible";
+        if (cfg.own && cfg.own() && act.eff) { chip.classList.add("tempo-chip-own"); chip.title += " (tempo propre à cette session)"; }
         chip.addEventListener("click", function (e) {
             e.stopPropagation();
             openTempoPopover(chip, cfg);
@@ -6528,21 +6814,14 @@
         if (!found) { if (p) step.metronome = p; else delete step.metronome; save(); return; }
         found.ex.metronome = p ? cloneJson(p) : null;
         touchExercise(found.ex);
-        clearStepMetronomeOverrides(found.ex.id);
         save();
     }
-    function clearStepMetronomeOverrides(exId) {
-        state.settings.guidedSessions.forEach(function (gs) {
-            gs.steps.forEach(function (st) { if (st.exerciseId === exId) delete st.metronome; });
-        });
-    }
 
-    // Mise à jour d'un préréglage d'exercice : propose de répercuter sur les sessions qui en avaient déjà un.
-    // Mise à jour du métronome d'un exercice : vaut aussi pour toutes les sessions qui l'utilisent.
+    // Mise à jour du métronome d'un exercice : vaut pour toutes les sessions qui l'utilisent, sauf celles où le pas
+    // a son propre tempo (case « Tempo propre à cette session » : step.metronome), qui reste indépendant.
     function setExerciseMetronome(ex, preset) {
         ex.metronome = preset;
         touchExercise(ex);
-        clearStepMetronomeOverrides(ex.id);
         save();
         render();
     }
@@ -8437,6 +8716,7 @@
     var gsScreen = "list"; // "list" | "edit" | "pick" | "run" | "links"
     var gsEditingSession = null;
     var gsPickCallback = null;
+    var gsPickMulti = null; // choix de plusieurs exercices d'un coup (seulement quand on AJOUTE des exercices à une session)
     var gsRunSession = null, gsRunStepIndex = 0;
     var gsRunAllocatedSec = 0, gsRunElapsedMs = 0, gsRunStartTs = null, gsRunPaused = true, gsRunInterval = null;
     // Chrono de la session entière : cumule tous les exercices, s'arrête en pause et repart à la reprise.
@@ -8978,7 +9258,6 @@
         Object.keys(e.metro).forEach(function (exId) { // tempo d'un exercice : propre à l'exercice, donc appliqué ici aussi
             var f = findExerciseById(exId), p2 = e.metro[exId];
             if (f) { f.ex.metronome = p2 ? cloneJson(p2) : null; touchExercise(f.ex); }
-            clearStepMetronomeOverrides(exId);
         });
         e.metro = {};
         save();
@@ -9095,6 +9374,390 @@
         return ids;
     }
 
+    // Ensemble des identifiants d'exercices qui existent (tous espaces) : pour repérer d'un coup les pas « supprimés ».
+    function exerciseIdSet() {
+        var set = {};
+        state.instruments.forEach(function (inst) { collectExercises(inst, function (ex) { set[ex.id] = true; return false; }); });
+        return set;
+    }
+
+    // Fenêtre de choix d'un exercice (recherche + arborescence) : sert à « Remplacer partout par… ».
+    function openExercisePickerModal(titleText, opts, onPick) {
+        opts = opts || {};
+        var inst = opts.inst || getActiveInstrument(), exclude = opts.exclude || [];
+        openModal("exercise-picker-panel", function (panel, close) {
+            var title = document.createElement("div");
+            title.className = "backups-title";
+            title.textContent = titleText;
+            panel.appendChild(title);
+            var search = document.createElement("input");
+            search.type = "search"; search.className = "gs-pick-search"; search.placeholder = "Rechercher un exercice…"; search.setAttribute("aria-label", "Rechercher un exercice");
+            panel.appendChild(search);
+            var wrap = document.createElement("div");
+            wrap.className = "folder-picker-tree";
+            panel.appendChild(wrap);
+            function choose(ex) { close(); onPick(ex); }
+            function exButton(ex, pathNames, color) {
+                var b = document.createElement("button");
+                b.type = "button"; b.className = "gs-pick-exercise-row"; b.dataset.exId = ex.id;
+                if (pathNames) { b.appendChild(gsThemeBadge(pathNames, color)); }
+                var t = document.createElement("span"); t.className = "gs-pick-ex-title"; t.textContent = ex.title; b.appendChild(t);
+                var prev = gsNotePreview(ex); if (prev) b.appendChild(prev);
+                b.addEventListener("click", function () { choose(ex); });
+                return b;
+            }
+            function node(container, folders, depth, rootColor) {
+                folders.forEach(function (folder) {
+                    var color = depth === 0 ? folder.color : rootColor;
+                    var exs = folder.exercises.filter(function (ex) { return !ex.archived && exclude.indexOf(ex.id) === -1; });
+                    var open = treeExpanded["xpick:" + folder.id] !== false, hasContent = exs.length > 0 || folder.folders.length > 0;
+                    var n = document.createElement("div"); n.className = "gs-pick-node";
+                    var row = document.createElement("div"); row.className = "gs-pick-tree-row";
+                    if (depth === 0) { row.style.borderLeft = "3px solid " + color; row.style.background = "color-mix(in srgb, " + color + " 6%, transparent)"; }
+                    var tw = document.createElement("button"); tw.type = "button"; tw.className = "tree-twisty" + (hasContent ? "" : " tree-twisty-empty") + (open ? " expanded" : ""); tw.innerHTML = CHEVRON_ICON_SVG;
+                    var lb = document.createElement("span"); lb.className = "tree-label"; lb.textContent = folder.name;
+                    row.appendChild(tw); row.appendChild(lb);
+                    if (hasContent) row.addEventListener("click", function () { treeExpanded["xpick:" + folder.id] = !open; refresh(); });
+                    n.appendChild(row);
+                    if (open && hasContent) {
+                        var kids = document.createElement("div"); kids.className = "gs-pick-tree-children";
+                        exs.forEach(function (ex) { kids.appendChild(exButton(ex)); });
+                        node(kids, folder.folders, depth + 1, color);
+                        n.appendChild(kids);
+                    }
+                    container.appendChild(n);
+                });
+            }
+            function refresh() {
+                wrap.innerHTML = "";
+                var q = search.value.trim().toLowerCase();
+                if (!q) { node(wrap, inst.categories, 0, null); return; }
+                var res = collectExercises(inst, function (ex) { return !ex.archived && exclude.indexOf(ex.id) === -1 && ex.title.toLowerCase().indexOf(q) !== -1; });
+                if (!res.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Aucun exercice ne correspond."; wrap.appendChild(none); return; }
+                res.forEach(function (r) { var root = findById(inst.categories, r.pathIds[0]); wrap.appendChild(exButton(r.ex, r.pathNames, (root && root.color) || "#00e676")); });
+            }
+            search.addEventListener("input", refresh);
+            refresh();
+            setTimeout(function () { try { search.focus(); } catch (e) {} }, 30);
+        });
+    }
+
+    // Remplace un exercice par un autre dans TOUTES les sessions (brouillons ouverts compris). Chaque pas garde sa
+    // durée, sa note et son éventuel tempo propre ; les liens masqués (propres à l'ancien exercice) sont oubliés.
+    // opts.regroup : l'historique des séances de l'ancien exercice est compté sous le nouveau (statistiques) ;
+    // opts.trashOld : l'ancien exercice part à la corbeille.
+    function replaceExerciseEverywhere(oldId, newEx, opts) {
+        opts = opts || {};
+        var res = { sessions: 0, steps: 0, dup: [] };
+        function swap(st) { if (st.exerciseId === oldId) { st.exerciseId = newEx.id; delete st.hidden; } }
+        state.settings.guidedSessions.forEach(function (g) {
+            var de = gsDrafts[g.id], clean = de ? !gsDraftDirty(g.id) : true, view = de ? de.draft.steps : g.steps;
+            var hit = view.filter(function (st) { return st.exerciseId === oldId; }).length;
+            if (!hit) return;
+            if (view.some(function (st) { return st.exerciseId === newEx.id; })) res.dup.push(g.name);
+            res.sessions++; res.steps += hit;
+            g.steps.forEach(swap);
+            if (de) { de.draft.steps.forEach(swap); delete de.metro[oldId]; if (clean) de.base = gsDraftSig(de); }
+        });
+        if (opts.regroup) {
+            var rules = statsRules(), cur = newEx.id, prev = null, guard = 0;
+            while (cur && cur !== oldId && guard++ < 10) { prev = cur; cur = rules.alias[cur]; }
+            if (cur === oldId && prev) delete rules.alias[prev]; // le nouvel exercice était regroupé sous l'ancien : on inverse
+            Object.keys(rules.alias).forEach(function (k) { if (rules.alias[k] === oldId) rules.alias[k] = newEx.id; });
+            rules.alias[oldId] = newEx.id;
+        }
+        var old = findExerciseById(oldId);
+        if (opts.trashOld && old) {
+            addToTrash("exercise", old.ex, { instrumentId: old.inst.id, parentFolderId: old.folder.id });
+            old.folder.exercises.splice(old.folder.exercises.indexOf(old.ex), 1);
+        }
+        save();
+        render();
+        toastUndo("« " + (opts.oldTitle || "exercice") + " » remplacé par « " + newEx.title + " » dans " + res.sessions + " session" + (res.sessions > 1 ? "s" : "") + (res.sessions ? " (" + res.steps + " pas)" : "") + (res.dup.length ? " — attention, présent deux fois dans " + res.dup.length + " session" + (res.dup.length > 1 ? "s" : "") : ""));
+        return res;
+    }
+
+    function openReplaceEverywhereDialog(oldId, oldTitle, newEx) {
+        var old = findExerciseById(oldId), u = exerciseUsage(oldId);
+        openModal("gs-replace-panel", function (panel, close) {
+            var title = document.createElement("div");
+            title.className = "backups-title";
+            title.textContent = "Remplacer partout";
+            panel.appendChild(title);
+            var intro = document.createElement("div");
+            intro.className = "gs-sync-intro";
+            var nf = findExerciseById(newEx.id);
+            intro.textContent = "« " + oldTitle + " »" + (old ? " (" + old.pathNames.join(" › ") + ")" : " (supprimé)") + "  →  « " + newEx.title + " »" + (nf ? " (" + nf.pathNames.join(" › ") + ")" : "");
+            panel.appendChild(intro);
+            var list = document.createElement("div");
+            list.className = "gs-sync-list";
+            if (!u.sessions.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Aucune session ne l'utilise pour l'instant."; list.appendChild(none); }
+            u.sessions.forEach(function (g) {
+                var de = gsDrafts[g.id], view = de ? de.draft.steps : g.steps;
+                var n = view.filter(function (st) { return st.exerciseId === oldId; }).length, dup = view.some(function (st) { return st.exerciseId === newEx.id; });
+                var line = document.createElement("div"); line.className = "gs-sync-row";
+                var nm = document.createElement("span"); nm.className = "gs-sync-name"; nm.textContent = g.name;
+                var du = document.createElement("span"); du.className = "gs-sync-dur"; du.textContent = n + " pas" + (dup ? " · ⚠ contient déjà le nouveau" : "");
+                line.appendChild(nm); line.appendChild(du); list.appendChild(line);
+            });
+            panel.appendChild(list);
+            var note = document.createElement("div");
+            note.className = "gs-sync-intro gs-replace-note";
+            note.textContent = "Chaque pas garde sa durée, sa note et son tempo propre à la session. Un pas déjà présent deux fois reste en double (à retirer à la main).";
+            panel.appendChild(note);
+            function check(text, on) {
+                var l = document.createElement("label"); l.className = "gs-replace-check";
+                var cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = on;
+                var sp = document.createElement("span"); sp.textContent = text;
+                l.appendChild(cb); l.appendChild(sp); panel.appendChild(l);
+                return cb;
+            }
+            var regroup = check("Compter aussi les séances passées de l'ancien exercice sous le nouveau (statistiques)", true);
+            var trash = old ? check("Mettre « " + oldTitle + " » à la corbeille ensuite", false) : null;
+            var actions = document.createElement("div");
+            actions.className = "gs-sync-actions";
+            var no = document.createElement("button"); no.type = "button"; no.className = "btn-ghost"; no.textContent = "Annuler";
+            no.addEventListener("click", close);
+            var yes = document.createElement("button"); yes.type = "button"; yes.className = "btn-accent gs-replace-go"; yes.textContent = "Remplacer partout";
+            yes.addEventListener("click", function () {
+                close();
+                replaceExerciseEverywhere(oldId, newEx, { regroup: regroup.checked, trashOld: !!(trash && trash.checked), oldTitle: oldTitle });
+            });
+            actions.appendChild(no); actions.appendChild(yes);
+            panel.appendChild(actions);
+        });
+    }
+    function startReplaceEverywhere(oldId, oldTitle) {
+        var old = findExerciseById(oldId);
+        openExercisePickerModal("Remplacer « " + oldTitle + " » partout par…", { inst: old ? old.inst : getActiveInstrument(), exclude: [oldId] }, function (newEx) { openReplaceEverywhereDialog(oldId, oldTitle, newEx); });
+    }
+
+    // Quitte la vue « session guidée » pour aller dans les dossiers ; renvoie le nom d'une session dont les
+    // modifications ne sont pas enregistrées (elles restent en attente), ou null.
+    function leaveGuidedViewForNav() {
+        var kept = guidedSessionViewActive && gsEditingSession && gsDraftDirty(gsEditingSession.id) ? gsDrafts[gsEditingSession.id].draft.name : null;
+        if (guidedSessionViewActive) {
+            guidedSessionViewActive = false;
+            if ($guidedSessionBtn) $guidedSessionBtn.classList.remove("active");
+            if (gsRunInterval) { clearInterval(gsRunInterval); gsRunInterval = null; }
+        }
+        return kept;
+    }
+    // Va dans un dossier (déplié, chemin affiché) depuis n'importe où.
+    function revealFolder(instId, pathIds) {
+        var inst = findById(state.instruments, instId);
+        if (!inst) return false;
+        if (gsRunActive() && guidedSessionViewActive) { showToast("Une session est en cours : termine-la avant d'aller dans les dossiers.", 4500); return false; }
+        if (closeActiveModal) closeActiveModal();
+        closeFolderMenu();
+        var keptDraft = leaveGuidedViewForNav();
+        if (inst.id !== state.activeInstrumentId) { state.activeInstrumentId = inst.id; persist(); }
+        clearFilters();
+        setNavPath(inst, pathIds.slice());
+        pathIds.forEach(function (id) { treeExpanded[id] = true; });
+        render();
+        try { window.scrollTo(0, 0); } catch (e) {}
+        if (keptDraft) showToast("« " + keptDraft + " » n'est pas encore enregistrée : tes modifications t'attendent (bouton Session guidée).", 6000);
+        return true;
+    }
+    // Lance une session depuis n'importe où (recherche rapide…).
+    function gsLaunch(session) {
+        if (!session || !session.steps.length) { showToast("Cette session n'a pas encore d'exercice"); return false; }
+        if (gsRunActive()) { showToast("Une session est déjà en cours.", 4000); return false; }
+        if (closeActiveModal) closeActiveModal();
+        closeFolderMenu();
+        if (session.instrumentId && session.instrumentId !== state.activeInstrumentId && findById(state.instruments, session.instrumentId)) { state.activeInstrumentId = session.instrumentId; persist(); }
+        guidedSessionViewActive = true;
+        if ($guidedSessionBtn) $guidedSessionBtn.classList.add("active");
+        gsStartRun(session);
+        return true;
+    }
+
+    // ---------- recherche rapide (Ctrl+F) : exercices, sessions et dossiers de tous les espaces ----------
+    // Normalisation qui GARDE la longueur du texte (une lettre accentuée devient sa lettre de base, en minuscule) :
+    // les positions trouvées servent à surligner le texte d'origine.
+    function qfNorm(t) {
+        return String(t || "").replace(/[A-ZÀ-ɏ]/g, function (ch) { return ch.normalize("NFD").charAt(0).toLowerCase(); });
+    }
+    var qfCache = typeof WeakMap === "function" ? new WeakMap() : null;
+    function qfExtra(ex) { // liens, fichiers et notes, normalisés une fois (recalculés si l'exercice change)
+        var key = (ex.updatedAt || 0) + ":" + (ex.notes || "").length + ":" + (ex.links || []).length + ":" + (ex.files || []).length;
+        var c = qfCache && qfCache.get(ex);
+        if (c && c.key === key) return c.text;
+        var text = qfNorm([ex.notes || ""].concat((ex.links || []).map(function (l) { return l.label || ""; }), (ex.files || []).map(function (f) { return f.name || ""; })).join(" \n "));
+        if (qfCache) qfCache.set(ex, { key: key, text: text });
+        return text;
+    }
+    // Score (plus petit = meilleur) ; -1 si un des mots n'est trouvé nulle part.
+    function qfScore(tokens, title, path, extra) {
+        var score = 0;
+        for (var i = 0; i < tokens.length; i++) {
+            var t = tokens[i], pos = title.indexOf(t);
+            if (pos === 0) score += 0;
+            else if (pos > 0 && /[\s\-'’(\/]/.test(title.charAt(pos - 1))) score += 1;
+            else if (pos > 0) score += 2;
+            else if (path.indexOf(t) !== -1) score += 4;
+            else if (extra && extra.indexOf(t) !== -1) score += 6;
+            else return -1;
+        }
+        return score + (title === tokens.join(" ") ? 0 : 1); // titre exactement égal à la recherche : en tête (jamais négatif : -1 = « pas trouvé »)
+    }
+    function qfSearch(q) {
+        var tokens = qfNorm(q).split(/\s+/).filter(Boolean), out = { exercises: [], sessions: [], folders: [], recent: false };
+        if (!tokens.length) {
+            out.recent = true;
+            var all = [];
+            state.instruments.forEach(function (inst) {
+                (function walk(list, names, ids) { list.forEach(function (f) { var nn = names.concat(f.name), ii = ids.concat(f.id); f.exercises.forEach(function (ex) { if (!ex.archived && ex.updatedAt) all.push({ type: "exercise", ex: ex, folder: f, inst: inst, names: nn, ids: ii, score: -ex.updatedAt }); }); walk(f.folders, nn, ii); }); })(inst.categories, [], []);
+            });
+            out.exercises = all.sort(function (a, b) { return a.score - b.score; }).slice(0, 6);
+            out.sessions = state.settings.guidedSessions.filter(function (g) { return !g.archived && g.lastRunAt; }).sort(function (a, b) { return b.lastRunAt - a.lastRunAt; }).slice(0, 4).map(function (g) { return { type: "session", g: g, score: 0 }; });
+            return out;
+        }
+        state.instruments.forEach(function (inst) {
+            (function walk(list, names, ids) {
+                list.forEach(function (f) {
+                    var nn = names.concat(f.name), ii = ids.concat(f.id), pathStr = qfNorm(nn.join(" "));
+                    var fs = qfScore(tokens, qfNorm(f.name), qfNorm(names.join(" ")), "");
+                    if (fs >= 0) out.folders.push({ type: "folder", folder: f, inst: inst, names: nn, ids: ii, score: fs });
+                    f.exercises.forEach(function (ex) {
+                        var sc = qfScore(tokens, qfNorm(ex.title), pathStr, qfExtra(ex));
+                        if (sc >= 0) out.exercises.push({ type: "exercise", ex: ex, folder: f, inst: inst, names: nn, ids: ii, score: sc + (ex.archived ? 3 : 0) });
+                    });
+                    walk(f.folders, nn, ii);
+                });
+            })(inst.categories, [], []);
+        });
+        state.settings.guidedSessions.forEach(function (g) {
+            var sc = qfScore(tokens, qfNorm(g.name), "", "");
+            if (sc >= 0) out.sessions.push({ type: "session", g: g, score: sc + (g.archived ? 3 : 0) });
+        });
+        function byScore(a, b) { return a.score - b.score; }
+        out.exercises.sort(byScore); out.sessions.sort(byScore); out.folders.sort(byScore);
+        out.tokens = tokens;
+        return out;
+    }
+    // Écrit `text` dans `el` en surlignant les mots cherchés.
+    function qfFill(el, text, tokens) {
+        el.textContent = "";
+        if (!tokens || !tokens.length) { el.textContent = text; return; }
+        var norm = qfNorm(text), marks = [];
+        tokens.forEach(function (t) { var from = 0, i; while ((i = norm.indexOf(t, from)) !== -1) { marks.push([i, i + t.length]); from = i + t.length; } });
+        marks.sort(function (a, b) { return a[0] - b[0]; });
+        var merged = [];
+        marks.forEach(function (m) { var last = merged[merged.length - 1]; if (last && m[0] <= last[1]) last[1] = Math.max(last[1], m[1]); else merged.push(m.slice()); });
+        var pos = 0;
+        merged.forEach(function (m) {
+            if (m[0] > pos) el.appendChild(document.createTextNode(text.slice(pos, m[0])));
+            var mk = document.createElement("mark"); mk.textContent = text.slice(m[0], m[1]); el.appendChild(mk);
+            pos = m[1];
+        });
+        if (pos < text.length) el.appendChild(document.createTextNode(text.slice(pos)));
+    }
+    var QF_LIMITS = { exercises: 10, sessions: 6, folders: 6 };
+    function openQuickFind(initial) {
+        openModal("quickfind-panel", function (panel, close) {
+            var input = document.createElement("input");
+            input.type = "text"; input.className = "quickfind-input";
+            input.placeholder = "Chercher un exercice, une session, un dossier…";
+            input.setAttribute("aria-label", "Recherche rapide"); input.setAttribute("autocomplete", "off"); input.spellcheck = false;
+            panel.appendChild(input);
+            var list = document.createElement("div");
+            list.className = "quickfind-list"; list.setAttribute("role", "listbox");
+            panel.appendChild(list);
+            var hint = document.createElement("div");
+            hint.className = "quickfind-hint";
+            hint.textContent = "↑ ↓ choisir · Entrée ouvrir · Échap fermer · clic droit : renommer, déplacer, ajouter à une session…";
+            panel.appendChild(hint);
+            var flat = [], active = 0;
+            function setActive(i, scroll) {
+                if (!flat.length) { active = 0; return; }
+                active = (i + flat.length) % flat.length;
+                flat.forEach(function (it, k) { it.el.classList.toggle("active", k === active); it.el.setAttribute("aria-selected", k === active ? "true" : "false"); });
+                if (scroll) { try { flat[active].el.scrollIntoView({ block: "nearest" }); } catch (e) {} }
+            }
+            function activate(it) {
+                if (!it) return;
+                if (it.type === "exercise") revealExercise(it.ex.id);
+                else if (it.type === "session") gsOpenSessionEditor(it.g);
+                else revealFolder(it.inst.id, it.ids);
+            }
+            function section(title) { var h = document.createElement("div"); h.className = "quickfind-section"; h.textContent = title; list.appendChild(h); }
+            function row(it, tokens) {
+                var el = document.createElement("div");
+                el.className = "quickfind-row quickfind-" + it.type; el.setAttribute("role", "option"); el.dataset.kind = it.type;
+                var main = document.createElement("div"); main.className = "quickfind-main";
+                var t = document.createElement("span"); t.className = "quickfind-title";
+                var sub = document.createElement("span"); sub.className = "quickfind-sub";
+                var multi = state.instruments.length > 1;
+                if (it.type === "exercise") {
+                    var root = findById(it.inst.categories, it.ids[0]);
+                    el.style.setProperty("--qf-color", (root && root.color) || "#00e676");
+                    qfFill(t, it.ex.title, tokens);
+                    sub.textContent = (multi && it.inst.id !== state.activeInstrumentId ? it.inst.name + " · " : "") + it.names.join(" › ") + (it.ex.archived ? " · archivé" : "") + (it.ex.favorite ? " · ★" : "");
+                } else if (it.type === "session") {
+                    el.style.setProperty("--qf-color", "#4dabf7");
+                    qfFill(t, it.g.name, tokens);
+                    var inst = findById(state.instruments, it.g.instrumentId);
+                    sub.textContent = "Session · " + it.g.steps.length + " exercice" + (it.g.steps.length > 1 ? "s" : "") + " · " + sessionTotalMinutes(it.g) + " min" + (multi && inst && inst.id !== state.activeInstrumentId ? " · " + inst.name : "") + (it.g.archived ? " · archivée" : "");
+                } else {
+                    var rootF = findById(it.inst.categories, it.ids[0]);
+                    el.style.setProperty("--qf-color", (rootF && rootF.color) || "#00e676");
+                    qfFill(t, it.folder.name, tokens);
+                    var n = folderExerciseIds(it.folder).length;
+                    sub.textContent = "Dossier · " + (it.names.length > 1 ? it.names.slice(0, -1).join(" › ") + " · " : "") + n + " exercice" + (n > 1 ? "s" : "") + (multi && it.inst.id !== state.activeInstrumentId ? " · " + it.inst.name : "");
+                }
+                main.appendChild(t); main.appendChild(sub); el.appendChild(main);
+                if (it.type === "session" && it.g.steps.length) {
+                    var go = svgIconButton(METRO_PLAY_ICON_SVG, "Lancer cette session maintenant", function (e) { e.stopPropagation(); gsLaunch(it.g); });
+                    go.classList.add("quickfind-go"); el.appendChild(go);
+                }
+                el.addEventListener("click", function () { activate(it); });
+                el.addEventListener("mousemove", function () { var k = flat.indexOf(it); if (k !== -1 && k !== active) setActive(k, false); });
+                if (it.type === "exercise") bindContextGesture(el, function (x, y) { openExerciseMenu(x, y, it.ex, it.folder, { reveal: true, after: refresh }); });
+                else if (it.type === "session") bindContextGesture(el, function (x, y) {
+                    var its = [{ label: "✎ Modifier les exercices", open: function () { gsOpenSessionEditor(it.g); } }, { label: "Renommer…", open: function () { gsRenameSession(it.g, refresh); } }];
+                    if (it.g.steps.length) its.unshift({ label: "▶ Lancer maintenant", open: function () { gsLaunch(it.g); } });
+                    openLinksQuickMenu(x, y, its);
+                });
+                else bindContextGesture(el, function (x, y) { openFolderMenu(x, y, function () { return parentArrayOf(it.inst, it.folder) || []; }, it.folder, it.inst); });
+                it.el = el;
+                flat.push(it);
+                list.appendChild(el);
+            }
+            function refresh() {
+                var q = input.value, res = qfSearch(q), tokens = res.tokens || [];
+                list.innerHTML = ""; flat = [];
+                var shown = 0;
+                [["exercises", res.recent ? "Modifiés récemment" : "Exercices"], ["sessions", res.recent ? "Sessions lancées récemment" : "Sessions"], ["folders", "Dossiers"]].forEach(function (c) {
+                    var items = res[c[0]];
+                    if (!items.length) return;
+                    section(c[1] + (!res.recent && items.length > QF_LIMITS[c[0]] ? " (" + items.length + ")" : ""));
+                    items.slice(0, QF_LIMITS[c[0]]).forEach(function (it) { row(it, tokens); shown++; });
+                    if (!res.recent && items.length > QF_LIMITS[c[0]]) { var more = document.createElement("div"); more.className = "quickfind-more"; more.textContent = "… " + (items.length - QF_LIMITS[c[0]]) + " autres : précise ta recherche"; list.appendChild(more); }
+                });
+                if (!shown) { var none = document.createElement("div"); none.className = "gs-empty quickfind-none"; none.textContent = q.trim() ? "Aucun résultat pour « " + q.trim() + " »." : "Rien à proposer pour l'instant : tape un nom."; list.appendChild(none); }
+                setActive(0, false);
+            }
+            input.addEventListener("input", refresh);
+            input.addEventListener("keydown", function (e) {
+                if (e.key === "ArrowDown") { e.preventDefault(); setActive(active + 1, true); }
+                else if (e.key === "ArrowUp") { e.preventDefault(); setActive(active - 1, true); }
+                else if (e.key === "Enter") { e.preventDefault(); if (e.ctrlKey || e.metaKey) { var it = flat[active]; if (it && it.type === "session") { gsLaunch(it.g); return; } } activate(flat[active]); }
+            });
+            if (initial) input.value = initial;
+            refresh();
+            setTimeout(function () { try { input.focus(); input.select(); } catch (e) {} }, 30);
+        });
+    }
+    document.addEventListener("keydown", function (e) {
+        if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "f") return;
+        e.preventDefault(); // remplace la recherche du navigateur par la recherche rapide de TrainHub
+        if (activeModalKind === "quickfind-panel") { var i = document.querySelector(".quickfind-input"); if (i) { i.focus(); i.select(); } return; }
+        var sel = ""; try { sel = String(window.getSelection() || "").trim(); } catch (err) {}
+        openQuickFind(sel && sel.length <= 60 && sel.indexOf("\n") === -1 ? sel : "");
+    }, true);
+
     // Montre un exercice dans son dossier (quitte la session guidée si besoin, déplie l'exercice, le met en évidence).
     function revealExercise(exId) {
         var f = findExerciseById(exId);
@@ -9102,12 +9765,7 @@
         if (gsRunActive() && guidedSessionViewActive) { showToast("Une session est en cours : termine-la avant d'aller dans les dossiers.", 4500); return false; }
         if (closeActiveModal) closeActiveModal();
         closeFolderMenu();
-        var keptDraft = guidedSessionViewActive && gsEditingSession && gsDraftDirty(gsEditingSession.id) ? gsDrafts[gsEditingSession.id].draft.name : null;
-        if (guidedSessionViewActive) {
-            guidedSessionViewActive = false;
-            if ($guidedSessionBtn) $guidedSessionBtn.classList.remove("active");
-            if (gsRunInterval) { clearInterval(gsRunInterval); gsRunInterval = null; }
-        }
+        var keptDraft = leaveGuidedViewForNav();
         if (f.inst.id !== state.activeInstrumentId) { state.activeInstrumentId = f.inst.id; persist(); }
         clearFilters();
         setNavPath(f.inst, f.ex.archived ? [ARCHIVED_ID] : f.pathIds.slice());
@@ -9219,6 +9877,7 @@
         if (gsActiveTab !== "all" && !showArchived && !showUpcoming && !tabs.some(function (t) { return t.id === gsActiveTab; })) gsActiveTab = "all";
         var activeTab = tabs.filter(function (t) { return t.id === gsActiveTab; })[0] || null;
 
+        var liveIds = exerciseIdSet(); // pour repérer les pas dont l'exercice a été supprimé
         function newSession() {
             var session = { id: uid(), name: "Nouvelle session", steps: [], instrumentId: activeInstId, tabIds: activeTab ? [activeTab.id] : [], createdAt: Date.now() };
             allSessions.push(session);
@@ -9232,10 +9891,12 @@
             var row = document.createElement("div");
             row.className = "gs-session-row";
             row.dataset.reorderId = session.id;
-            row.title = "Cliquer pour modifier les exercices de la session";
+            if (sessSel[session.id]) row.classList.add("selected");
+            row.title = "Cliquer pour modifier les exercices de la session · Ctrl/⌘ + clic : sélectionner plusieurs sessions";
             row.addEventListener("click", function (e) {
                 if (e.target.closest("button")) return;
                 if (suppressNextClick) { suppressNextClick = false; return; }
+                if (sessSelWantsClick(e)) { sessSelClick(e, session.id); return; }
                 gsEditingSession = session;
                 gsScreen = "edit";
                 render();
@@ -9257,6 +9918,14 @@
                 todayPill.textContent = "prévue aujourd'hui";
                 info.appendChild(todayPill);
             }
+            var missing = session.steps.filter(function (st) { return !liveIds[st.exerciseId]; }).length;
+            if (missing) {
+                var broken = document.createElement("span");
+                broken.className = "gs-session-broken";
+                broken.textContent = "⚠ " + missing + " exercice" + (missing > 1 ? "s" : "") + " supprimé" + (missing > 1 ? "s" : "");
+                broken.title = "Ouvre la session : clic droit sur l'exercice supprimé pour le restaurer (corbeille) ou le remplacer";
+                info.appendChild(broken);
+            }
             if (gsDraftDirty(session.id)) {
                 var unsaved = document.createElement("span");
                 unsaved.className = "gs-session-unsaved";
@@ -9265,7 +9934,10 @@
                 info.appendChild(unsaved);
             }
             row.appendChild(info);
-            bindContextGesture(row, function (x, y) { openSessionMenu(x, y, session); });
+            bindContextGesture(row, function (x, y) {
+                if (sessSelCount() > 1 && sessSel[session.id]) openLinksQuickMenu(x, y, sessSelActions().map(function (a) { return { label: a.text, open: function () { a.run(row); } }; }));
+                else openSessionMenu(x, y, session);
+            });
 
             var actions = document.createElement("div");
             actions.className = "gs-session-actions";
@@ -9310,6 +9982,7 @@
             if (!session.archived) items.push({ label: "▶ Lancer la session", open: function () { if (session.steps.length) gsStartRun(session); else showToast("Cette session n'a pas encore d'exercice"); } });
             items.push({ label: "Modifier les exercices", open: function () { gsEditingSession = session; gsScreen = "edit"; render(); } });
             items.push({ label: "Renommer…", open: function () { gsRenameSession(session); } });
+            items.push({ label: sessSel[session.id] ? "☐ Désélectionner" : "☑ Sélectionner (plusieurs)", open: function () { sessSelToggle(session.id); } });
             items.push({ label: "Dupliquer", open: function () {
                 var copy = cloneJson(session);
                 copy.id = uid(); copy.createdAt = Date.now(); copy.runCount = 0; copy.name = session.name + " (copie)";
@@ -9439,7 +10112,7 @@
                 var info = document.createElement("div"); info.className = "gs-up-info";
                 var nm = document.createElement("span"); nm.className = "gs-up-name"; nm.textContent = gsSessionNameById(en.sessionId);
                 var meta = document.createElement("span"); meta.className = "gs-up-meta";
-                meta.textContent = (sess ? sess.steps.length + " exercice" + (sess.steps.length > 1 ? "s" : "") + " · " + sessionTotalMinutes(sess) + " min" : "session supprimée") + (en.seriesId ? " · ↻ " + calRuleLabel(en.rule) : "");
+                meta.textContent = (sess ? sess.steps.length + " exercice" + (sess.steps.length > 1 ? "s" : "") + " · " + sessionTotalMinutes(sess) + " min" + (sess.steps.some(function (st) { return !liveIds[st.exerciseId]; }) ? " · ⚠ exercice supprimé" : "") : "session supprimée") + (en.seriesId ? " · ↻ " + calRuleLabel(en.rule) : "");
                 info.appendChild(nm); info.appendChild(meta); row.appendChild(info);
                 var acts = document.createElement("div"); acts.className = "gs-session-actions";
                 if (en.date === calTodayKey() && sess && sess.steps.length) { var pb = svgIconButton(METRO_PLAY_ICON_SVG, "Lancer cette session maintenant", function () { gsStartRun(sess); }); pb.classList.add("gs-session-play-btn"); acts.appendChild(pb); }
@@ -9804,8 +10477,10 @@
                 var te = trashEntryFor(step.exerciseId);
                 if (te) items.push({ label: "♻ Restaurer l'exercice (corbeille" + (te.type === "folder" ? ", avec le dossier « " + te.data.name + " »" : "") + ")", open: function () { restoreFromTrash(te.id); showToast("Exercice restauré"); } });
             }
-            items.push({ label: "⇄ Remplacer par un autre exercice…", open: function () {
-                gsPickCallback = function (ex) { step.exerciseId = ex.id; delete step.metronome; };
+            items.push({ label: "⇄ Remplacer partout par…", open: function () { startReplaceEverywhere(step.exerciseId, found ? found.ex.title : "exercice supprimé"); } });
+            items.push({ label: "⇄ Remplacer ce pas seulement…", open: function () {
+                gsPickMulti = null; exSel = {}; exSelAnchor = null;
+                gsPickCallback = function (ex) { step.exerciseId = ex.id; delete step.hidden; }; // durée, note et tempo propre du pas sont conservés
                 gsScreen = "pick";
                 render();
                 showToast("Choisis l'exercice qui remplace celui-ci (même durée, même note)", 4000);
@@ -9846,13 +10521,17 @@
                 var stepTempoCfg = {
                     title: found ? found.ex.title : "ce pas",
                     exId: found ? found.ex.id : null,
+                    // « Tempo propre à cette session » (step.metronome) : indépendant de celui de l'exercice.
+                    own: function () { return !!step.metronome; },
                     get: function () {
+                        if (step.metronome) return step.metronome;
                         if (found && found.ex.id in entry.metro) return entry.metro[found.ex.id];
                         return gsEffectiveMetronome(step, found && found.ex);
                     },
                     set: function (p) {
-                        if (found) entry.metro[found.ex.id] = p ? cloneJson(p) : null; // en attente jusqu'à « Enregistrer »
-                        else if (p) step.metronome = p; else delete step.metronome;
+                        if (step.metronome) { if (p) step.metronome = cloneJson(p); else delete step.metronome; } // « Retirer » : retour au tempo de l'exercice
+                        else if (found) entry.metro[found.ex.id] = p ? cloneJson(p) : null; // en attente jusqu'à « Enregistrer »
+                        else if (p) step.metronome = p;
                         renderSteps();
                     }
                 };
@@ -9970,6 +10649,23 @@
                         }
                     }
                     details.appendChild(buildMetronomePresetRow(stepTempoCfg));
+                    var ownRow = document.createElement("label");
+                    ownRow.className = "gs-step-owntempo";
+                    var ownCb = document.createElement("input");
+                    ownCb.type = "checkbox";
+                    ownCb.checked = !!step.metronome;
+                    ownCb.addEventListener("change", function () {
+                        if (ownCb.checked) {
+                            var base = stepTempoCfg.get();
+                            step.metronome = base ? cloneJson(base) : blankMetroPreset(state.settings.metronome.bpm || 100);
+                        } else delete step.metronome;
+                        renderSteps();
+                    });
+                    var ownTxt = document.createElement("span");
+                    ownTxt.textContent = "Tempo propre à cette session";
+                    ownTxt.title = "Coché : ce tempo ne change que dans cette session. Décoché : le tempo de l'exercice, le même partout.";
+                    ownRow.appendChild(ownCb); ownRow.appendChild(ownTxt);
+                    details.appendChild(ownRow);
                     var noteLabel = document.createElement("div");
                     noteLabel.className = "section-label";
                     noteLabel.textContent = "Note pour cet exercice (affichée pendant la session)";
@@ -10041,6 +10737,11 @@
                 session.steps.push({ id: uid(), exerciseId: ex.id, minutes: gsDefaultMinutes(ex) });
                 save();
             };
+            gsPickMulti = function (exs) { // Ctrl/⌘ + clic : plusieurs exercices d'un coup, dans l'ordre des clics
+                exs.forEach(function (ex) { session.steps.push({ id: uid(), exerciseId: ex.id, minutes: gsDefaultMinutes(ex) }); });
+                save();
+            };
+            exSel = {}; exSelAnchor = null;
             gsScreen = "pick";
             render();
         });
@@ -10114,22 +10815,28 @@
                 visibleExercises.forEach(function (ex) {
                     var exBtn = document.createElement("button");
                     exBtn.type = "button";
-                    exBtn.className = "gs-pick-exercise-row";
+                    exBtn.className = "gs-pick-exercise-row" + (ex.id in exSel ? " selected" : "");
+                    exBtn.dataset.exId = ex.id;
                     var exTitle = document.createElement("span");
                     exTitle.className = "gs-pick-ex-title";
                     exTitle.textContent = ex.title;
                     exBtn.appendChild(exTitle);
                     var prev = gsNotePreview(ex);
                     if (prev) exBtn.appendChild(prev);
-                    exBtn.addEventListener("click", function () {
+                    exBtn.addEventListener("click", function (e) {
                         if (suppressNextClick) { suppressNextClick = false; return; }
+                        if (gsPickMulti && exSelWantsClick(e)) { exSelClick(e, ex.id); return; } // Ctrl/⌘/Maj + clic : sélection multiple
                         gsPickCallback(ex);
                         gsScreen = "edit";
                         render();
                     });
-                    bindPickGesture(exBtn, function (x, y) { openExerciseMenu(x, y, ex, folder, { reveal: true, noAddToSession: true }); }, function (destId, x, y) {
+                    bindPickGesture(exBtn, function (x, y) {
+                        if (exSelCount() > 1 && ex.id in exSel) openLinksQuickMenu(x, y, exSelActions().map(function (a) { return { label: a.text, open: function () { a.run(exBtn); } }; }));
+                        else openExerciseMenu(x, y, ex, folder, { reveal: true, noAddToSession: true, noSelect: !gsPickMulti });
+                    }, function (destId, x, y) {
                         var dest = findFolderById(inst, destId);
-                        if (dest) openExerciseDropMenu(x, y, ex, folder, dest);
+                        if (dest && exSelCount() > 1 && (ex.id in exSel)) openExercisesDropMenu(x, y, exSelItems(), dest);
+                        else if (dest) openExerciseDropMenu(x, y, ex, folder, dest);
                     });
                     childWrap.appendChild(exBtn);
                 });
@@ -10187,7 +10894,8 @@
             results.forEach(function (r) {
                 var btn = document.createElement("button");
                 btn.type = "button";
-                btn.className = "gs-pick-result";
+                btn.className = "gs-pick-result" + (r.ex.id in exSel ? " selected" : "");
+                btn.dataset.exId = r.ex.id;
                 var head = document.createElement("span");
                 head.className = "gs-pick-result-head";
                 var rootChapter = findById(inst.categories, r.pathIds[0]);
@@ -10199,9 +10907,13 @@
                 btn.appendChild(head);
                 var prev2 = gsNotePreview(r.ex);
                 if (prev2) btn.appendChild(prev2);
-                bindPickGesture(btn, function (x, y) { openExerciseMenu(x, y, r.ex, r.folder, { reveal: true, noAddToSession: true }); }, null);
-                btn.addEventListener("click", function () {
+                bindPickGesture(btn, function (x, y) {
+                    if (exSelCount() > 1 && r.ex.id in exSel) openLinksQuickMenu(x, y, exSelActions().map(function (a) { return { label: a.text, open: function () { a.run(btn); } }; }));
+                    else openExerciseMenu(x, y, r.ex, r.folder, { reveal: true, noAddToSession: true, noSelect: !gsPickMulti });
+                }, null);
+                btn.addEventListener("click", function (e) {
                     if (suppressNextClick) { suppressNextClick = false; return; }
+                    if (gsPickMulti && exSelWantsClick(e)) { exSelClick(e, r.ex.id); return; }
                     gsPickCallback(r.ex);
                     gsScreen = "edit";
                     render();
@@ -11637,7 +12349,7 @@
         gsRunCurrentStepId = enteredStep.id;
         var enteredFound = findExerciseById(enteredStep.exerciseId);
         var presetForStep = gsEffectiveMetronome(enteredStep, enteredFound && enteredFound.ex);
-        var stepLink = enteredFound ? { exId: enteredFound.ex.id, title: enteredFound.ex.title, fromSession: true } : null;
+        var stepLink = enteredFound && !enteredStep.metronome ? { exId: enteredFound.ex.id, title: enteredFound.ex.title, fromSession: true } : null; // tempo propre à la session : on ne propose pas de modifier l'exercice
         if (presetForStep) loadMetronomePreset(presetForStep, { link: stepLink });
         else setMetroLink(stepLink ? { exId: stepLink.exId, title: stepLink.title, base: null, fromSession: true } : null);
         gsWarnKey = null;
