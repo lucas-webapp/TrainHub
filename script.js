@@ -155,7 +155,11 @@
     // (voir findExerciseById) et s'affiche/se saute proprement au lieu de planter.
     function normalizeGuidedSessions(s) {
         if (!Array.isArray(s.settings.guidedSessions)) s.settings.guidedSessions = [];
-        if (!Array.isArray(s.settings.sessionLog)) s.settings.sessionLog = []; // historique des sessions réalisées
+        // Historique des sessions réalisées : vit à part (voir « journal des sessions »). Une ancienne copie rangée
+        // dans les réglages (ancienne version, import, version distante) est recueillie puis retirée de l'état.
+        if (Array.isArray(s.settings.sessionLog) && s.settings.sessionLog.length) logMigrateIn(s.settings.sessionLog);
+        delete s.settings.sessionLog;
+        delete s.settings.logRev;
         // Planning : sessions programmées [{ id, date: "AAAA-MM-JJ", sessionId, instrumentId }]
         if (!Array.isArray(s.settings.sessionPlan)) s.settings.sessionPlan = [];
         s.settings.sessionPlan = s.settings.sessionPlan.filter(function (e) { return e && /^\d{4}-\d{2}-\d{2}$/.test(e.date) && e.sessionId; });
@@ -200,6 +204,7 @@
         if (!s.settings || typeof s.settings !== "object") s.settings = {};
         normalizeMetronomeSettings(s.settings);
         normalizeGuidedSessions(s);
+        normalizeStatsRules(s);
         normalizeTrash(s);
         normalizeAppearanceSettings(s);
         if (!Array.isArray(s.instruments)) s.instruments = [];
@@ -258,7 +263,108 @@
         });
     }
 
+    // ---------- journal des sessions réalisées : stockage à part, un lot par mois ----------
+    // Le journal grossit avec les années. Dans l'état principal il alourdissait chaque enregistrement (copie
+    // complète à chaque modification, envoi complet au cloud, limite de 1 Mio par document Firestore). Il vit
+    // donc à part : un lot par mois, en local (« trainhub.log.AAAA-MM ») et dans le cloud
+    // (users/<uid>/apps/trainhub-log-AAAA-MM, comme les images). Chaque lot garde aussi les identifiants des
+    // séances supprimées (« deleted ») pour qu'une suppression survive à la fusion entre appareils.
+    // Chaque séance garde, figés au moment où elle a été faite, le nom, le chemin et les identifiants de ses
+    // exercices : renommer, déplacer ou supprimer un exercice ensuite ne réécrit pas le passé.
+    var LOG_LS_PREFIX = "trainhub.log.";
+    var LOG_DOC_PREFIX = "trainhub-log-";
+    var logMonths = {};   // "AAAA-MM" -> { records: [], deleted: [ids], updatedAt: ts }
+    var logDirty = {};    // mois à renvoyer au cloud
+    var logFlat = null;   // cache : toutes les séances, de la plus ancienne à la plus récente
+    function logMonthOf(ts) { var d = new Date(ts); return d.getFullYear() + "-" + (d.getMonth() < 9 ? "0" : "") + (d.getMonth() + 1); }
+    function logBucket(m) { return logMonths[m] || (logMonths[m] = { records: [], deleted: [], updatedAt: 0 }); }
+    function logSaveMonth(m) {
+        try { localStorage.setItem(LOG_LS_PREFIX + m, JSON.stringify(logMonths[m])); }
+        catch (e) { console.error("Journal : écriture locale impossible", e); }
+    }
+    function logLoadLocal() {
+        try {
+            for (var i = 0; i < localStorage.length; i++) {
+                var k = localStorage.key(i);
+                if (!k || k.indexOf(LOG_LS_PREFIX) !== 0) continue;
+                var m = k.slice(LOG_LS_PREFIX.length);
+                if (!/^\d{4}-\d{2}$/.test(m)) continue;
+                var d = JSON.parse(localStorage.getItem(k));
+                if (d && Array.isArray(d.records)) logMonths[m] = { records: d.records, deleted: Array.isArray(d.deleted) ? d.deleted : [], updatedAt: d.updatedAt || 0 };
+            }
+        } catch (e) { console.error("Journal : lecture locale impossible", e); }
+        logFlat = null;
+    }
+    logLoadLocal();
+    function logAll() {
+        if (!logFlat) {
+            logFlat = [];
+            Object.keys(logMonths).forEach(function (m) { logFlat = logFlat.concat(logMonths[m].records); });
+            logFlat.sort(function (a, b) { return a.date - b.date; });
+        }
+        return logFlat;
+    }
+    function logTouch(m) { logMonths[m].updatedAt = Date.now(); logFlat = null; logDirty[m] = true; logSaveMonth(m); }
+    function logAdd(rec) {
+        rec = JSON.parse(JSON.stringify(rec)); // sans valeur « undefined » (refusée par Firestore)
+        var m = logMonthOf(rec.date), b = logBucket(m);
+        b.records = b.records.filter(function (x) { return x.id !== rec.id; });
+        b.records.push(rec);
+        b.deleted = b.deleted.filter(function (id) { return id !== rec.id; });
+        logTouch(m);
+    }
+    function logRemove(id) {
+        Object.keys(logMonths).forEach(function (m) {
+            var b = logMonths[m];
+            if (!b.records.some(function (x) { return x.id === id; })) return;
+            b.records = b.records.filter(function (x) { return x.id !== id; });
+            if (b.deleted.indexOf(id) === -1) b.deleted.push(id);
+            logTouch(m);
+        });
+    }
+    // Anciens formats (journal rangé dans les réglages, fichier importé, version reçue d'un ancien appareil).
+    function logMigrateIn(arr) {
+        var touched = {};
+        arr.forEach(function (rec) {
+            if (!rec || typeof rec !== "object" || !rec.id) return;
+            if (typeof rec.date !== "number") rec.date = rec.endedAt || 0;
+            var m = logMonthOf(rec.date), b = logBucket(m);
+            if (b.deleted.indexOf(rec.id) !== -1 || b.records.some(function (x) { return x.id === rec.id; })) return;
+            b.records.push(rec);
+            touched[m] = true;
+        });
+        Object.keys(touched).forEach(logTouch);
+    }
+    // Pour l'export complet (fichier JSON de sauvegarde) : l'état + le journal.
+    function exportState() {
+        var s = Object.assign({}, state);
+        s.settings = Object.assign({}, state.settings, { sessionLog: logAll() });
+        return s;
+    }
+    // Ce qui part dans le document cloud principal : l'état + la « révision » de chaque lot du journal.
+    function logRevMap() { var r = {}; Object.keys(logMonths).forEach(function (m) { r[m] = logMonths[m].updatedAt; }); return r; }
+    function cloudState() {
+        var s = Object.assign({}, state);
+        s.settings = Object.assign({}, state.settings, { logRev: logRevMap() });
+        return s;
+    }
+
     var state = normalizeState(load() || makeDefaultState());
+    // Anciennes séances : seul le NOM du chapitre était gardé. Tant que le nom d'alors est encore celui du chapitre
+    // actuel de l'exercice, on y rattache l'identifiant du chapitre : un renommage ultérieur ne les séparera plus.
+    (function logBackfillChapterIds() {
+        var touched = {};
+        Object.keys(logMonths).forEach(function (m) {
+            logMonths[m].records.forEach(function (rec) {
+                (rec.steps || []).forEach(function (st) {
+                    if (st.chapterId || !st.chapterName || !st.exerciseId) return;
+                    var f = findExerciseById(st.exerciseId);
+                    if (f && f.pathIds && f.pathNames[0] === st.chapterName) { st.chapterId = f.pathIds[0]; touched[m] = true; }
+                });
+            });
+        });
+        Object.keys(touched).forEach(logTouch);
+    })();
 
     function load() {
         try {
@@ -280,6 +386,21 @@
         }
     }
 
+    // Écriture « au fil du geste » (molette, cadran, curseur de volume) : une écriture complète par cran coûtait
+    // des dizaines de millisecondes et ajoutait une entrée d'historique par cran. Ici : au plus une écriture
+    // toutes les 300 ms pendant le geste, puis UNE entrée d'historique quand il s'arrête. Rien n'est perdu à
+    // la fermeture de la page (voir flushSaveSoon).
+    var saveSoonTimer = null, saveSoonLast = 0;
+    function saveSoon() {
+        var now = Date.now();
+        if (now - saveSoonLast >= 300) { saveSoonLast = now; persist(); }
+        clearTimeout(saveSoonTimer);
+        saveSoonTimer = setTimeout(function () { saveSoonTimer = null; save(); }, 300);
+    }
+    function flushSaveSoon() { if (saveSoonTimer) { clearTimeout(saveSoonTimer); saveSoonTimer = null; save(); } }
+    window.addEventListener("pagehide", flushSaveSoon);
+    document.addEventListener("visibilitychange", function () { if (document.hidden) flushSaveSoon(); });
+
     function persist() {
         state.updatedAt = Date.now();
         saveLocal();
@@ -287,6 +408,7 @@
     }
 
     function save() {
+        if (saveSoonTimer) { clearTimeout(saveSoonTimer); saveSoonTimer = null; }
         persist();
         pushHistory();
     }
@@ -300,19 +422,65 @@
     // (Le branchement des boutons et le premier instantané sont plus bas, une fois les éléments
     // du DOM en main — voir "rendering".)
     var HISTORY_LIMIT = 200;
+    var HISTORY_MAX_BYTES = 48 * 1024 * 1024; // plafond de mémoire (estimé) des instantanés conservés
     var historyStack = [];
     var historyIndex = -1;
+    var historyBytes = 0;
+
+    // Un instantané n'est plus une copie complète de l'état : l'état est découpé en tranches JSON (réglages
+    // généraux, chaque réglage, chaque instrument, chaque chapitre). Une tranche inchangée depuis l'instantané
+    // précédent réutilise la MÊME chaîne (aucune mémoire en plus) : modifier un exercice ne coûte plus que le
+    // chapitre concerné, au lieu de tout l'état à chaque fois.
+    function snapshotState(prev) {
+        var fresh = 0;
+        function piece(str, old) { if (old !== undefined && old === str) return old; fresh += str.length; return str; }
+        var top = {};
+        Object.keys(state).forEach(function (k) { if (k !== "instruments" && k !== "settings") top[k] = state[k]; });
+        var snap = { top: piece(JSON.stringify(top), prev && prev.top), instruments: [], settings: {} };
+        state.instruments.forEach(function (inst, i) {
+            var pi = prev && prev.instruments[i];
+            var meta = {};
+            Object.keys(inst).forEach(function (k) { if (k !== "categories") meta[k] = inst[k]; });
+            snap.instruments.push({
+                meta: piece(JSON.stringify(meta), pi && pi.meta),
+                cats: (inst.categories || []).map(function (c, j) { return piece(JSON.stringify(c), pi && pi.cats[j]); })
+            });
+        });
+        Object.keys(state.settings).forEach(function (k) {
+            var str = JSON.stringify(state.settings[k]);
+            if (str !== undefined) snap.settings[k] = piece(str, prev && prev.settings[k]);
+        });
+        snap.bytes = fresh * 2;
+        return snap;
+    }
+    function restoreSnapshot(snap) {
+        var out = JSON.parse(snap.top);
+        out.instruments = snap.instruments.map(function (pi) {
+            var inst = JSON.parse(pi.meta);
+            inst.categories = pi.cats.map(function (c) { return JSON.parse(c); });
+            return inst;
+        });
+        out.settings = {};
+        Object.keys(snap.settings).forEach(function (k) { out.settings[k] = JSON.parse(snap.settings[k]); });
+        return out;
+    }
 
     function resetHistory() {
-        historyStack = [JSON.stringify(state)];
+        var snap = snapshotState(null);
+        historyStack = [snap];
+        historyBytes = snap.bytes;
         historyIndex = 0;
         updateUndoRedoButtons();
     }
 
     function pushHistory() {
+        var prev = historyStack[historyIndex];
+        historyStack.slice(historyIndex + 1).forEach(function (sn) { historyBytes -= sn.bytes; });
         historyStack = historyStack.slice(0, historyIndex + 1);
-        historyStack.push(JSON.stringify(state));
-        if (historyStack.length > HISTORY_LIMIT) historyStack.shift();
+        var snap = snapshotState(prev);
+        historyStack.push(snap);
+        historyBytes += snap.bytes;
+        while (historyStack.length > 1 && (historyStack.length > HISTORY_LIMIT || historyBytes > HISTORY_MAX_BYTES)) historyBytes -= historyStack.shift().bytes;
         historyIndex = historyStack.length - 1;
         updateUndoRedoButtons();
     }
@@ -326,7 +494,7 @@
     function goToHistory(index) {
         if (index < 0 || index >= historyStack.length) return;
         historyIndex = index;
-        state = normalizeState(JSON.parse(historyStack[historyIndex]));
+        state = normalizeState(restoreSnapshot(historyStack[historyIndex]));
         persist();
         render();
         historyListeners.forEach(function (fn) { try { fn(); } catch (e) {} });
@@ -1064,7 +1232,7 @@
             var found = collectExercises(inst, function (ex) { return ex.id === exerciseId; })[0];
             if (found) {
                 var rootChapter = findById(inst.categories, found.pathIds[0]);
-                return { ex: found.ex, folder: found.folder, inst: inst, pathNames: found.pathNames, chapterColor: (rootChapter && rootChapter.color) || "#00e676" };
+                return { ex: found.ex, folder: found.folder, inst: inst, pathNames: found.pathNames, pathIds: found.pathIds, chapterColor: (rootChapter && rootChapter.color) || "#00e676" };
             }
         }
         return null;
@@ -2283,9 +2451,12 @@
     })();
 
     if ($searchInput) {
+        var searchTimer = null;
         $searchInput.addEventListener("input", function () {
             searchQuery = $searchInput.value;
-            render();
+            clearTimeout(searchTimer);
+            // affichage rapide : tout de suite ; affichage lent (beaucoup d'exercices, téléphone) : on attend la fin de la frappe
+            if (lastRenderMs < 30) render(); else searchTimer = setTimeout(render, 140);
         });
     }
 
@@ -2340,7 +2511,9 @@
     });
     resetHistory();
 
+    var lastRenderMs = 0;
     function render() {
+        var renderT0 = performance.now();
         flushPendingTextSaves();
         var inst = getActiveInstrument();
         var path = inst ? getNavPath(inst) : [];
@@ -2356,6 +2529,7 @@
         updateUndoRedoButtons();
         autoGrowAllNotes();
         autoSizeAllExerciseTitles();
+        lastRenderMs = performance.now() - renderT0;
     }
 
     function renderInstrumentSelect() {
@@ -4005,6 +4179,7 @@
     var docRef = null;
     var unsubscribeSnapshot = null;
     var pushTimer = null;
+    var remoteLogRev = null;
     var PUSH_DEBOUNCE_MS = 1500;
 
     var $syncStatus = document.getElementById("sync-status");
@@ -4055,6 +4230,54 @@
             (typeof state.updatedAt !== "number" || remote.updatedAt > state.updatedAt);
     }
 
+    // ---- journal des sessions dans le cloud (un document par mois) ----
+    function logCloudDoc(m) { return db.collection("users").doc(currentUser.uid).collection("apps").doc(LOG_DOC_PREFIX + m); }
+    function logPushDirty() {
+        if (!db || !currentUser) return Promise.resolve();
+        return Promise.all(Object.keys(logDirty).map(function (m) {
+            var b = logMonths[m], at = b.updatedAt;
+            return logCloudDoc(m).set({ month: m, records: b.records, deleted: b.deleted, updatedAt: at }).then(function () {
+                if (logMonths[m].updatedAt === at) delete logDirty[m];
+            });
+        }));
+    }
+    // Fusion d'un lot reçu avec le lot local : union des séances, moins les suppressions des deux côtés.
+    // Renvoie true si le lot local a changé ; marque le lot « à envoyer » si le cloud n'avait pas tout.
+    function logMergeRemote(m, data) {
+        var b = logBucket(m);
+        var del = {};
+        b.deleted.concat(data.deleted || []).forEach(function (id) { del[id] = true; });
+        var byId = {};
+        b.records.concat(data.records || []).forEach(function (r) { if (r && r.id && !del[r.id] && !byId[r.id]) byId[r.id] = r; });
+        var merged = Object.keys(byId).map(function (k) { return byId[k]; });
+        var delList = Object.keys(del);
+        var changedLocal = merged.length !== b.records.length || delList.length !== b.deleted.length;
+        var cloudLacks = merged.length !== (data.records || []).length || delList.length !== (data.deleted || []).length;
+        b.records = merged; b.deleted = delList; b.updatedAt = Math.max(b.updatedAt, data.updatedAt || 0);
+        logFlat = null; logSaveMonth(m);
+        if (cloudLacks) logDirty[m] = true;
+        return changedLocal;
+    }
+    function logSyncFromCloud(remoteRev) {
+        if (!db || !currentUser) return Promise.resolve();
+        remoteRev = remoteRev || {};
+        var months = {};
+        Object.keys(remoteRev).forEach(function (m) { months[m] = true; });
+        Object.keys(logMonths).forEach(function (m) { months[m] = true; });
+        var tasks = Object.keys(months).filter(function (m) {
+            return !logMonths[m] || remoteRev[m] === undefined || remoteRev[m] !== logMonths[m].updatedAt;
+        }).map(function (m) {
+            if (remoteRev[m] === undefined) { logDirty[m] = true; return Promise.resolve(false); } // inconnu du cloud : à envoyer
+            return logCloudDoc(m).get().then(function (snap) {
+                if (!snap.exists) { if (logMonths[m]) logDirty[m] = true; return false; }
+                return logMergeRemote(m, snap.data());
+            });
+        });
+        return Promise.all(tasks).then(function (changed) {
+            return logPushDirty().then(function () { if (changed.some(Boolean)) render(); });
+        }).catch(function (e) { console.error("Synchro du journal impossible", e); setSyncStatus("error"); });
+    }
+
     function applyRemoteState(remote) {
         if (!remote || !Array.isArray(remote.instruments)) return;
         // Sauvegarde de secours de ce qu'il y avait sur CET appareil avant de le remplacer par la
@@ -4077,7 +4300,9 @@
                 setSyncStatus("synced");
                 return;
             }
+            var rev = remote.settings ? remote.settings.logRev : null;
             applyRemoteState(remote);
+            logSyncFromCloud(rev);
             setSyncStatus("synced");
         }, function (e) {
             console.error("Écoute de la synchro interrompue", e);
@@ -4101,6 +4326,7 @@
         setSyncStatus("syncing");
         docRef.get().then(function (snap) {
             var remote = snap.exists ? snap.data() : null;
+            remoteLogRev = remote && remote.settings ? remote.settings.logRev : null;
             if (isRemoteNewer(remote)) {
                 applyRemoteState(remote);
                 return null;
@@ -4123,11 +4349,12 @@
                     return null;
                 }
             }
-            return docRef.set(state);
+            return docRef.set(cloudState());
         }).then(function () {
             setSyncStatus("synced");
             attachSnapshotListener();
             syncImagesToCloud();
+            logSyncFromCloud(remoteLogRev);
             render();
         }).catch(function (e) {
             console.error("Synchro initiale impossible", e);
@@ -4138,7 +4365,8 @@
 
     function pushToCloud() {
         if (!currentUser || !docRef) return;
-        docRef.set(state).then(function () {
+        // le journal d'abord : un autre appareil qui voit le document principal doit trouver les lots à jour
+        logPushDirty().catch(function (e) { console.error("Envoi du journal impossible", e); }).then(function () { return docRef.set(cloudState()); }).then(function () {
             setSyncStatus("synced");
         }).catch(function (e) {
             console.error("Envoi vers le cloud impossible", e);
@@ -4169,7 +4397,7 @@
     }
 
     $signinBtn.addEventListener("click", function () {
-        if (!auth) return;
+        if (!auth) { showToast("La connexion se prépare… réessaie dans un instant (ou vérifie ta connexion internet)."); return; }
         var provider = new firebase.auth.GoogleAuthProvider();
         auth.signInWithPopup(provider).catch(function (e) {
             console.error("Connexion impossible", e);
@@ -4182,7 +4410,25 @@
         auth.signOut();
     });
 
-    initFirebase();
+    // Firebase (plusieurs centaines de Ko) se charge après le premier affichage : l'application s'ouvre sans
+    // attendre ce téléchargement (hors ligne ou réseau lent : plus de blocage au démarrage).
+    function loadScriptOnce(src) {
+        return new Promise(function (resolve, reject) {
+            var el = document.createElement("script");
+            el.src = src; el.async = false;
+            el.onload = resolve;
+            el.onerror = function () { reject(new Error("chargement impossible : " + src)); };
+            document.head.appendChild(el);
+        });
+    }
+    function loadFirebaseThenInit() {
+        var base = "https://www.gstatic.com/firebasejs/10.13.2/";
+        loadScriptOnce(base + "firebase-app-compat.js")
+            .then(function () { return Promise.all([loadScriptOnce(base + "firebase-auth-compat.js"), loadScriptOnce(base + "firebase-firestore-compat.js"), loadScriptOnce("firebase-config.js")]); })
+            .then(initFirebase)
+            .catch(function (e) { console.warn("Firebase indisponible : mode local uniquement.", e); });
+    }
+    (window.requestIdleCallback || function (f) { setTimeout(f, 60); })(loadFirebaseThenInit, { timeout: 1500 });
 
     // ---------- top actions ----------
 
@@ -4474,7 +4720,7 @@
         var dateStr = new Date().toISOString().slice(0, 10);
         var images = collectExportImages();
         var withImages = images.length > 0 && window.confirm("Exporter aussi les " + images.length + " image" + (images.length > 1 ? "s" : "") + " des exercices, dans un dossier « images » indépendant du fichier JSON ?\n\nOK = sauvegarde JSON + images\nAnnuler = sauvegarde JSON seulement");
-        downloadJson(state, "trainhub-sauvegarde-" + dateStr + ".json");
+        downloadJson(exportState(), "trainhub-sauvegarde-" + dateStr + ".json");
         if (withImages) exportImages(images, dateStr);
     });
 
@@ -6110,7 +6356,7 @@
             volumeSlider.title = "Volume";
             volumeSlider.addEventListener("input", function () {
                 setMetroVolume(parseInt(volumeSlider.value, 10) / 100);
-                save();
+                saveSoon();
             });
             var volumeBtn = document.createElement("button");
             volumeBtn.type = "button";
@@ -6143,7 +6389,7 @@
             volInlineSlider.addEventListener("input", function () {
                 setMetroVolume(parseInt(volInlineSlider.value, 10) / 100);
                 volumeSlider.value = volInlineSlider.value;
-                save();
+                saveSoon();
             });
             volumeSlider.addEventListener("input", function () { volInlineSlider.value = volumeSlider.value; });
             volInline.appendChild(volInlineIcon);
@@ -6766,7 +7012,7 @@
             function setBpm(v) {
                 v = Math.min(300, Math.max(30, v));
                 m.bpm = v;
-                save();
+                saveSoon();
                 refreshBpmUI();
             }
             function refreshBpmUI() {
@@ -8211,7 +8457,12 @@
     // rastérisé serait plus lourd et moins net pour rien. "Enregistrer sous PDF" plutôt
     // qu'"Imprimer" : un fichier généré et téléchargé directement (pdf.save), sans dépendre d'un
     // pilote d'impression système qui se comporte différemment selon l'appareil.
+    // jsPDF (≈ 115 Ko compressés) n'est chargé qu'au premier export.
     function exportSessionPdf(session) {
+        if (window.jspdf && window.jspdf.jsPDF) { exportSessionPdfNow(session); return; }
+        loadScriptOnce("jspdf.umd.min.js").then(function () { exportSessionPdfNow(session); }, function () { window.alert("Export PDF indisponible."); });
+    }
+    function exportSessionPdfNow(session) {
         var jsPDFcls = window.jspdf && window.jspdf.jsPDF;
         if (!jsPDFcls) { window.alert("Export PDF indisponible."); return; }
         var pdf = new jsPDFcls({ unit: "mm", format: "a4", orientation: "portrait" });
@@ -8966,6 +9217,12 @@
         histBtn.textContent = "Historique";
         histBtn.title = "Sessions réalisées et statistiques d'entraînement";
         histBtn.addEventListener("click", function () { openSessionHistory(); });
+        var nToSort = statsIssueCount();
+        if (nToSort) {
+            var hb = document.createElement("span"); hb.className = "gs-tab-count st-issue-count"; hb.textContent = String(nToSort);
+            histBtn.appendChild(hb);
+            histBtn.title += " — " + nToSort + " exercice" + (nToSort > 1 ? "s" : "") + " à ranger pour les statistiques";
+        }
         headActions.appendChild(histBtn);
         if (window.matchMedia && window.matchMedia("(min-width: 880px)").matches) $contentHeading.appendChild(headActions);
         else content.insertBefore(headActions, content.firstChild);
@@ -9519,9 +9776,10 @@
             steps.push({
                 exerciseId: st.exerciseId,
                 title: f ? f.ex.title : "(exercice supprimé)",
-                chapterId: f ? f.pathIds && f.pathIds[0] : null,
+                chapterId: f && f.pathIds ? f.pathIds[0] : null,
                 chapterName: f ? f.pathNames[0] : null,
                 path: f ? f.pathNames.slice() : [],
+                pathIds: f && f.pathIds ? f.pathIds.slice() : [],
                 plannedMin: st.minutes,
                 actualSec: Math.round(ms / 1000),
                 bpmFirst: t && t.playedMs > 0 ? t.first : null,
@@ -9565,7 +9823,7 @@
             no.addEventListener("click", close);
             var yes = document.createElement("button"); yes.type = "button"; yes.className = "btn-accent"; yes.textContent = "Enregistrer";
             yes.addEventListener("click", function () {
-                state.settings.sessionLog.push(record);
+                logAdd(record);
                 save();
                 showToast("Session enregistrée dans l'historique");
                 close();
@@ -9591,7 +9849,7 @@
     // Sessions programmées pour un jour (hors celles déjà réalisées ce jour-là) et séances enregistrées ce jour-là.
     function calDayItems(key) {
         var instId = state.activeInstrumentId;
-        var done = state.settings.sessionLog.filter(function (e) { return (!e.instrumentId || e.instrumentId === instId) && calKey(new Date(e.date)) === key; });
+        var done = logAll().filter(function (e) { return (!e.instrumentId || e.instrumentId === instId) && calKey(new Date(e.date)) === key; });
         var doneIds = {}; done.forEach(function (e) { doneIds[e.sessionId] = true; });
         var planned = state.settings.sessionPlan.filter(function (e) { return e.date === key && (!e.instrumentId || e.instrumentId === instId); });
         return { planned: planned.filter(function (e) { return !doneIds[e.sessionId]; }), fulfilled: planned.filter(function (e) { return doneIds[e.sessionId]; }), done: done };
@@ -9686,8 +9944,17 @@
                 var r = panel.getBoundingClientRect(), sx = e.clientX, sy = e.clientY, sw = r.width, sh = r.height;
                 try { g.setPointerCapture(e.pointerId); } catch (err) {}
                 function mv(ev) {
-                    if (dx) panel.style.width = Math.min(window.innerWidth - 8, Math.max(320, sw + ev.clientX - sx)) + "px";
-                    if (dy) panel.style.height = Math.min(window.innerHeight - 8, Math.max(280, sh + ev.clientY - sy)) + "px";
+                    // la fenêtre grandit à volonté ; si elle atteint le bord de l'écran, elle se décale au lieu de déborder
+                    if (dx) {
+                        var w = Math.min(window.innerWidth - 16, Math.max(320, sw + ev.clientX - sx)), l = parseFloat(panel.style.left) || r.left;
+                        panel.style.width = w + "px";
+                        if (l + w > window.innerWidth - 8) panel.style.left = Math.max(8, window.innerWidth - 8 - w) + "px";
+                    }
+                    if (dy) {
+                        var hh = Math.min(window.innerHeight - 16, Math.max(280, sh + ev.clientY - sy)), tp = parseFloat(panel.style.top) || r.top;
+                        panel.style.height = hh + "px";
+                        if (tp + hh > window.innerHeight - 8) panel.style.top = Math.max(8, window.innerHeight - 8 - hh) + "px";
+                    }
                     panel.style.minWidth = "320px"; panel.style.minHeight = "280px";
                 }
                 function up() { g.removeEventListener("pointermove", mv); g.removeEventListener("pointerup", up); g.removeEventListener("pointercancel", up); savePanelSize(kind, panel.offsetWidth, panel.offsetHeight); }
@@ -9790,6 +10057,8 @@
                         cell.dataset.key = key;
                         cell.className = "cal-cell" + (d.getMonth() !== cur.getMonth() ? " cal-out" : "") + (key === todayKey ? " cal-today" : "") + (key === selected ? " cal-selected" : "") + (past ? " cal-past" : "");
                         cell.setAttribute("aria-label", d.getDate() + " " + CAL_MONTHS[d.getMonth()]);
+                        var names = it.planned.map(function (e) { return gsSessionNameById(e.sessionId); }).concat(it.done.map(function (e) { return "✓ " + e.name; }));
+                        if (names.length) cell.title = names.join("\n");
                         var num = document.createElement("span"); num.className = "cal-num"; num.textContent = String(d.getDate()); cell.appendChild(num);
                         var chips = document.createElement("span"); chips.className = "cal-chips";
                         it.planned.forEach(function (e) { var c = document.createElement("span"); c.className = "cal-chip cal-chip-plan"; c.textContent = gsSessionNameById(e.sessionId); chips.appendChild(c); });
@@ -9856,52 +10125,128 @@
         });
     }
 
-    // ---------- statistiques d'entraînement (calculées à partir de l'historique) ----------
-    // Fonction pure : prend l'historique et la liste des exercices actuels, ne touche à rien.
-    //   days : période en jours (0 = tout l'historique) ; now : date de référence (ms).
-    function gsComputeStats(log, exercises, days, now) {
-        var DAY = 86400000;
-        function dayKey(ts) { var d = new Date(ts); return d.getFullYear() + "-" + d.getMonth() + "-" + d.getDate(); }
-        var inPeriod = log.filter(function (e) { return !days || e.date >= now - days * DAY; });
-        var totalSec = 0, dayKeys = {}, chapters = {}, byEx = {}, allEx = {}, tempo = {};
-        function bucket(map, key, title) { return map[key] || (map[key] = { key: key, title: title, sec: 0, count: 0, last: 0 }); }
-        log.forEach(function (e) {   // toute la durée de vie : dernier passage de chaque exercice
-            (e.steps || []).forEach(function (st) {
-                var k = st.exerciseId || ("t:" + st.title);
-                var o = bucket(allEx, k, st.title); o.last = Math.max(o.last, e.date);
-                if (st.bpmMax && st.exerciseId) (tempo[st.exerciseId] = tempo[st.exerciseId] || { title: st.title, pts: [] }).pts.push({ date: e.date, bpm: st.bpmMax, end: st.bpmEnd, first: st.bpmFirst });
-            });
-        });
-        inPeriod.forEach(function (e) {
-            totalSec += e.totalSec || 0;
-            dayKeys[dayKey(e.date)] = true;
-            (e.steps || []).forEach(function (st) {
-                var cn = st.chapterName || "Autre";
-                chapters[cn] = (chapters[cn] || 0) + st.actualSec;
-                var k = st.exerciseId || ("t:" + st.title);
-                var o = bucket(byEx, k, st.title); o.sec += st.actualSec; o.count++; o.last = Math.max(o.last, e.date);
-            });
-        });
-        var first = log.length ? Math.min.apply(null, log.map(function (e) { return e.date; })) : now;
-        var periodDays = days || Math.max(1, Math.ceil((now - first) / DAY));
-        var chapterList = Object.keys(chapters).map(function (n) { return { name: n, sec: chapters[n], pct: totalSec ? Math.round(chapters[n] * 100 / totalSec) : 0 }; }).sort(function (a, b) { return b.sec - a.sec; });
-        var top = Object.keys(byEx).map(function (k) { return byEx[k]; }).sort(function (a, b) { return b.sec - a.sec; });
-        var favorites = exercises.filter(function (x) { return x.ex.favorite && !x.ex.archived; }).map(function (x) {
-            var o = byEx[x.ex.id]; return { title: x.ex.title, sec: o ? o.sec : 0, count: o ? o.count : 0, last: (allEx[x.ex.id] || {}).last || 0 };
-        }).sort(function (a, b) { return b.sec - a.sec; });
-        var under = exercises.filter(function (x) { return !x.ex.archived; }).map(function (x) {
-            var o = allEx[x.ex.id]; return { title: x.ex.title, last: o ? o.last : 0, secPeriod: byEx[x.ex.id] ? byEx[x.ex.id].sec : 0, path: x.pathNames.join(" › ") };
-        }).filter(function (x) { return x.secPeriod === 0; }).sort(function (a, b) { return a.last - b.last; });
-        var progress = Object.keys(tempo).map(function (id) {
-            var t = tempo[id]; t.pts.sort(function (a, b) { return a.date - b.date; });
-            return { title: t.title, pts: t.pts, from: t.pts[0].bpm, to: t.pts[t.pts.length - 1].bpm, delta: t.pts[t.pts.length - 1].bpm - t.pts[0].bpm };
-        }).sort(function (a, b) { return b.pts.length - a.pts.length || b.delta - a.delta; });
-        return {
-            sessions: inPeriod.length, totalSec: totalSec, activeDays: Object.keys(dayKeys).length, periodDays: periodDays,
-            avgPerDaySec: totalSec / periodDays, avgPerWeekSec: totalSec / (periodDays / 7),
-            chapters: chapterList, top: top, favorites: favorites, underused: under, progress: progress
-        };
+    // ---------- statistiques d'entraînement (calculées à partir du journal) ----------
+    // Principe : chaque séance enregistrée garde, FIGÉS, le titre, le chemin et les identifiants de ses exercices.
+    // Les statistiques s'appuient sur ces valeurs, pas sur l'état actuel de tes dossiers. L'état actuel ne sert
+    // qu'à AFFICHER les noms à jour (un exercice ou un chapitre renommé apparaît sous son nouveau nom) et à
+    // repérer ce qui est ambigu (exercice déplacé dans un autre chapitre, supprimé, recréé, en double) :
+    // l'appli le propose alors dans « À ranger » au lieu de deviner.
+    var STATS_IGNORE = "__ignore__";
+    var STATS_DAY = 86400000;
+    function statsRules() { return normalizeStatsRules(state); }
+    function normalizeStatsRules(st) {
+        var r = st.settings.statsRules;
+        if (!r || typeof r !== "object") r = st.settings.statsRules = {};
+        if (!r.alias || typeof r.alias !== "object") r.alias = {};             // ancien id d'exercice -> id de l'exercice regroupé
+        if (!r.chapterOf || typeof r.chapterOf !== "object") r.chapterOf = {}; // id d'exercice -> id de chapitre (ou STATS_IGNORE)
+        if (!r.resolved || typeof r.resolved !== "object") r.resolved = {};    // questions déjà tranchées
+        if (["ask", "history", "follow"].indexOf(r.movePolicy) === -1) r.movePolicy = "ask";
+        return r;
     }
+    function statsNorm(t) { return String(t || "").replace(/\s*\(copie\)\s*$/i, "").trim().toLowerCase(); }
+
+    // État actuel utile aux statistiques : exercices et chapitres existants, exercices à la corbeille.
+    function statsContext() {
+        var ex = {}, chapters = {}, inTrash = {};
+        state.instruments.forEach(function (inst) {
+            inst.categories.forEach(function (c) { chapters[c.id] = { id: c.id, name: c.name, color: c.color || null, instrumentId: inst.id }; });
+            collectExercises(inst, function () { return true; }).forEach(function (r) { ex[r.ex.id] = { ex: r.ex, pathIds: r.pathIds, pathNames: r.pathNames, instrumentId: inst.id }; });
+        });
+        (state.settings.trash || []).forEach(function (t) {
+            if (t.type === "exercise" && t.data) inTrash[t.data.id] = true;
+            else if (t.type === "folder" && t.data) (function w(f) { (f.exercises || []).forEach(function (e) { inTrash[e.id] = true; }); (f.folders || []).forEach(w); })(t.data);
+        });
+        return { ex: ex, chapters: chapters, inTrash: inTrash, rules: statsRules() };
+    }
+
+    // Une ligne par exercice travaillé dans une séance, avec le rangement retenu pour les statistiques.
+    function statsRows(log, ctx) {
+        var rows = [], rules = ctx.rules;
+        log.forEach(function (rec) {
+            (rec.steps || []).forEach(function (st) {
+                var id0 = st.exerciseId || null, id = id0, guard = 0;
+                while (id && rules.alias[id] && guard++ < 8) id = rules.alias[id];
+                var live = id ? ctx.ex[id] : null;
+                var ov = id && rules.chapterOf[id];
+                if (ov === STATS_IGNORE) return; // exercice écarté des statistiques
+                var frozenId = st.chapterId || (st.pathIds && st.pathIds[0]) || null;
+                var frozenName = st.chapterName || (st.path && st.path[0]) || "Autre";
+                var chapId = null;
+                if (ov && ctx.chapters[ov]) chapId = ov;
+                else if (live && rules.movePolicy === "follow") chapId = live.pathIds[0];
+                else if (frozenId && ctx.chapters[frozenId]) chapId = frozenId;
+                else if (live && !frozenId && live.pathNames[0] === frozenName) chapId = live.pathIds[0]; // ancien enregistrement sans identifiant : même nom qu'aujourd'hui
+                var chap = chapId ? ctx.chapters[chapId] : null;
+                rows.push({
+                    rec: rec, date: rec.date,
+                    exKey: id || ("t:" + (st.title || "?")),
+                    title: live ? live.ex.title : (st.title || "(sans titre)"),
+                    frozenTitle: st.title || "(sans titre)",
+                    chapterId: chapId,
+                    chapterKey: chapId || ("n:" + frozenName),
+                    chapterName: chap ? chap.name : frozenName,
+                    chapterColor: chap ? chap.color : null,
+                    frozenChapterName: frozenName,
+                    sec: st.actualSec || 0,
+                    bpmFirst: st.bpmFirst || null, bpmMax: st.bpmMax || null, bpmEnd: st.bpmEnd || null
+                });
+            });
+        });
+        return rows;
+    }
+
+    // Ce que l'appli ne peut pas trancher seule.
+    function statsIssues(rows, ctx) {
+        var rules = ctx.rules, byEx = {}, issues = [];
+        rows.forEach(function (r) {
+            if (r.exKey.indexOf("t:") === 0) return;
+            var o = byEx[r.exKey] || (byEx[r.exKey] = { rows: [], sec: 0 });
+            o.rows.push(r); o.sec += r.sec;
+        });
+        function chapName(id) { var c = ctx.chapters[id]; return c ? c.name : "?"; }
+        var liveByTitle = {};
+        Object.keys(ctx.ex).forEach(function (id) { var k = statsNorm(ctx.ex[id].ex.title); if (k) (liveByTitle[k] = liveByTitle[k] || []).push(id); });
+        Object.keys(byEx).forEach(function (id) {
+            var o = byEx[id], live = ctx.ex[id], last = o.rows[o.rows.length - 1];
+            if (rules.chapterOf[id]) return; // déjà rangé à la main
+            if (live) {
+                var liveChap = live.pathIds[0], key = "moved:" + id + ":" + liveChap;
+                var off = o.rows.filter(function (r) { return r.chapterId !== liveChap; });
+                if (off.length && !rules.resolved[key] && rules.movePolicy === "ask") {
+                    var from = {}; off.forEach(function (r) { from[r.chapterName] = true; });
+                    issues.push({ kind: "moved", key: key, exId: id, title: live.ex.title, from: Object.keys(from), to: chapName(liveChap), toId: liveChap, count: off.length, sec: off.reduce(function (a, r) { return a + r.sec; }, 0) });
+                }
+            } else if (!ctx.inTrash[id]) {
+                var key2 = "gone:" + id;
+                if (rules.resolved[key2]) return;
+                var twins = (liveByTitle[statsNorm(last.frozenTitle)] || []).filter(function (t) { return t !== id; });
+                var lost = o.rows.every(function (r) { return !r.chapterId; });
+                if (twins.length) issues.push({ kind: "recreated", key: key2, exId: id, title: last.frozenTitle, twinId: twins[0], twinPath: ctx.ex[twins[0]].pathNames.join(" › "), count: o.rows.length, sec: o.sec });
+                else if (lost) issues.push({ kind: "orphan", key: key2, exId: id, title: last.frozenTitle, chapterName: last.frozenChapterName, count: o.rows.length, sec: o.sec });
+            }
+        });
+        var groups = {};
+        Object.keys(byEx).forEach(function (id) {
+            if (!ctx.ex[id]) return;
+            var k = statsNorm(ctx.ex[id].ex.title);
+            (groups[k] = groups[k] || []).push(id);
+        });
+        Object.keys(groups).forEach(function (k) {
+            var ids = groups[k];
+            if (ids.length < 2) return;
+            ids.sort(function (a, b) { return byEx[b].rows.length - byEx[a].rows.length || (a < b ? -1 : 1); });
+            var key = "dup:" + ids.slice().sort().join(",");
+            if (rules.resolved[key]) return;
+            issues.push({ kind: "dup", key: key, ids: ids, title: ctx.ex[ids[0]].ex.title, paths: ids.map(function (id) { return "« " + ctx.ex[id].ex.title + " » (" + ctx.ex[id].pathNames.join(" › ") + ")"; }) });
+        });
+        return issues;
+    }
+    function statsIssueCount() {
+        var ctx = statsContext();
+        var log = logAll().filter(function (e) { return !e.instrumentId || e.instrumentId === state.activeInstrumentId; });
+        return log.length ? statsIssues(statsRows(log, ctx), ctx).length : 0;
+    }
+
     function gsFmtMin(sec) { var m = Math.round(sec / 60); return m >= 60 ? Math.floor(m / 60) + " h " + (m % 60 < 10 ? "0" : "") + (m % 60) : m + " min"; }
     function gsFmtAgo(ts, now) {
         if (!ts) return "jamais";
@@ -9914,10 +10259,185 @@
         var d = vals.map(function (v, i) { return (vals.length === 1 ? w / 2 : i * (w - 4) / (vals.length - 1) + 2).toFixed(1) + "," + (h - 3 - (v - mn) * (h - 6) / span).toFixed(1); }).join(" ");
         return '<svg class="gs-spark" viewBox="0 0 ' + w + " " + h + '" width="' + w + '" height="' + h + '" aria-hidden="true"><polyline points="' + d + '" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>';
     }
-    function renderSessionStats(box, log, exercises, days) {
+
+    // Agrégats d'une période (days = 0 : tout).
+    function statsCompute(log, rows, ctx, days, now) {
+        var start = days ? now - days * STATS_DAY : 0;
+        var recs = log.filter(function (r) { return r.date >= start; });
+        var rws = rows.filter(function (r) { return r.date >= start; });
+        var totalSec = 0, plannedSum = 0, realOfPlanned = 0, dayMap = {};
+        recs.forEach(function (r) {
+            totalSec += r.totalSec || 0;
+            if (r.plannedSec) { plannedSum += r.plannedSec; realOfPlanned += r.totalSec || 0; }
+        });
+        log.forEach(function (r) { var k = calKey(new Date(r.date)); dayMap[k] = (dayMap[k] || 0) + (r.totalSec || 0); });
+        var periodMap = {};
+        recs.forEach(function (r) { periodMap[calKey(new Date(r.date))] = true; });
+        var first = log.length ? log[0].date : now;
+        var periodDays = days || Math.max(1, Math.ceil((now - first) / STATS_DAY));
+        // séries de jours consécutifs (sur tout le journal)
+        var keys = Object.keys(dayMap).sort(), best = 0, run = 0, prevT = null;
+        keys.forEach(function (k) {
+            var t = calParse(k).getTime();
+            run = prevT !== null && Math.round((t - prevT) / STATS_DAY) === 1 ? run + 1 : 1;
+            if (run > best) best = run;
+            prevT = t;
+        });
+        var cur = 0, d = new Date(now); d.setHours(0, 0, 0, 0);
+        if (!dayMap[calKey(d)]) d.setDate(d.getDate() - 1);
+        while (dayMap[calKey(d)]) { cur++; d.setDate(d.getDate() - 1); }
+        // chapitres, exercices
+        var chap = {}, byEx = {}, allEx = {}, tempo = {};
+        rows.forEach(function (r) { var o = allEx[r.exKey] || (allEx[r.exKey] = { last: 0 }); if (r.date > o.last) o.last = r.date; });
+        rws.forEach(function (r) {
+            var c = chap[r.chapterKey] || (chap[r.chapterKey] = { key: r.chapterKey, name: r.chapterName, color: r.chapterColor, sec: 0 });
+            c.sec += r.sec; c.name = r.chapterName; if (r.chapterColor) c.color = r.chapterColor;
+            var o = byEx[r.exKey] || (byEx[r.exKey] = { key: r.exKey, title: r.title, sec: 0, count: 0, last: 0 });
+            o.sec += r.sec; o.count++; o.title = r.title; if (r.date > o.last) o.last = r.date;
+            if (r.bpmMax && r.exKey.indexOf("t:") !== 0) (tempo[r.exKey] = tempo[r.exKey] || { key: r.exKey, title: r.title, pts: [] }).pts.push({ date: r.date, bpm: r.bpmMax, first: r.bpmFirst, end: r.bpmEnd });
+        });
+        var chapSum = 0; Object.keys(chap).forEach(function (k) { chapSum += chap[k].sec; });
+        var chapters = Object.keys(chap).map(function (k) { var c = chap[k]; c.pct = chapSum ? Math.round(c.sec * 100 / chapSum) : 0; return c; }).sort(function (a, b) { return b.sec - a.sec; });
+        var top = Object.keys(byEx).map(function (k) { return byEx[k]; }).sort(function (a, b) { return b.sec - a.sec; });
+        var mine = Object.keys(ctx.ex).filter(function (id) { return ctx.ex[id].instrumentId === state.activeInstrumentId && !ctx.ex[id].ex.archived && !ctx.rules.alias[id]; });
+        var favorites = mine.filter(function (id) { return ctx.ex[id].ex.favorite; }).map(function (id) {
+            var o = byEx[id]; return { title: ctx.ex[id].ex.title, sec: o ? o.sec : 0, count: o ? o.count : 0, last: (allEx[id] || {}).last || 0 };
+        }).sort(function (a, b) { return b.sec - a.sec; });
+        var underused = mine.filter(function (id) { return !byEx[id]; }).map(function (id) {
+            return { title: ctx.ex[id].ex.title, last: (allEx[id] || {}).last || 0, path: ctx.ex[id].pathNames.join(" › ") };
+        }).sort(function (a, b) { return a.last - b.last; });
+        var progress = Object.keys(tempo).map(function (k) {
+            var t = tempo[k]; t.pts.sort(function (a, b) { return a.date - b.date; });
+            t.from = t.pts[0].bpm; t.to = t.pts[t.pts.length - 1].bpm; t.delta = t.to - t.from; return t;
+        }).sort(function (a, b) { return b.pts.length - a.pts.length || b.delta - a.delta; });
+        return {
+            recs: recs, sessions: recs.length, totalSec: totalSec, activeDays: Object.keys(periodMap).length, periodDays: periodDays,
+            avgPerWeekSec: totalSec / (periodDays / 7), avgSessionSec: recs.length ? totalSec / recs.length : 0,
+            ratio: plannedSum ? realOfPlanned / plannedSum : null, streak: cur, bestStreak: best, dayMap: dayMap,
+            chapters: chapters, top: top, favorites: favorites, underused: underused, progress: progress
+        };
+    }
+
+    // ---- graphiques en SVG (aucune bibliothèque) ----
+    var SVGNS = "http://www.w3.org/2000/svg";
+    function svgNode(tag, attrs, parent, text) {
+        var n = document.createElementNS(SVGNS, tag);
+        Object.keys(attrs || {}).forEach(function (k) { n.setAttribute(k, attrs[k]); });
+        if (text !== undefined && text !== null) n.textContent = text;
+        if (parent) parent.appendChild(n);
+        return n;
+    }
+    function svgTip(node, text) { svgNode("title", {}, node, text); return node; }
+    function statsNiceMax(v) {
+        if (v <= 0) return 1;
+        var p = Math.pow(10, Math.floor(Math.log(v) / Math.LN10)), f = v / p;
+        return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
+    }
+    function statsNum(v) { return String(Math.round(v * 10) / 10).replace(".", ","); }
+    function statsShortDate(ts) { var d = new Date(ts); return d.getDate() + "/" + (d.getMonth() + 1); }
+    var STATS_MONTHS_SHORT = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
+
+    // Temps de pratique par jour (période courte), par semaine ou par mois (longue).
+    function statsBuckets(recs, days, now, firstTs) {
+        var first = days ? now - days * STATS_DAY : (recs.length ? recs[0].date : now);
+        if (!days && firstTs) first = firstTs;
+        var span = Math.ceil((now - first) / STATS_DAY), mode = span <= 35 ? "day" : span <= 400 ? "week" : "month";
+        function startOf(ts) {
+            var d = new Date(ts); d.setHours(0, 0, 0, 0);
+            if (mode === "week") d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+            else if (mode === "month") d.setDate(1);
+            return d;
+        }
+        function nextOf(d) { var n = new Date(d); if (mode === "day") n.setDate(n.getDate() + 1); else if (mode === "week") n.setDate(n.getDate() + 7); else n.setMonth(n.getMonth() + 1); return n; }
+        var map = {}, order = [];
+        for (var d = startOf(first); d.getTime() <= now; d = nextOf(d)) { var k = d.getTime(); order.push(k); map[k] = { t: k, sec: 0, n: 0 }; }
+        recs.forEach(function (r) { var k = startOf(r.date).getTime(); if (map[k]) { map[k].sec += r.totalSec || 0; map[k].n++; } });
+        return { mode: mode, items: order.map(function (k) { return map[k]; }) };
+    }
+    function statsBarChart(bk) {
+        var items = bk.items, mode = bk.mode, W = 600, H = 190, L = 44, R = 8, T = 10, B = 26;
+        var svg = svgNode("svg", { viewBox: "0 0 " + W + " " + H, "class": "st-chart st-bars", role: "img", "aria-label": "Temps de pratique par " + (mode === "day" ? "jour" : mode === "week" ? "semaine" : "mois") });
+        var maxSec = 60; items.forEach(function (i) { if (i.sec > maxSec) maxSec = i.sec; });
+        var hours = maxSec >= 3 * 3600, unit = hours ? 3600 : 60, top = statsNiceMax(maxSec / unit);
+        var plotW = W - L - R, plotH = H - T - B, n = items.length;
+        for (var g = 0; g <= 4; g++) {
+            var y = T + plotH - plotH * g / 4;
+            svgNode("line", { x1: L, x2: W - R, y1: y, y2: y, "class": "st-grid" }, svg);
+            svgNode("text", { x: L - 6, y: y + 3.5, "class": "st-axis", "text-anchor": "end" }, svg, statsNum(top * g / 4) + (hours ? " h" : " min"));
+        }
+        var bw = plotW / n, barW = Math.max(2, Math.min(28, bw * 0.68)), every = Math.max(1, Math.ceil(n / Math.max(1, Math.floor(plotW / 52))));
+        items.forEach(function (it, i) {
+            var x = L + i * bw + (bw - barW) / 2, h = it.sec / unit / top * plotH;
+            var d = new Date(it.t);
+            var label = mode === "month" ? STATS_MONTHS_SHORT[d.getMonth()] + " " + String(d.getFullYear()).slice(2) : statsShortDate(it.t);
+            if (it.sec > 0) svgTip(svgNode("rect", { x: x, y: T + plotH - h, width: barW, height: Math.max(1.5, h), rx: 2, "class": "st-bar" }, svg), (mode === "week" ? "semaine du " : "") + label + " : " + gsFmtMin(it.sec) + " · " + it.n + " session" + (it.n > 1 ? "s" : ""));
+            if (i % every === 0) svgNode("text", { x: x + barW / 2, y: H - 8, "class": "st-axis", "text-anchor": "middle" }, svg, label);
+        });
+        return svg;
+    }
+    // Carte de l'année : une case par jour, 53 semaines (lundi en haut).
+    function statsHeatmap(dayMap, now) {
+        var cell = 11, gap = 3, L = 26, T = 16, weeks = 53, step = cell + gap;
+        var W = L + weeks * step, H = T + 7 * step;
+        var svg = svgNode("svg", { viewBox: "0 0 " + W + " " + H, "class": "st-chart st-heat", role: "img", "aria-label": "Jours pratiqués sur les 12 derniers mois" });
+        var today = new Date(now); today.setHours(0, 0, 0, 0);
+        var startWeek = new Date(today); startWeek.setDate(startWeek.getDate() - ((startWeek.getDay() + 6) % 7) - 7 * (weeks - 1));
+        var max = 0, w, d;
+        for (w = 0; w < weeks; w++) for (d = 0; d < 7; d++) { var dt = new Date(startWeek); dt.setDate(dt.getDate() + w * 7 + d); var v = dayMap[calKey(dt)] || 0; if (v > max) max = v; }
+        ["lun", "mer", "ven"].forEach(function (nm, i) { svgNode("text", { x: L - 5, y: T + i * 2 * step + cell - 1.5, "class": "st-axis", "text-anchor": "end" }, svg, nm); });
+        var lastMonth = -1;
+        for (w = 0; w < weeks; w++) {
+            var mon = new Date(startWeek); mon.setDate(mon.getDate() + w * 7);
+            if (mon.getMonth() !== lastMonth && (mon.getDate() <= 7 || w === 0)) { lastMonth = mon.getMonth(); svgNode("text", { x: L + w * step, y: T - 5, "class": "st-axis" }, svg, STATS_MONTHS_SHORT[mon.getMonth()]); }
+            for (d = 0; d < 7; d++) {
+                var day = new Date(startWeek); day.setDate(day.getDate() + w * 7 + d);
+                if (day > today) continue;
+                var sec = dayMap[calKey(day)] || 0, level = sec ? Math.min(4, Math.max(1, Math.ceil(sec / max * 4))) : 0;
+                var r = svgNode("rect", { x: L + w * step, y: T + d * step, width: cell, height: cell, rx: 2.5, "class": "st-cell st-lv" + level + (day.getTime() === today.getTime() ? " st-today" : "") }, svg);
+                svgTip(r, day.getDate() + " " + STATS_MONTHS_SHORT[day.getMonth()] + " " + day.getFullYear() + " : " + (sec ? gsFmtMin(sec) : "rien"));
+            }
+        }
+        return svg;
+    }
+    // Progression du tempo d'un exercice : meilleur BPM de chaque séance.
+    function statsTempoChart(pts) {
+        var W = 600, H = 190, L = 44, R = 14, T = 12, B = 26, plotW = W - L - R, plotH = H - T - B;
+        var svg = svgNode("svg", { viewBox: "0 0 " + W + " " + H, "class": "st-chart st-tempo", role: "img", "aria-label": "Progression du tempo" });
+        var vals = pts.map(function (p) { return p.bpm; }), mn = Math.min.apply(null, vals), mx = Math.max.apply(null, vals);
+        var span = Math.max(10, mx - mn), pad = Math.max(2, Math.round(span * 0.15)), lo = mn - pad, hi = mx + pad;
+        var stepV = span <= 20 ? 5 : span <= 50 ? 10 : 20;
+        lo = Math.floor(lo / stepV) * stepV; hi = Math.ceil(hi / stepV) * stepV;
+        function yOf(v) { return T + plotH - (v - lo) / (hi - lo) * plotH; }
+        for (var v = lo; v <= hi + 0.001; v += stepV) {
+            svgNode("line", { x1: L, x2: W - R, y1: yOf(v), y2: yOf(v), "class": "st-grid" }, svg);
+            svgNode("text", { x: L - 6, y: yOf(v) + 3.5, "class": "st-axis", "text-anchor": "end" }, svg, String(v));
+        }
+        var t0 = pts[0].date, t1 = pts[pts.length - 1].date, dt = Math.max(1, t1 - t0);
+        function xOf(t) { return pts.length === 1 || t1 === t0 ? L + plotW / 2 : L + (t - t0) / dt * plotW; }
+        svgNode("polyline", { points: pts.map(function (p) { return xOf(p.date).toFixed(1) + "," + yOf(p.bpm).toFixed(1); }).join(" "), "class": "st-line", fill: "none" }, svg);
+        pts.forEach(function (p, i) {
+            svgTip(svgNode("circle", { cx: xOf(p.date), cy: yOf(p.bpm), r: 4, "class": "st-dot" }, svg), statsShortDate(p.date) + " : " + p.bpm + " BPM" + (p.first && p.first !== p.bpm ? " (départ " + p.first + ")" : ""));
+            if (i === 0 || i === pts.length - 1) svgNode("text", { x: xOf(p.date), y: yOf(p.bpm) - 9, "class": "st-axis st-axis-strong", "text-anchor": i === 0 && pts.length > 1 ? "start" : "end" }, svg, String(p.bpm));
+        });
+        svgNode("text", { x: L, y: H - 8, "class": "st-axis", "text-anchor": "start" }, svg, statsShortDate(t0));
+        if (pts.length > 1) svgNode("text", { x: W - R, y: H - 8, "class": "st-axis", "text-anchor": "end" }, svg, statsShortDate(t1));
+        return svg;
+    }
+
+    // Écran Statistiques (onglet de l'historique).
+    function renderStatsScreen(box, days, onIssues) {
         box.innerHTML = "";
-        var now = Date.now(), st = gsComputeStats(log, exercises, days, now);
-        function section(title) { var h = document.createElement("div"); h.className = "gs-stat-title"; h.textContent = title; box.appendChild(h); var b = document.createElement("div"); b.className = "gs-stat-block"; box.appendChild(b); return b; }
+        var now = Date.now(), ctx = statsContext();
+        var log = logAll().filter(function (e) { return !e.instrumentId || e.instrumentId === state.activeInstrumentId; });
+        var rows = statsRows(log, ctx), st = statsCompute(log, rows, ctx, days, now), issues = statsIssues(rows, ctx);
+        if (onIssues) onIssues(issues.length);
+        function rerender() { renderStatsScreen(box, days, onIssues); }
+        function section(title, extra) {
+            var h = document.createElement("div"); h.className = "gs-stat-title"; h.textContent = title;
+            if (extra) h.appendChild(extra);
+            box.appendChild(h);
+            var b = document.createElement("div"); b.className = "gs-stat-block"; box.appendChild(b); return b;
+        }
         function row(parent, left, right, pct) {
             var r = document.createElement("div"); r.className = "gs-stat-row";
             if (pct !== undefined) { var bar = document.createElement("span"); bar.className = "gs-stat-bar"; bar.style.width = Math.max(2, pct) + "%"; r.appendChild(bar); }
@@ -9925,16 +10445,104 @@
             var v = document.createElement("span"); v.className = "gs-stat-r"; v.textContent = right;
             r.appendChild(l); r.appendChild(v); parent.appendChild(r); return r;
         }
-        if (!st.sessions) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Pas encore de session enregistrée sur cette période. Les statistiques se remplissent au fil des sessions que tu enregistres (10 min minimum)."; box.appendChild(none); }
+        function btn(label, cls, fn) { var b = document.createElement("button"); b.type = "button"; b.className = cls; b.textContent = label; b.addEventListener("click", fn); return b; }
+
+        // --- À ranger
+        if (issues.length) {
+            var bubble = document.createElement("span"); bubble.className = "gs-tab-count st-issue-count"; bubble.textContent = String(issues.length);
+            var rv = section("À ranger pour les statistiques ", bubble);
+            var intro = document.createElement("div"); intro.className = "st-issue-intro";
+            intro.textContent = "Tes séances gardent le nom et le chemin que les exercices avaient le jour où tu les as faites. Dans ces cas, je préfère te demander plutôt que deviner :";
+            rv.appendChild(intro);
+            issues.forEach(function (it) {
+                var card = document.createElement("div"); card.className = "st-issue st-issue-" + it.kind;
+                var tx = document.createElement("div"); tx.className = "st-issue-text";
+                var acts = document.createElement("div"); acts.className = "st-issue-actions";
+                var rules = statsRules();
+                function done(fn) { return function () { fn(); save(); rerender(); }; }
+                if (it.kind === "moved") {
+                    tx.textContent = "« " + it.title + " » a changé de chapitre : ses " + it.count + " séance" + (it.count > 1 ? "s" : "") + " (" + gsFmtMin(it.sec) + ") étaient dans « " + it.from.join(" », « ") + " », il est maintenant dans « " + it.to + " ».";
+                    acts.appendChild(btn("Garder l'historique", "btn-ghost", done(function () { rules.resolved[it.key] = "history"; })));
+                    acts.appendChild(btn("Tout compter dans « " + it.to + " »", "btn-accent", done(function () { rules.chapterOf[it.exId] = it.toId; rules.resolved[it.key] = "follow"; })));
+                } else if (it.kind === "recreated") {
+                    tx.textContent = "« " + it.title + " » n'existe plus (" + it.count + " séance" + (it.count > 1 ? "s" : "") + ", " + gsFmtMin(it.sec) + "), mais un exercice du même nom existe : « " + it.twinPath + " ».";
+                    acts.appendChild(btn("Garder séparé", "btn-ghost", done(function () { rules.resolved[it.key] = "separate"; })));
+                    acts.appendChild(btn("Regrouper avec cet exercice", "btn-accent", done(function () { rules.alias[it.exId] = it.twinId; })));
+                } else if (it.kind === "orphan") {
+                    tx.textContent = "« " + it.title + " » a été supprimé, et son chapitre d'origine (« " + it.chapterName + " ») aussi (" + it.count + " séance" + (it.count > 1 ? "s" : "") + ", " + gsFmtMin(it.sec) + "). Où le ranger ?";
+                    var sel = document.createElement("select"); sel.className = "st-issue-select"; sel.setAttribute("aria-label", "Chapitre");
+                    var inst = getActiveInstrument();
+                    (inst ? inst.categories : []).forEach(function (c) { var op = document.createElement("option"); op.value = c.id; op.textContent = c.name; sel.appendChild(op); });
+                    acts.appendChild(sel);
+                    acts.appendChild(btn("Ranger ici", "btn-accent", done(function () { if (sel.value) rules.chapterOf[it.exId] = sel.value; })));
+                    acts.appendChild(btn("Ne pas compter", "btn-ghost", done(function () { rules.chapterOf[it.exId] = STATS_IGNORE; })));
+                    acts.appendChild(btn("Laisser tel quel", "btn-ghost", done(function () { rules.resolved[it.key] = "keep"; })));
+                } else if (it.kind === "dup") {
+                    tx.textContent = "Cet exercice existe en " + it.ids.length + " exemplaires, tous travaillés : " + it.paths.join(" et ") + ". Même exercice pour les statistiques ?";
+                    acts.appendChild(btn("Garder séparés", "btn-ghost", done(function () { rules.resolved[it.key] = "separate"; })));
+                    acts.appendChild(btn("Regrouper", "btn-accent", done(function () { it.ids.slice(1).forEach(function (id) { rules.alias[id] = it.ids[0]; }); })));
+                }
+                card.appendChild(tx); card.appendChild(acts); rv.appendChild(card);
+            });
+            // Plusieurs exercices déplacés d'un coup (un chapitre fusionné dans un autre) : réponse groupée.
+            var movedAll = issues.filter(function (i) { return i.kind === "moved"; });
+            if (movedAll.length >= 2) {
+                var bulk = document.createElement("div"); bulk.className = "st-issue-bulk";
+                var bl = document.createElement("span"); bl.textContent = "Pour les " + movedAll.length + " exercices déplacés :";
+                bulk.appendChild(bl);
+                bulk.appendChild(btn("Tout garder dans l'historique", "btn-ghost", function () { var r = statsRules(); movedAll.forEach(function (i) { r.resolved[i.key] = "history"; }); save(); rerender(); }));
+                bulk.appendChild(btn("Tout compter dans le chapitre actuel", "btn-accent", function () { var r = statsRules(); movedAll.forEach(function (i) { r.chapterOf[i.exId] = i.toId; r.resolved[i.key] = "follow"; }); save(); rerender(); }));
+                rv.appendChild(bulk);
+            }
+        }
+
+        if (!st.sessions) {
+            var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Pas encore de session enregistrée sur cette période. Les statistiques se remplissent au fil des sessions que tu enregistres (10 min minimum).";
+            box.appendChild(none);
+        }
+        // --- Chiffres clés
+        var tiles = document.createElement("div"); tiles.className = "st-tiles";
+        [["Temps total", gsFmtMin(st.totalSec)], ["Sessions", String(st.sessions)], ["Jours pratiqués", st.activeDays + " / " + st.periodDays],
+         ["Moyenne / semaine", gsFmtMin(st.avgPerWeekSec)], ["Durée moyenne", st.sessions ? gsFmtMin(st.avgSessionSec) : "–"],
+         ["Série en cours", st.streak + " j"], ["Record de série", st.bestStreak + " j"], ["Réel / prévu", st.ratio === null ? "–" : Math.round(st.ratio * 100) + " %"]]
+            .forEach(function (t) {
+                var el = document.createElement("div"); el.className = "st-tile";
+                var v = document.createElement("div"); v.className = "st-tile-v"; v.textContent = t[1];
+                var l = document.createElement("div"); l.className = "st-tile-l"; l.textContent = t[0];
+                el.appendChild(v); el.appendChild(l); tiles.appendChild(el);
+            });
+        var s0 = section("Chiffres clés"); s0.appendChild(tiles);
+        // détail gardé en lignes (lisible aussi sans graphique)
         var s1 = section("Temps de pratique");
         row(s1, "Sessions enregistrées", String(st.sessions));
         row(s1, "Total", gsFmtMin(st.totalSec));
-        row(s1, "Moyenne par jour (période entière)", gsFmtMin(st.avgPerDaySec));
+        row(s1, "Moyenne par jour (période entière)", gsFmtMin(st.totalSec / st.periodDays));
         row(s1, "Moyenne par semaine", gsFmtMin(st.avgPerWeekSec));
         row(s1, "Jours pratiqués", st.activeDays + " / " + st.periodDays);
+        // --- Temps par jour / semaine / mois
+        if (st.sessions) {
+            var sb = section("Temps de pratique dans le temps");
+            var bk = statsBuckets(st.recs, days, now, log.length ? log[0].date : 0);
+            var wrap = document.createElement("div"); wrap.className = "st-chart-wrap"; wrap.appendChild(statsBarChart(bk)); sb.appendChild(wrap);
+            var cap = document.createElement("div"); cap.className = "st-caption"; cap.textContent = "Par " + (bk.mode === "day" ? "jour" : bk.mode === "week" ? "semaine (lundi)" : "mois") + " · survole une barre pour le détail"; sb.appendChild(cap);
+        }
+        // --- Répartition par chapitre
         if (st.chapters.length) {
             var s2 = section("Répartition par type d'exercices");
+            var stack = document.createElement("div"); stack.className = "st-stack";
+            st.chapters.forEach(function (c, i) {
+                var seg = document.createElement("span"); seg.className = "st-seg"; seg.style.width = Math.max(1, c.pct) + "%";
+                seg.style.background = c.color || ["#8bd3a6", "#7fb2e5", "#e5b87f", "#c79be0", "#e58f8f", "#a3a3a3"][i % 6];
+                seg.title = c.name + " : " + c.pct + " %";
+                stack.appendChild(seg);
+            });
+            s2.appendChild(stack);
             st.chapters.forEach(function (c) { row(s2, c.name, c.pct + " % · " + gsFmtMin(c.sec), c.pct); });
+        }
+        // --- Carte de l'année
+        if (log.length) {
+            var sh = section("Régularité sur 12 mois");
+            var hw = document.createElement("div"); hw.className = "st-chart-wrap st-heat-wrap"; hw.appendChild(statsHeatmap(st.dayMap, now)); sh.appendChild(hw);
         }
         if (st.top.length) {
             var s3 = section("Les plus travaillés");
@@ -9948,13 +10556,53 @@
         if (!st.underused.length) { var ok = document.createElement("div"); ok.className = "gs-empty"; ok.textContent = "Tous tes exercices ont été travaillés sur cette période."; s5.appendChild(ok); }
         st.underused.slice(0, 8).forEach(function (x) { row(s5, x.title, x.last ? "dernier passage " + gsFmtAgo(x.last, now) : "jamais travaillé"); });
         if (st.underused.length > 8) { var more = document.createElement("div"); more.className = "gs-empty"; more.textContent = "… et " + (st.underused.length - 8) + " autres"; s5.appendChild(more); }
+        // --- Progression du tempo : graphique d'un exercice au choix + liste
         if (st.progress.length) {
             var s6 = section("Progression du tempo");
+            var multi = st.progress.filter(function (x) { return x.pts.length >= 2; });
+            if (multi.length) {
+                var pick = document.createElement("select"); pick.className = "st-tempo-pick"; pick.setAttribute("aria-label", "Exercice");
+                multi.forEach(function (x, i) { var op = document.createElement("option"); op.value = String(i); op.textContent = x.title + " (" + x.pts.length + " séances)"; pick.appendChild(op); });
+                var tw = document.createElement("div"); tw.className = "st-chart-wrap";
+                var tcap = document.createElement("div"); tcap.className = "st-caption";
+                function drawTempo() {
+                    var x = multi[parseInt(pick.value, 10) || 0];
+                    tw.innerHTML = ""; tw.appendChild(statsTempoChart(x.pts));
+                    tcap.textContent = x.from + " → " + x.to + " BPM" + (x.delta ? " (" + (x.delta > 0 ? "+" : "") + x.delta + ")" : "") + " · meilleur tempo de chaque séance";
+                }
+                pick.addEventListener("change", drawTempo);
+                s6.appendChild(pick); s6.appendChild(tw); s6.appendChild(tcap); drawTempo();
+            }
             st.progress.slice(0, 8).forEach(function (x) {
                 var r = row(s6, x.title, x.from + " → " + x.to + " BPM" + (x.delta ? " (" + (x.delta > 0 ? "+" : "") + x.delta + ")" : ""));
                 var sp = document.createElement("span"); sp.className = "gs-stat-spark"; sp.innerHTML = gsStatsSparkline(x.pts); r.insertBefore(sp, r.lastChild);
             });
         }
+        // --- Réel contre prévu (dernières séances)
+        var withPlan = st.recs.filter(function (r) { return r.plannedSec; }).slice(-10).reverse();
+        if (withPlan.length) {
+            var s7 = section("Réel contre prévu");
+            var scale = 1; withPlan.forEach(function (r) { scale = Math.max(scale, r.plannedSec, r.totalSec || 0); });
+            withPlan.forEach(function (r) {
+                var line = document.createElement("div"); line.className = "st-pair";
+                var lb = document.createElement("span"); lb.className = "st-pair-l"; lb.textContent = statsShortDate(r.date) + " · " + r.name;
+                var tr = document.createElement("span"); tr.className = "st-pair-track";
+                var real = document.createElement("span"); real.className = "st-pair-real"; real.style.width = Math.round((r.totalSec || 0) / scale * 100) + "%";
+                var mk = document.createElement("span"); mk.className = "st-pair-plan"; mk.style.left = Math.round(r.plannedSec / scale * 100) + "%"; mk.title = "prévu : " + gsFmtMin(r.plannedSec);
+                tr.appendChild(real); tr.appendChild(mk);
+                var tx = document.createElement("span"); tx.className = "st-pair-r"; tx.textContent = gsFmtMin(r.totalSec || 0) + " / " + gsFmtMin(r.plannedSec) + " · " + Math.round((r.totalSec || 0) / r.plannedSec * 100) + " %";
+                line.appendChild(lb); line.appendChild(tr); line.appendChild(tx); s7.appendChild(line);
+            });
+            var pc = document.createElement("div"); pc.className = "st-caption"; pc.textContent = "Barre = temps réel · trait = temps prévu"; s7.appendChild(pc);
+        }
+        // --- Réglage : exercice déplacé
+        var sp2 = section("Exercices déplacés");
+        var prow = document.createElement("label"); prow.className = "st-policy";
+        var pl = document.createElement("span"); pl.textContent = "Quand un exercice change de chapitre :";
+        var ps = document.createElement("select"); ps.className = "st-policy-sel"; ps.setAttribute("aria-label", "Exercice déplacé");
+        [["ask", "me demander"], ["history", "garder l'historique là où il était"], ["follow", "suivre l'exercice partout"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if (statsRules().movePolicy === o[0]) op.selected = true; ps.appendChild(op); });
+        ps.addEventListener("change", function () { statsRules().movePolicy = ps.value; save(); rerender(); });
+        prow.appendChild(pl); prow.appendChild(ps); sp2.appendChild(prow);
     }
 
     // Historique : séances enregistrées (de la plus récente à la plus ancienne) et statistiques.
@@ -9971,20 +10619,33 @@
             var period = document.createElement("select"); period.className = "gs-hist-period"; period.setAttribute("aria-label", "Période");
             [["7", "7 jours"], ["28", "28 jours"], ["90", "90 jours"], ["0", "Tout"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if (o[0] === "28") op.selected = true; period.appendChild(op); });
             tabs.appendChild(tabLog); tabs.appendChild(tabStats); tabs.appendChild(period);
+            function markStatsIssues(n) {
+                tabStats.textContent = "Statistiques";
+                if (n > 0) { var bub = document.createElement("span"); bub.className = "gs-tab-count st-issue-count"; bub.textContent = String(n); bub.title = n + " exercice(s) à ranger pour les statistiques"; tabStats.appendChild(bub); }
+            }
+            markStatsIssues(statsIssueCount());
             panel.appendChild(tabs);
             var list = document.createElement("div");
             list.className = "gs-sync-list gs-history-list";
             panel.appendChild(list);
             var mode = startTab === "stats" ? "stats" : "log";
-            function myLog() { return state.settings.sessionLog.filter(function (e) { return !e.instrumentId || e.instrumentId === state.activeInstrumentId; }); }
+            panel.classList.toggle("gs-history-wide", mode === "stats");
+            function myLog() { return logAll().filter(function (e) { return !e.instrumentId || e.instrumentId === state.activeInstrumentId; }); }
             function fill() {
+                panel.classList.toggle("gs-history-wide", mode === "stats");
+                // le mode Statistiques est plus haut : on rentre la fenêtre dans l'écran (sans écraser une position choisie à la main)
+                requestAnimationFrame(function () {
+                    var top = parseFloat(panel.style.top) || 0, left = parseFloat(panel.style.left) || 0;
+                    var maxTop = Math.max(8, window.innerHeight - panel.offsetHeight - 8), maxLeft = Math.max(8, window.innerWidth - panel.offsetWidth - 8);
+                    if (top > maxTop) panel.style.top = maxTop + "px";
+                    if (left > maxLeft) panel.style.left = maxLeft + "px";
+                });
                 tabLog.classList.toggle("active", mode === "log");
                 tabStats.classList.toggle("active", mode === "stats");
                 period.hidden = mode !== "stats";
                 list.innerHTML = "";
                 if (mode === "stats") {
-                    var ex = collectExercises(getActiveInstrument(), function () { return true; });
-                    renderSessionStats(list, myLog(), ex, parseInt(period.value, 10));
+                    renderStatsScreen(list, parseInt(period.value, 10), markStatsIssues);
                     return;
                 }
                 var log = myLog().slice().reverse();
@@ -9996,8 +10657,14 @@
                     head.className = "gs-sync-row";
                     var nm = document.createElement("span"); nm.className = "gs-sync-name"; nm.textContent = e.name;
                     var du = document.createElement("span"); du.className = "gs-sync-dur"; du.textContent = gsFmtDate(e.date) + " · " + gsFmtDur(e.totalSec);
+                    // Une séance supprimée du journal ne se rattrape plus par « Annuler » : confirmation en deux clics.
                     var del = iconButton("✕", "Supprimer cette entrée", function () {
-                        state.settings.sessionLog = state.settings.sessionLog.filter(function (x) { return x.id !== e.id; });
+                        if (!del.dataset.armed) {
+                            del.dataset.armed = "1"; del.textContent = "Supprimer ?"; del.classList.add("gs-del-armed"); del.title = "Cliquer encore pour confirmer";
+                            setTimeout(function () { if (del.isConnected) { delete del.dataset.armed; del.textContent = "✕"; del.classList.remove("gs-del-armed"); del.title = "Supprimer cette entrée"; } }, 3000);
+                            return;
+                        }
+                        logRemove(e.id);
                         save(); fill();
                     });
                     head.appendChild(nm); head.appendChild(du); head.appendChild(del);
@@ -10632,7 +11299,7 @@
         function setMiniBpm(v) {
             v = Math.min(300, Math.max(30, v));
             if (metroPanelApi && metroPanelApi.setBpm) metroPanelApi.setBpm(v);
-            else { state.settings.metronome.bpm = v; save(); }
+            else { state.settings.metronome.bpm = v; saveSoon(); }
             refresh();
         }
         $("bm").addEventListener("click", function (e) { setMiniBpm(state.settings.metronome.bpm - (e.shiftKey ? 5 : 1)); });
