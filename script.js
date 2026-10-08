@@ -10147,8 +10147,10 @@
 
     // État actuel utile aux statistiques : exercices et chapitres existants, exercices à la corbeille.
     function statsContext() {
-        var ex = {}, chapters = {}, inTrash = {};
+        var ex = {}, chapters = {}, inTrash = {}, folders = {};
+        function walkFolders(list) { (list || []).forEach(function (f) { folders[f.id] = { id: f.id, name: f.name }; walkFolders(f.folders); }); }
         state.instruments.forEach(function (inst) {
+            walkFolders(inst.categories);
             inst.categories.forEach(function (c) { chapters[c.id] = { id: c.id, name: c.name, color: c.color || null, instrumentId: inst.id }; });
             collectExercises(inst, function () { return true; }).forEach(function (r) { ex[r.ex.id] = { ex: r.ex, pathIds: r.pathIds, pathNames: r.pathNames, instrumentId: inst.id }; });
         });
@@ -10156,10 +10158,11 @@
             if (t.type === "exercise" && t.data) inTrash[t.data.id] = true;
             else if (t.type === "folder" && t.data) (function w(f) { (f.exercises || []).forEach(function (e) { inTrash[e.id] = true; }); (f.folders || []).forEach(w); })(t.data);
         });
-        return { ex: ex, chapters: chapters, inTrash: inTrash, rules: statsRules() };
+        return { ex: ex, chapters: chapters, folders: folders, inTrash: inTrash, rules: statsRules() };
     }
 
     // Une ligne par exercice travaillé dans une séance, avec le rangement retenu pour les statistiques.
+    function chapterKeyOf(chapId, frozenName) { return chapId || ("n:" + frozenName); }
     function statsRows(log, ctx) {
         var rows = [], rules = ctx.rules;
         log.forEach(function (rec) {
@@ -10177,6 +10180,11 @@
                 else if (frozenId && ctx.chapters[frozenId]) chapId = frozenId;
                 else if (live && !frozenId && live.pathNames[0] === frozenName) chapId = live.pathIds[0]; // ancien enregistrement sans identifiant : même nom qu'aujourd'hui
                 var chap = chapId ? ctx.chapters[chapId] : null;
+                // premier sous-dossier : celui d'alors (figé) ; celui d'aujourd'hui si le chapitre a été imposé ou suivi
+                var imposed = !!((ov && ctx.chapters[ov]) || (live && rules.movePolicy === "follow")), subId = null, subName = null;
+                if (imposed) { if (live) { subId = live.pathIds[1] || null; subName = live.pathNames[1] || null; } }
+                else { subId = (st.pathIds && st.pathIds[1]) || null; subName = (st.path && st.path[1]) || null; }
+                if (subId && ctx.folders[subId]) subName = ctx.folders[subId].name; // renommé depuis : nom actuel
                 rows.push({
                     rec: rec, date: rec.date,
                     exKey: id || ("t:" + (st.title || "?")),
@@ -10188,6 +10196,9 @@
                     chapterColor: chap ? chap.color : null,
                     frozenChapterName: frozenName,
                     sec: st.actualSec || 0,
+                    plannedSec: (st.plannedMin || 0) * 60,
+                    subKey: subName ? (subId || "n:" + chapterKeyOf(chapId, frozenName) + "|" + subName) : null,
+                    subName: subName,
                     bpmFirst: st.bpmFirst || null, bpmMax: st.bpmMax || null, bpmEnd: st.bpmEnd || null
                 });
             });
@@ -10261,10 +10272,10 @@
     }
 
     // Agrégats d'une période (days = 0 : tout).
-    function statsCompute(log, rows, ctx, days, now) {
-        var start = days ? now - days * STATS_DAY : 0;
-        var recs = log.filter(function (r) { return r.date >= start; });
-        var rws = rows.filter(function (r) { return r.date >= start; });
+    function statsCompute(log, rows, ctx, range, now) {
+        var start = range.start, end = range.end;
+        var recs = log.filter(function (r) { return r.date >= start && r.date < end; });
+        var rws = rows.filter(function (r) { return r.date >= start && r.date < end; });
         var totalSec = 0, plannedSum = 0, realOfPlanned = 0, dayMap = {};
         recs.forEach(function (r) {
             totalSec += r.totalSec || 0;
@@ -10274,7 +10285,7 @@
         var periodMap = {};
         recs.forEach(function (r) { periodMap[calKey(new Date(r.date))] = true; });
         var first = log.length ? log[0].date : now;
-        var periodDays = days || Math.max(1, Math.ceil((now - first) / STATS_DAY));
+        var periodDays = Math.max(1, Math.ceil((Math.min(end, now + 1) - 1 - (start || first)) / STATS_DAY));
         // séries de jours consécutifs (sur tout le journal)
         var keys = Object.keys(dayMap).sort(), best = 0, run = 0, prevT = null;
         keys.forEach(function (k) {
@@ -10287,14 +10298,13 @@
         if (!dayMap[calKey(d)]) d.setDate(d.getDate() - 1);
         while (dayMap[calKey(d)]) { cur++; d.setDate(d.getDate() - 1); }
         // chapitres, exercices
-        var chap = {}, byEx = {}, allEx = {}, tempo = {};
+        var chap = {}, byEx = {}, allEx = {};
         rows.forEach(function (r) { var o = allEx[r.exKey] || (allEx[r.exKey] = { last: 0 }); if (r.date > o.last) o.last = r.date; });
         rws.forEach(function (r) {
             var c = chap[r.chapterKey] || (chap[r.chapterKey] = { key: r.chapterKey, name: r.chapterName, color: r.chapterColor, sec: 0 });
             c.sec += r.sec; c.name = r.chapterName; if (r.chapterColor) c.color = r.chapterColor;
             var o = byEx[r.exKey] || (byEx[r.exKey] = { key: r.exKey, title: r.title, sec: 0, count: 0, last: 0 });
             o.sec += r.sec; o.count++; o.title = r.title; if (r.date > o.last) o.last = r.date;
-            if (r.bpmMax && r.exKey.indexOf("t:") !== 0) (tempo[r.exKey] = tempo[r.exKey] || { key: r.exKey, title: r.title, pts: [] }).pts.push({ date: r.date, bpm: r.bpmMax, first: r.bpmFirst, end: r.bpmEnd });
         });
         var chapSum = 0; Object.keys(chap).forEach(function (k) { chapSum += chap[k].sec; });
         var chapters = Object.keys(chap).map(function (k) { var c = chap[k]; c.pct = chapSum ? Math.round(c.sec * 100 / chapSum) : 0; return c; }).sort(function (a, b) { return b.sec - a.sec; });
@@ -10306,15 +10316,11 @@
         var underused = mine.filter(function (id) { return !byEx[id]; }).map(function (id) {
             return { title: ctx.ex[id].ex.title, last: (allEx[id] || {}).last || 0, path: ctx.ex[id].pathNames.join(" › ") };
         }).sort(function (a, b) { return a.last - b.last; });
-        var progress = Object.keys(tempo).map(function (k) {
-            var t = tempo[k]; t.pts.sort(function (a, b) { return a.date - b.date; });
-            t.from = t.pts[0].bpm; t.to = t.pts[t.pts.length - 1].bpm; t.delta = t.to - t.from; return t;
-        }).sort(function (a, b) { return b.pts.length - a.pts.length || b.delta - a.delta; });
         return {
             recs: recs, sessions: recs.length, totalSec: totalSec, activeDays: Object.keys(periodMap).length, periodDays: periodDays,
             avgPerWeekSec: totalSec / (periodDays / 7), avgSessionSec: recs.length ? totalSec / recs.length : 0,
             ratio: plannedSum ? realOfPlanned / plannedSum : null, streak: cur, bestStreak: best, dayMap: dayMap,
-            chapters: chapters, top: top, favorites: favorites, underused: underused, progress: progress
+            chapters: chapters, top: top, favorites: favorites, underused: underused
         };
     }
 
@@ -10338,10 +10344,9 @@
     var STATS_MONTHS_SHORT = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
 
     // Temps de pratique par jour (période courte), par semaine ou par mois (longue).
-    function statsBuckets(recs, days, now, firstTs) {
-        var first = days ? now - days * STATS_DAY : (recs.length ? recs[0].date : now);
-        if (!days && firstTs) first = firstTs;
-        var span = Math.ceil((now - first) / STATS_DAY), mode = span <= 35 ? "day" : span <= 400 ? "week" : "month";
+    function statsBuckets(recs, range, now, firstTs) {
+        var first = range.start || firstTs || (recs.length ? recs[0].date : now), last = Math.min(range.end - 1, now);
+        var span = Math.ceil((last - first) / STATS_DAY), mode = span <= 35 ? "day" : span <= 400 ? "week" : "month";
         function startOf(ts) {
             var d = new Date(ts); d.setHours(0, 0, 0, 0);
             if (mode === "week") d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
@@ -10349,10 +10354,10 @@
             return d;
         }
         function nextOf(d) { var n = new Date(d); if (mode === "day") n.setDate(n.getDate() + 1); else if (mode === "week") n.setDate(n.getDate() + 7); else n.setMonth(n.getMonth() + 1); return n; }
-        var map = {}, order = [];
-        for (var d = startOf(first); d.getTime() <= now; d = nextOf(d)) { var k = d.getTime(); order.push(k); map[k] = { t: k, sec: 0, n: 0 }; }
+        var map = {}, order = [], nowKey = startOf(now).getTime(), cur = -1;
+        for (var d = startOf(first); d.getTime() <= last; d = nextOf(d)) { var k = d.getTime(); if (k === nowKey) cur = order.length; order.push(k); map[k] = { t: k, sec: 0, n: 0 }; }
         recs.forEach(function (r) { var k = startOf(r.date).getTime(); if (map[k]) { map[k].sec += r.totalSec || 0; map[k].n++; } });
-        return { mode: mode, items: order.map(function (k) { return map[k]; }) };
+        return { mode: mode, cur: cur, items: order.map(function (k) { return map[k]; }) };
     }
     function statsBarChart(bk) {
         var items = bk.items, mode = bk.mode, W = 600, H = 190, L = 44, R = 66, T = 10, B = 26; // marge droite : étiquette de la moyenne
@@ -10372,7 +10377,7 @@
             var x = L + i * bw + (bw - barW) / 2, h = it.sec / unit / top * plotH;
             var d = new Date(it.t);
             var label = mode === "month" ? STATS_MONTHS_SHORT[d.getMonth()] + " " + String(d.getFullYear()).slice(2) : statsShortDate(it.t);
-            var current = i === n - 1; // période en cours : la donnée importante, en vert clair
+            var current = i === bk.cur; // période en cours : la donnée importante, en vert clair
             if (it.sec > 0) svgTip(svgNode("rect", { x: x, y: T + plotH - h, width: barW, height: Math.max(1.5, h), rx: 2, "class": "st-bar" + (current ? " st-bar-hi" : "") }, svg), (mode === "week" ? "semaine du " : "") + label + " : " + gsFmtMin(it.sec) + " · " + it.n + " session" + (it.n > 1 ? "s" : "") + (current ? " (en cours)" : ""));
             if (i % every === 0) svgNode("text", { x: x + barW / 2, y: H - 8, "class": "st-axis", "text-anchor": "middle" }, svg, label);
         });
@@ -10432,34 +10437,254 @@
         return svg;
     }
 
-    // Écran Statistiques (onglet de l'historique).
-    function renderStatsScreen(box, days, onIssues) {
+    // ---- périodes et comparaison ----
+    // Période : "7"/"28"/"90" = jours glissants, "m0" = ce mois, "m1" = mois dernier, "y0" = cette année, "y1" = année dernière, "0" = tout.
+    // La comparaison avec la période précédente n'existe que pour les mois et les années (pas pour les semaines).
+    function statsPeriod(spec, now) {
+        var d = new Date(now), out = { spec: spec, start: 0, end: now + 1, compare: null };
+        if (spec === "m0" || spec === "m1") {
+            var off = spec === "m1" ? 1 : 0;
+            var ms = new Date(d.getFullYear(), d.getMonth() - off, 1).getTime(), me = new Date(d.getFullYear(), d.getMonth() - off + 1, 1).getTime();
+            var pms = new Date(d.getFullYear(), d.getMonth() - off - 1, 1).getTime();
+            out.start = ms; out.end = off ? me : now + 1;
+            out.compare = { start: pms, end: off ? ms : Math.min(ms, pms + (now + 1 - ms)), label: CAL_MONTHS[new Date(pms).getMonth()] + (off ? "" : " (à la même date)") };
+        } else if (spec === "y0" || spec === "y1") {
+            var yo = spec === "y1" ? 1 : 0;
+            var ys = new Date(d.getFullYear() - yo, 0, 1).getTime(), ye = new Date(d.getFullYear() - yo + 1, 0, 1).getTime();
+            var pys = new Date(d.getFullYear() - yo - 1, 0, 1).getTime();
+            out.start = ys; out.end = yo ? ye : now + 1;
+            out.compare = { start: pys, end: yo ? ys : Math.min(ys, pys + (now + 1 - ys)), label: String(new Date(pys).getFullYear()) + (yo ? "" : " (à la même date)") };
+        } else if (spec !== "0") {
+            out.start = now - (parseInt(spec, 10) || 28) * STATS_DAY;
+        }
+        return out;
+    }
+    function stDeltaPct(cur, prev) {
+        if (!prev) return "";
+        var p = Math.round((cur - prev) / prev * 100);
+        return p === 0 ? "＝ stable" : (p > 0 ? "▲ +" + p : "▼ −" + Math.abs(p)) + " %";
+    }
+    function stDeltaAbs(cur, prev, unit) {
+        var d = cur - prev;
+        return d === 0 ? "＝ stable" : (d > 0 ? "▲ +" + d : "▼ −" + Math.abs(d)) + " " + unit;
+    }
+
+    // ---- camembert (SVG) : la plus grosse part en vert clair, les autres en nuances de gris ----
+    function statsPie(items, labelOf) {
+        items = items.filter(function (i) { return i.sec > 0; }).sort(function (a, b) { return b.sec - a.sec; });
+        var wrap = document.createElement("div"); wrap.className = "st-pie-wrap";
+        var total = 0; items.forEach(function (i) { total += i.sec; });
+        if (!total) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Rien à répartir sur cette période."; wrap.appendChild(none); return wrap; }
+        var MAXS = 7;
+        if (items.length > MAXS + 1) {
+            var rest = items.slice(MAXS), osum = 0; rest.forEach(function (i) { osum += i.sec; });
+            items = items.slice(0, MAXS).concat([{ key: "__other__", name: "Autres (" + rest.length + ")", sec: osum, other: true }]);
+        }
+        var R = 92, C = 100, svg = svgNode("svg", { viewBox: "0 0 200 200", "class": "st-pie", role: "img", "aria-label": "Répartition du temps" });
+        var legend = document.createElement("div"); legend.className = "st-pie-legend";
+        var ang = -Math.PI / 2;
+        items.forEach(function (it, i) {
+            var frac = it.sec / total, cls = it.other ? "st-pie-o" : "st-pie-" + Math.min(i, 7), pct = Math.round(frac * 100);
+            var tip = it.name + " : " + pct + " % · " + gsFmtMin(it.sec);
+            if (items.length === 1) svgTip(svgNode("circle", { cx: C, cy: C, r: R, "class": "st-slice " + cls }, svg), tip);
+            else {
+                var a2 = ang + frac * Math.PI * 2, x1 = C + R * Math.cos(ang), y1 = C + R * Math.sin(ang), x2 = C + R * Math.cos(a2), y2 = C + R * Math.sin(a2);
+                svgTip(svgNode("path", { d: "M" + C + "," + C + " L" + x1.toFixed(2) + "," + y1.toFixed(2) + " A" + R + "," + R + " 0 " + (frac > 0.5 ? 1 : 0) + " 1 " + x2.toFixed(2) + "," + y2.toFixed(2) + " Z", "class": "st-slice " + cls }, svg), tip);
+                ang = a2;
+            }
+            var row = document.createElement("div"); row.className = "st-pie-row" + (i === 0 ? " st-pie-top" : "");
+            var sw = document.createElement("i"); sw.className = "st-sw " + cls;
+            var nm = document.createElement("span"); nm.className = "st-pie-name"; nm.textContent = it.name;
+            if (labelOf && labelOf(it)) { var sub = document.createElement("small"); sub.textContent = labelOf(it); nm.appendChild(sub); }
+            var vl = document.createElement("span"); vl.className = "st-pie-val"; vl.textContent = pct + " % · " + gsFmtMin(it.sec);
+            row.appendChild(sw); row.appendChild(nm); row.appendChild(vl); legend.appendChild(row);
+        });
+        wrap.appendChild(svg); wrap.appendChild(legend);
+        return wrap;
+    }
+    // Part du temps par premier sous-dossier (filtrable par chapitre).
+    function statsSubSplit(rws, chapterKey) {
+        var m = {};
+        rws.forEach(function (r) {
+            if (chapterKey && r.chapterKey !== chapterKey) return;
+            var key = r.subKey || "__none__";
+            var o = m[key] || (m[key] = { key: key, name: r.subKey ? r.subName : "Directement dans un chapitre", chapter: r.subKey ? r.chapterName : "", sec: 0 });
+            o.sec += r.sec; if (r.subKey) { o.name = r.subName; o.chapter = r.chapterName; }
+        });
+        return Object.keys(m).map(function (k) { return m[k]; });
+    }
+
+    // ---- analyse de chaque exercice : durées, tempo, alertes et conseils ----
+    function statsExerciseReport(rws, rows, now, periodSec) {
+        var by = {}, lastAll = {};
+        rows.forEach(function (r) { if (r.date > (lastAll[r.exKey] || 0)) lastAll[r.exKey] = r.date; });
+        rws.forEach(function (r) {
+            var o = by[r.exKey] || (by[r.exKey] = { key: r.exKey, title: r.title, chapterName: r.chapterName, rows: [], sec: 0, plannedSec: 0, plannedN: 0, realOfPlanned: 0, pts: [] });
+            o.rows.push(r); o.sec += r.sec; o.title = r.title; o.chapterName = r.chapterName;
+            if (r.plannedSec) { o.plannedSec += r.plannedSec; o.plannedN++; o.realOfPlanned += r.sec; }
+            if (r.bpmMax && r.exKey.indexOf("t:") !== 0) o.pts.push({ date: r.date, bpm: r.bpmMax, first: r.bpmFirst, end: r.bpmEnd });
+        });
+        function mins(sec) { var m = sec / 60; return m < 10 ? Math.max(1, Math.round(m)) : Math.max(5, Math.round(m / 5) * 5); }
+        var nEx = Object.keys(by).length;
+        var list = Object.keys(by).map(function (k) {
+            var o = by[k], n = o.rows.length;
+            o.rows.sort(function (a, b) { return a.date - b.date; });
+            o.n = n; o.last = lastAll[k] || 0; o.avgSec = o.sec / n;
+            o.avgPlannedSec = o.plannedN ? o.plannedSec / o.plannedN : 0;
+            o.ratio = o.plannedSec ? o.realOfPlanned / o.plannedSec : null;
+            o.pts.sort(function (a, b) { return a.date - b.date; });
+            o.from = o.pts.length ? o.pts[0].bpm : null; o.to = o.pts.length ? o.pts[o.pts.length - 1].bpm : null; o.delta = o.pts.length ? o.to - o.from : 0;
+            o.best = o.pts.reduce(function (m, p) { return Math.max(m, p.bpm); }, 0);
+            var al = o.alerts = [];
+            // durée réellement passée, comparée à celle prévue dans les sessions
+            if (o.plannedN >= 3 && o.ratio !== null) {
+                var A = Math.round(o.avgSec / 60), P = Math.round(o.avgPlannedSec / 60), R = Math.round(o.ratio * 100);
+                if (o.ratio < 0.7) al.push({ kind: "short", level: "warn", text: "Tu n'y passes en moyenne que " + A + " min sur " + P + " min prévues (" + R + " %).", advice: "Ramène la durée prévue à environ " + mins(o.avgSec) + " min dans tes sessions : un temps prévu jamais tenu fausse tes bilans. Si tu le coupes parce qu'il ennuie, essaie plutôt de le placer plus tôt dans la session." });
+                else if (o.ratio > 1.3) al.push({ kind: "long", level: "warn", text: "Tu dépasses souvent le temps prévu : " + A + " min en moyenne pour " + P + " min prévues (" + R + " %).", advice: "Prévois plutôt environ " + mins(o.avgSec) + " min, ou coupe l'exercice en deux (un morceau par session) pour garder le reste de la session." });
+            }
+            if (n >= 3 && o.avgSec < 180 && !al.some(function (a) { return a.kind === "short"; })) al.push({ kind: "tiny", level: "info", text: "Moins de 3 min par séance en moyenne (" + Math.round(o.avgSec / 60 * 10) / 10 + " min).", advice: "C'est court pour progresser : prévois au moins 5 min, ou retire-le de la session et garde-le pour un échauffement." });
+            // tempo
+            if (o.pts.length >= 5) {
+                var lastBpm = o.to, same = 0;
+                for (var i = o.pts.length - 1; i >= 0 && Math.abs(o.pts[i].bpm - lastBpm) <= 1; i--) same++;
+                if (same >= 5) al.push({ kind: "stagnant", level: "warn", text: "Tempo bloqué autour de " + lastBpm + " BPM depuis " + same + " séances.", advice: "Essaie un palier plus petit (+2 BPM), ou travaille 10 BPM plus lentement pendant une séance pour consolider avant de remonter." });
+            }
+            if (o.pts.length >= 3 && o.to < o.best * 0.9) al.push({ kind: "regress", level: "warn", text: "Tempo en recul : " + o.to + " BPM aujourd'hui pour un record de " + o.best + " BPM.", advice: "Reviens à environ " + Math.max(30, o.best - 10) + " BPM, puis remonte par paliers de 2 à 4 BPM." });
+            // fréquence
+            var idle = Math.floor((now - o.last) / STATS_DAY);
+            if (n >= 3 && idle >= 21) al.push({ kind: "dormant", level: "info", text: "Plus travaillé depuis " + idle + " jours.", advice: "Glisse-le dans une prochaine session pour ne pas perdre le bénéfice." });
+            if (nEx >= 4 && periodSec > 0 && o.sec / periodSec > 0.4) al.push({ kind: "dominant", level: "info", text: "Cet exercice représente " + Math.round(o.sec / periodSec * 100) + " % de ton temps de pratique.", advice: "Vérifie que cela correspond à ta priorité du moment." });
+            o.warn = al.filter(function (a) { return a.level === "warn"; }).length;
+            return o;
+        });
+        return list;
+    }
+    // Durée réelle de chaque séance (barre) contre durée prévue (trait).
+    function statsDurationChart(items) {
+        items = items.slice(-24);
+        var W = 600, H = 150, L = 40, R = 10, T = 8, B = 24, plotW = W - L - R, plotH = H - T - B;
+        var svg = svgNode("svg", { viewBox: "0 0 " + W + " " + H, "class": "st-chart st-dur", role: "img", "aria-label": "Durée réelle contre durée prévue, séance par séance" });
+        var maxSec = 60; items.forEach(function (i) { maxSec = Math.max(maxSec, i.sec, i.plannedSec || 0); });
+        var top = statsNiceMax(maxSec / 60);
+        for (var g = 0; g <= 2; g++) {
+            var y = T + plotH - plotH * g / 2;
+            svgNode("line", { x1: L, x2: W - R, y1: y, y2: y, "class": "st-grid" }, svg);
+            svgNode("text", { x: L - 6, y: y + 3.5, "class": "st-axis", "text-anchor": "end" }, svg, statsNum(top * g / 2) + " min");
+        }
+        var n = items.length, bw = plotW / n, barW = Math.max(3, Math.min(26, bw * 0.66)), every = Math.max(1, Math.ceil(n / Math.max(1, Math.floor(plotW / 50))));
+        items.forEach(function (it, i) {
+            var x = L + i * bw + (bw - barW) / 2, h = it.sec / 60 / top * plotH;
+            svgTip(svgNode("rect", { x: x, y: T + plotH - h, width: barW, height: Math.max(1.5, h), rx: 2, "class": "st-bar" + (i === n - 1 ? " st-bar-hi" : "") }, svg), statsShortDate(it.date) + " : " + gsFmtMin(it.sec) + (it.plannedSec ? " (prévu " + gsFmtMin(it.plannedSec) + ")" : ""));
+            if (it.plannedSec) { var py = T + plotH - it.plannedSec / 60 / top * plotH; svgNode("line", { x1: x - 2, x2: x + barW + 2, y1: py, y2: py, "class": "st-plan-tick" }, svg); }
+            if (i % every === 0) svgNode("text", { x: x + barW / 2, y: H - 7, "class": "st-axis", "text-anchor": "middle" }, svg, statsShortDate(it.date));
+        });
+        return svg;
+    }
+
+    // ---- écran Statistiques : sous-onglets (l'essentiel d'abord) ----
+    var STATS_TABS = [["overview", "Aperçu"], ["time", "Temps"], ["split", "Répartition"], ["ex", "Exercices"]];
+    var statsTab = "overview", statsSubChapter = "", statsExFilter = "all", statsExSort = "alerts", statsExOpen = {}, statsIssuesOpen = false;
+    function stSection(box, title, extra) {
+        var h = document.createElement("div"); h.className = "gs-stat-title"; h.textContent = title;
+        if (extra) h.appendChild(extra);
+        box.appendChild(h);
+        var b = document.createElement("div"); b.className = "gs-stat-block"; box.appendChild(b); return b;
+    }
+    // hi = donnée importante : affichée en vert clair ; le reste est en gris clair
+    function stRow(parent, left, right, pct, hi) {
+        var r = document.createElement("div"); r.className = "gs-stat-row" + (hi ? " st-top" : "");
+        if (pct !== undefined) { var bar = document.createElement("span"); bar.className = "gs-stat-bar"; bar.style.width = Math.max(2, pct) + "%"; r.appendChild(bar); }
+        var l = document.createElement("span"); l.className = "gs-stat-l"; l.textContent = left;
+        var v = document.createElement("span"); v.className = "gs-stat-r"; v.textContent = right;
+        r.appendChild(l); r.appendChild(v); parent.appendChild(r); return r;
+    }
+    function stBtn(label, cls, fn) { var b = document.createElement("button"); b.type = "button"; b.className = cls; b.textContent = label; b.addEventListener("click", fn); return b; }
+
+    // Fenêtre dont le contenu a grandi : on la rentre dans l'écran (sans écraser une position choisie à la main).
+    function clampPanelToViewport(panel) {
+        if (!panel) return;
+        var top = parseFloat(panel.style.top) || 0, left = parseFloat(panel.style.left) || 0;
+        var maxTop = Math.max(8, window.innerHeight - panel.offsetHeight - 8), maxLeft = Math.max(8, window.innerWidth - panel.offsetWidth - 8);
+        if (top > maxTop) panel.style.top = maxTop + "px";
+        if (left > maxLeft) panel.style.left = maxLeft + "px";
+    }
+    function renderStatsScreen(box, spec, onIssues) {
         box.innerHTML = "";
         var now = Date.now(), ctx = statsContext();
         var log = logAll().filter(function (e) { return !e.instrumentId || e.instrumentId === state.activeInstrumentId; });
-        var rows = statsRows(log, ctx), st = statsCompute(log, rows, ctx, days, now), issues = statsIssues(rows, ctx);
+        var range = statsPeriod(spec, now), first = log.length ? log[0].date : now;
+        var rows = statsRows(log, ctx), st = statsCompute(log, rows, ctx, range, now), issues = statsIssues(rows, ctx);
+        var rws = rows.filter(function (r) { return r.date >= range.start && r.date < range.end; });
+        var exList = statsExerciseReport(rws, rows, now, st.totalSec);
+        var warnCount = exList.filter(function (o) { return o.warn > 0; }).length;
         if (onIssues) onIssues(issues.length);
-        function rerender() { renderStatsScreen(box, days, onIssues); }
-        function section(title, extra) {
-            var h = document.createElement("div"); h.className = "gs-stat-title"; h.textContent = title;
-            if (extra) h.appendChild(extra);
-            box.appendChild(h);
-            var b = document.createElement("div"); b.className = "gs-stat-block"; box.appendChild(b); return b;
-        }
-        // hi = donnée importante : affichée en vert clair ; le reste est en gris clair
-        function row(parent, left, right, pct, hi) {
-            var r = document.createElement("div"); r.className = "gs-stat-row" + (hi ? " st-top" : "");
-            if (pct !== undefined) { var bar = document.createElement("span"); bar.className = "gs-stat-bar"; bar.style.width = Math.max(2, pct) + "%"; r.appendChild(bar); }
-            var l = document.createElement("span"); l.className = "gs-stat-l"; l.textContent = left;
-            var v = document.createElement("span"); v.className = "gs-stat-r"; v.textContent = right;
-            r.appendChild(l); r.appendChild(v); parent.appendChild(r); return r;
-        }
-        function btn(label, cls, fn) { var b = document.createElement("button"); b.type = "button"; b.className = cls; b.textContent = label; b.addEventListener("click", fn); return b; }
+        function rerender() { renderStatsScreen(box, spec, onIssues); }
+        function done(fn) { return function () { fn(); save(); rerender(); }; }
 
-        // --- À ranger
-        if (issues.length) {
+        // --- barre de sous-onglets
+        var bar = document.createElement("div"); bar.className = "st-tabs"; bar.setAttribute("role", "tablist");
+        STATS_TABS.forEach(function (t) {
+            var b = document.createElement("button"); b.type = "button"; b.className = "st-tab" + (statsTab === t[0] ? " active" : ""); b.dataset.tab = t[0];
+            b.setAttribute("role", "tab"); b.setAttribute("aria-selected", statsTab === t[0] ? "true" : "false"); b.textContent = t[1];
+            if (t[0] === "ex" && warnCount) { var bub = document.createElement("span"); bub.className = "gs-tab-count st-issue-count"; bub.textContent = String(warnCount); bub.title = warnCount + " exercice(s) à surveiller"; b.appendChild(bub); }
+            b.addEventListener("click", function () { statsTab = t[0]; rerender(); });
+            bar.appendChild(b);
+        });
+        box.appendChild(bar);
+
+        // ============ APERÇU : l'essentiel ============
+        function tabOverview() {
+            if (issues.length) renderIssues();
+            if (!st.sessions) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Pas encore de session enregistrée sur cette période. Les statistiques se remplissent au fil des sessions que tu enregistres (10 min minimum)."; box.appendChild(none); }
+            var pv = range.compare ? statsCompute(log, rows, ctx, range.compare, now) : null;
+            var hasPrev = pv && pv.sessions > 0;
+            var tiles = document.createElement("div"); tiles.className = "st-tiles";
+            var rNow = st.ratio === null ? null : Math.round(st.ratio * 100), rPrev = hasPrev && pv.ratio !== null ? Math.round(pv.ratio * 100) : null;
+            [["Temps total", gsFmtMin(st.totalSec), true, hasPrev ? stDeltaPct(st.totalSec, pv.totalSec) : ""],
+             ["Sessions", String(st.sessions), false, hasPrev ? stDeltaAbs(st.sessions, pv.sessions, "") : ""],
+             ["Jours pratiqués", st.activeDays + " / " + st.periodDays, false, hasPrev ? stDeltaAbs(st.activeDays, pv.activeDays, "j") : ""],
+             ["Moyenne / semaine", gsFmtMin(st.avgPerWeekSec), true, hasPrev ? stDeltaPct(st.avgPerWeekSec, pv.avgPerWeekSec) : ""],
+             ["Durée moyenne", st.sessions ? gsFmtMin(st.avgSessionSec) : "–", false, hasPrev ? stDeltaPct(st.avgSessionSec, pv.avgSessionSec) : ""],
+             ["Série en cours", st.streak + " j", true, ""], ["Record de série", st.bestStreak + " j", false, ""],
+             ["Réel / prévu", rNow === null ? "–" : rNow + " %", false, rNow !== null && rPrev !== null ? stDeltaAbs(rNow, rPrev, "pts") : ""]]
+                .forEach(function (t) {
+                    var el = document.createElement("div"); el.className = "st-tile" + (t[2] ? " st-tile-hi" : "");
+                    var v = document.createElement("div"); v.className = "st-tile-v"; v.textContent = t[1];
+                    var l = document.createElement("div"); l.className = "st-tile-l"; l.textContent = t[0];
+                    el.appendChild(v); el.appendChild(l);
+                    if (t[3]) { var d = document.createElement("div"); d.className = "st-tile-d" + (t[3].charAt(0) === "▲" ? " st-up" : ""); d.textContent = t[3].replace(/\s+$/, ""); el.appendChild(d); }
+                    tiles.appendChild(el);
+                });
+            var s0 = stSection(box, "Chiffres clés"); s0.appendChild(tiles);
+            if (range.compare) {
+                var cc = document.createElement("div"); cc.className = "st-caption st-compare";
+                cc.textContent = hasPrev ? "Comparé à " + range.compare.label + " : ▲ en hausse · ▼ en baisse." : "Aucune séance en " + range.compare.label + " : pas de comparaison possible.";
+                s0.appendChild(cc);
+            }
+            if (st.sessions) {
+                var sb = stSection(box, "Temps de pratique dans le temps");
+                var bk = statsBuckets(st.recs, range, now, first);
+                var wrap = document.createElement("div"); wrap.className = "st-chart-wrap"; wrap.appendChild(statsBarChart(bk)); sb.appendChild(wrap);
+                var cap = document.createElement("div"); cap.className = "st-caption"; cap.textContent = "Par " + (bk.mode === "day" ? "jour" : bk.mode === "week" ? "semaine (lundi)" : "mois") + (bk.cur >= 0 ? " · vert clair : période en cours" : "") + " · pointillé : moyenne · survole une barre pour le détail"; sb.appendChild(cap);
+            }
+            if (warnCount) {
+                var al = document.createElement("div"); al.className = "st-teaser";
+                var at = document.createElement("span"); at.textContent = warnCount + " exercice" + (warnCount > 1 ? "s" : "") + " à surveiller (durées, tempo) — détail et conseils dans l'onglet Exercices.";
+                al.appendChild(at); al.appendChild(stBtn("Voir", "btn-ghost", function () { statsTab = "ex"; statsExFilter = "alerts"; rerender(); }));
+                box.appendChild(al);
+            }
+        }
+        function renderIssues() {
+            // une seule ligne, dépliable : l'essentiel d'abord
+            var tg = document.createElement("button"); tg.type = "button"; tg.className = "st-issues-toggle" + (statsIssuesOpen ? " open" : ""); tg.setAttribute("aria-expanded", statsIssuesOpen ? "true" : "false");
+            var tl = document.createElement("span"); tl.className = "st-issues-label"; tl.textContent = "À ranger pour les statistiques";
             var bubble = document.createElement("span"); bubble.className = "gs-tab-count st-issue-count"; bubble.textContent = String(issues.length);
-            var rv = section("À ranger pour les statistiques ", bubble);
+            var chev = document.createElement("span"); chev.className = "st-issues-chev"; chev.textContent = statsIssuesOpen ? "Masquer ▴" : "Voir ▾";
+            tg.appendChild(tl); tg.appendChild(bubble); tg.appendChild(chev);
+            tg.addEventListener("click", function () { statsIssuesOpen = !statsIssuesOpen; rerender(); });
+            box.appendChild(tg);
+            if (!statsIssuesOpen) return;
+            var rv = document.createElement("div"); rv.className = "gs-stat-block st-issues-list"; box.appendChild(rv);
             var intro = document.createElement("div"); intro.className = "st-issue-intro";
             intro.textContent = "Tes séances gardent le nom et le chemin que les exercices avaient le jour où tu les as faites. Dans ces cas, je préfère te demander plutôt que deviner :";
             rv.appendChild(intro);
@@ -10468,28 +10693,27 @@
                 var tx = document.createElement("div"); tx.className = "st-issue-text";
                 var acts = document.createElement("div"); acts.className = "st-issue-actions";
                 var rules = statsRules();
-                function done(fn) { return function () { fn(); save(); rerender(); }; }
                 if (it.kind === "moved") {
                     tx.textContent = "« " + it.title + " » a changé de chapitre : ses " + it.count + " séance" + (it.count > 1 ? "s" : "") + " (" + gsFmtMin(it.sec) + ") étaient dans « " + it.from.join(" », « ") + " », il est maintenant dans « " + it.to + " ».";
-                    acts.appendChild(btn("Garder l'historique", "btn-ghost", done(function () { rules.resolved[it.key] = "history"; })));
-                    acts.appendChild(btn("Tout compter dans « " + it.to + " »", "btn-accent", done(function () { rules.chapterOf[it.exId] = it.toId; rules.resolved[it.key] = "follow"; })));
+                    acts.appendChild(stBtn("Garder l'historique", "btn-ghost", done(function () { rules.resolved[it.key] = "history"; })));
+                    acts.appendChild(stBtn("Tout compter dans « " + it.to + " »", "btn-accent", done(function () { rules.chapterOf[it.exId] = it.toId; rules.resolved[it.key] = "follow"; })));
                 } else if (it.kind === "recreated") {
                     tx.textContent = "« " + it.title + " » n'existe plus (" + it.count + " séance" + (it.count > 1 ? "s" : "") + ", " + gsFmtMin(it.sec) + "), mais un exercice du même nom existe : « " + it.twinPath + " ».";
-                    acts.appendChild(btn("Garder séparé", "btn-ghost", done(function () { rules.resolved[it.key] = "separate"; })));
-                    acts.appendChild(btn("Regrouper avec cet exercice", "btn-accent", done(function () { rules.alias[it.exId] = it.twinId; })));
+                    acts.appendChild(stBtn("Garder séparé", "btn-ghost", done(function () { rules.resolved[it.key] = "separate"; })));
+                    acts.appendChild(stBtn("Regrouper avec cet exercice", "btn-accent", done(function () { rules.alias[it.exId] = it.twinId; })));
                 } else if (it.kind === "orphan") {
                     tx.textContent = "« " + it.title + " » a été supprimé, et son chapitre d'origine (« " + it.chapterName + " ») aussi (" + it.count + " séance" + (it.count > 1 ? "s" : "") + ", " + gsFmtMin(it.sec) + "). Où le ranger ?";
                     var sel = document.createElement("select"); sel.className = "st-issue-select"; sel.setAttribute("aria-label", "Chapitre");
                     var inst = getActiveInstrument();
                     (inst ? inst.categories : []).forEach(function (c) { var op = document.createElement("option"); op.value = c.id; op.textContent = c.name; sel.appendChild(op); });
                     acts.appendChild(sel);
-                    acts.appendChild(btn("Ranger ici", "btn-accent", done(function () { if (sel.value) rules.chapterOf[it.exId] = sel.value; })));
-                    acts.appendChild(btn("Ne pas compter", "btn-ghost", done(function () { rules.chapterOf[it.exId] = STATS_IGNORE; })));
-                    acts.appendChild(btn("Laisser tel quel", "btn-ghost", done(function () { rules.resolved[it.key] = "keep"; })));
+                    acts.appendChild(stBtn("Ranger ici", "btn-accent", done(function () { if (sel.value) rules.chapterOf[it.exId] = sel.value; })));
+                    acts.appendChild(stBtn("Ne pas compter", "btn-ghost", done(function () { rules.chapterOf[it.exId] = STATS_IGNORE; })));
+                    acts.appendChild(stBtn("Laisser tel quel", "btn-ghost", done(function () { rules.resolved[it.key] = "keep"; })));
                 } else if (it.kind === "dup") {
                     tx.textContent = "Cet exercice existe en " + it.ids.length + " exemplaires, tous travaillés : " + it.paths.join(" et ") + ". Même exercice pour les statistiques ?";
-                    acts.appendChild(btn("Garder séparés", "btn-ghost", done(function () { rules.resolved[it.key] = "separate"; })));
-                    acts.appendChild(btn("Regrouper", "btn-accent", done(function () { it.ids.slice(1).forEach(function (id) { rules.alias[id] = it.ids[0]; }); })));
+                    acts.appendChild(stBtn("Garder séparés", "btn-ghost", done(function () { rules.resolved[it.key] = "separate"; })));
+                    acts.appendChild(stBtn("Regrouper", "btn-accent", done(function () { it.ids.slice(1).forEach(function (id) { rules.alias[id] = it.ids[0]; }); })));
                 }
                 card.appendChild(tx); card.appendChild(acts); rv.appendChild(card);
             });
@@ -10499,124 +10723,142 @@
                 var bulk = document.createElement("div"); bulk.className = "st-issue-bulk";
                 var bl = document.createElement("span"); bl.textContent = "Pour les " + movedAll.length + " exercices déplacés :";
                 bulk.appendChild(bl);
-                bulk.appendChild(btn("Tout garder dans l'historique", "btn-ghost", function () { var r = statsRules(); movedAll.forEach(function (i) { r.resolved[i.key] = "history"; }); save(); rerender(); }));
-                bulk.appendChild(btn("Tout compter dans le chapitre actuel", "btn-accent", function () { var r = statsRules(); movedAll.forEach(function (i) { r.chapterOf[i.exId] = i.toId; r.resolved[i.key] = "follow"; }); save(); rerender(); }));
+                bulk.appendChild(stBtn("Tout garder dans l'historique", "btn-ghost", done(function () { var r = statsRules(); movedAll.forEach(function (i) { r.resolved[i.key] = "history"; }); })));
+                bulk.appendChild(stBtn("Tout compter dans le chapitre actuel", "btn-accent", done(function () { var r = statsRules(); movedAll.forEach(function (i) { r.chapterOf[i.exId] = i.toId; r.resolved[i.key] = "follow"; }); })));
                 rv.appendChild(bulk);
             }
         }
 
-        if (!st.sessions) {
-            var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Pas encore de session enregistrée sur cette période. Les statistiques se remplissent au fil des sessions que tu enregistres (10 min minimum).";
-            box.appendChild(none);
-        }
-        // --- Chiffres clés
-        var tiles = document.createElement("div"); tiles.className = "st-tiles";
-        [["Temps total", gsFmtMin(st.totalSec), true], ["Sessions", String(st.sessions)], ["Jours pratiqués", st.activeDays + " / " + st.periodDays],
-         ["Moyenne / semaine", gsFmtMin(st.avgPerWeekSec), true], ["Durée moyenne", st.sessions ? gsFmtMin(st.avgSessionSec) : "–"],
-         ["Série en cours", st.streak + " j", true], ["Record de série", st.bestStreak + " j"], ["Réel / prévu", st.ratio === null ? "–" : Math.round(st.ratio * 100) + " %"]]
-            .forEach(function (t) {
-                var el = document.createElement("div"); el.className = "st-tile" + (t[2] ? " st-tile-hi" : "");
-                var v = document.createElement("div"); v.className = "st-tile-v"; v.textContent = t[1];
-                var l = document.createElement("div"); l.className = "st-tile-l"; l.textContent = t[0];
-                el.appendChild(v); el.appendChild(l); tiles.appendChild(el);
-            });
-        var s0 = section("Chiffres clés"); s0.appendChild(tiles);
-        // détail gardé en lignes (lisible aussi sans graphique)
-        var s1 = section("Temps de pratique");
-        row(s1, "Sessions enregistrées", String(st.sessions));
-        row(s1, "Total", gsFmtMin(st.totalSec));
-        row(s1, "Moyenne par jour (période entière)", gsFmtMin(st.totalSec / st.periodDays));
-        row(s1, "Moyenne par semaine", gsFmtMin(st.avgPerWeekSec));
-        row(s1, "Jours pratiqués", st.activeDays + " / " + st.periodDays);
-        // --- Temps par jour / semaine / mois
-        if (st.sessions) {
-            var sb = section("Temps de pratique dans le temps");
-            var bk = statsBuckets(st.recs, days, now, log.length ? log[0].date : 0);
-            var wrap = document.createElement("div"); wrap.className = "st-chart-wrap"; wrap.appendChild(statsBarChart(bk)); sb.appendChild(wrap);
-            var cap = document.createElement("div"); cap.className = "st-caption"; cap.textContent = "Par " + (bk.mode === "day" ? "jour" : bk.mode === "week" ? "semaine (lundi)" : "mois") + " · vert clair : période en cours · pointillé : moyenne · survole une barre pour le détail"; sb.appendChild(cap);
-        }
-        // --- Répartition par chapitre
-        if (st.chapters.length) {
-            var s2 = section("Répartition par type d'exercices");
-            var stack = document.createElement("div"); stack.className = "st-stack";
-            st.chapters.forEach(function (c, i) {
-                var seg = document.createElement("span"); seg.className = "st-seg" + (i === 0 ? " st-seg-hi" : ""); seg.style.width = Math.max(1, c.pct) + "%";
-                if (i > 0) seg.style.background = "color-mix(in srgb, var(--st-data) " + Math.max(26, 74 - i * 13) + "%, var(--card-bg-2))";
-                seg.title = c.name + " : " + c.pct + " %";
-                stack.appendChild(seg);
-            });
-            s2.appendChild(stack);
-            st.chapters.forEach(function (c, i) { row(s2, c.name, c.pct + " % · " + gsFmtMin(c.sec), c.pct, i === 0); });
-        }
-        // --- Carte de l'année
-        if (log.length) {
-            var sh = section("Régularité sur 12 mois");
-            var hw = document.createElement("div"); hw.className = "st-chart-wrap st-heat-wrap"; hw.appendChild(statsHeatmap(st.dayMap, now)); sh.appendChild(hw);
-            var hc = document.createElement("div"); hc.className = "st-caption st-legend";
-            hc.innerHTML = '<span>moins</span><i class="st-sw st-sw0"></i><i class="st-sw st-sw1"></i><i class="st-sw st-sw2"></i><i class="st-sw st-sw3"></i><i class="st-sw st-sw4"></i><span>plus (vert clair : les journées les plus longues)</span>';
-            sh.appendChild(hc);
-        }
-        if (st.top.length) {
-            var s3 = section("Les plus travaillés");
-            st.top.slice(0, 5).forEach(function (x, i) { row(s3, x.title, gsFmtMin(x.sec) + " · " + x.count + "×", undefined, i === 0); });
-        }
-        if (st.favorites.length) {
-            var s4 = section("Mes favoris ★");
-            st.favorites.slice(0, 8).forEach(function (x) { row(s4, x.title, x.count ? gsFmtMin(x.sec) + " · " + gsFmtAgo(x.last, now) : "pas travaillé (" + gsFmtAgo(x.last, now) + ")"); });
-        }
-        var s5 = section("Exercices sous-utilisés");
-        if (!st.underused.length) { var ok = document.createElement("div"); ok.className = "gs-empty"; ok.textContent = "Tous tes exercices ont été travaillés sur cette période."; s5.appendChild(ok); }
-        st.underused.slice(0, 8).forEach(function (x) { row(s5, x.title, x.last ? "dernier passage " + gsFmtAgo(x.last, now) : "jamais travaillé"); });
-        if (st.underused.length > 8) { var more = document.createElement("div"); more.className = "gs-empty"; more.textContent = "… et " + (st.underused.length - 8) + " autres"; s5.appendChild(more); }
-        // --- Progression du tempo : graphique d'un exercice au choix + liste
-        if (st.progress.length) {
-            var s6 = section("Progression du tempo");
-            var multi = st.progress.filter(function (x) { return x.pts.length >= 2; });
-            if (multi.length) {
-                var pick = document.createElement("select"); pick.className = "st-tempo-pick"; pick.setAttribute("aria-label", "Exercice");
-                multi.forEach(function (x, i) { var op = document.createElement("option"); op.value = String(i); op.textContent = x.title + " (" + x.pts.length + " séances)"; pick.appendChild(op); });
-                var tw = document.createElement("div"); tw.className = "st-chart-wrap";
-                var tcap = document.createElement("div"); tcap.className = "st-caption";
-                function drawTempo() {
-                    var x = multi[parseInt(pick.value, 10) || 0];
-                    tw.innerHTML = ""; tw.appendChild(statsTempoChart(x.pts));
-                    tcap.textContent = x.from + " → " + x.to + " BPM" + (x.delta ? " (" + (x.delta > 0 ? "+" : "") + x.delta + ")" : "") + " · meilleur tempo de chaque séance";
-                }
-                pick.addEventListener("change", drawTempo);
-                s6.appendChild(pick); s6.appendChild(tw); s6.appendChild(tcap); drawTempo();
+        // ============ TEMPS ============
+        function tabTime() {
+            var s1 = stSection(box, "Temps de pratique");
+            stRow(s1, "Sessions enregistrées", String(st.sessions));
+            stRow(s1, "Total", gsFmtMin(st.totalSec));
+            stRow(s1, "Moyenne par jour (période entière)", gsFmtMin(st.totalSec / st.periodDays));
+            stRow(s1, "Moyenne par semaine", gsFmtMin(st.avgPerWeekSec));
+            stRow(s1, "Jours pratiqués", st.activeDays + " / " + st.periodDays);
+            if (log.length) {
+                var sh = stSection(box, "Régularité sur 12 mois");
+                var hw = document.createElement("div"); hw.className = "st-chart-wrap st-heat-wrap"; hw.appendChild(statsHeatmap(st.dayMap, now)); sh.appendChild(hw);
+                var hc = document.createElement("div"); hc.className = "st-caption st-legend";
+                hc.innerHTML = '<span>moins</span><i class="st-sw st-sw0"></i><i class="st-sw st-sw1"></i><i class="st-sw st-sw2"></i><i class="st-sw st-sw3"></i><i class="st-sw st-sw4"></i><span>plus (vert clair : les journées les plus longues)</span>';
+                sh.appendChild(hc);
             }
-            var shown = st.progress.slice(0, 8), bestGain = 0;
-            shown.forEach(function (x) { if (x.delta > bestGain) bestGain = x.delta; });
-            shown.forEach(function (x) {
-                var r = row(s6, x.title, x.from + " → " + x.to + " BPM" + (x.delta ? " (" + (x.delta > 0 ? "+" : "") + x.delta + ")" : ""), undefined, bestGain > 0 && x.delta === bestGain); // meilleur gain en vert clair
-                var sp = document.createElement("span"); sp.className = "gs-stat-spark"; sp.innerHTML = gsStatsSparkline(x.pts); r.insertBefore(sp, r.lastChild);
+            var withPlan = st.recs.filter(function (r) { return r.plannedSec; }).slice(-10).reverse();
+            if (withPlan.length) {
+                var s7 = stSection(box, "Réel contre prévu");
+                var scale = 1; withPlan.forEach(function (r) { scale = Math.max(scale, r.plannedSec, r.totalSec || 0); });
+                withPlan.forEach(function (r, idx) {
+                    var line = document.createElement("div"); line.className = "st-pair" + (idx === 0 ? " st-pair-ok" : ""); // dernière séance en vert clair
+                    var lb = document.createElement("span"); lb.className = "st-pair-l"; lb.textContent = statsShortDate(r.date) + " · " + r.name;
+                    var tr = document.createElement("span"); tr.className = "st-pair-track";
+                    var real = document.createElement("span"); real.className = "st-pair-real"; real.style.width = Math.round((r.totalSec || 0) / scale * 100) + "%";
+                    var mk = document.createElement("span"); mk.className = "st-pair-plan"; mk.style.left = Math.round(r.plannedSec / scale * 100) + "%"; mk.title = "prévu : " + gsFmtMin(r.plannedSec);
+                    tr.appendChild(real); tr.appendChild(mk);
+                    var tx = document.createElement("span"); tx.className = "st-pair-r"; tx.textContent = gsFmtMin(r.totalSec || 0) + " / " + gsFmtMin(r.plannedSec) + " · " + Math.round((r.totalSec || 0) / r.plannedSec * 100) + " %";
+                    line.appendChild(lb); line.appendChild(tr); line.appendChild(tx); s7.appendChild(line);
+                });
+                var pc = document.createElement("div"); pc.className = "st-caption"; pc.textContent = "Barre = temps réel (vert clair : dernière séance) · trait = temps prévu"; s7.appendChild(pc);
+            }
+        }
+
+        // ============ RÉPARTITION ============
+        function tabSplit() {
+            var s2 = stSection(box, "Dossiers principaux");
+            s2.appendChild(statsPie(st.chapters.map(function (c) { return { key: c.key, name: c.name, sec: c.sec }; })));
+            var chapterNames = {}; st.chapters.forEach(function (c) { chapterNames[c.key] = c.name; });
+            if (statsSubChapter && !chapterNames[statsSubChapter]) statsSubChapter = "";
+            var pick = document.createElement("select"); pick.className = "st-sub-pick"; pick.setAttribute("aria-label", "Chapitre");
+            var o0 = document.createElement("option"); o0.value = ""; o0.textContent = "Tous les dossiers principaux"; pick.appendChild(o0);
+            st.chapters.forEach(function (c) { var op = document.createElement("option"); op.value = c.key; op.textContent = c.name; if (statsSubChapter === c.key) op.selected = true; pick.appendChild(op); });
+            pick.addEventListener("change", function () { statsSubChapter = pick.value; rerender(); });
+            var s2b = stSection(box, "Premiers sous-dossiers");
+            s2b.appendChild(pick);
+            s2b.appendChild(statsPie(statsSubSplit(rws, statsSubChapter), function (it) { return it.chapter && !statsSubChapter ? it.chapter : ""; }));
+            if (st.top.length) {
+                var s3 = stSection(box, "Les plus travaillés");
+                st.top.slice(0, 5).forEach(function (x, i) { stRow(s3, x.title, gsFmtMin(x.sec) + " · " + x.count + "×", undefined, i === 0); });
+            }
+            if (st.favorites.length) {
+                var s4 = stSection(box, "Mes favoris ★");
+                st.favorites.slice(0, 8).forEach(function (x) { stRow(s4, x.title, x.count ? gsFmtMin(x.sec) + " · " + gsFmtAgo(x.last, now) : "pas travaillé (" + gsFmtAgo(x.last, now) + ")"); });
+            }
+            var s5 = stSection(box, "Exercices sous-utilisés");
+            if (!st.underused.length) { var ok = document.createElement("div"); ok.className = "gs-empty"; ok.textContent = "Tous tes exercices ont été travaillés sur cette période."; s5.appendChild(ok); }
+            st.underused.slice(0, 8).forEach(function (x) { stRow(s5, x.title, x.last ? "dernier passage " + gsFmtAgo(x.last, now) : "jamais travaillé"); });
+            if (st.underused.length > 8) { var more = document.createElement("div"); more.className = "gs-empty"; more.textContent = "… et " + (st.underused.length - 8) + " autres"; s5.appendChild(more); }
+            var sp2 = stSection(box, "Exercices déplacés");
+            var prow = document.createElement("label"); prow.className = "st-policy";
+            var pl = document.createElement("span"); pl.textContent = "Quand un exercice change de chapitre :";
+            var ps = document.createElement("select"); ps.className = "st-policy-sel"; ps.setAttribute("aria-label", "Exercice déplacé");
+            [["ask", "me demander"], ["history", "garder l'historique là où il était"], ["follow", "suivre l'exercice partout"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if (statsRules().movePolicy === o[0]) op.selected = true; ps.appendChild(op); });
+            ps.addEventListener("change", function () { statsRules().movePolicy = ps.value; save(); rerender(); });
+            prow.appendChild(pl); prow.appendChild(ps); sp2.appendChild(prow);
+        }
+
+        // ============ EXERCICES : analyse, alertes, conseils, progression du tempo ============
+        function tabExercises() {
+            if (!exList.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Aucun exercice travaillé sur cette période."; box.appendChild(none); return; }
+            var head = document.createElement("div"); head.className = "st-ex-head-bar";
+            var info = document.createElement("span"); info.className = "st-ex-info";
+            info.textContent = exList.length + " exercice" + (exList.length > 1 ? "s" : "") + " analysé" + (exList.length > 1 ? "s" : "") + " · " + (warnCount ? warnCount + " à surveiller" : "rien d'inquiétant");
+            var chips = document.createElement("span"); chips.className = "st-ex-chips";
+            [["all", "Tous"], ["alerts", "À surveiller"]].forEach(function (c) {
+                var b = stBtn(c[1], "cal-pick-chip" + (statsExFilter === c[0] ? " active" : ""), function () { statsExFilter = c[0]; rerender(); }); chips.appendChild(b);
+            });
+            var sort = document.createElement("select"); sort.className = "st-ex-sort"; sort.setAttribute("aria-label", "Trier");
+            [["alerts", "À surveiller d'abord"], ["time", "Plus travaillés"], ["gain", "Meilleure progression du tempo"], ["idle", "Moins récents d'abord"], ["name", "Ordre alphabétique"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if (statsExSort === o[0]) op.selected = true; sort.appendChild(op); });
+            sort.addEventListener("change", function () { statsExSort = sort.value; rerender(); });
+            head.appendChild(info); head.appendChild(chips); head.appendChild(sort); box.appendChild(head);
+            var list = exList.filter(function (o) { return statsExFilter === "all" || o.warn > 0; });
+            var cmp = { alerts: function (a, b) { return b.warn - a.warn || b.alerts.length - a.alerts.length || b.sec - a.sec; }, time: function (a, b) { return b.sec - a.sec; }, gain: function (a, b) { return b.delta - a.delta || b.sec - a.sec; }, idle: function (a, b) { return a.last - b.last; }, name: function (a, b) { return a.title.localeCompare(b.title, "fr", { sensitivity: "base" }); } }[statsExSort] || function () { return 0; };
+            list.sort(cmp);
+            if (!list.length) { var ok = document.createElement("div"); ok.className = "gs-empty"; ok.textContent = "Aucun exercice à surveiller sur cette période."; box.appendChild(ok); }
+            list.forEach(function (o) {
+                var open = !!statsExOpen[o.key];
+                var card = document.createElement("div"); card.className = "st-ex" + (open ? " open" : "") + (o.warn ? " st-ex-warn" : ""); card.dataset.key = o.key;
+                var hd = document.createElement("button"); hd.type = "button"; hd.className = "st-ex-row"; hd.setAttribute("aria-expanded", open ? "true" : "false");
+                var nm = document.createElement("span"); nm.className = "st-ex-name"; nm.textContent = o.title;
+                var ch = document.createElement("small"); ch.textContent = o.chapterName; nm.appendChild(ch);
+                var meta = document.createElement("span"); meta.className = "st-ex-meta"; meta.textContent = o.n + " séance" + (o.n > 1 ? "s" : "") + " · " + gsFmtMin(o.sec);
+                var dur = document.createElement("span"); dur.className = "st-ex-dur";
+                dur.textContent = o.plannedN ? Math.round(o.avgSec / 60) + " / " + Math.round(o.avgPlannedSec / 60) + " min" + (o.ratio !== null ? " · " + Math.round(o.ratio * 100) + " %" : "") : Math.round(o.avgSec / 60) + " min en moyenne";
+                dur.title = "Durée moyenne réelle / durée moyenne prévue";
+                var tp = document.createElement("span"); tp.className = "st-ex-tempo";
+                if (o.pts.length) {
+                    var tt = document.createElement("span"); tt.className = o.delta > 0 ? "st-ex-gain" : ""; tt.textContent = o.from + " → " + o.to + " BPM" + (o.delta ? " (" + (o.delta > 0 ? "+" : "") + o.delta + ")" : "");
+                    tp.appendChild(tt);
+                    if (o.pts.length >= 2) { var sp = document.createElement("span"); sp.className = "gs-stat-spark"; sp.innerHTML = gsStatsSparkline(o.pts); tp.appendChild(sp); }
+                } else tp.textContent = "–";
+                var bd = document.createElement("span"); bd.className = "st-ex-badges";
+                if (o.alerts.length) { var b1 = document.createElement("span"); b1.className = "gs-tab-count" + (o.warn ? " st-issue-count" : ""); b1.textContent = String(o.alerts.length); b1.title = o.alerts.length + " alerte(s)"; bd.appendChild(b1); }
+                hd.appendChild(nm); hd.appendChild(meta); hd.appendChild(dur); hd.appendChild(tp); hd.appendChild(bd);
+                hd.addEventListener("click", function () { statsExOpen[o.key] = !statsExOpen[o.key]; rerender(); });
+                card.appendChild(hd);
+                if (open) {
+                    var body = document.createElement("div"); body.className = "st-ex-body";
+                    if (o.alerts.length) {
+                        o.alerts.forEach(function (a) {
+                            var al = document.createElement("div"); al.className = "st-alert st-alert-" + a.level;
+                            var at = document.createElement("div"); at.className = "st-alert-text"; at.textContent = (a.level === "warn" ? "⚠ " : "ℹ ") + a.text;
+                            var av = document.createElement("div"); av.className = "st-alert-advice"; av.textContent = "Conseil : " + a.advice;
+                            al.appendChild(at); al.appendChild(av); body.appendChild(al);
+                        });
+                    } else { var fine = document.createElement("div"); fine.className = "st-ex-fine"; fine.textContent = "Rien à signaler : durées et tempo sont réguliers."; body.appendChild(fine); }
+                    if (o.pts.length >= 2) {
+                        var t1 = document.createElement("div"); t1.className = "st-sub-title"; t1.textContent = "Progression du tempo (meilleur BPM de chaque séance)"; body.appendChild(t1);
+                        var tw = document.createElement("div"); tw.className = "st-chart-wrap"; tw.appendChild(statsTempoChart(o.pts)); body.appendChild(tw);
+                    }
+                    var t2 = document.createElement("div"); t2.className = "st-sub-title"; t2.textContent = "Durée réelle de chaque séance" + (o.plannedN ? " (trait = durée prévue)" : ""); body.appendChild(t2);
+                    var dw = document.createElement("div"); dw.className = "st-chart-wrap"; dw.appendChild(statsDurationChart(o.rows.map(function (r) { return { date: r.date, sec: r.sec, plannedSec: r.plannedSec }; }))); body.appendChild(dw);
+                    card.appendChild(body);
+                }
+                box.appendChild(card);
             });
         }
-        // --- Réel contre prévu (dernières séances)
-        var withPlan = st.recs.filter(function (r) { return r.plannedSec; }).slice(-10).reverse();
-        if (withPlan.length) {
-            var s7 = section("Réel contre prévu");
-            var scale = 1; withPlan.forEach(function (r) { scale = Math.max(scale, r.plannedSec, r.totalSec || 0); });
-            withPlan.forEach(function (r, idx) {
-                var line = document.createElement("div"); line.className = "st-pair" + (idx === 0 ? " st-pair-ok" : ""); // dernière séance en vert clair
-                var lb = document.createElement("span"); lb.className = "st-pair-l"; lb.textContent = statsShortDate(r.date) + " · " + r.name;
-                var tr = document.createElement("span"); tr.className = "st-pair-track";
-                var real = document.createElement("span"); real.className = "st-pair-real"; real.style.width = Math.round((r.totalSec || 0) / scale * 100) + "%";
-                var mk = document.createElement("span"); mk.className = "st-pair-plan"; mk.style.left = Math.round(r.plannedSec / scale * 100) + "%"; mk.title = "prévu : " + gsFmtMin(r.plannedSec);
-                tr.appendChild(real); tr.appendChild(mk);
-                var tx = document.createElement("span"); tx.className = "st-pair-r"; tx.textContent = gsFmtMin(r.totalSec || 0) + " / " + gsFmtMin(r.plannedSec) + " · " + Math.round((r.totalSec || 0) / r.plannedSec * 100) + " %";
-                line.appendChild(lb); line.appendChild(tr); line.appendChild(tx); s7.appendChild(line);
-            });
-            var pc = document.createElement("div"); pc.className = "st-caption"; pc.textContent = "Barre = temps réel (vert clair : dernière séance) · trait = temps prévu"; s7.appendChild(pc);
-        }
-        // --- Réglage : exercice déplacé
-        var sp2 = section("Exercices déplacés");
-        var prow = document.createElement("label"); prow.className = "st-policy";
-        var pl = document.createElement("span"); pl.textContent = "Quand un exercice change de chapitre :";
-        var ps = document.createElement("select"); ps.className = "st-policy-sel"; ps.setAttribute("aria-label", "Exercice déplacé");
-        [["ask", "me demander"], ["history", "garder l'historique là où il était"], ["follow", "suivre l'exercice partout"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if (statsRules().movePolicy === o[0]) op.selected = true; ps.appendChild(op); });
-        ps.addEventListener("change", function () { statsRules().movePolicy = ps.value; save(); rerender(); });
-        prow.appendChild(pl); prow.appendChild(ps); sp2.appendChild(prow);
+
+        ({ overview: tabOverview, time: tabTime, split: tabSplit, ex: tabExercises }[statsTab] || tabOverview)();
+        requestAnimationFrame(function () { clampPanelToViewport(box.closest(".backups-panel")); });
     }
 
     // Historique : séances enregistrées (de la plus récente à la plus ancienne) et statistiques.
@@ -10631,7 +10873,7 @@
             var tabLog = document.createElement("button"); tabLog.type = "button"; tabLog.className = "gs-hist-tab"; tabLog.textContent = "Séances";
             var tabStats = document.createElement("button"); tabStats.type = "button"; tabStats.className = "gs-hist-tab"; tabStats.textContent = "Statistiques";
             var period = document.createElement("select"); period.className = "gs-hist-period"; period.setAttribute("aria-label", "Période");
-            [["7", "7 jours"], ["28", "28 jours"], ["90", "90 jours"], ["0", "Tout"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if (o[0] === "28") op.selected = true; period.appendChild(op); });
+            [["7", "7 jours"], ["28", "28 jours"], ["90", "90 jours"], ["m0", "Ce mois"], ["m1", "Mois dernier"], ["y0", "Cette année"], ["y1", "Année dernière"], ["0", "Tout"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if (o[0] === "28") op.selected = true; period.appendChild(op); });
             tabs.appendChild(tabLog); tabs.appendChild(tabStats); tabs.appendChild(period);
             function markStatsIssues(n) {
                 tabStats.textContent = "Statistiques";
@@ -10648,18 +10890,13 @@
             function fill() {
                 panel.classList.toggle("gs-history-wide", mode === "stats");
                 // le mode Statistiques est plus haut : on rentre la fenêtre dans l'écran (sans écraser une position choisie à la main)
-                requestAnimationFrame(function () {
-                    var top = parseFloat(panel.style.top) || 0, left = parseFloat(panel.style.left) || 0;
-                    var maxTop = Math.max(8, window.innerHeight - panel.offsetHeight - 8), maxLeft = Math.max(8, window.innerWidth - panel.offsetWidth - 8);
-                    if (top > maxTop) panel.style.top = maxTop + "px";
-                    if (left > maxLeft) panel.style.left = maxLeft + "px";
-                });
+                requestAnimationFrame(function () { clampPanelToViewport(panel); });
                 tabLog.classList.toggle("active", mode === "log");
                 tabStats.classList.toggle("active", mode === "stats");
                 period.hidden = mode !== "stats";
                 list.innerHTML = "";
                 if (mode === "stats") {
-                    renderStatsScreen(list, parseInt(period.value, 10), markStatsIssues);
+                    renderStatsScreen(list, period.value, markStatsIssues);
                     return;
                 }
                 var log = myLog().slice().reverse();
