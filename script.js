@@ -1258,7 +1258,10 @@
             var cs = window.getComputedStyle(input);
             exerciseTitleMeasurer.style.font = cs.font;
             exerciseTitleMeasurer.textContent = input.value || input.placeholder || " ";
-            input.style.width = (exerciseTitleMeasurer.offsetWidth + 22) + "px";
+            // Largeur MAXIMALE = celle du texte : le titre n'occupe pas plus que son texte (le reste de la ligne reste
+            // cliquable pour déplier), mais il peut rétrécir (points de suspension) quand la place manque.
+            input.style.width = "";
+            input.style.maxWidth = (exerciseTitleMeasurer.offsetWidth + 22) + "px";
         } catch (e) {}
     }
     function autoSizeAllExerciseTitles() {
@@ -3174,28 +3177,32 @@
         spacer.className = "exercise-row-spacer";
         row.appendChild(spacer);
 
-        appendExerciseLinkButtons(row, ex);
+        // Vignettes et bouton ✕ regroupés : sur un écran étroit, ce groupe passe en bloc sous le titre au lieu de déborder.
+        var tools = document.createElement("div");
+        tools.className = "exercise-row-tools";
+        row.appendChild(tools);
+        appendExerciseLinkButtons(tools, ex);
         if (ex.notes && ex.notes.trim()) {
             var noteMark = document.createElement("span");
             noteMark.className = "exercise-note-mark";
             noteMark.innerHTML = NOTE_BUBBLE_SVG;
             noteMark.title = "Cet exercice a des notes";
-            row.appendChild(noteMark);
+            tools.appendChild(noteMark);
         }
-        appendExerciseImageButton(row, ex);
+        appendExerciseImageButton(tools, ex);
         var tempoChip = buildTempoChip({
             title: ex.title,
             exId: ex.id,
             get: function () { return ex.metronome; },
             set: function (p) { setExerciseMetronome(ex, p); }
         }, false);
-        if (tempoChip) row.appendChild(tempoChip);
+        if (tempoChip) tools.appendChild(tempoChip);
 
         if (ex.archived) {
             var archBadge = document.createElement("span");
             archBadge.className = "exercise-archived-badge";
             archBadge.textContent = "Archivé";
-            row.appendChild(archBadge);
+            tools.appendChild(archBadge);
         }
 
         var delBtn = iconButton("✕", "Supprimer l'exercice", function () {
@@ -3205,7 +3212,7 @@
             save();
             render();
         });
-        row.appendChild(delBtn);
+        tools.appendChild(delBtn);
 
         el.appendChild(row);
 
@@ -8009,6 +8016,11 @@
                     e.preventDefault(); e.stopPropagation();
                     bump();
                     timer = setTimeout(function () { rep = setInterval(bump, 70); }, 420);
+                    // relâché n'importe où (hors du bouton, autre fenêtre…) : la répétition s'arrête toujours
+                    var stopOnce = function () { stop(); window.removeEventListener("pointerup", stopOnce, true); window.removeEventListener("pointercancel", stopOnce, true); window.removeEventListener("blur", stopOnce); };
+                    window.addEventListener("pointerup", stopOnce, true);
+                    window.addEventListener("pointercancel", stopOnce, true);
+                    window.addEventListener("blur", stopOnce);
                 });
                 b.addEventListener("pointerup", stop);
                 b.addEventListener("pointerleave", stop);
