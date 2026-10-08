@@ -165,7 +165,7 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     font-weight: 700;
     font-size: var(--fs-base);
     padding: 7px 10px;
-    min-width: 110px;
+    min-width: 0;
 }
 .top-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-left: auto; }
 .top-actions button.active, .top-actions button.active:hover { border-color: #4dabf7; background: color-mix(in srgb, #4dabf7 30%, transparent); color: #fff; }
@@ -2461,12 +2461,18 @@ button.gs-tab-archive { margin-left: auto; color: var(--text-muted); }
    grille régulière (colonnes égales, pas d'icône orpheline calée n'importe où). */
 @media (max-width: 760px) {
   .top-bar { gap: 8px; }
-  .top-bar .instrument-select-wrap { flex: 1 1 auto; min-width: 0; }
-  .top-bar #instrument-select { flex: 1 1 auto; min-width: 0; width: 100%; }
+  .top-bar .instrument-select-wrap { flex: 0 1 auto; min-width: 0; }
+  .top-bar #instrument-select { flex: 0 1 auto; min-width: 0; }
   .top-bar .account-name { max-width: 90px; }
-  .top-actions { flex: 1 1 100%; margin-left: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 6px; justify-items: stretch; }
-  .top-actions > button { width: 100% !important; justify-content: center; }
-  .top-actions > button.session-btn-highlight { grid-column: span 2; padding: 0 8px; }
+  .top-actions { flex: 1 1 100%; margin-left: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; justify-items: stretch; }
+  .top-actions > button { width: 100% !important; height: 36px !important; padding: 0 !important; margin: 0 !important; justify-content: center; }
+  .top-actions > button.session-btn-highlight { grid-column: auto; padding: 0 !important; }
+  /* Téléphone : outils sur deux lignes, icônes seules, un peu plus petites ; sauvegardes / export / import sont dans les Paramètres */
+  .top-actions button.session-btn-highlight span { display: none; }
+  #backups-btn, #export-btn, #import-btn { display: none; }
+  .top-actions button .icon, .top-actions button.metronome-btn-highlight .icon { width: 18px; height: 18px; }
+  .top-actions button.session-btn-highlight .icon { height: 17px; width: auto; }
+  .top-actions > .free-bar { grid-column: 1 / -1; }
 }
 @media (max-width: 440px) {
   .top-bar .btn-google span { display: none; } /* icône Google seule */
@@ -3083,3 +3089,6 @@ button.metro-mini-btn.metro-prog-presets .icon { width: 15px; height: 15px; }
     mask: radial-gradient(farthest-side, transparent calc(100% - 8px), #000 calc(100% - 7px), #000 calc(100% - 2px), transparent calc(100% - 1px));
 }
 .metro-dial.metro-flash-on > .metro-dial-flash { opacity: 1; }
+
+.settings-data-btn { width: 100%; justify-content: flex-start; text-align: left; }
+.ctx-item-main { font-weight: 700; color: var(--accent); }
