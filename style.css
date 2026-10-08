@@ -2475,3 +2475,20 @@ button.gs-tab-archive { margin-left: auto; color: var(--text-muted); }
 .gs-session-row { min-width: 0; }
 .gs-session-info { flex: 1 1 auto; min-width: 0; }
 .gs-session-name { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Historique / statistiques */
+.gs-history-panel { width: min(560px, 94vw); }
+.gs-history-tabs { display: flex; align-items: center; gap: 6px; margin: 4px 0 10px; flex-wrap: wrap; }
+button.gs-hist-tab { height: 32px; padding: 0 14px; font-size: var(--fs-sm); border-radius: var(--radius-sm); }
+button.gs-hist-tab.active { border-color: var(--accent); color: var(--accent); }
+.gs-hist-period { margin-left: auto; height: 32px; }
+.gs-stat-title { margin: 12px 0 4px; font-size: var(--fs-xs); font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+.gs-stat-block { display: flex; flex-direction: column; gap: 3px; }
+.gs-stat-row { position: relative; display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; font-size: var(--fs-sm); overflow: hidden; background: rgba(255,255,255,.03); }
+.gs-stat-bar { position: absolute; left: 0; top: 0; bottom: 0; background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.gs-stat-l { position: relative; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-stat-r { position: relative; flex: none; color: var(--text-muted); font-variant-numeric: tabular-nums; font-size: var(--fs-xs); }
+.gs-stat-spark { position: relative; flex: none; color: var(--accent); display: inline-flex; }
+.gs-spark { display: block; }
+.note-date-btn { width: 30px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.note-date-btn .icon { width: 15px; height: 15px; }

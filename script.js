@@ -1124,7 +1124,7 @@
     }
 
     var LINK_ICONS = {
-        youtube: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="3"/><path d="M10 9.5v5l4.5-2.5z" fill="currentColor" stroke="none"/></svg>',
+        youtube: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="0.8" y="4" width="22.4" height="16" rx="4.2"/><path d="M9.6 8.2v7.6l6.6-3.8z" fill="currentColor" stroke="none"/></svg>',
         note: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l10-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>',
         pdf: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
         audio: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10v4"/><path d="M7 7v10"/><path d="M11 4v16"/><path d="M15 7v10"/><path d="M19 10v4"/></svg>',
@@ -3409,7 +3409,8 @@
         var b = document.createElement("button");
         b.type = "button";
         b.className = "note-date-btn";
-        b.textContent = "+ date";
+        b.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18"/><path d="M8 3v4M16 3v4"/></svg>';
+        b.setAttribute("aria-label", "Ajouter la date d'aujourd'hui");
         b.title = "Ajouter la date d'aujourd'hui devant la note (jj/mm/aa : )";
         b.addEventListener("mousedown", function (e) { e.preventDefault(); }); // garde le curseur dans la zone
         b.addEventListener("click", function () {
@@ -8733,8 +8734,8 @@
         histBtn.type = "button";
         histBtn.className = "gs-history-btn";
         histBtn.textContent = "Historique";
-        histBtn.title = "Sessions réalisées et enregistrées";
-        histBtn.addEventListener("click", openSessionHistory);
+        histBtn.title = "Sessions réalisées et statistiques d'entraînement";
+        histBtn.addEventListener("click", function () { openSessionHistory(); });
         headActions.appendChild(histBtn);
         if (window.matchMedia && window.matchMedia("(min-width: 880px)").matches) $contentHeading.appendChild(headActions);
         else content.insertBefore(headActions, content.firstChild);
@@ -9197,7 +9198,8 @@
         if (gsAutoAdvanceOn()) { try { ensureMetroAudio(); } catch (e) {} } // le clic de lancement autorise le son du carillon
         gsRunSession = session;
         gsRunStepIndex = 0;
-        gsRunSpent = {}; gsRunCurrentStepId = null; gsRunStartedAt = Date.now();
+        gsRunSpent = {}; gsRunBpm = {}; gsRunCurrentStepId = null; gsRunStartedAt = Date.now();
+        gsTrackBpm(true);
         gsTotalMs = 0; gsTotalStartTs = null;
         gsEnterRunStep();
         gsScreen = "run";
@@ -9206,24 +9208,55 @@
 
     // Temps réellement passé sur chaque exercice (pour l'historique) : cumulé quand on change d'exercice ou qu'on termine.
     var gsRunSpent = {}, gsRunCurrentStepId = null, gsRunStartedAt = 0;
+    var GS_MIN_RECORD_SEC = 600; // en dessous de 10 min de pratique, on ne propose pas d'enregistrer la session
+    // Tempo réellement joué pendant chaque exercice (pour la progression) : alimenté à chaque temps du métronome.
+    var gsRunBpm = {};
+    function gsBpmBeat(stepIdx, isBeat) {
+        if (!gsRunSession || !gsRunCurrentStepId) return;
+        var bpm = state.settings.metronome.bpm;
+        var t = gsRunBpm[gsRunCurrentStepId] || (gsRunBpm[gsRunCurrentStepId] = { first: bpm, max: bpm, end: bpm, playedMs: 0 });
+        if (bpm > t.max) t.max = bpm;
+        t.end = bpm;
+        if (isBeat) t.playedMs += 60000 / bpm;
+    }
+    function gsTrackBpm(on) {
+        metroBeatListeners = metroBeatListeners.filter(function (fn) { return fn !== gsBpmBeat; });
+        if (on) metroBeatListeners.push(gsBpmBeat);
+    }
     function gsAccumulateStep() {
         if (!gsRunSession || !gsRunCurrentStepId) return;
         gsRunSpent[gsRunCurrentStepId] = (gsRunSpent[gsRunCurrentStepId] || 0) + gsRunElapsedNowMs();
         gsRunCurrentStepId = null;
     }
+    // Une entrée d'historique (schéma v2) : de quoi calculer des statistiques plus tard sans rien deviner —
+    // chaque exercice garde son identifiant, son chapitre, le temps réellement passé et le tempo joué.
     function gsBuildRunRecord() {
         if (!gsRunSession) return null;
         gsAccumulateStep();
-        var steps = [], total = 0;
+        var steps = [], total = 0, plannedTotal = 0;
         gsRunSession.steps.forEach(function (st) {
             var ms = gsRunSpent[st.id] || 0;
             if (ms < 3000) return;
             var f = findExerciseById(st.exerciseId);
-            steps.push({ title: f ? f.ex.title : "(exercice supprimé)", plannedMin: st.minutes, actualSec: Math.round(ms / 1000) });
+            var t = gsRunBpm[st.id];
+            steps.push({
+                exerciseId: st.exerciseId,
+                title: f ? f.ex.title : "(exercice supprimé)",
+                chapterId: f ? f.pathIds && f.pathIds[0] : null,
+                chapterName: f ? f.pathNames[0] : null,
+                path: f ? f.pathNames.slice() : [],
+                plannedMin: st.minutes,
+                actualSec: Math.round(ms / 1000),
+                bpmFirst: t && t.playedMs > 0 ? t.first : null,
+                bpmMax: t && t.playedMs > 0 ? t.max : null,
+                bpmEnd: t && t.playedMs > 0 ? t.end : null,
+                playedSec: t ? Math.round(t.playedMs / 1000) : 0
+            });
             total += ms;
+            plannedTotal += st.minutes * 60;
         });
-        if (total < 20000) return null; // moins de 20 s : rien à enregistrer
-        return { id: uid(), sessionId: gsRunSession.id, name: gsRunSession.name, instrumentId: gsRunSession.instrumentId, date: gsRunStartedAt || Date.now(), totalSec: Math.round(total / 1000), steps: steps };
+        if (total < GS_MIN_RECORD_SEC * 1000) return null; // moins de 10 min de pratique : rien à enregistrer
+        return { v: 2, id: uid(), sessionId: gsRunSession.id, name: gsRunSession.name, instrumentId: gsRunSession.instrumentId, date: gsRunStartedAt || Date.now(), endedAt: Date.now(), totalSec: Math.round(total / 1000), plannedSec: plannedTotal, steps: steps };
     }
     function gsFmtDur(sec) { var m = Math.floor(sec / 60), r = sec % 60; return m + " min" + (r ? " " + (r < 10 ? "0" : "") + r + " s" : ""); }
     function gsFmtDate(ts) { var d = new Date(ts); function p2(n) { return (n < 10 ? "0" : "") + n; } return p2(d.getDate()) + "/" + p2(d.getMonth() + 1) + "/" + String(d.getFullYear()).slice(2) + " " + p2(d.getHours()) + ":" + p2(d.getMinutes()); }
@@ -9264,19 +9297,139 @@
             panel.appendChild(actions);
         });
     }
-    // Historique : sessions enregistrées, de la plus récente à la plus ancienne.
-    function openSessionHistory() {
+    // ---------- statistiques d'entraînement (calculées à partir de l'historique) ----------
+    // Fonction pure : prend l'historique et la liste des exercices actuels, ne touche à rien.
+    //   days : période en jours (0 = tout l'historique) ; now : date de référence (ms).
+    function gsComputeStats(log, exercises, days, now) {
+        var DAY = 86400000;
+        function dayKey(ts) { var d = new Date(ts); return d.getFullYear() + "-" + d.getMonth() + "-" + d.getDate(); }
+        var inPeriod = log.filter(function (e) { return !days || e.date >= now - days * DAY; });
+        var totalSec = 0, dayKeys = {}, chapters = {}, byEx = {}, allEx = {}, tempo = {};
+        function bucket(map, key, title) { return map[key] || (map[key] = { key: key, title: title, sec: 0, count: 0, last: 0 }); }
+        log.forEach(function (e) {   // toute la durée de vie : dernier passage de chaque exercice
+            (e.steps || []).forEach(function (st) {
+                var k = st.exerciseId || ("t:" + st.title);
+                var o = bucket(allEx, k, st.title); o.last = Math.max(o.last, e.date);
+                if (st.bpmMax && st.exerciseId) (tempo[st.exerciseId] = tempo[st.exerciseId] || { title: st.title, pts: [] }).pts.push({ date: e.date, bpm: st.bpmMax, end: st.bpmEnd, first: st.bpmFirst });
+            });
+        });
+        inPeriod.forEach(function (e) {
+            totalSec += e.totalSec || 0;
+            dayKeys[dayKey(e.date)] = true;
+            (e.steps || []).forEach(function (st) {
+                var cn = st.chapterName || "Autre";
+                chapters[cn] = (chapters[cn] || 0) + st.actualSec;
+                var k = st.exerciseId || ("t:" + st.title);
+                var o = bucket(byEx, k, st.title); o.sec += st.actualSec; o.count++; o.last = Math.max(o.last, e.date);
+            });
+        });
+        var first = log.length ? Math.min.apply(null, log.map(function (e) { return e.date; })) : now;
+        var periodDays = days || Math.max(1, Math.ceil((now - first) / DAY));
+        var chapterList = Object.keys(chapters).map(function (n) { return { name: n, sec: chapters[n], pct: totalSec ? Math.round(chapters[n] * 100 / totalSec) : 0 }; }).sort(function (a, b) { return b.sec - a.sec; });
+        var top = Object.keys(byEx).map(function (k) { return byEx[k]; }).sort(function (a, b) { return b.sec - a.sec; });
+        var favorites = exercises.filter(function (x) { return x.ex.favorite && !x.ex.archived; }).map(function (x) {
+            var o = byEx[x.ex.id]; return { title: x.ex.title, sec: o ? o.sec : 0, count: o ? o.count : 0, last: (allEx[x.ex.id] || {}).last || 0 };
+        }).sort(function (a, b) { return b.sec - a.sec; });
+        var under = exercises.filter(function (x) { return !x.ex.archived; }).map(function (x) {
+            var o = allEx[x.ex.id]; return { title: x.ex.title, last: o ? o.last : 0, secPeriod: byEx[x.ex.id] ? byEx[x.ex.id].sec : 0, path: x.pathNames.join(" › ") };
+        }).filter(function (x) { return x.secPeriod === 0; }).sort(function (a, b) { return a.last - b.last; });
+        var progress = Object.keys(tempo).map(function (id) {
+            var t = tempo[id]; t.pts.sort(function (a, b) { return a.date - b.date; });
+            return { title: t.title, pts: t.pts, from: t.pts[0].bpm, to: t.pts[t.pts.length - 1].bpm, delta: t.pts[t.pts.length - 1].bpm - t.pts[0].bpm };
+        }).sort(function (a, b) { return b.pts.length - a.pts.length || b.delta - a.delta; });
+        return {
+            sessions: inPeriod.length, totalSec: totalSec, activeDays: Object.keys(dayKeys).length, periodDays: periodDays,
+            avgPerDaySec: totalSec / periodDays, avgPerWeekSec: totalSec / (periodDays / 7),
+            chapters: chapterList, top: top, favorites: favorites, underused: under, progress: progress
+        };
+    }
+    function gsFmtMin(sec) { var m = Math.round(sec / 60); return m >= 60 ? Math.floor(m / 60) + " h " + (m % 60 < 10 ? "0" : "") + (m % 60) : m + " min"; }
+    function gsFmtAgo(ts, now) {
+        if (!ts) return "jamais";
+        var d = Math.floor((now - ts) / 86400000);
+        return d <= 0 ? "aujourd'hui" : d === 1 ? "hier" : "il y a " + d + " j";
+    }
+    function gsStatsSparkline(pts) {
+        var w = 90, h = 24, vals = pts.map(function (p) { return p.bpm; });
+        var mn = Math.min.apply(null, vals), mx = Math.max.apply(null, vals), span = Math.max(1, mx - mn);
+        var d = vals.map(function (v, i) { return (vals.length === 1 ? w / 2 : i * (w - 4) / (vals.length - 1) + 2).toFixed(1) + "," + (h - 3 - (v - mn) * (h - 6) / span).toFixed(1); }).join(" ");
+        return '<svg class="gs-spark" viewBox="0 0 ' + w + " " + h + '" width="' + w + '" height="' + h + '" aria-hidden="true"><polyline points="' + d + '" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+    }
+    function renderSessionStats(box, log, exercises, days) {
+        box.innerHTML = "";
+        var now = Date.now(), st = gsComputeStats(log, exercises, days, now);
+        function section(title) { var h = document.createElement("div"); h.className = "gs-stat-title"; h.textContent = title; box.appendChild(h); var b = document.createElement("div"); b.className = "gs-stat-block"; box.appendChild(b); return b; }
+        function row(parent, left, right, pct) {
+            var r = document.createElement("div"); r.className = "gs-stat-row";
+            if (pct !== undefined) { var bar = document.createElement("span"); bar.className = "gs-stat-bar"; bar.style.width = Math.max(2, pct) + "%"; r.appendChild(bar); }
+            var l = document.createElement("span"); l.className = "gs-stat-l"; l.textContent = left;
+            var v = document.createElement("span"); v.className = "gs-stat-r"; v.textContent = right;
+            r.appendChild(l); r.appendChild(v); parent.appendChild(r); return r;
+        }
+        if (!st.sessions) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Pas encore de session enregistrée sur cette période. Les statistiques se remplissent au fil des sessions que tu enregistres (10 min minimum)."; box.appendChild(none); }
+        var s1 = section("Temps de pratique");
+        row(s1, "Sessions enregistrées", String(st.sessions));
+        row(s1, "Total", gsFmtMin(st.totalSec));
+        row(s1, "Moyenne par jour (période entière)", gsFmtMin(st.avgPerDaySec));
+        row(s1, "Moyenne par semaine", gsFmtMin(st.avgPerWeekSec));
+        row(s1, "Jours pratiqués", st.activeDays + " / " + st.periodDays);
+        if (st.chapters.length) {
+            var s2 = section("Répartition par type d'exercices");
+            st.chapters.forEach(function (c) { row(s2, c.name, c.pct + " % · " + gsFmtMin(c.sec), c.pct); });
+        }
+        if (st.top.length) {
+            var s3 = section("Les plus travaillés");
+            st.top.slice(0, 5).forEach(function (x) { row(s3, x.title, gsFmtMin(x.sec) + " · " + x.count + "×"); });
+        }
+        if (st.favorites.length) {
+            var s4 = section("Mes favoris ★");
+            st.favorites.slice(0, 8).forEach(function (x) { row(s4, x.title, x.count ? gsFmtMin(x.sec) + " · " + gsFmtAgo(x.last, now) : "pas travaillé (" + gsFmtAgo(x.last, now) + ")"); });
+        }
+        var s5 = section("Exercices sous-utilisés");
+        if (!st.underused.length) { var ok = document.createElement("div"); ok.className = "gs-empty"; ok.textContent = "Tous tes exercices ont été travaillés sur cette période."; s5.appendChild(ok); }
+        st.underused.slice(0, 8).forEach(function (x) { row(s5, x.title, x.last ? "dernier passage " + gsFmtAgo(x.last, now) : "jamais travaillé"); });
+        if (st.underused.length > 8) { var more = document.createElement("div"); more.className = "gs-empty"; more.textContent = "… et " + (st.underused.length - 8) + " autres"; s5.appendChild(more); }
+        if (st.progress.length) {
+            var s6 = section("Progression du tempo");
+            st.progress.slice(0, 8).forEach(function (x) {
+                var r = row(s6, x.title, x.from + " → " + x.to + " BPM" + (x.delta ? " (" + (x.delta > 0 ? "+" : "") + x.delta + ")" : ""));
+                var sp = document.createElement("span"); sp.className = "gs-stat-spark"; sp.innerHTML = gsStatsSparkline(x.pts); r.insertBefore(sp, r.lastChild);
+            });
+        }
+    }
+
+    // Historique : séances enregistrées (de la plus récente à la plus ancienne) et statistiques.
+    function openSessionHistory(startTab) {
         openModal("gs-history-panel", function (panel, close) {
             var title = document.createElement("div");
             title.className = "backups-title";
             title.textContent = "Historique des sessions";
             panel.appendChild(title);
+            var tabs = document.createElement("div");
+            tabs.className = "gs-history-tabs";
+            var tabLog = document.createElement("button"); tabLog.type = "button"; tabLog.className = "gs-hist-tab"; tabLog.textContent = "Séances";
+            var tabStats = document.createElement("button"); tabStats.type = "button"; tabStats.className = "gs-hist-tab"; tabStats.textContent = "Statistiques";
+            var period = document.createElement("select"); period.className = "gs-hist-period"; period.setAttribute("aria-label", "Période");
+            [["7", "7 jours"], ["28", "28 jours"], ["90", "90 jours"], ["0", "Tout"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if (o[0] === "28") op.selected = true; period.appendChild(op); });
+            tabs.appendChild(tabLog); tabs.appendChild(tabStats); tabs.appendChild(period);
+            panel.appendChild(tabs);
             var list = document.createElement("div");
             list.className = "gs-sync-list gs-history-list";
+            panel.appendChild(list);
+            var mode = startTab === "stats" ? "stats" : "log";
+            function myLog() { return state.settings.sessionLog.filter(function (e) { return !e.instrumentId || e.instrumentId === state.activeInstrumentId; }); }
             function fill() {
+                tabLog.classList.toggle("active", mode === "log");
+                tabStats.classList.toggle("active", mode === "stats");
+                period.hidden = mode !== "stats";
                 list.innerHTML = "";
-                var log = state.settings.sessionLog.filter(function (e) { return !e.instrumentId || e.instrumentId === state.activeInstrumentId; }).slice().reverse();
-                if (!log.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Aucune session enregistrée pour l'instant. À la fin d'une session, on te propose de l'enregistrer."; list.appendChild(none); return; }
+                if (mode === "stats") {
+                    var ex = collectExercises(getActiveInstrument(), function () { return true; });
+                    renderSessionStats(list, myLog(), ex, parseInt(period.value, 10));
+                    return;
+                }
+                var log = myLog().slice().reverse();
+                if (!log.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Aucune session enregistrée pour l'instant. À la fin d'une session d'au moins 10 min, on te propose de l'enregistrer."; list.appendChild(none); return; }
                 log.forEach(function (e) {
                     var box = document.createElement("div");
                     box.className = "gs-history-entry";
@@ -9291,13 +9444,15 @@
                     head.appendChild(nm); head.appendChild(du); head.appendChild(del);
                     var det = document.createElement("div");
                     det.className = "gs-history-steps";
-                    det.textContent = e.steps.map(function (st) { return st.title + " (" + gsFmtDur(st.actualSec) + ")"; }).join(" · ");
+                    det.textContent = e.steps.map(function (st) { return st.title + " (" + gsFmtDur(st.actualSec) + (st.bpmMax ? ", " + (st.bpmFirst && st.bpmFirst !== st.bpmMax ? st.bpmFirst + "→" : "") + st.bpmMax + " BPM" : "") + ")"; }).join(" · ");
                     box.appendChild(head); box.appendChild(det);
                     list.appendChild(box);
                 });
             }
+            tabLog.addEventListener("click", function () { mode = "log"; fill(); });
+            tabStats.addEventListener("click", function () { mode = "stats"; fill(); });
+            period.addEventListener("change", fill);
             fill();
-            panel.appendChild(list);
         });
     }
 
@@ -9352,6 +9507,7 @@
         var runRecord = gsBuildRunRecord();
         if (gsRunInterval) { clearInterval(gsRunInterval); gsRunInterval = null; }
         if (miniWinOpen()) closeMiniWindow();
+        gsTrackBpm(false);
         if (metroLink && metroLink.fromSession) setMetroLink(null);
         gsRunSession = null;
         gsScreen = "list";
