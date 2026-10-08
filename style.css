@@ -173,10 +173,10 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 /* Le métronome est utilisé très souvent : on le distingue visuellement des autres icônes. */
 button.metronome-btn-highlight {
     color: var(--text-dim);
-    border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
-    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    border-color: color-mix(in srgb, #a8d5ba 45%, var(--border));
+    background: transparent;
 }
-button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
+button.metronome-btn-highlight:hover { background: color-mix(in srgb, #a8d5ba 9%, transparent); }
 .metronome-btn-highlight .icon { width: 22px; height: 22px; }
 /* La session guidée mérite la même mise en avant que le métronome (juste à côté) plutôt que de se
    fondre parmi les icônes simples : texte + icône, plus large qu'un bouton carré. */
@@ -188,12 +188,12 @@ button.session-btn-highlight {
     height: 36px;
     box-sizing: border-box;
     color: var(--text-dim);
-    border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
-    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    border-color: color-mix(in srgb, #a8d5ba 45%, var(--border));
+    background: transparent;
     font-weight: 700;
     font-size: var(--fs-sm);
 }
-button.session-btn-highlight:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
+button.session-btn-highlight:hover { background: color-mix(in srgb, #a8d5ba 9%, transparent); }
 
 /* ---------- auth / synchro ---------- */
 .auth-area { display: flex; align-items: center; }
@@ -3052,3 +3052,24 @@ button.free-btn.free-on { border-color: color-mix(in srgb, var(--eph) 55%, var(-
 button.metro-mini-btn.metro-prog-return { width: 28px; min-width: 0; height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
 button.metro-mini-btn.metro-prog-return .icon { width: 15px; height: 15px; }
 button.metro-mini-btn.metro-prog-add { width: 100%; min-width: 0; height: 26px; padding: 0; font-size: var(--fs-lg); line-height: 1; }
+
+/* Métronome, Session et Libre : un groupe à part dans la barre d'outils, un léger encadré vert pâle */
+@media (min-width: 761px) { #metronome-btn { margin-left: 8px; } #free-btn { margin-right: 8px; } }
+.settings-field .settings-sound-play { width: 36px; height: 36px; padding: 0; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; }
+.settings-field .settings-sound-play .icon { width: 14px; height: 14px; }
+
+/* Tempo progressif : bas du tableau (ajouter un palier, réglages enregistrés) et fenêtre des réglages enregistrés */
+.metro-prog-foot { display: flex; gap: 4px; }
+.metro-prog-foot button.metro-prog-add { flex: 1 1 auto; width: auto; }
+button.metro-mini-btn.metro-prog-presets { width: 34px; min-width: 0; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+button.metro-mini-btn.metro-prog-presets .icon { width: 15px; height: 15px; }
+.metro-presets-pop { min-width: 250px; max-width: min(340px, calc(100vw - 24px)); display: flex; flex-direction: column; gap: 4px; padding: 8px; }
+.metro-preset-row { display: flex; align-items: center; gap: 4px; }
+.metro-preset-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 6px 10px; text-align: left; background: var(--card-bg-2); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--text-main); }
+.metro-preset-main:hover { border-color: var(--accent); }
+.metro-preset-name { font-size: var(--fs-sm); font-weight: 700; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.metro-preset-sum { font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.metro-preset-input { flex: 1 1 auto; min-width: 0; height: 40px; box-sizing: border-box; padding: 0 10px; font: inherit; font-weight: 700; }
+.metro-preset-row .icon-btn, .metro-preset-row > button:not(.metro-preset-main) { width: 30px; height: 30px; padding: 0; flex: 0 0 auto; }
+.metro-preset-add { margin-top: 2px; padding: 8px 10px; font: inherit; font-size: var(--fs-sm); font-weight: 700; text-align: left; color: var(--accent); background: transparent; border: 1px dashed var(--border); border-radius: var(--radius-sm); cursor: pointer; }
+.metro-preset-add:hover { border-color: var(--accent); }
