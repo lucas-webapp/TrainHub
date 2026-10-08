@@ -7671,7 +7671,10 @@
                 presetsBtn.setAttribute("aria-label", "Réglages de tempo progressif enregistrés");
                 presetsBtn.addEventListener("click", function () { openProgPresets(presetsBtn); });
                 foot.appendChild(presetsBtn);
-                progSide.appendChild(foot);
+                // Pied du tableau : il couvre exactement les colonnes des cases du dessus (délai + seuil, et « × » en mode paliers).
+                var tfoot = document.createElement("tfoot"), fr = document.createElement("tr"), fc = document.createElement("td");
+                fc.colSpan = p.stagesMode ? 3 : 2;
+                fc.appendChild(foot); fr.appendChild(fc); tfoot.appendChild(fr); tbl.appendChild(tfoot);
                 refreshProgStatus();
             }
 

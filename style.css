@@ -3092,3 +3092,14 @@ button.metro-mini-btn.metro-prog-presets .icon { width: 15px; height: 15px; }
 
 .settings-data-btn { width: 100%; justify-content: flex-start; text-align: left; }
 .ctx-item-main { font-weight: 700; color: var(--accent); }
+
+/* Tempo progressif : le bas du tableau (+ et réglages enregistrés) s'aligne sur les cases au-dessus (même marge que les cellules) */
+table.metro-prog-table tfoot td { width: auto; padding-top: 4px; }
+.metro-prog-foot { margin: 0; }
+/* Interrupteurs (progressif, retour au tempo de départ) : allumé = vert plein et teinté ; éteint reste gris, même survolé
+   ou « collant » après un appui tactile — l'ancien survol vert ressemblait à l'état allumé. */
+button.metro-mini-btn.metro-prog-return:hover:not(.metro-progressive-active),
+button.metro-mini-btn.metro-progressive-toggle:hover:not(.metro-progressive-active) { border-color: var(--text-muted); color: var(--text-main); }
+button.metro-mini-btn.metro-prog-return.metro-progressive-active,
+button.metro-mini-btn.metro-progressive-toggle.metro-progressive-active { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+@media (hover: none) { button.metro-mini-btn:hover:not(.metro-progressive-active) { border-color: var(--border); color: var(--text-main); } }
