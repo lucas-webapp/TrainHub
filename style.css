@@ -2923,3 +2923,25 @@ body.ex-selecting .toast, body.sess-selecting .toast { bottom: calc(84px + env(s
 .quickfind-go { flex: none; }
 .quickfind-more { font-size: var(--fs-xs); color: var(--text-muted); padding: 2px 12px 6px; }
 .quickfind-hint { font-size: var(--fs-xs); color: var(--text-muted); margin-top: 8px; line-height: 1.4; }
+
+/* ---------- sessions éphémères (calendrier) ---------- */
+.cal-pick-new { display: block; width: 100%; box-sizing: border-box; margin: 2px 0 8px; padding: 8px 10px; font: inherit; font-size: var(--fs-sm); font-weight: 700; text-align: left; color: var(--eph); background: color-mix(in srgb, var(--eph) 12%, transparent); border: 1px solid color-mix(in srgb, var(--eph) 50%, var(--border)); border-radius: var(--radius-sm); cursor: pointer; }
+.cal-pick-new:hover { background: color-mix(in srgb, var(--eph) 22%, transparent); }
+.cal-item-eph { font-size: var(--fs-xs); color: var(--eph); font-weight: 600; white-space: nowrap; }
+.gs-ephemeral-banner { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; margin-bottom: 10px; border: 1px dashed color-mix(in srgb, var(--eph) 55%, var(--border)); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--eph) 8%, transparent); }
+.gs-ephemeral-title { font-weight: 700; font-size: var(--fs-lg, 1.05rem); }
+.gs-ephemeral-sub { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.4; }
+.gs-ephemeral-keep { align-self: flex-start; margin-top: 4px; font-size: var(--fs-sm); padding: 5px 10px; }
+
+/* sessions éphémères : violet clair, pour les distinguer du vert des sessions ordinaires */
+:root { --eph: #b9a2f2; }
+.cal-chip-plan.cal-chip-eph { background: color-mix(in srgb, var(--eph) 40%, transparent); }
+.cal-chip-done.cal-chip-eph { background: color-mix(in srgb, var(--eph) 14%, transparent); }
+.cal-chip-done.cal-chip-eph:hover { background: color-mix(in srgb, var(--eph) 24%, transparent); }
+.cal-dot-plan.cal-dot-eph { background: var(--eph); }
+.cal-dot-done.cal-dot-eph { background: color-mix(in srgb, var(--eph) 45%, var(--card-bg-2)); }
+.cal-item-plan.cal-item-eph-row { border-color: color-mix(in srgb, var(--eph) 55%, var(--border)); background: color-mix(in srgb, var(--eph) 10%, transparent); }
+.cal-item-done.cal-item-eph-row { border-color: color-mix(in srgb, var(--eph) 28%, var(--border)); background: color-mix(in srgb, var(--eph) 7%, transparent); }
+.cal-item-done.cal-item-eph-row:hover { background: color-mix(in srgb, var(--eph) 14%, transparent); }
+.gs-up-row.gs-up-eph { border-left: 3px solid var(--eph); background: color-mix(in srgb, var(--eph) 7%, transparent); }
+.gs-ephemeral-title { color: var(--eph); }
