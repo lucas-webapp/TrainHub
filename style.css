@@ -2785,3 +2785,51 @@ button.st-issues-toggle { display: flex; align-items: center; gap: 10px; width: 
 .st-issues-chev { font-size: var(--fs-xs); color: var(--text-muted); }
 .st-issues-list { margin-bottom: 8px; }
 .gs-history-list > * { flex-shrink: 0; } /* les blocs gardent leur hauteur : la liste défile, rien n'est écrasé */
+
+/* ---------- calendrier : cases plus lisibles (texte gris clair), détails allégés, répétition, récapitulatif, « À venir » ---------- */
+.gs-cal-panel { --cal-ink: color-mix(in srgb, var(--text-main) 84%, var(--card-bg-2)); }
+.cal-chip { font-size: 9.5px; font-size: clamp(8px, 1.4cqw, 10.5px); line-height: 1.2; }
+.cal-chip-plan { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--cal-ink); font-weight: 600; }
+.cal-chip-done { background: color-mix(in srgb, var(--accent) 7%, transparent); color: color-mix(in srgb, var(--cal-ink) 62%, var(--card-bg-2)); font-weight: 500; cursor: pointer; }
+.cal-chip-done:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--cal-ink); }
+.cal-detail { margin-top: 0; gap: 4px; }
+.cal-detail-title { margin-top: 0; }
+.cal-item-done { cursor: pointer; }
+.cal-item-done:hover { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.cal-item-rep { font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; }
+/* répétition */
+.cal-rule { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.cal-rule select, .cal-rule-until { height: 34px; width: 100%; box-sizing: border-box; min-width: 0; }
+.cal-rule-days { display: flex; gap: 4px; }
+button.cal-rule-day { flex: 1; min-width: 0; height: 30px; padding: 0; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); font-weight: 700; font-size: var(--fs-xs); }
+button.cal-rule-day.active { background: color-mix(in srgb, var(--accent) 18%, transparent); border-color: var(--accent); color: var(--text-main); }
+.cal-rule-until-row { display: flex; align-items: center; gap: 8px; font-size: var(--fs-xs); color: var(--text-muted); }
+.cal-rule-until-row[hidden], .cal-rule-days[hidden] { display: none; }
+.cal-pick-replabel { font-size: var(--fs-xs); color: var(--text-muted); }
+.cal-pickbar .cal-rule { flex: 1 1 280px; flex-direction: row; flex-wrap: wrap; align-items: center; }
+.cal-pickbar .cal-rule select { width: auto; flex: 1 1 150px; }
+.cal-pickbar .cal-rule-until-row { flex: 1 1 170px; }
+.cal-series-pop { width: min(330px, calc(100vw - 24px)); }
+/* récapitulatif d'une session terminée */
+.cal-recap { width: min(360px, calc(100vw - 24px)); padding: 12px 14px; }
+.cal-recap-title { font-weight: 800; font-size: var(--fs-md); overflow-wrap: anywhere; }
+.cal-recap-sub { margin-top: 2px; font-size: var(--fs-xs); color: var(--text-muted); text-transform: capitalize; }
+.cal-recap-total { margin: 8px 0; font-size: var(--fs-sm); }
+.cal-recap-total strong { color: color-mix(in srgb, var(--accent) 38%, #d8e0dc); }
+.cal-recap-list { display: flex; flex-direction: column; gap: 3px; max-height: min(300px, 45vh); overflow-y: auto; }
+.cal-recap-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 5px 8px; border-radius: 6px; background: rgba(255,255,255,.04); font-size: var(--fs-sm); }
+.cal-recap-name { min-width: 0; overflow-wrap: anywhere; }
+.cal-recap-dur { flex: none; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* onglet « À venir » du mode session */
+.gs-upcoming { display: flex; flex-direction: column; gap: 4px; }
+.gs-up-day { margin-top: 12px; font-size: var(--fs-xs); font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); }
+.gs-up-day:first-child { margin-top: 2px; }
+.gs-up-day.gs-up-today { color: var(--accent); }
+.gs-up-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card-bg-2); cursor: pointer; }
+.gs-up-row:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.gs-up-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.gs-up-name { font-weight: 700; overflow-wrap: anywhere; }
+.gs-up-meta { font-size: var(--fs-xs); color: var(--text-muted); }
+.cal-item { font-size: var(--fs-sm); padding: 5px 10px; }
+.cal-item-done { display: flex; align-items: center; gap: 10px; color: color-mix(in srgb, var(--cal-ink) 70%, var(--card-bg-2)); }
+.cal-item-done .cal-item-name { color: var(--cal-ink); }

@@ -3501,8 +3501,8 @@
 
         links.forEach(function (link) {
             menu.appendChild(menuButton(link.label, function () {
+                closeFolderMenu(); // d'abord : l'action peut ouvrir une fenêtre ou un popover qu'il ne faut pas refermer aussitôt
                 if (link.open) link.open(); else openExternalLink(link.url);
-                closeFolderMenu();
             }));
         });
 
@@ -8820,7 +8820,8 @@
         var archivedAll = sessions.filter(function (gs) { return gs.archived; });
         sessions = sessions.filter(function (gs) { return !gs.archived; });
         var showArchived = gsActiveTab === "__archived__";
-        if (gsActiveTab !== "all" && !showArchived && !tabs.some(function (t) { return t.id === gsActiveTab; })) gsActiveTab = "all";
+        var showUpcoming = gsActiveTab === "upcoming";
+        if (gsActiveTab !== "all" && !showArchived && !showUpcoming && !tabs.some(function (t) { return t.id === gsActiveTab; })) gsActiveTab = "all";
         var activeTab = tabs.filter(function (t) { return t.id === gsActiveTab; })[0] || null;
 
         function newSession() {
@@ -9046,6 +9047,34 @@
             save(); render();
         });
 
+        // Sessions prévues dans les 30 prochains jours, groupées par jour.
+        function buildUpcomingList() {
+            var wrap = document.createElement("div"); wrap.className = "gs-upcoming";
+            var items = calUpcoming(30), lastKey = null;
+            if (!items.length) {
+                var e = document.createElement("div"); e.className = "gs-empty";
+                e.textContent = "Rien de prévu dans les 30 prochains jours. Programme une session depuis le calendrier (clic sur un jour) ou par clic droit sur une session.";
+                wrap.appendChild(e); return wrap;
+            }
+            items.forEach(function (en) {
+                if (en.date !== lastKey) { lastKey = en.date; var h = document.createElement("div"); h.className = "gs-up-day" + (en.date === calTodayKey() ? " gs-up-today" : ""); h.textContent = calRelLabel(en.date); wrap.appendChild(h); }
+                var sess = allSessions.filter(function (g) { return g.id === en.sessionId; })[0];
+                var row = document.createElement("div"); row.className = "gs-up-row"; row.dataset.date = en.date; row.title = "Ouvrir ce jour dans le calendrier";
+                var info = document.createElement("div"); info.className = "gs-up-info";
+                var nm = document.createElement("span"); nm.className = "gs-up-name"; nm.textContent = gsSessionNameById(en.sessionId);
+                var meta = document.createElement("span"); meta.className = "gs-up-meta";
+                meta.textContent = (sess ? sess.steps.length + " exercice" + (sess.steps.length > 1 ? "s" : "") + " · " + sessionTotalMinutes(sess) + " min" : "session supprimée") + (en.seriesId ? " · ↻ " + calRuleLabel(en.rule) : "");
+                info.appendChild(nm); info.appendChild(meta); row.appendChild(info);
+                var acts = document.createElement("div"); acts.className = "gs-session-actions";
+                if (en.date === calTodayKey() && sess && sess.steps.length) { var pb = svgIconButton(METRO_PLAY_ICON_SVG, "Lancer cette session maintenant", function () { gsStartRun(sess); }); pb.classList.add("gs-session-play-btn"); acts.appendChild(pb); }
+                var rm = iconButton("✕", en.seriesId ? "Retirer du planning (cette session ou toute la série)" : "Retirer du planning", function () { calRemovePlanEntry(en, rm, function () { render(); }); });
+                acts.appendChild(rm); row.appendChild(acts);
+                row.addEventListener("click", function (ev) { if (ev.target.closest("button")) return; openSessionCalendar({ focusDate: en.date }); });
+                wrap.appendChild(row);
+            });
+            return wrap;
+        }
+
         // ---- barre d'onglets ----
         var bar = document.createElement("div");
         bar.className = "gs-tabbar";
@@ -9056,13 +9085,13 @@
             b.className = "gs-tab" + (gsActiveTab === id ? " active" : "");
             b.setAttribute("role", "tab");
             b.setAttribute("aria-selected", gsActiveTab === id ? "true" : "false");
-            b.setAttribute("data-drop-session-folder", dropId);
+            if (dropId) b.setAttribute("data-drop-session-folder", dropId);
             b.innerHTML = "";
             var l = document.createElement("span"); l.className = "gs-tab-name"; l.textContent = label;
             var c = document.createElement("span"); c.className = "gs-tab-count"; c.textContent = String(count);
             b.appendChild(l); b.appendChild(c);
             b.addEventListener("click", function () { gsActiveTab = id; gsSaveView(); render(); });
-            if (id !== "all") b.addEventListener("dblclick", function () { renameTab(id); });
+            if (id !== "all" && id !== "upcoming") b.addEventListener("dblclick", function () { renameTab(id); });
             bar.appendChild(b);
         }
         function renameTab(id) {
@@ -9072,6 +9101,8 @@
             if (n === null || !n.trim()) return;
             t.name = n.trim(); save(); render();
         }
+        tabBtn("upcoming", "À venir", calUpcoming(30).length, null); // à gauche de « Tout »
+        bar.lastChild.classList.add("gs-tab-upcoming");
         tabBtn("all", "Tout", sessions.length, "__all__");
         tabs.forEach(function (t) {
             tabBtn(t.id, t.name, sessions.filter(function (gs) { return gs.tabIds.indexOf(t.id) !== -1; }).length, t.id);
@@ -9158,17 +9189,19 @@
             }));
             tools.appendChild(tAct);
         }
-        content.appendChild(tools);
+        if (!showUpcoming) content.appendChild(tools);
 
         // ---- liste ---- (« + Nouvelle session » juste au-dessus des sessions)
         var newBar = document.createElement("div");
         newBar.className = "gs-newbar";
         newBar.appendChild(addBtn);
-        content.appendChild(newBar);
+        if (!showUpcoming) content.appendChild(newBar);
         var visible = gsSortList((showArchived ? archivedAll : sessions).filter(function (gs) {
             return (showArchived || !activeTab || gs.tabIds.indexOf(activeTab.id) !== -1) && gsDurationMatches(gs);
         }));
-        if (!visible.length) {
+        if (showUpcoming) {
+            content.appendChild(buildUpcomingList());
+        } else if (!visible.length) {
             var empty = document.createElement("div");
             empty.className = "gs-empty";
             empty.textContent = showArchived && !archivedAll.length ? "Aucune session archivée."
@@ -9858,30 +9891,178 @@
         var g = state.settings.guidedSessions.filter(function (x) { return x.id === id; })[0];
         return g ? g.name : "(session supprimée)";
     }
-    // Programme une session (une fois ou chaque semaine). Refuse tout jour passé.
-    function calAddPlan(sessionId, key, weeks) {
-        if (key < calTodayKey()) return { error: "Impossible de programmer dans le passé : les jours passés ne contiennent que les sessions réalisées et enregistrées." };
-        var added = 0, dup = 0;
-        for (var k = 0; k < (weeks || 1); k++) {
-            var dd = calParse(key); dd.setDate(dd.getDate() + 7 * k);
-            var kk = calKey(dd);
-            if (state.settings.sessionPlan.some(function (x) { return x.date === kk && x.sessionId === sessionId; })) { dup++; continue; }
-            state.settings.sessionPlan.push({ id: uid(), date: kk, sessionId: sessionId, instrumentId: state.activeInstrumentId });
-            added++;
+    // ---- récurrence : « tous les mercredis jusqu'au… », « un lundi sur 2 »… ----
+    // freq : "1" = une seule fois ; "w1".."w4" = chaque semaine / toutes les 2, 3, 4 semaines ; "m1" = chaque mois (même jour du mois).
+    var CAL_FREQS = [["1", "Une seule fois"], ["w1", "Chaque semaine"], ["w2", "Toutes les 2 semaines"], ["w3", "Toutes les 3 semaines"], ["w4", "Toutes les 4 semaines"], ["m1", "Chaque mois (même jour)"]];
+    function calDefaultUntil(key, freq) { var d = calParse(key); d.setDate(d.getDate() + (freq === "m1" ? 180 : 84)); return calKey(d); } // ≈ 6 mois / 12 semaines
+    function calOccurrences(startKey, rule) {
+        if (!rule || rule.freq === "1") return [startKey];
+        var out = [], start = calParse(startKey), until = calParse(rule.until);
+        if (rule.freq === "m1") {
+            var dom = start.getDate();
+            for (var m = 0; m < 60; m++) {
+                var first = new Date(start.getFullYear(), start.getMonth() + m, 1), last = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+                var d = new Date(first.getFullYear(), first.getMonth(), Math.min(dom, last));
+                if (d > until) break;
+                if (d >= start) out.push(calKey(d));
+            }
+            return out;
         }
-        if (added) save();
-        return { added: added, dup: dup };
+        var every = parseInt(rule.freq.slice(1), 10) || 1;
+        var days = (rule.days && rule.days.length ? rule.days : [start.getDay()]).slice().sort(function (a, b) { return ((a + 6) % 7) - ((b + 6) % 7); });
+        var monday = new Date(start); monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+        for (var w = 0; w < 400 && out.length < 500; w++) {
+            var base = new Date(monday); base.setDate(base.getDate() + 7 * every * w);
+            if (base > until) break;
+            days.forEach(function (wd) { var dd = new Date(base); dd.setDate(dd.getDate() + ((wd + 6) % 7)); if (dd >= start && dd <= until) out.push(calKey(dd)); });
+        }
+        return out;
     }
-    var CAL_REPEATS = [["1", "Une seule fois"], ["2", "Chaque semaine, 2 semaines"], ["4", "Chaque semaine, 4 semaines"], ["8", "Chaque semaine, 8 semaines"], ["12", "Chaque semaine, 12 semaines"]];
+    function calShortDate(key) { var d = calParse(key); return d.getDate() + " " + CAL_MONTHS[d.getMonth()]; }
+    function calRuleLabel(rule) {
+        if (!rule || rule.freq === "1") return "";
+        var until = rule.until ? " jusqu'au " + calShortDate(rule.until) : "";
+        if (rule.freq === "m1") return "chaque mois" + until;
+        var every = parseInt(rule.freq.slice(1), 10) || 1, days = rule.days || [];
+        if (every === 1 && days.length === 1) return "tous les " + CAL_DAYS_FULL[days[0]] + "s" + until;
+        return (every === 1 ? "chaque semaine" : "toutes les " + every + " semaines") + (days.length ? " (" + days.map(function (d) { return CAL_DAYS_FULL[d] + "s"; }).join(", ") + ")" : "") + until;
+    }
+    // Programme une session, une fois ou en série. Refuse tout jour passé. rule = { freq, days, until }.
+    function calAddPlan(sessionId, key, rule) {
+        if (key < calTodayKey()) return { error: "Impossible de programmer dans le passé : les jours passés ne contiennent que les sessions réalisées et enregistrées." };
+        rule = rule && rule.freq && rule.freq !== "1" ? { freq: rule.freq, days: rule.days, until: rule.until } : { freq: "1" };
+        if (rule.freq !== "1") {
+            if (!rule.until || rule.until < key) return { error: "Choisis une date de fin, après le premier jour." };
+            var cap = calParse(key); cap.setDate(cap.getDate() + 730); if (calParse(rule.until) > cap) rule.until = calKey(cap); // 2 ans au plus
+            if (rule.freq.charAt(0) === "w" && (!rule.days || !rule.days.length)) rule.days = [calParse(key).getDay()];
+        }
+        var today = calTodayKey(), dates = calOccurrences(key, rule).filter(function (k) { return k >= today; });
+        var seriesId = dates.length > 1 ? uid() : null, meta = seriesId ? { freq: rule.freq, days: rule.days || null, until: rule.until } : null;
+        var added = 0, dup = 0, lastKey = key;
+        dates.forEach(function (kk) {
+            if (state.settings.sessionPlan.some(function (x) { return x.date === kk && x.sessionId === sessionId; })) { dup++; return; }
+            var entry = { id: uid(), date: kk, sessionId: sessionId, instrumentId: state.activeInstrumentId };
+            if (seriesId) { entry.seriesId = seriesId; entry.rule = meta; }
+            state.settings.sessionPlan.push(entry);
+            added++; lastKey = kk;
+        });
+        if (added) save();
+        return { added: added, dup: dup, series: !!seriesId, last: lastKey, rule: meta };
+    }
+    // Retire une session programmée ; si elle fait partie d'une série, on demande : seulement celle-ci, les suivantes, ou toute la série.
+    function calRemovePlanEntry(entry, anchor, after) {
+        function finish() { save(); if (after) after(); }
+        function drop(pred) { state.settings.sessionPlan = state.settings.sessionPlan.filter(function (x) { return !pred(x); }); finish(); }
+        if (!entry.seriesId || !anchor) { drop(function (x) { return x.id === entry.id; }); return; }
+        var same = state.settings.sessionPlan.filter(function (x) { return x.seriesId === entry.seriesId; });
+        var later = same.filter(function (x) { return x.date >= entry.date; });
+        openGsPopover(anchor, function (pop, close) {
+            pop.classList.add("cal-series-pop");
+            var t = document.createElement("div"); t.className = "ctx-menu-title ctx-menu-title-wrap";
+            t.textContent = "« " + gsSessionNameById(entry.sessionId) + " » est répétée" + (entry.rule ? " (" + calRuleLabel(entry.rule) + ")" : "") + ". Que retirer ?";
+            pop.appendChild(t);
+            function choice(label, fn, muted) {
+                var b = document.createElement("button"); b.type = "button"; b.className = "ctx-item" + (muted ? " ctx-item-muted" : ""); b.textContent = label;
+                b.addEventListener("click", function () { close(); fn(); });
+                pop.appendChild(b);
+            }
+            choice("Seulement celle du " + calLongDate(entry.date), function () { drop(function (x) { return x.id === entry.id; }); });
+            if (later.length > 1 && later.length < same.length) choice("Celle-ci et les suivantes (" + later.length + ")", function () { drop(function (x) { return x.seriesId === entry.seriesId && x.date >= entry.date; }); });
+            choice("Toute la série (" + same.length + " séances)", function () { drop(function (x) { return x.seriesId === entry.seriesId; }); });
+            choice("Annuler", function () {}, true);
+        });
+    }
+    // Sessions programmées dans les prochains jours (aujourd'hui compris), hors celles déjà réalisées aujourd'hui.
+    function calUpcoming(days) {
+        var today = calTodayKey(), end = new Date(); end.setDate(end.getDate() + days);
+        var endKey = calKey(end), instId = state.activeInstrumentId, doneToday = {};
+        logAll().forEach(function (e) { if ((!e.instrumentId || e.instrumentId === instId) && calKey(new Date(e.date)) === today) doneToday[e.sessionId] = true; });
+        return state.settings.sessionPlan.filter(function (e) {
+            return e.date >= today && e.date <= endKey && (!e.instrumentId || e.instrumentId === instId) && !(e.date === today && doneToday[e.sessionId]);
+        }).sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : (gsSessionNameById(a.sessionId) < gsSessionNameById(b.sessionId) ? -1 : 1); });
+    }
+    function calRelLabel(key) {
+        var t = calTodayKey(), tm = calParse(t); tm.setDate(tm.getDate() + 1);
+        var long = calLongDate(key);
+        return key === t ? "Aujourd'hui · " + long : key === calKey(tm) ? "Demain · " + long : long;
+    }
+    // Récapitulatif d'une session réalisée : nom, durée totale, exercices et durée de chacun (valeurs figées au jour de la séance).
+    function calOpenRecap(anchor, rec) {
+        if (!rec) return;
+        openGsPopover(anchor, function (pop) {
+            pop.classList.add("cal-recap");
+            var h = document.createElement("div"); h.className = "cal-recap-title"; h.textContent = rec.name;
+            var d = new Date(rec.date), p2 = function (n) { return (n < 10 ? "0" : "") + n; };
+            var sub = document.createElement("div"); sub.className = "cal-recap-sub"; sub.textContent = calLongDate(calKey(d)) + " · " + p2(d.getHours()) + ":" + p2(d.getMinutes());
+            var tot = document.createElement("div"); tot.className = "cal-recap-total";
+            var tv = document.createElement("strong"); tv.textContent = gsFmtDur(rec.totalSec || 0);
+            tot.appendChild(document.createTextNode("Durée totale : ")); tot.appendChild(tv);
+            if (rec.plannedSec) tot.appendChild(document.createTextNode(" (prévu : " + gsFmtDur(rec.plannedSec) + ")"));
+            pop.appendChild(h); pop.appendChild(sub); pop.appendChild(tot);
+            var list = document.createElement("div"); list.className = "cal-recap-list";
+            (rec.steps || []).forEach(function (st) {
+                var r = document.createElement("div"); r.className = "cal-recap-row";
+                var n = document.createElement("span"); n.className = "cal-recap-name"; n.textContent = st.title || "(exercice)";
+                var v = document.createElement("span"); v.className = "cal-recap-dur"; v.textContent = gsFmtDur(st.actualSec || 0) + (st.bpmMax ? " · " + st.bpmMax + " BPM" : "");
+                r.appendChild(n); r.appendChild(v); list.appendChild(r);
+            });
+            if (!(rec.steps || []).length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Aucun détail d'exercice enregistré."; list.appendChild(none); }
+            pop.appendChild(list);
+        });
+    }
 
-    // Popover « Ajouter une session » : dossiers (onglets) + filtres (recherche, durée) + liste, au lieu d'un simple menu déroulant.
+    // Réglage de la répétition : fréquence, jours de la semaine, date de fin.
+    function calRuleControls(startKey, opts) {
+        opts = opts || {};
+        var wrap = document.createElement("div"); wrap.className = "cal-rule";
+        var freq = document.createElement("select"); freq.className = "cal-repeat-sel"; freq.setAttribute("aria-label", "Répétition");
+        CAL_FREQS.forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; freq.appendChild(op); });
+        var daysRow = document.createElement("div"); daysRow.className = "cal-rule-days"; daysRow.hidden = true;
+        var untilRow = document.createElement("label"); untilRow.className = "cal-rule-until-row"; untilRow.hidden = true;
+        var ul = document.createElement("span"); ul.textContent = "Jusqu'au";
+        var until = document.createElement("input"); until.type = "date"; until.className = "cal-rule-until"; until.setAttribute("aria-label", "Répéter jusqu'au");
+        untilRow.appendChild(ul); untilRow.appendChild(until);
+        var chosen = {}, key = startKey, dayBtns = {};
+        [[1, "L", "lundi"], [2, "M", "mardi"], [3, "M", "mercredi"], [4, "J", "jeudi"], [5, "V", "vendredi"], [6, "S", "samedi"], [0, "D", "dimanche"]].forEach(function (d) {
+            var b = document.createElement("button"); b.type = "button"; b.className = "cal-rule-day"; b.textContent = d[1]; b.title = d[2]; b.setAttribute("aria-label", d[2]);
+            b.addEventListener("click", function () {
+                if (chosen[d[0]] && Object.keys(chosen).length === 1) return; // au moins un jour
+                if (chosen[d[0]]) delete chosen[d[0]]; else chosen[d[0]] = true;
+                paintDays();
+            });
+            dayBtns[d[0]] = b; daysRow.appendChild(b);
+        });
+        function paintDays() { Object.keys(dayBtns).forEach(function (k) { var on = !!chosen[k]; dayBtns[k].classList.toggle("active", on); dayBtns[k].setAttribute("aria-pressed", on ? "true" : "false"); }); }
+        function refresh() {
+            var f = freq.value;
+            daysRow.hidden = opts.noDays || f.charAt(0) !== "w";
+            untilRow.hidden = f === "1";
+            until.min = key;
+            if (f !== "1" && (!until.value || until.value < key)) until.value = calDefaultUntil(key, f);
+        }
+        function setStart(k) { key = k; chosen = {}; chosen[calParse(k).getDay()] = true; paintDays(); refresh(); }
+        freq.addEventListener("change", refresh);
+        wrap.appendChild(freq); wrap.appendChild(daysRow); wrap.appendChild(untilRow);
+        setStart(startKey);
+        return {
+            el: wrap, setStart: setStart,
+            getRule: function () {
+                var f = freq.value;
+                if (f === "1") return { freq: "1" };
+                var days = f.charAt(0) === "w" ? (opts.noDays ? [calParse(key).getDay()] : Object.keys(chosen).map(Number)) : null;
+                return { freq: f, days: days, until: until.value };
+            }
+        };
+    }
+
+    // Popover « Ajouter une session » : dossiers (onglets) + filtres (recherche, durée) + liste, puis la répétition.
     function calOpenAddPopover(anchor, key, onAdded) {
         if (key < calTodayKey()) { showToast("Impossible de programmer dans le passé"); return; }
         openGsPopover(anchor, function (pop, close) {
             pop.classList.add("cal-pick-pop");
             var instId = state.activeInstrumentId;
             var tabs = state.settings.sessionFolders.filter(function (f) { return f.instrumentId === instId; });
-            var activeTab = "all", dur = "", q = "", weeks = 1;
+            var activeTab = "all", dur = "", q = "";
             var title = document.createElement("div"); title.className = "ctx-menu-title ctx-menu-title-wrap"; title.textContent = "Ajouter le " + calLongDate(key);
             pop.appendChild(title);
             var search = document.createElement("input"); search.type = "search"; search.className = "cal-pick-search"; search.placeholder = "Rechercher une session…"; search.setAttribute("aria-label", "Rechercher une session");
@@ -9891,11 +10072,9 @@
             [["", "Toutes durées"], ["30", "≤ 30 min"], ["45", "31 – 45 min"], ["60", "46 – 60 min"], ["61", "> 60 min"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; durSel.appendChild(op); });
             pop.appendChild(durSel);
             var list = document.createElement("div"); list.className = "cal-pick-list"; pop.appendChild(list);
-            var repRow = document.createElement("label"); repRow.className = "cal-pick-rep";
-            var repLbl = document.createElement("span"); repLbl.textContent = "Répétition";
-            var repSel = document.createElement("select"); repSel.className = "cal-repeat-sel";
-            CAL_REPEATS.forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; repSel.appendChild(op); });
-            repRow.appendChild(repLbl); repRow.appendChild(repSel); pop.appendChild(repRow);
+            var repLbl = document.createElement("div"); repLbl.className = "cal-pick-replabel"; repLbl.textContent = "Répétition";
+            var ctl = calRuleControls(key);
+            pop.appendChild(repLbl); pop.appendChild(ctl.el);
             function inDur(g) { var m = sessionTotalMinutes(g); return !dur || (dur === "30" ? m <= 30 : dur === "45" ? m > 30 && m <= 45 : dur === "60" ? m > 45 && m <= 60 : m > 60); }
             function renderTabs() {
                 chipsRow.innerHTML = "";
@@ -9918,10 +10097,10 @@
                     var mt = document.createElement("span"); mt.className = "cal-pick-meta"; mt.textContent = already ? "déjà prévue" : g.steps.length + " ex. · " + sessionTotalMinutes(g) + " min";
                     b.appendChild(nm); b.appendChild(mt);
                     b.addEventListener("click", function () {
-                        var res = calAddPlan(g.id, key, parseInt(repSel.value, 10) || 1);
+                        var res = calAddPlan(g.id, key, ctl.getRule());
                         if (res.error) { showToast(res.error, 5000); return; }
                         close();
-                        showToast(res.added > 1 ? "« " + g.name + " » programmée sur " + res.added + " semaines" : "« " + g.name + " » programmée le " + calLongDate(key));
+                        showToast(res.series ? "« " + g.name + " » programmée : " + res.added + " séances, " + calRuleLabel(res.rule) : "« " + g.name + " » programmée le " + calLongDate(key));
                         if (onAdded) onAdded(res);
                     });
                     list.appendChild(b);
@@ -9971,10 +10150,11 @@
         if (calPurgePast()) save();
         openModal("gs-cal-panel", function (panel, close) {
             var todayKey = calTodayKey(), today = calParse(todayKey);
-            var cur = new Date(today.getFullYear(), today.getMonth(), 1);
-            var selected = todayKey;
+            var focus = opts.focusDate && /^\d{4}-\d{2}-\d{2}$/.test(opts.focusDate) ? opts.focusDate : null;
+            var cur = focus ? new Date(calParse(focus).getFullYear(), calParse(focus).getMonth(), 1) : new Date(today.getFullYear(), today.getMonth(), 1);
+            var selected = focus || todayKey;
             var pickSession = opts.sessionId || null; // mode « choisis le(s) jour(s) » (depuis le clic droit sur une session)
-            var pickWeeks = 1;
+            var pickCtl = null;
             var title = document.createElement("div");
             title.className = "backups-title";
             title.textContent = "Calendrier des sessions";
@@ -9996,49 +10176,43 @@
             panel.appendChild(nav);
             var grid = document.createElement("div"); grid.className = "cal-grid"; panel.appendChild(grid);
             var detail = document.createElement("div"); detail.className = "cal-detail"; panel.appendChild(detail);
-            var legend = document.createElement("div"); legend.className = "cal-legend";
-            legend.innerHTML = '<span><i class="cal-dot cal-dot-plan"></i> programmée</span><span><i class="cal-dot cal-dot-done"></i> réalisée (durées réelles)</span><span class="cal-legend-hint">clic : ajouter · clic droit : actions</span>';
-            panel.appendChild(legend);
             attachResizeGrips(panel, "gs-cal-panel");
 
             function refreshUndo() { undoB.disabled = historyIndex <= 0; redoB.disabled = historyIndex < 0 || historyIndex >= historyStack.length - 1; }
             function refreshAll() { calPurgePast(); renderPickBar(); renderGrid(); renderDetail(); refreshUndo(); }
             function renderPickBar() {
                 pickBar.innerHTML = ""; pickBar.hidden = !pickSession;
-                if (!pickSession) return;
+                if (!pickSession) { pickCtl = null; return; }
                 var t = document.createElement("span"); t.className = "cal-pickbar-txt"; t.textContent = "Choisis le ou les jours pour « " + gsSessionNameById(pickSession) + " »";
-                var rs = document.createElement("select"); rs.className = "cal-repeat-sel"; rs.setAttribute("aria-label", "Répétition");
-                CAL_REPEATS.forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if (o[0] === String(pickWeeks)) op.selected = true; rs.appendChild(op); });
-                rs.addEventListener("change", function () { pickWeeks = parseInt(rs.value, 10) || 1; });
+                pickCtl = pickCtl || calRuleControls(todayKey, { noDays: true });
                 var done = document.createElement("button"); done.type = "button"; done.className = "btn-accent cal-pick-done"; done.textContent = "Terminer";
                 done.addEventListener("click", function () { pickSession = null; renderPickBar(); renderGrid(); });
-                pickBar.appendChild(t); pickBar.appendChild(rs); pickBar.appendChild(done);
+                pickBar.appendChild(t); pickBar.appendChild(pickCtl.el); pickBar.appendChild(done);
             }
-            function addTo(key, sessionId, weeks) {
-                var res = calAddPlan(sessionId, key, weeks);
+            function addTo(key, sessionId, rule) {
+                var res = calAddPlan(sessionId, key, rule);
                 if (res.error) { showError(res.error); return res; }
-                showToast(res.added ? "« " + gsSessionNameById(sessionId) + " » programmée le " + calLongDate(key) + (res.added > 1 ? " (+ " + (res.added - 1) + " semaines)" : "") : "Déjà programmée ce jour-là");
+                showToast(res.added ? (res.series ? "« " + gsSessionNameById(sessionId) + " » programmée : " + res.added + " séances, " + calRuleLabel(res.rule) : "« " + gsSessionNameById(sessionId) + " » programmée le " + calLongDate(key)) : "Déjà programmée ce jour-là");
                 refreshAll();
                 return res;
             }
-            function removePlan(id) { state.settings.sessionPlan = state.settings.sessionPlan.filter(function (x) { return x.id !== id; }); save(); refreshAll(); }
             function copyToNextWeek(key) {
                 var it = calDayItems(key), n = 0, d = calParse(key); d.setDate(d.getDate() + 7);
-                it.planned.forEach(function (e) { var r = calAddPlan(e.sessionId, calKey(d), 1); n += r.added || 0; });
+                it.planned.forEach(function (e) { var r = calAddPlan(e.sessionId, calKey(d), { freq: "1" }); n += r.added || 0; });
                 showToast(n ? n + " session" + (n > 1 ? "s copiée" + "s" : " copiée") + " sur le " + calLongDate(calKey(d)) : "Rien à copier (déjà présent)");
                 refreshAll();
             }
             function openDayMenu(x, y, key, cell) {
                 var it = calDayItems(key), past = key < todayKey, items = [];
-                if (!past) items.push({ label: "＋ Ajouter une session…", open: function () { selected = key; renderGrid(); renderDetail(); calOpenAddPopover(cell, key, refreshAll); } });
+                if (!past) items.push({ label: "＋ Ajouter une session…", open: function () { selected = key; renderGrid(); renderDetail(); calOpenAddPopover(grid.querySelector('.cal-cell[data-key="' + key + '"]') || cell, key, refreshAll); } });
+                it.done.forEach(function (rec) { items.push({ label: "Voir « " + rec.name + " » (récapitulatif)", open: function () { selected = key; renderGrid(); renderDetail(); calOpenRecap(grid.querySelector('.cal-cell[data-key="' + key + '"]') || cell, rec); } }); });
                 it.planned.forEach(function (e) {
                     var sess = state.settings.guidedSessions.filter(function (g) { return g.id === e.sessionId; })[0];
                     if (key === todayKey && sess && sess.steps.length) items.push({ label: "▶ Lancer « " + gsSessionNameById(e.sessionId) + " »", open: function () { close(); gsStartRun(sess); } });
-                    items.push({ label: "✕ Retirer « " + gsSessionNameById(e.sessionId) + " »", open: function () { removePlan(e.id); } });
+                    items.push({ label: "✕ Retirer « " + gsSessionNameById(e.sessionId) + " »" + (e.seriesId ? " (série)" : ""), open: function () { calRemovePlanEntry(e, grid.querySelector('.cal-cell[data-key="' + key + '"]') || cell, refreshAll); } });
                 });
                 if (it.planned.length > 1) items.push({ label: "✕ Retirer toutes les sessions de ce jour", open: function () { state.settings.sessionPlan = state.settings.sessionPlan.filter(function (e) { return !(e.date === key && (!e.instrumentId || e.instrumentId === state.activeInstrumentId)); }); save(); refreshAll(); } });
                 if (!past && it.planned.length) items.push({ label: "Copier ce jour sur la semaine suivante", open: function () { copyToNextWeek(key); } });
-                if (past) items.push({ label: it.done.length ? "Voir les sessions réalisées" : "Jour passé : rien à programmer", open: function () { selected = key; renderGrid(); renderDetail(); } });
                 items.push({ label: "Aller à aujourd'hui", open: function () { cur = new Date(today.getFullYear(), today.getMonth(), 1); selected = todayKey; renderGrid(); renderDetail(); } });
                 openLinksQuickMenu(x, y, items);
             }
@@ -10057,24 +10231,30 @@
                         cell.dataset.key = key;
                         cell.className = "cal-cell" + (d.getMonth() !== cur.getMonth() ? " cal-out" : "") + (key === todayKey ? " cal-today" : "") + (key === selected ? " cal-selected" : "") + (past ? " cal-past" : "");
                         cell.setAttribute("aria-label", d.getDate() + " " + CAL_MONTHS[d.getMonth()]);
-                        var names = it.planned.map(function (e) { return gsSessionNameById(e.sessionId); }).concat(it.done.map(function (e) { return "✓ " + e.name; }));
+                        var names = it.planned.map(function (e) { return (e.seriesId ? "↻ " : "") + gsSessionNameById(e.sessionId); }).concat(it.done.map(function (e) { return "✓ " + e.name; }));
                         if (names.length) cell.title = names.join("\n");
                         var num = document.createElement("span"); num.className = "cal-num"; num.textContent = String(d.getDate()); cell.appendChild(num);
                         var chips = document.createElement("span"); chips.className = "cal-chips";
-                        it.planned.forEach(function (e) { var c = document.createElement("span"); c.className = "cal-chip cal-chip-plan"; c.textContent = gsSessionNameById(e.sessionId); chips.appendChild(c); });
-                        it.done.forEach(function (e) { var c = document.createElement("span"); c.className = "cal-chip cal-chip-done"; c.textContent = "✓ " + e.name; chips.appendChild(c); });
+                        it.planned.forEach(function (e) { var c = document.createElement("span"); c.className = "cal-chip cal-chip-plan"; c.textContent = (e.seriesId ? "↻ " : "") + gsSessionNameById(e.sessionId); chips.appendChild(c); });
+                        it.done.forEach(function (e) { var c = document.createElement("span"); c.className = "cal-chip cal-chip-done"; c.dataset.rec = e.id; c.textContent = "✓ " + e.name; chips.appendChild(c); });
                         cell.appendChild(chips);
                         var dots = document.createElement("span"); dots.className = "cal-dots";
                         it.planned.forEach(function () { var dt = document.createElement("i"); dt.className = "cal-dot cal-dot-plan"; dots.appendChild(dt); });
                         it.done.forEach(function () { var dt = document.createElement("i"); dt.className = "cal-dot cal-dot-done"; dots.appendChild(dt); });
                         cell.appendChild(dots);
-                        cell.addEventListener("click", function () {
+                        cell.addEventListener("click", function (ev) {
+                            var chipEl = ev.target && ev.target.closest ? ev.target.closest(".cal-chip-done") : null, recId = chipEl && chipEl.dataset ? chipEl.dataset.rec : null;
                             selected = key;
                             if (d.getMonth() !== cur.getMonth()) cur = new Date(d.getFullYear(), d.getMonth(), 1);
-                            if (pickSession) { addTo(key, pickSession, pickWeeks); return; }
+                            if (pickSession) { pickCtl.setStart(key); addTo(key, pickSession, pickCtl.getRule()); return; }
                             renderGrid(); renderDetail();
-                            if (past) { showError("Jour passé : seules les sessions réalisées et enregistrées apparaissent (avec leurs durées réelles). On ne programme que pour aujourd'hui et plus tard."); return; }
-                            var fresh = grid.querySelector('.cal-cell[data-key="' + key + '"]') || cell;
+                            var fresh = grid.querySelector('.cal-cell[data-key="' + key + '"]') || cell, now = calDayItems(key);
+                            if (recId) { // clic sur une session terminée : récapitulatif
+                                var rec = now.done.filter(function (x) { return x.id === recId; })[0];
+                                calOpenRecap(fresh.querySelector('.cal-chip-done[data-rec="' + recId + '"]') || fresh, rec);
+                                return;
+                            }
+                            if (past) { if (now.done.length === 1) calOpenRecap(fresh, now.done[0]); return; } // jour passé : rien à programmer
                             calOpenAddPopover(fresh, key, refreshAll); // « ajouter une session ? » dès le clic sur un jour
                         });
                         bindContextGesture(cell, function (x, y) { selected = key; renderGrid(); renderDetail(); openDayMenu(x, y, key, grid.querySelector('.cal-cell[data-key="' + key + '"]') || cell); });
@@ -10091,28 +10271,24 @@
                     var r = document.createElement("div"); r.className = "cal-item cal-item-plan";
                     var nm = document.createElement("span"); nm.className = "cal-item-name"; nm.textContent = gsSessionNameById(e.sessionId);
                     r.appendChild(nm);
+                    if (e.seriesId) { var rep = document.createElement("span"); rep.className = "cal-item-rep"; rep.textContent = "↻ " + calRuleLabel(e.rule); rep.title = "Session répétée"; r.appendChild(rep); }
                     var sess = state.settings.guidedSessions.filter(function (x) { return x.id === e.sessionId; })[0];
                     if (sess) { var mt = document.createElement("span"); mt.className = "cal-item-meta"; mt.textContent = "prévu " + sessionTotalMinutes(sess) + " min"; r.appendChild(mt); }
                     if (selected === todayKey && sess && sess.steps.length) r.appendChild(svgIconButton(METRO_PLAY_ICON_SVG, "Lancer cette session maintenant", function () { close(); gsStartRun(sess); }));
-                    r.appendChild(iconButton("✕", "Retirer du planning", function () { removePlan(e.id); }));
+                    var rm = iconButton("✕", e.seriesId ? "Retirer du planning (cette session ou toute la série)" : "Retirer du planning", function () { calRemovePlanEntry(e, rm, refreshAll); });
+                    r.appendChild(rm);
                     detail.appendChild(r);
                 });
                 it.done.forEach(function (e) {
-                    var r = document.createElement("div"); r.className = "cal-item cal-item-done";
-                    var top = document.createElement("div"); top.className = "cal-item-top";
+                    var r = document.createElement("div"); r.className = "cal-item cal-item-done"; r.tabIndex = 0; r.title = "Voir le récapitulatif de la session";
                     var nm = document.createElement("span"); nm.className = "cal-item-name"; nm.textContent = "✓ " + e.name;
                     var du = document.createElement("span"); du.className = "cal-item-meta"; du.textContent = "réel " + gsFmtDur(e.totalSec) + (e.plannedSec ? " / prévu " + gsFmtDur(e.plannedSec) : "");
-                    top.appendChild(nm); top.appendChild(du); r.appendChild(top);
-                    if (e.steps && e.steps.length) { var st = document.createElement("div"); st.className = "cal-item-steps"; st.textContent = e.steps.map(function (x) { return x.title + " (" + gsFmtDur(x.actualSec) + (x.bpmMax ? ", " + x.bpmMax + " BPM" : "") + ")"; }).join(" · "); r.appendChild(st); }
+                    r.appendChild(nm); r.appendChild(du);
+                    r.addEventListener("click", function () { calOpenRecap(r, e); });
+                    r.addEventListener("keydown", function (ev) { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); calOpenRecap(r, e); } });
                     detail.appendChild(r);
                 });
                 if (!it.planned.length && !it.done.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = past ? "Aucune session réalisée ce jour-là." : "Rien de prévu ce jour-là."; detail.appendChild(none); }
-                if (past) { var note = document.createElement("div"); note.className = "cal-past-note"; note.textContent = "Jour passé : on n'y voit que les sessions réalisées et enregistrées, avec leurs durées réelles."; detail.appendChild(note); }
-                else {
-                    var add = document.createElement("button"); add.type = "button"; add.className = "btn-accent cal-add-btn"; add.textContent = "+ Ajouter une session";
-                    add.addEventListener("click", function () { calOpenAddPopover(add, selected, refreshAll); });
-                    detail.appendChild(add);
-                }
             }
             prev.addEventListener("click", function () { cur = new Date(cur.getFullYear(), cur.getMonth() - 1, 1); renderGrid(); });
             next.addEventListener("click", function () { cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1); renderGrid(); });
