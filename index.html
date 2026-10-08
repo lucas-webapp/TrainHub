@@ -63,7 +63,7 @@
         <button type="button" id="redo-btn" class="icon-btn btn-ghost" title="Rétablir" aria-label="Rétablir" disabled>
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>
         </button>
-        <button type="button" id="search-toggle-btn" class="icon-btn btn-ghost" title="Rechercher un exercice" aria-label="Rechercher un exercice">
+        <button type="button" id="search-toggle-btn" class="icon-btn btn-ghost" title="Rechercher un exercice (Ctrl+F : recherche rapide partout)" aria-label="Rechercher un exercice">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
         </button>
         <button type="button" id="metronome-btn" class="icon-btn btn-ghost metronome-btn-highlight" title="Métronome" aria-label="Métronome">
@@ -109,6 +109,7 @@
     <div class="main">
         <div class="search-row" id="search-row" hidden>
             <input type="search" id="search-input" placeholder="Rechercher un exercice (tous les dossiers actifs)…" aria-label="Rechercher un exercice">
+            <button type="button" id="quickfind-btn" class="btn-ghost search-quick-btn" title="Recherche rapide : exercices, sessions et dossiers de tous les espaces (Ctrl+F)">Recherche rapide</button>
             <button type="button" id="search-close-btn" class="icon-btn btn-ghost" title="Fermer la recherche" aria-label="Fermer la recherche">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
             </button>
