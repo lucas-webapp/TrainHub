@@ -3177,7 +3177,6 @@
             chip.appendChild(label);
 
             if (!isVirtual) {
-                chip.title = "Clic droit (ordinateur) ou appui long (mobile) : renommer / supprimer";
                 bindFolderMenu(chip, function () { return getActiveInstrument().categories; }, item, inst);
             }
 
@@ -3354,7 +3353,6 @@
         label.className = "tree-label";
         label.textContent = folder.name;
         row.appendChild(label);
-        row.title = "Clic droit (ordinateur) ou appui long (mobile) : renommer / supprimer";
         bindFolderMenu(row, function () { return getParentArrayFor(getActiveInstrument(), ancestorPath); }, folder, inst);
 
         row.addEventListener("click", function (e) {
@@ -3513,7 +3511,6 @@
         if (!folder) return;
         var h2 = document.createElement("h2");
         h2.textContent = folder.name;
-        h2.title = "Clic droit (ordinateur) ou appui long (mobile) : nouveau sous-dossier / renommer / supprimer";
         // Comme pour les lignes de l'arborescence : le menu complet (dont "Nouveau sous-dossier")
         // reste accessible sur le titre du dossier courant, sans bouton dédié à l'écran.
         bindFolderMenu(h2, getParentArray, folder, inst);
@@ -3595,10 +3592,6 @@
         } else {
             // Sans ce message, le "+" disparaît simplement sans explication — on dirait un bug plutôt
             // qu'une limite volontaire (profondeur maximale des dossiers imbriqués).
-            var depthNote = document.createElement("div");
-            depthNote.className = "folder-depth-limit-note";
-            depthNote.textContent = "Profondeur maximale atteinte (" + MAX_FOLDER_DEPTH + " niveaux) : pas de nouveau sous-dossier ici.";
-            foldersGroup.appendChild(depthNote);
         }
 
         var exGroup = document.createElement("div");
@@ -3736,10 +3729,6 @@
             reset.textContent = "Réinitialiser";
             reset.addEventListener("click", function () { saveExView({}); render(); });
             bar.appendChild(reset);
-            var note = document.createElement("span");
-            note.className = "ex-view-note";
-            note.textContent = "Glisser-déposer désactivé tant qu'un tri ou un filtre est actif";
-            bar.appendChild(note);
         }
         return bar;
     }
@@ -3758,7 +3747,6 @@
         label.className = "folder-name";
         label.textContent = folder.name;
         row.appendChild(label);
-        row.title = "Clic droit (ordinateur) ou appui long (mobile) : renommer / supprimer";
         bindFolderMenu(row, function () { return parentArray; }, folder, inst);
 
         var editBtn = svgIconButton(PENCIL_ICON_SVG, "Renommer ce dossier", function (e) {
@@ -3870,7 +3858,7 @@
 
         var row = document.createElement("div");
         row.className = "exercise-row";
-        row.title = "Cliquer pour les détails (notes, liens…) · clic droit ou appui long : renommer, déplacer, ajouter à une session… · Ctrl/⌘ + clic : sélectionner plusieurs exercices";
+        
         // Hors de la vue d'un dossier (recherche, favoris, archivés) : le menu propose aussi d'ouvrir son dossier.
         bindContextGesture(row, function (x, y) {
             if (exSelCount() > 1 && ex.id in exSel) openLinksQuickMenu(x, y, exSelActions().map(function (a) { return { label: a.text, open: function () { a.run(row); } }; }));
@@ -4169,19 +4157,17 @@
         b.className = "note-date-btn";
         b.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18"/><path d="M8 3v4M16 3v4"/></svg>';
         b.setAttribute("aria-label", "Ajouter la date d'aujourd'hui");
-        b.title = "Ajouter la date d'aujourd'hui devant la note (jj/mm/aa : )";
+        b.title = "Ajouter la date d'aujourd'hui en haut de la note";
         b.addEventListener("mousedown", function (e) { e.preventDefault(); }); // garde le curseur dans la zone
         b.addEventListener("click", function () {
+            // La date se pose toujours tout en haut, sur sa propre ligne ; le reste de la note descend d'une ligne.
             var stamp = formatNoteDate(todayIso()) + " : ";
-            var v = ta.value, pos = ta.selectionStart || 0;
-            var start = v.lastIndexOf("\n", pos - 1) + 1;
-            var lineEnd = v.indexOf("\n", start); if (lineEnd === -1) lineEnd = v.length;
-            var line = v.slice(start, lineEnd);
-            if (line.indexOf(stamp) === 0) { ta.focus(); return; }
-            ta.value = v.slice(0, start) + stamp + v.slice(start);
-            var np = pos + stamp.length;
+            var v = ta.value;
+            if (v.indexOf(stamp) === 0) { ta.focus(); var e1 = v.indexOf("\n"); var ep = e1 === -1 ? v.length : e1; ta.setSelectionRange(ep, ep); return; }
+            ta.value = stamp + (v ? "\n" + v : "");
             ta.focus();
-            ta.setSelectionRange(np, np);
+            ta.setSelectionRange(stamp.length, stamp.length);
+            ta.scrollTop = 0;
             ta.dispatchEvent(new Event("input", { bubbles: true }));
         });
         return b;
@@ -5327,11 +5313,6 @@
         panel.appendChild(title);
         var cleanupTitleDrag = makePanelDraggable(panel, "backups-panel", title);
 
-        var intro = document.createElement("div");
-        intro.className = "backups-intro";
-        intro.textContent = "Instantanés automatiques avant une synchro ou un import risqué.";
-        panel.appendChild(intro);
-
         var list = document.createElement("div");
         list.className = "backups-list";
         var backups = loadBackups().slice().reverse();
@@ -5461,11 +5442,6 @@
             title.className = "backups-title";
             title.textContent = "Corbeille";
             panel.appendChild(title);
-
-            var intro = document.createElement("div");
-            intro.className = "backups-intro";
-            intro.textContent = "Exercices, dossiers et sessions supprimés récemment.";
-            panel.appendChild(intro);
 
             var list = document.createElement("div");
             list.className = "backups-list";
@@ -6117,11 +6093,6 @@
             title.textContent = titleText;
             panel.appendChild(title);
 
-            var hint = document.createElement("div");
-            hint.className = "backups-intro";
-            hint.textContent = "Clique le nom d'un dossier pour le choisir ; la flèche déplie ses sous-dossiers.";
-            panel.appendChild(hint);
-
             var treeWrap = document.createElement("div");
             treeWrap.className = "folder-picker-tree";
             panel.appendChild(treeWrap);
@@ -6496,7 +6467,9 @@
         metroScheduler();
     }
 
+    var metroStopListeners = []; // appelées à l'arrêt du métronome, AVANT qu'un retour au tempo de départ ne change le BPM
     function stopMetronome() {
+        if (metroPlaying) metroStopListeners.forEach(function (fn) { try { fn(); } catch (e) {} });
         metroPlaying = false;
         if (metroTimer) { clearTimeout(metroTimer); metroTimer = null; }
         // "Revenir au tempo de départ" : le prochain lancement repart du tempo d'origine.
@@ -6893,15 +6866,12 @@
             function refreshLinkBar() {
                 if (!metroLink || metroEdit) { linkBar.hidden = true; return; }
                 var dirty = metroLinkDirty();
-                linkBar.hidden = false;
+                linkBar.hidden = !dirty; // discret : visible seulement quand le réglage diffère de celui de l'exercice
                 linkBar.classList.toggle("metro-link-dirty", dirty);
-                if (!metroLink.base) {
-                    linkTxt.textContent = "« " + metroLink.title + " » n'a pas encore de métronome";
-                    linkSave.textContent = "Enregistrer pour l'exercice";
-                } else {
-                    linkTxt.textContent = dirty ? "Réglage modifié · « " + metroLink.title + " »" : "Réglage de « " + metroLink.title + " »";
-                    linkSave.textContent = "Mettre à jour l'exercice";
-                }
+                linkTxt.textContent = metroLink.title;
+                linkTxt.title = "Réglage modifié · « " + metroLink.title + " »";
+                linkSave.textContent = metroLink.base ? "Mettre à jour" : "Enregistrer";
+                linkSave.title = "Enregistrer ce réglage dans l'exercice";
                 linkSave.hidden = !dirty;
             }
             metroLinkRefresh = refreshLinkBar;
@@ -7357,14 +7327,19 @@
                 });
                 row.appendChild(more);
                 if (p.stagesMode) {
+                    // Tableau : à gauche le délai avant chaque hausse de 1 BPM, à droite le tempo seuil du palier.
+                    var tbl = document.createElement("table");
+                    tbl.className = "metro-prog-table";
+                    var head = document.createElement("thead");
+                    head.innerHTML = "<tr><th>Délai (s)</th><th>Seuil (BPM)</th><th></th></tr>";
+                    tbl.appendChild(head);
+                    var body = document.createElement("tbody");
                     p.stages.forEach(function (st, i) {
-                        var line = document.createElement("div");
+                        var line = document.createElement("tr");
                         line.className = "metro-prog-stage";
-                        function txt(t) { var sp = document.createElement("span"); sp.textContent = t; line.appendChild(sp); }
-                        txt((i + 1) + ".  +1 bpm /");
-                        line.appendChild(progNumber(st.every, 1, 600, function (n) { st.every = Math.min(600, Math.max(1, n || 20)); progChanged(); return st.every; }, { pxPerStep: 4, label: "Secondes" }));
-                        txt("sec → seuil");
-                        line.appendChild(progNumber(st.until, 30, 300, function (n) { st.until = Math.min(300, Math.max(30, n || 100)); progChanged(); return st.until; }, { label: "Tempo d'arrivée" }));
+                        var c1 = document.createElement("td"), c2 = document.createElement("td"), c3 = document.createElement("td");
+                        c1.appendChild(progNumber(st.every, 1, 600, function (n) { st.every = Math.min(600, Math.max(1, n || 20)); progChanged(); return st.every; }, { pxPerStep: 4, label: "Délai en secondes avant chaque hausse de 1 BPM" }));
+                        c2.appendChild(progNumber(st.until, 30, 300, function (n) { st.until = Math.min(300, Math.max(30, n || 100)); progChanged(); return st.until; }, { label: "Tempo seuil du palier (BPM)" }));
                         var del = document.createElement("button");
                         del.type = "button";
                         del.className = "metro-prog-del";
@@ -7375,9 +7350,12 @@
                             if (!p.stages.length) p.stagesMode = false;
                             progChanged(); renderProgFields();
                         });
-                        line.appendChild(del);
-                        progFields.appendChild(line);
+                        c3.appendChild(del);
+                        line.appendChild(c1); line.appendChild(c2); line.appendChild(c3);
+                        body.appendChild(line);
                     });
+                    tbl.appendChild(body);
+                    progFields.appendChild(tbl);
                     var add = document.createElement("button");
                     add.type = "button";
                     add.className = "metro-mini-btn metro-prog-add";
@@ -8586,7 +8564,6 @@
                 [["Clic droit"], "Sur un jour : ajouter, retirer, lancer, copier sur la semaine suivante…"],
                 [["Bords de la fenêtre"], "Tirer le bord droit, le bord bas ou le coin pour l'élargir à volonté."]
             ]);
-            var note = document.createElement("div"); note.className = "keys-note"; note.textContent = "Sur Mac, ⌘ remplace Ctrl : la liste s'adapte à ton système."; body.appendChild(note);
         });
     }
 
@@ -8743,6 +8720,34 @@
     var GS_AUTO_KEY = "trainhub.gsAuto.v1";
     var GS_WARN_SECONDS = 10;
     var gsWarnKey = null; // "<pas>:warn" / "<pas>:end" : évite de rejouer le même carillon
+    // Cloche : un bip à la fin du temps de l'exercice (hors enchaînement automatique, qui a déjà son carillon). Réglage propre à l'appareil.
+    var GS_BELL_KEY = "trainhub.gsBell.v1";
+    var gsBellKeyDone = null;
+    function gsBellOn() { try { return localStorage.getItem(GS_BELL_KEY) === "1"; } catch (e) { return false; } }
+    function setGsBell(on) { try { localStorage.setItem(GS_BELL_KEY, on ? "1" : "0"); } catch (e) {} }
+    function playEndBeep() { // trois « bip » nets
+        try {
+            var ctx = ensureMetroAudio(), t0 = ctx.currentTime + 0.03;
+            [0, 0.28, 0.56].forEach(function (off) {
+                var osc = ctx.createOscillator(), g = ctx.createGain();
+                osc.type = "sine"; osc.frequency.value = 988;
+                g.gain.setValueAtTime(0.0001, t0 + off);
+                g.gain.linearRampToValueAtTime(0.35, t0 + off + 0.01);
+                g.gain.exponentialRampToValueAtTime(0.0001, t0 + off + 0.2);
+                osc.connect(g); g.connect(ctx.destination);
+                osc.start(t0 + off); osc.stop(t0 + off + 0.22);
+            });
+        } catch (e) {}
+    }
+    function playEndBeepShort() { try { var ctx = ensureMetroAudio(), o = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime + 0.02; o.type = "sine"; o.frequency.value = 988; g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.25, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15); o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t + 0.17); } catch (e) {} }
+    function gsBellTick(remaining, step, session) {
+        if (!gsBellOn() || gsAutoAdvanceOn() || gsRunPaused || gsRunSession !== session || session.steps[gsRunStepIndex] !== step) return;
+        var key = step.id + ":" + gsRunStepIndex;
+        if (remaining > 0) { if (gsBellKeyDone === key) gsBellKeyDone = null; return; } // +1 min : la cloche se réarme
+        if (gsBellKeyDone === key) return;
+        gsBellKeyDone = key;
+        playEndBeep();
+    }
     function gsAutoAdvanceOn() { try { return localStorage.getItem(GS_AUTO_KEY) === "1"; } catch (e) { return false; } }
     function setGsAutoAdvance(on) { try { localStorage.setItem(GS_AUTO_KEY, on ? "1" : "0"); } catch (e) {} }
     // Carillon : notes sinusoïdales à attaque lente et longue résonance, volume modeste (pas stressant).
@@ -9321,7 +9326,7 @@
     function gsEphemeralDateText(key) { var d = calParse(key), p2 = function (n) { return (n < 10 ? "0" : "") + n; }; return p2(d.getDate()) + "-" + p2(d.getMonth() + 1) + "-" + d.getFullYear(); }
     function gsEphemeralName(key) {
         var n = state.settings.guidedSessions.filter(function (g) { return g.ephemeral && g.date === key; }).length;
-        return "Session du " + gsEphemeralDateText(key) + (n ? " (" + (n + 1) + ")" : "");
+        return "Session éphémère" + (n ? " (" + (n + 1) + ")" : "");
     }
     function gsNewEphemeralObject(key, steps) {
         return { id: uid(), name: gsEphemeralName(key), steps: steps || [], instrumentId: state.activeInstrumentId, tabIds: [], createdAt: Date.now(), ephemeral: true, date: key };
@@ -9358,21 +9363,59 @@
         state.settings.guidedSessions.push(c);
         return c;
     }
-    // Donner un nom à une session éphémère = la garder parmi les sessions ordinaires (son jour reste programmé).
+    // Enregistrer une éphémère parmi les sessions ordinaires : on demande le nom et le(s) dossier(s) (onglets) où la ranger.
     function gsKeepEphemeral(session, after) {
-        var n = window.prompt("Cette session est éphémère (seulement pour le " + (session.date ? calLongDate(session.date) : "jour prévu") + ", absente de tes sessions). Donne-lui un nom pour la garder :", "");
-        if (n === null || !n.trim()) return false;
-        session.ephemeral = false; delete session.date; session.name = n.trim();
-        var de = gsDrafts[session.id];
-        if (de) { var clean = !gsDraftDirty(session.id); de.draft.name = session.name; delete de.draft.ephemeral; delete de.draft.date; if (clean) de.base = gsDraftSig(de); }
-        save(); render();
-        if (after) after();
-        showToast("« " + session.name + " » est maintenant dans tes sessions");
+        closeFolderMenu();
+        var tabs = state.settings.sessionFolders.filter(function (f) { return f.instrumentId === session.instrumentId; });
+        var chosen = {};
+        var backdrop = document.createElement("div"); backdrop.className = "ctx-backdrop";
+        var pop = document.createElement("div"); pop.className = "ctx-menu gs-pop gs-keep-pop"; pop.setAttribute("role", "dialog");
+        if (closeActiveModal) { backdrop.classList.add("ctx-over-modal"); pop.classList.add("ctx-over-modal"); }
+        function close() { closeFolderMenu(); }
+        backdrop.addEventListener("pointerdown", function (e) { e.preventDefault(); close(); });
+        backdrop.addEventListener("contextmenu", function (e) { e.preventDefault(); close(); });
+        var t = document.createElement("div"); t.className = "ctx-menu-title ctx-menu-title-wrap"; t.textContent = "Enregistrer dans mes sessions"; pop.appendChild(t);
+        var inp = document.createElement("input"); inp.type = "text"; inp.className = "ctx-input gs-keep-name"; inp.setAttribute("aria-label", "Nom de la session");
+        inp.value = session.date ? "Session du " + gsEphemeralDateText(session.date) : "Ma session"; pop.appendChild(inp);
+        if (tabs.length) {
+            var row = document.createElement("div"); row.className = "gs-keep-tabs";
+            tabs.forEach(function (tb) {
+                var b = document.createElement("button"); b.type = "button"; b.className = "gs-tabpick-chip"; b.textContent = tb.name; b.setAttribute("aria-pressed", "false");
+                b.addEventListener("click", function () { chosen[tb.id] = !chosen[tb.id]; b.classList.toggle("active", chosen[tb.id]); b.setAttribute("aria-pressed", chosen[tb.id] ? "true" : "false"); });
+                row.appendChild(b);
+            });
+            pop.appendChild(row);
+        }
+        var acts = document.createElement("div"); acts.className = "ctx-actions";
+        var no = document.createElement("button"); no.type = "button"; no.className = "ctx-item ctx-secondary"; no.textContent = "Annuler"; no.addEventListener("click", close);
+        var ok = document.createElement("button"); ok.type = "button"; ok.className = "ctx-item ctx-primary gs-keep-ok"; ok.textContent = "Enregistrer";
+        function commit() {
+            var n = inp.value.trim();
+            if (!n) { inp.focus(); return; }
+            close();
+            session.ephemeral = false; delete session.date; session.name = n;
+            session.tabIds = tabs.filter(function (tb) { return chosen[tb.id]; }).map(function (tb) { return tb.id; });
+            var de = gsDrafts[session.id];
+            if (de) { var clean = !gsDraftDirty(session.id); de.draft.name = session.name; de.draft.tabIds = session.tabIds.slice(); delete de.draft.ephemeral; delete de.draft.date; if (clean) de.base = gsDraftSig(de); }
+            save(); render();
+            if (after) after();
+            showToast("« " + session.name + " » enregistrée dans tes sessions");
+        }
+        ok.addEventListener("click", commit);
+        inp.addEventListener("keydown", function (e) { e.stopPropagation(); if (e.key === "Enter") commit(); if (e.key === "Escape") close(); });
+        acts.appendChild(no); acts.appendChild(ok); pop.appendChild(acts);
+        function onKey(e) { if (e.key === "Escape") close(); }
+        document.body.appendChild(backdrop); document.body.appendChild(pop);
+        document.addEventListener("keydown", onKey, true);
+        openMenu = { backdrop: backdrop, menu: pop, onKey: onKey };
+        pop.style.left = Math.max(8, (window.innerWidth - pop.offsetWidth) / 2) + "px";
+        pop.style.top = Math.max(8, (window.innerHeight - pop.offsetHeight) / 3) + "px";
+        setTimeout(function () { try { inp.focus(); inp.select(); } catch (e) {} }, 20);
         return true;
     }
     function gsIsEphemeralId(id) { var g = gsFindSession(id); return !!(g && g.ephemeral); }
     function gsIsEphemeralRec(rec) { return !!(rec && (rec.ephemeral || gsIsEphemeralId(rec.sessionId))); } // la séance enregistrée garde le repère après la disparition de la session
-    function gsNameActionLabel(sess, nm) { return sess && sess.ephemeral ? "Garder « " + nm + " » comme session…" : "Renommer « " + nm + " »…"; }
+    function gsNameActionLabel(sess, nm) { return sess && sess.ephemeral ? "Enregistrer dans mes sessions…" : "Renommer « " + nm + " »…"; }
     // Ouvre l'écran d'édition d'une session (ses exercices) en fermant la fenêtre d'où l'on vient.
     function gsOpenSessionEditor(session) {
         if (!session) { showToast("Cette session n'existe plus (voir la corbeille)"); return false; }
@@ -9577,10 +9620,6 @@
                 line.appendChild(nm); line.appendChild(du); list.appendChild(line);
             });
             panel.appendChild(list);
-            var note = document.createElement("div");
-            note.className = "gs-sync-intro gs-replace-note";
-            note.textContent = "Chaque pas garde sa durée, sa note et son tempo propre à la session. Un pas déjà présent deux fois reste en double (à retirer à la main).";
-            panel.appendChild(note);
             function check(text, on) {
                 var l = document.createElement("label"); l.className = "gs-replace-check";
                 var cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = on;
@@ -9742,10 +9781,6 @@
             var list = document.createElement("div");
             list.className = "quickfind-list"; list.setAttribute("role", "listbox");
             panel.appendChild(list);
-            var hint = document.createElement("div");
-            hint.className = "quickfind-hint";
-            hint.textContent = "↑ ↓ choisir · Entrée ouvrir · Échap fermer · clic droit : renommer, déplacer, ajouter à une session…";
-            panel.appendChild(hint);
             var flat = [], active = 0;
             function setActive(i, scroll) {
                 if (!flat.length) { active = 0; return; }
@@ -9969,7 +10004,7 @@
             row.className = "gs-session-row";
             row.dataset.reorderId = session.id;
             if (sessSel[session.id]) row.classList.add("selected");
-            row.title = "Cliquer pour modifier les exercices de la session · Ctrl/⌘ + clic : sélectionner plusieurs sessions";
+           
             row.addEventListener("click", function (e) {
                 if (e.target.closest("button")) return;
                 if (suppressNextClick) { suppressNextClick = false; return; }
@@ -10000,7 +10035,6 @@
                 var broken = document.createElement("span");
                 broken.className = "gs-session-broken";
                 broken.textContent = "⚠ " + missing + " exercice" + (missing > 1 ? "s" : "") + " supprimé" + (missing > 1 ? "s" : "");
-                broken.title = "Ouvre la session : clic droit sur l'exercice supprimé pour le restaurer (corbeille) ou le remplacer";
                 info.appendChild(broken);
             }
             if (gsDraftDirty(session.id)) {
@@ -10189,7 +10223,7 @@
                 var info = document.createElement("div"); info.className = "gs-up-info";
                 var nm = document.createElement("span"); nm.className = "gs-up-name"; nm.textContent = gsSessionNameById(en.sessionId);
                 var meta = document.createElement("span"); meta.className = "gs-up-meta";
-                meta.textContent = (sess ? sess.steps.length + " exercice" + (sess.steps.length > 1 ? "s" : "") + " · " + sessionTotalMinutes(sess) + " min" + (sess.steps.some(function (st) { return !liveIds[st.exerciseId]; }) ? " · ⚠ exercice supprimé" : "") + (sess.ephemeral ? " · éphémère" : "") : "session supprimée") + (en.seriesId ? " · ↻ " + calRuleLabel(en.rule) : "");
+                meta.textContent = (sess ? sess.steps.length + " exercice" + (sess.steps.length > 1 ? "s" : "") + " · " + sessionTotalMinutes(sess) + " min" + (sess.steps.some(function (st) { return !liveIds[st.exerciseId]; }) ? " · ⚠ exercice supprimé" : "") : "session supprimée") + (en.seriesId ? " · ↻ " + calRuleLabel(en.rule) : "");
                 info.appendChild(nm); info.appendChild(meta); row.appendChild(info);
                 var acts = document.createElement("div"); acts.className = "gs-session-actions";
                 if (en.date === calTodayKey() && sess && sess.steps.length) { var pb = svgIconButton(METRO_PLAY_ICON_SVG, "Lancer cette session maintenant", function () { gsStartRun(sess); }); pb.classList.add("gs-session-play-btn"); acts.appendChild(pb); }
@@ -10201,7 +10235,7 @@
                     var its = [];
                     if (en.date === calTodayKey() && sess && sess.steps.length) its.push({ label: "▶ Lancer maintenant", open: function () { gsStartRun(sess); } });
                     if (sess) its.push({ label: "✎ Modifier les exercices", open: function () { gsOpenSessionEditor(sess); } });
-                    if (sess) its.push({ label: sess.ephemeral ? "Garder comme session…" : "Renommer…", open: function () { gsRenameSession(sess); } });
+                    if (sess) its.push({ label: sess.ephemeral ? "Enregistrer dans mes sessions…" : "Renommer…", open: function () { gsRenameSession(sess); } });
                     its.push({ label: "Ouvrir ce jour dans le calendrier", open: function () { openSessionCalendar({ focusDate: en.date }); } });
                     its.push({ label: "✕ Retirer du planning" + (en.seriesId ? " (série)" : ""), open: function () { calRemovePlanEntry(en, rm, function () { render(); }); } });
                     openLinksQuickMenu(x, y, its);
@@ -10463,9 +10497,8 @@
             eb.className = "gs-ephemeral-banner";
             var et = document.createElement("div"); et.className = "gs-ephemeral-title"; et.textContent = session.name;
             var es = document.createElement("div"); es.className = "gs-ephemeral-sub";
-            es.textContent = "Éphémère : seulement pour le " + (real.date ? calLongDate(real.date) : "jour prévu") + ". Elle n'apparaît pas dans tes sessions.";
-            var ek = document.createElement("button"); ek.type = "button"; ek.className = "btn-ghost gs-ephemeral-keep"; ek.textContent = "Garder comme session…";
-            ek.title = "Lui donner un nom pour la retrouver dans tes sessions";
+            es.textContent = real.date ? calLongDate(real.date) : "";
+            var ek = document.createElement("button"); ek.type = "button"; ek.className = "btn-ghost gs-ephemeral-keep"; ek.textContent = "Enregistrer dans mes sessions…";
             ek.addEventListener("click", function () { gsKeepEphemeral(real); });
             eb.appendChild(et); eb.appendChild(es); eb.appendChild(ek);
             content.appendChild(eb);
@@ -10617,7 +10650,6 @@
                 var label = document.createElement("span");
                 label.className = "gs-step-label" + (found ? "" : " gs-step-missing");
                 label.textContent = found ? found.ex.title : "(exercice supprimé)";
-                if (!found) label.title = "Clic droit : le restaurer depuis la corbeille ou le remplacer";
                 line.appendChild(label);
                 var stepTempoCfg = {
                     title: found ? found.ex.title : "ce pas",
@@ -10723,11 +10755,6 @@
                         editToggle.addEventListener("click", function () { gsOpenStepEdit[step.id] = !editOpen; renderSteps(); });
                         details.appendChild(editToggle);
                         if (editOpen) {
-                            var everywhere = document.createElement("div");
-                            everywhere.className = "gs-step-edit-note";
-                            var nUse = exerciseUsage(found.ex.id).sessions.length;
-                            everywhere.textContent = "Modifié tout de suite, partout : dans ses dossiers" + (nUse > 1 ? " et dans ses " + nUse + " sessions" : "") + ". (La note « pour cet exercice » plus bas ne concerne que cette session.)";
-                            details.appendChild(everywhere);
                             var titleEdit = document.createElement("input");
                             titleEdit.type = "text";
                             titleEdit.className = "gs-step-title-edit";
@@ -10904,7 +10931,6 @@
             label.textContent = folder.name;
             row.appendChild(label);
             row.dataset.pickFolder = folder.id;
-            row.title = "Clic droit : renommer, déplacer, dupliquer… · glisser un exercice ou un dossier ici pour l'y ranger";
             row.addEventListener("click", function () {
                 if (suppressNextClick) { suppressNextClick = false; return; }
                 treeExpanded[folder.id] = !expanded; render();
@@ -10966,10 +10992,6 @@
         searchInput.className = "gs-pick-search";
         searchInput.placeholder = "Rechercher un exercice…";
         content.appendChild(searchInput);
-        var pickHint = document.createElement("div");
-        pickHint.className = "gs-pick-hint";
-        pickHint.textContent = "Un dossier ou un exercice mal rangé ? Clic droit (ou appui long) pour le renommer, le déplacer, le dupliquer… ou glisse-le sur un dossier.";
-        content.appendChild(pickHint);
 
         var resultsWrap = document.createElement("div");
         content.appendChild(resultsWrap);
@@ -11059,11 +11081,22 @@
         var t = gsRunBpm[gsRunCurrentStepId] || (gsRunBpm[gsRunCurrentStepId] = { first: bpm, max: bpm, end: bpm, playedMs: 0 });
         if (bpm > t.max) t.max = bpm;
         t.end = bpm;
+        t.stopped = false; // le métronome tourne : un éventuel arrêt précédent n'est plus d'actualité
         if (isBeat) t.playedMs += 60000 / bpm;
+    }
+    // Arrêt du métronome pendant un exercice : si le tempo était progressif vers un seuil et qu'on coupe avant de
+    // l'atteindre, on le note (le tempo réglé n'est pas forcément celui qu'on a réussi à tenir) : confirmation à l'enregistrement.
+    function gsBpmStop() {
+        if (!gsRunSession || !gsRunCurrentStepId) return;
+        var t = gsRunBpm[gsRunCurrentStepId];
+        if (!t || !(t.playedMs > 0)) return;
+        var m = state.settings.metronome, tg = metroProgressiveTarget(m);
+        t.stopped = true; t.stopBpm = m.bpm; t.target = tg && tg.limit > 0 ? tg.limit : 0;
     }
     function gsTrackBpm(on) {
         metroBeatListeners = metroBeatListeners.filter(function (fn) { return fn !== gsBpmBeat; });
-        if (on) metroBeatListeners.push(gsBpmBeat);
+        metroStopListeners = metroStopListeners.filter(function (fn) { return fn !== gsBpmStop; });
+        if (on) { metroBeatListeners.push(gsBpmBeat); metroStopListeners.push(gsBpmStop); }
     }
     function gsAccumulateStep() {
         if (!gsRunSession || !gsRunCurrentStepId) return;
@@ -11072,6 +11105,32 @@
     }
     // Une entrée d'historique (schéma v2) : de quoi calculer des statistiques plus tard sans rien deviner —
     // chaque exercice garde son identifiant, son chapitre, le temps réellement passé et le tempo joué.
+    // Un pas de la séance enregistrée (ms = temps passé dessus). `bpmShort` : on a coupé avant le seuil visé.
+    function gsStepRecord(st, ms) {
+        var f = findExerciseById(st.exerciseId), t = gsRunBpm[st.id], played = t && t.playedMs > 0;
+        var o = {
+            sid: st.id,
+            exerciseId: st.exerciseId,
+            title: f ? f.ex.title : "(exercice supprimé)",
+            chapterId: f && f.pathIds ? f.pathIds[0] : null,
+            chapterName: f ? f.pathNames[0] : null,
+            path: f ? f.pathNames.slice() : [],
+            pathIds: f && f.pathIds ? f.pathIds.slice() : [],
+            plannedMin: st.minutes,
+            actualSec: Math.round(ms / 1000),
+            bpmFirst: played ? t.first : null,
+            bpmMax: played ? t.max : null,
+            bpmEnd: played ? t.end : null,
+            playedSec: t ? Math.round(t.playedMs / 1000) : 0
+        };
+        if (played && t.stopped && t.target && t.stopBpm < t.target) { o.bpmShort = true; o.bpmTarget = t.target; o.bpmStop = t.stopBpm; }
+        return o;
+    }
+    // Exercices de la session sans temps enregistré (chrono oublié) : proposés à 0 min dans la fenêtre d'enregistrement.
+    function gsRunMissingSteps(record) {
+        var have = {}; record.steps.forEach(function (x) { if (x.sid) have[x.sid] = true; });
+        return gsRunSession ? gsRunSession.steps.filter(function (st) { return !have[st.id]; }).map(function (st) { return gsStepRecord(st, 0); }) : [];
+    }
     function gsBuildRunRecord() {
         if (!gsRunSession) return null;
         gsAccumulateStep();
@@ -11079,22 +11138,7 @@
         gsRunSession.steps.forEach(function (st) {
             var ms = gsRunSpent[st.id] || 0;
             if (ms < 3000) return;
-            var f = findExerciseById(st.exerciseId);
-            var t = gsRunBpm[st.id];
-            steps.push({
-                exerciseId: st.exerciseId,
-                title: f ? f.ex.title : "(exercice supprimé)",
-                chapterId: f && f.pathIds ? f.pathIds[0] : null,
-                chapterName: f ? f.pathNames[0] : null,
-                path: f ? f.pathNames.slice() : [],
-                pathIds: f && f.pathIds ? f.pathIds.slice() : [],
-                plannedMin: st.minutes,
-                actualSec: Math.round(ms / 1000),
-                bpmFirst: t && t.playedMs > 0 ? t.first : null,
-                bpmMax: t && t.playedMs > 0 ? t.max : null,
-                bpmEnd: t && t.playedMs > 0 ? t.end : null,
-                playedSec: t ? Math.round(t.playedMs / 1000) : 0
-            });
+            steps.push(gsStepRecord(st, ms));
             total += ms;
             plannedTotal += st.minutes * 60;
         });
@@ -11105,41 +11149,110 @@
     }
     function gsFmtDur(sec) { var m = Math.floor(sec / 60), r = sec % 60; return m + " min" + (r ? " " + (r < 10 ? "0" : "") + r + " s" : ""); }
     function gsFmtDate(ts) { var d = new Date(ts); function p2(n) { return (n < 10 ? "0" : "") + n; } return p2(d.getDate()) + "/" + p2(d.getMonth() + 1) + "/" + String(d.getFullYear()).slice(2) + " " + p2(d.getHours()) + ":" + p2(d.getMinutes()); }
-    // À la fin d'une session : on demande s'il faut l'enregistrer dans l'historique.
-    function gsAskSaveRun(record) {
+    // Fenêtre de relecture d'une séance : durée et tempo atteint de chaque exercice, modifiables. Sert à l'enregistrement
+    // de fin de session (opts.requireConfirm : les exercices arrêtés avant leur seuil demandent une confirmation) et à la
+    // correction d'une séance déjà enregistrée dans l'historique.
+    function openRunRecordEditor(record, opts) {
+        opts = opts || {};
+        var items = record.steps.concat(opts.extraSteps || []).map(function (st) { var c = cloneJson(st); return { st: c, ask: !!c.bpmShort, answered: false, extra: (record.steps.indexOf(st) === -1) }; });
         openModal("gs-save-run-panel", function (panel, close) {
             var title = document.createElement("div");
             title.className = "backups-title";
-            title.textContent = "Enregistrer cette session ?";
+            title.textContent = opts.title || "Enregistrer cette session ?";
             panel.appendChild(title);
             var sum = document.createElement("div");
-            sum.className = "gs-sync-intro";
-            sum.textContent = "« " + record.name + " » · " + gsFmtDur(record.totalSec) + " · " + record.steps.length + " exercice" + (record.steps.length > 1 ? "s" : "");
+            sum.className = "gs-sync-intro gs-rec-sum";
             panel.appendChild(sum);
             var list = document.createElement("div");
-            list.className = "gs-sync-list";
-            record.steps.forEach(function (st) {
-                var line = document.createElement("div");
-                line.className = "gs-sync-row";
-                var nm = document.createElement("span"); nm.className = "gs-sync-name"; nm.textContent = st.title;
-                var du = document.createElement("span"); du.className = "gs-sync-dur"; du.textContent = gsFmtDur(st.actualSec) + " / " + st.plannedMin + " min";
-                line.appendChild(nm); line.appendChild(du);
-                list.appendChild(line);
-            });
+            list.className = "gs-rec-list";
             panel.appendChild(list);
+            var yes;
+            function numVal(inp) { var n = parseInt(inp.value, 10); return isNaN(n) || n < 0 ? 0 : n; }
+            function totalSec() { return items.reduce(function (a, it) { return a + (it.removed ? 0 : numVal(it.mi) * 60 + numVal(it.si)); }, 0); }
+            function bpmOf(it) { var n = parseInt(it.bi.value, 10); return n >= 30 && n <= 300 ? n : null; }
+            function refresh() {
+                var n = items.filter(function (it) { return !it.removed && numVal(it.mi) * 60 + numVal(it.si) > 0; }).length;
+                sum.textContent = "« " + record.name + " » · " + gsFmtDur(totalSec()) + " · " + n + " exercice" + (n > 1 ? "s" : "");
+                var blocked = items.some(function (it) { return it.ask && !it.answered && !it.removed; });
+                yes.disabled = blocked || totalSec() <= 0;
+                yes.title = blocked ? "Confirme le tempo des exercices arrêtés avant leur seuil" : "";
+            }
+            items.forEach(function (it) {
+                var st = it.st;
+                var box = document.createElement("div");
+                box.className = "gs-rec-item" + (it.extra ? " gs-rec-extra" : "");
+                var line = document.createElement("div");
+                line.className = "gs-rec-row";
+                var nm = document.createElement("span"); nm.className = "gs-rec-name"; nm.textContent = logStepTitle(st); nm.title = st.plannedMin + " min prévues";
+                function num(max, ph, label) { var i = document.createElement("input"); i.type = "number"; i.min = "0"; i.max = String(max); i.className = "gs-rec-in"; i.placeholder = ph; i.setAttribute("aria-label", label); return i; }
+                var mi = num(600, "0", "Minutes"), si = num(59, "0", "Secondes");
+                mi.value = String(Math.floor((st.actualSec || 0) / 60)); si.value = String((st.actualSec || 0) % 60);
+                var bi = num(300, "—", "Tempo atteint (BPM)"); bi.min = "30"; bi.className += " gs-rec-bpm";
+                bi.value = st.bpmMax ? String(st.bpmMax) : "";
+                it.mi = mi; it.si = si; it.bi = bi;
+                [mi, si, bi].forEach(function (i) { i.addEventListener("input", refresh); bindScrubInput(i, 0, i === bi ? 300 : (i === si ? 59 : 600), { emptyStart: i === bi ? 80 : 0 }); });
+                var dur = document.createElement("span"); dur.className = "gs-rec-dur";
+                dur.appendChild(mi); dur.appendChild(document.createTextNode("′")); dur.appendChild(si); dur.appendChild(document.createTextNode("″"));
+                var bw = document.createElement("span"); bw.className = "gs-rec-bw"; bw.appendChild(document.createTextNode("♩ ")); bw.appendChild(bi);
+                var rm = iconButton("✕", "Retirer cet exercice de la séance", function () { it.removed = true; box.hidden = true; refresh(); });
+                line.appendChild(nm); line.appendChild(dur); line.appendChild(bw); line.appendChild(rm);
+                box.appendChild(line);
+                if (it.ask) { // coupé avant le seuil : « est-ce bien ce tempo qu'il faut retenir ? »
+                    var q = document.createElement("div"); q.className = "gs-rec-ask";
+                    var qt = document.createElement("span"); qt.textContent = "Arrêté à " + st.bpmStop + " BPM (visé : " + st.bpmTarget + ")";
+                    var keep = document.createElement("button"); keep.type = "button"; keep.className = "btn-accent gs-rec-keep"; keep.textContent = "Retenir " + st.bpmStop;
+                    var none = document.createElement("button"); none.type = "button"; none.className = "btn-ghost gs-rec-none"; none.textContent = "Sans BPM";
+                    function answer(v) { it.answered = true; bi.value = v ? String(v) : ""; q.classList.add("gs-rec-answered"); keep.classList.toggle("active", v === st.bpmStop); none.classList.toggle("active", !v); refresh(); }
+                    keep.addEventListener("click", function () { answer(st.bpmStop); });
+                    none.addEventListener("click", function () { answer(0); });
+                    bi.addEventListener("input", function () { it.answered = true; q.classList.add("gs-rec-answered"); refresh(); }); // un autre tempo saisi = réponse
+                    q.appendChild(qt); q.appendChild(keep); q.appendChild(none);
+                    box.appendChild(q);
+                }
+                list.appendChild(box);
+            });
             var actions = document.createElement("div");
             actions.className = "gs-sync-actions";
-            var no = document.createElement("button"); no.type = "button"; no.className = "btn-ghost"; no.textContent = "Ne pas enregistrer";
-            no.addEventListener("click", close);
-            var yes = document.createElement("button"); yes.type = "button"; yes.className = "btn-accent"; yes.textContent = "Enregistrer";
+            var no = document.createElement("button"); no.type = "button"; no.className = "btn-ghost"; no.textContent = opts.cancelLabel || "Ne pas enregistrer";
+            no.addEventListener("click", function () { close(); if (opts.onCancel) opts.onCancel(); });
+            yes = document.createElement("button"); yes.type = "button"; yes.className = "btn-accent gs-rec-save"; yes.textContent = "Enregistrer";
             yes.addEventListener("click", function () {
-                logAdd(record);
-                save();
-                showToast("Session enregistrée dans l'historique");
+                var out = cloneJson(record);
+                out.steps = [];
+                items.forEach(function (it) {
+                    if (it.removed) return;
+                    var sec = numVal(it.mi) * 60 + numVal(it.si);
+                    if (sec <= 0) return;
+                    var st = it.st, v = bpmOf(it);
+                    st.actualSec = sec;
+                    if (v) { st.bpmFirst = st.bpmFirst && st.bpmFirst <= v ? st.bpmFirst : v; st.bpmMax = v; st.bpmEnd = v; }
+                    else { st.bpmFirst = null; st.bpmMax = null; st.bpmEnd = null; }
+                    delete st.bpmShort; delete st.bpmTarget; delete st.bpmStop;
+                    out.steps.push(st);
+                });
+                out.totalSec = out.steps.reduce(function (a, x) { return a + x.actualSec; }, 0);
                 close();
+                opts.onSave(out);
             });
             actions.appendChild(no); actions.appendChild(yes);
             panel.appendChild(actions);
+            refresh();
+        });
+    }
+    // À la fin d'une session : on propose de l'enregistrer dans l'historique (durées et tempos relisibles avant de valider).
+    function gsAskSaveRun(record, extraSteps) {
+        openRunRecordEditor(record, {
+            extraSteps: extraSteps || [],
+            onSave: function (rec) { logAdd(rec); save(); showToast("Session enregistrée dans l'historique"); }
+        });
+    }
+    // Séance déjà enregistrée : corriger une durée oubliée ou un tempo erroné.
+    function editLoggedRecord(rec, afterClose) {
+        openRunRecordEditor(rec, {
+            title: "Modifier la séance",
+            cancelLabel: "Annuler",
+            onSave: function (out) { logAdd(out); save(); showToast("Séance modifiée"); if (afterClose) afterClose(); },
+            onCancel: afterClose
         });
     }
     // ---------- calendrier : programmer des sessions (futur) ; le passé = sessions réalisées et enregistrées ----------
@@ -11293,15 +11406,18 @@
                 r.appendChild(n); r.appendChild(v); list.appendChild(r);
                 var live = st.exerciseId ? findExerciseById(st.exerciseId) : null;
                 if (live) {
-                    r.title = "Clic droit : ouvrir l'exercice, le renommer…";
                     bindContextGesture(r, function (x, y) { openExerciseMenu(x, y, live.ex, live.folder, { reveal: true, after: function () { close(); } }); });
                 } else if (st.exerciseId) { n.classList.add("cal-recap-gone"); n.title = "Exercice supprimé depuis (nom d'alors)"; }
             });
             if (!(rec.steps || []).length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Aucun détail d'exercice enregistré."; list.appendChild(none); }
             pop.appendChild(list);
             var g = gsFindSession(rec.sessionId);
+            var acts = document.createElement("div"); acts.className = "cal-recap-actions";
+            var editRec = document.createElement("button"); editRec.type = "button"; editRec.className = "btn-ghost cal-recap-open"; editRec.textContent = "✎ Modifier la séance";
+            editRec.addEventListener("click", function () { close(); editLoggedRecord(rec, function () { openSessionCalendar({ focusDate: calKey(new Date(rec.date)) }); }); });
+            acts.appendChild(editRec); pop.appendChild(acts);
             if (g) {
-                var acts = document.createElement("div"); acts.className = "cal-recap-actions";
+                acts = document.createElement("div"); acts.className = "cal-recap-actions";
                 var open = document.createElement("button"); open.type = "button"; open.className = "btn-ghost cal-recap-open"; open.textContent = "✎ Modifier les exercices de la session";
                 open.addEventListener("click", function () { close(); gsOpenSessionEditor(g); });
                 acts.appendChild(open); pop.appendChild(acts);
@@ -11593,7 +11709,6 @@
                     r.appendChild(nm);
                     if (e.seriesId) { var rep = document.createElement("span"); rep.className = "cal-item-rep"; rep.textContent = "↻ " + calRuleLabel(e.rule); rep.title = "Session répétée"; r.appendChild(rep); }
                     var sess = state.settings.guidedSessions.filter(function (x) { return x.id === e.sessionId; })[0];
-                    if (sess && sess.ephemeral) { var eph = document.createElement("span"); eph.className = "cal-item-eph"; eph.textContent = "éphémère"; eph.title = "Seulement pour ce jour : absente de la liste des sessions"; r.appendChild(eph); }
                     if (sess) { var mt = document.createElement("span"); mt.className = "cal-item-meta"; mt.textContent = "prévu " + sessionTotalMinutes(sess) + " min"; r.appendChild(mt); }
                     if (selected === todayKey && sess && sess.steps.length) r.appendChild(svgIconButton(METRO_PLAY_ICON_SVG, "Lancer cette session maintenant", function () { close(); gsStartRun(sess); }));
                     if (sess) { var ed = iconButton("✎", "Modifier les exercices de cette session", function () { gsOpenSessionEditor(sess); }); ed.classList.add("cal-item-edit"); r.appendChild(ed); }
@@ -11603,7 +11718,7 @@
                         var its = [];
                         if (selected === todayKey && sess && sess.steps.length) its.push({ label: "▶ Lancer maintenant", open: function () { close(); gsStartRun(sess); } });
                         if (sess) its.push({ label: "✎ Modifier les exercices", open: function () { gsOpenSessionEditor(sess); } });
-                        if (sess) its.push({ label: sess.ephemeral ? "Garder comme session…" : "Renommer…", open: function () { gsRenameSession(sess, refreshAll); } });
+                        if (sess) its.push({ label: sess.ephemeral ? "Enregistrer dans mes sessions…" : "Renommer…", open: function () { gsRenameSession(sess, refreshAll); } });
                         its.push({ label: "✕ Retirer du planning" + (e.seriesId ? " (série)" : ""), open: function () { calRemovePlanEntry(e, rm, refreshAll); } });
                         openLinksQuickMenu(x, y, its);
                     });
@@ -12137,7 +12252,6 @@
             var f = exId && exId.indexOf("t:") !== 0 ? findExerciseById(exId) : null;
             if (!f) return;
             el.classList.add("st-has-menu");
-            el.title = (el.title ? el.title + "\n" : "") + "Clic droit : ouvrir dans son dossier, renommer…";
             bindContextGesture(el, function (x, y) { openExerciseMenu(x, y, f.ex, f.folder, { reveal: true, after: rerender }); }, { selfButton: true });
         }
 
@@ -12178,14 +12292,13 @@
             var s0 = stSection(box, "Chiffres clés"); s0.appendChild(tiles);
             if (range.compare) {
                 var cc = document.createElement("div"); cc.className = "st-caption st-compare";
-                cc.textContent = hasPrev ? "Comparé à " + range.compare.label + " : ▲ en hausse · ▼ en baisse." : "Aucune séance en " + range.compare.label + " : pas de comparaison possible.";
+                cc.textContent = hasPrev ? "Comparé à " + range.compare.label : "Aucune séance en " + range.compare.label + " : pas de comparaison possible.";
                 s0.appendChild(cc);
             }
             if (st.sessions) {
                 var sb = stSection(box, "Temps de pratique dans le temps");
                 var bk = statsBuckets(st.recs, range, now, first);
                 var wrap = document.createElement("div"); wrap.className = "st-chart-wrap"; wrap.appendChild(statsBarChart(bk)); sb.appendChild(wrap);
-                var cap = document.createElement("div"); cap.className = "st-caption"; cap.textContent = "Par " + (bk.mode === "day" ? "jour" : bk.mode === "week" ? "semaine (lundi)" : "mois") + (bk.cur >= 0 ? " · vert clair : période en cours" : "") + " · pointillé : moyenne · survole une barre pour le détail"; sb.appendChild(cap);
             }
             if (warnCount) {
                 var al = document.createElement("div"); al.className = "st-teaser";
@@ -12205,9 +12318,6 @@
             box.appendChild(tg);
             if (!statsIssuesOpen) return;
             var rv = document.createElement("div"); rv.className = "gs-stat-block st-issues-list"; box.appendChild(rv);
-            var intro = document.createElement("div"); intro.className = "st-issue-intro";
-            intro.textContent = "Tes séances gardent le nom et le chemin que les exercices avaient le jour où tu les as faites. Dans ces cas, je préfère te demander plutôt que deviner :";
-            rv.appendChild(intro);
             issues.forEach(function (it) {
                 var card = document.createElement("div"); card.className = "st-issue st-issue-" + it.kind;
                 var tx = document.createElement("div"); tx.className = "st-issue-text";
@@ -12260,9 +12370,6 @@
             if (log.length) {
                 var sh = stSection(box, "Régularité sur 12 mois");
                 var hw = document.createElement("div"); hw.className = "st-chart-wrap st-heat-wrap"; hw.appendChild(statsHeatmap(st.dayMap, now)); sh.appendChild(hw);
-                var hc = document.createElement("div"); hc.className = "st-caption st-legend";
-                hc.innerHTML = '<span>moins</span><i class="st-sw st-sw0"></i><i class="st-sw st-sw1"></i><i class="st-sw st-sw2"></i><i class="st-sw st-sw3"></i><i class="st-sw st-sw4"></i><span>plus (vert clair : les journées les plus longues)</span>';
-                sh.appendChild(hc);
             }
             var withPlan = st.recs.filter(function (r) { return r.plannedSec; }).slice(-10).reverse();
             if (withPlan.length) {
@@ -12278,7 +12385,6 @@
                     var tx = document.createElement("span"); tx.className = "st-pair-r"; tx.textContent = gsFmtMin(r.totalSec || 0) + " / " + gsFmtMin(r.plannedSec) + " · " + Math.round((r.totalSec || 0) / r.plannedSec * 100) + " %";
                     line.appendChild(lb); line.appendChild(tr); line.appendChild(tx); s7.appendChild(line);
                 });
-                var pc = document.createElement("div"); pc.className = "st-caption"; pc.textContent = "Barre = temps réel (vert clair : dernière séance) · trait = temps prévu"; s7.appendChild(pc);
             }
         }
 
@@ -12442,7 +12548,8 @@
                         save(); fill();
                         showToast("Séance du " + gsFmtDate(e.date) + " supprimée de l'historique", 8000, { label: "Annuler", run: function () { logAdd(removed); save(); fill(); showToast("Séance remise dans l'historique"); } });
                     });
-                    head.appendChild(nm); head.appendChild(du); head.appendChild(del);
+                    var edit = iconButton("✎", "Modifier cette séance (durées, tempo)", function () { editLoggedRecord(e, function () { openSessionHistory(); }); });
+                    head.appendChild(nm); head.appendChild(du); head.appendChild(edit); head.appendChild(del);
                     var det = document.createElement("div");
                     det.className = "gs-history-steps";
                     det.textContent = e.steps.map(function (st) { return logStepTitle(st) + " (" + gsFmtDur(st.actualSec) + (st.bpmMax ? ", " + (st.bpmFirst && st.bpmFirst !== st.bpmMax ? st.bpmFirst + "→" : "") + st.bpmMax + " BPM" : "") + ")"; }).join(" · ");
@@ -12451,7 +12558,7 @@
                     if (g) bindContextGesture(box, function (x, y) {
                         openLinksQuickMenu(x, y, [
                             { label: "✎ Modifier les exercices de « " + g.name + " »", open: function () { gsOpenSessionEditor(g); } },
-                            { label: g.ephemeral ? "Garder comme session…" : "Renommer la session…", open: function () { gsRenameSession(g, fill); } }
+                            { label: g.ephemeral ? "Enregistrer dans mes sessions…" : "Renommer la session…", open: function () { gsRenameSession(g, fill); } }
                         ]);
                     });
                     list.appendChild(box);
@@ -12513,6 +12620,7 @@
 
     function gsEndRun() {
         var runRecord = gsBuildRunRecord();
+        var extraSteps = runRecord ? gsRunMissingSteps(runRecord) : [];
         if (gsRunInterval) { clearInterval(gsRunInterval); gsRunInterval = null; }
         if (miniWinOpen()) closeMiniWindow();
         gsTrackBpm(false);
@@ -12520,7 +12628,7 @@
         gsRunSession = null;
         gsScreen = "list";
         render();
-        if (runRecord) gsAskSaveRun(runRecord);
+        if (runRecord) gsAskSaveRun(runRecord, extraSteps);
     }
 
     // ---------- lecteurs YouTube intégrés (sous la session) ----------
@@ -12870,6 +12978,25 @@
 
     // ---------- plan de la session pendant le guidage : ordre et durées modifiables ----------
     var gsRunPlanOpen = false;
+    // Ajoute un exercice à la session EN COURS, à la position voulue : il fait partie de la session pour les fois suivantes
+    // et de l'enregistrement de cette séance (statistiques).
+    function gsRunInsertExercise(idx) {
+        var session = gsRunSession;
+        if (!session) return;
+        var old = findExerciseById((session.steps[0] || {}).exerciseId);
+        openExercisePickerModal("Ajouter à la session", { inst: old ? old.inst : getActiveInstrument(), exclude: [] }, function (ex) {
+            if (gsRunSession !== session) return;
+            var step = { id: uid(), exerciseId: ex.id, minutes: gsDefaultMinutes(ex), note: "", hidden: [] };
+            var at = Math.max(0, Math.min(idx, session.steps.length));
+            session.steps.splice(at, 0, step);
+            if (at <= gsRunStepIndex) gsRunStepIndex++; // l'exercice en cours reste le même
+            var de = gsDrafts[session.id];
+            if (de) { var clean = !gsDraftDirty(session.id); de.draft.steps.splice(Math.min(at, de.draft.steps.length), 0, cloneJson(step)); if (clean) de.base = gsDraftSig(de); }
+            save();
+            render();
+            showToast("« " + ex.title + " » ajouté (" + step.minutes + " min)");
+        });
+    }
     function renderGsRunPlan(content, session) {
         var wrap = document.createElement("div");
         wrap.className = "gs-plan";
@@ -12878,10 +13005,28 @@
         toggle.className = "btn-ghost gs-plan-toggle";
         toggle.textContent = (gsRunPlanOpen ? "▾" : "▸") + " Plan de la session (ordre et durées)";
         toggle.addEventListener("click", function () { gsRunPlanOpen = !gsRunPlanOpen; render(); });
-        wrap.appendChild(toggle);
+        var head = document.createElement("div");
+        head.className = "gs-plan-head";
+        head.appendChild(toggle);
+        var addNow = document.createElement("button");
+        addNow.type = "button";
+        addNow.className = "btn-ghost gs-plan-add";
+        addNow.textContent = "＋";
+        addNow.title = "Ajouter un exercice après celui-ci";
+        addNow.setAttribute("aria-label", addNow.title);
+        addNow.addEventListener("click", function () { gsRunInsertExercise(gsRunStepIndex + 1); });
+        head.appendChild(addNow);
+        wrap.appendChild(head);
         if (gsRunPlanOpen) {
             var list = document.createElement("div");
             list.className = "gs-plan-list";
+            function insertBtn(at, label) {
+                var b = document.createElement("button");
+                b.type = "button"; b.className = "btn-ghost gs-plan-insert"; b.textContent = "＋"; b.title = label; b.setAttribute("aria-label", label);
+                b.addEventListener("click", function () { gsRunInsertExercise(at); });
+                return b;
+            }
+            list.appendChild(insertBtn(0, "Ajouter un exercice au début"));
             session.steps.forEach(function (step, i) {
                 var found = findExerciseById(step.exerciseId);
                 var row = document.createElement("div");
@@ -12942,6 +13087,7 @@
                 row.appendChild(mover("↑", "Monter", -1));
                 row.appendChild(mover("↓", "Descendre", 1));
                 list.appendChild(row);
+                list.appendChild(insertBtn(i + 1, "Ajouter un exercice ici"));
             });
             wrap.appendChild(list);
         }
@@ -12950,6 +13096,7 @@
 
     // Appelée à chaque rafraîchissement du chrono : carillon d'avertissement, puis passage au suivant.
     function gsAutoAdvanceTick(remaining, step, session) {
+        gsBellTick(remaining, step, session);
         if (!gsAutoAdvanceOn() || gsRunPaused || gsRunSession !== session || session.steps[gsRunStepIndex] !== step) return;
         var key = step.id + ":" + gsRunStepIndex;
         if (remaining > GS_WARN_SECONDS) { if (gsWarnKey === key + ":warn") gsWarnKey = null; return; }
@@ -13188,7 +13335,7 @@
                 imgChip.type = "button";
                 imgChip.className = "file-chip gs-resource-chip";
                 imgChip.innerHTML = '<span class="link-icon">' + IMAGE_ICON_SVG + '</span><span class="file-open">Image' + (found.ex.images.length > 1 ? "s (" + found.ex.images.length + ")" : "") + '</span>';
-                imgChip.title = "Ouvrir l'image dans une fenêtre déplaçable (clic droit : plein écran)";
+                imgChip.title = "Ouvrir l'image dans une fenêtre déplaçable ";
                 imgChip.addEventListener("click", function () { openImageViewer(found.ex.images, 0, false); });
                 imgChip.addEventListener("contextmenu", function (e) { e.preventDefault(); openImageViewer(found.ex.images, 0, true); });
                 resourcesRow.appendChild(imgChip);
@@ -13324,6 +13471,25 @@
             refreshTimer();
         });
         toolsRow.appendChild(autoBtn);
+        var bellBtn = document.createElement("button");
+        bellBtn.type = "button";
+        bellBtn.className = "gs-run-bell-btn";
+        bellBtn.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>';
+        function refreshBellBtn() {
+            var on = gsBellOn();
+            bellBtn.classList.toggle("gs-run-auto-on", on);
+            bellBtn.setAttribute("aria-pressed", on ? "true" : "false");
+            bellBtn.title = on ? "Bip en fin d'exercice : activé" : "Bip en fin d'exercice : désactivé";
+            bellBtn.setAttribute("aria-label", bellBtn.title);
+        }
+        refreshBellBtn();
+        bellBtn.addEventListener("click", function () {
+            setGsBell(!gsBellOn());
+            if (gsBellOn()) { ensureMetroAudio(); playEndBeepShort(); } // essai audible, et réveille l'audio pendant ce clic
+            gsBellKeyDone = null;
+            refreshBellBtn();
+        });
+        toolsRow.appendChild(bellBtn);
         pauseStopRow.appendChild(toolsRow);
 
         var navRow = document.createElement("div");
