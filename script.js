@@ -56,17 +56,39 @@
     // exercice archivé/favori ne reprend pas ce statut — la copie "disparaît" donc de la vue
     // Archivés/Favoris sans qu'on comprenne pourquoi au premier abord).
     var activeToastEl = null, activeToastTimer = null;
-    function showToast(message, durationMs) {
+    // `action` (facultatif) : { label, run } — un bouton dans le message (ex. « Annuler » après une suppression).
+    function showToast(message, durationMs, action) {
         if (activeToastEl) { activeToastEl.remove(); clearTimeout(activeToastTimer); }
         var toast = document.createElement("div");
-        toast.className = "toast";
-        toast.textContent = message;
+        toast.className = "toast" + (action ? " toast-with-action" : "");
+        if (action) {
+            toast.setAttribute("role", "status");
+            var txt = document.createElement("span"); txt.className = "toast-text"; txt.textContent = message;
+            var btn = document.createElement("button"); btn.type = "button"; btn.className = "toast-action"; btn.textContent = action.label;
+            btn.addEventListener("click", function () {
+                toast.remove(); clearTimeout(activeToastTimer);
+                if (activeToastEl === toast) activeToastEl = null;
+                action.run();
+            });
+            toast.appendChild(txt); toast.appendChild(btn);
+        } else {
+            toast.textContent = message;
+        }
         document.body.appendChild(toast);
         activeToastEl = toast;
         activeToastTimer = setTimeout(function () {
             toast.remove();
             if (activeToastEl === toast) activeToastEl = null;
-        }, durationMs || 3200);
+        }, durationMs || (action ? 7000 : 3200));
+    }
+    // Après un changement important (suppression, déplacement…) : message avec « Annuler ». Le bouton ne défait
+    // QUE ce changement-là : si autre chose a été modifié entre-temps, il renvoie vers le bouton ↶ (pas à pas).
+    function toastUndo(message) {
+        var stamp = historyStamp;
+        showToast(message, 8000, { label: "Annuler", run: function () {
+            if (historyStamp === stamp) { undo(); showToast("Modification annulée"); }
+            else showToast("D'autres modifications ont suivi : utilise le bouton ↶ (Annuler) pour revenir en arrière pas à pas.", 5500);
+        } });
     }
 
     function makeFolder(name, color) {
@@ -425,6 +447,7 @@
     var HISTORY_MAX_BYTES = 48 * 1024 * 1024; // plafond de mémoire (estimé) des instantanés conservés
     var historyStack = [];
     var historyIndex = -1;
+    var historyStamp = 0; // change à chaque enregistrement / annuler / rétablir (sert au bouton « Annuler » des messages)
     var historyBytes = 0;
 
     // Un instantané n'est plus une copie complète de l'état : l'état est découpé en tranches JSON (réglages
@@ -470,6 +493,7 @@
         historyStack = [snap];
         historyBytes = snap.bytes;
         historyIndex = 0;
+        historyStamp++;
         updateUndoRedoButtons();
     }
 
@@ -482,6 +506,7 @@
         historyBytes += snap.bytes;
         while (historyStack.length > 1 && (historyStack.length > HISTORY_LIMIT || historyBytes > HISTORY_MAX_BYTES)) historyBytes -= historyStack.shift().bytes;
         historyIndex = historyStack.length - 1;
+        historyStamp++;
         updateUndoRedoButtons();
     }
 
@@ -494,6 +519,7 @@
     function goToHistory(index) {
         if (index < 0 || index >= historyStack.length) return;
         historyIndex = index;
+        historyStamp++;
         state = normalizeState(restoreSnapshot(historyStack[historyIndex]));
         persist();
         render();
@@ -1026,6 +1052,11 @@
             walk(entry.data);
             return files;
         }
+        if (entry.type === "instrument") {
+            var all = [];
+            (entry.data.categories || []).forEach(function (c) { all = all.concat(filesOf({ type: "folder", data: c })); });
+            return all;
+        }
         return [];
     }
 
@@ -1048,10 +1079,23 @@
     function restoreFromTrash(entryId) {
         var entry = state.settings.trash.filter(function (e) { return e.id === entryId; })[0];
         if (!entry) return;
-        if (entry.type === "session") {
+        if (entry.type === "instrument") { // un espace entier, avec ses sessions, ses onglets et son planning à venir
+            if (!findById(state.instruments, entry.data.id)) state.instruments.push(entry.data);
+            var t0 = calTodayKey();
+            (entry.sessions || []).forEach(function (g) { if (!state.settings.guidedSessions.some(function (x) { return x.id === g.id; })) state.settings.guidedSessions.push(g); });
+            (entry.sessionFolders || []).forEach(function (f) { if (!state.settings.sessionFolders.some(function (x) { return x.id === f.id; })) state.settings.sessionFolders.push(f); });
+            (entry.plan || []).forEach(function (pe) { if (pe.date >= t0 && !state.settings.sessionPlan.some(function (x) { return x.id === pe.id; })) state.settings.sessionPlan.push(pe); });
+            state.activeInstrumentId = entry.data.id;
+        } else if (entry.type === "session") {
             if (!findById(state.instruments, entry.data.instrumentId)) entry.data.instrumentId = state.activeInstrumentId;
             entry.data.tabIds = (entry.data.tabIds || []).filter(function (id) { return state.settings.sessionFolders.some(function (f) { return f.id === id; }); });
             state.settings.guidedSessions.push(entry.data);
+            var today = calTodayKey(), back = 0;
+            (entry.plan || []).forEach(function (pe) { // son planning à venir revient avec elle
+                if (pe.date < today || state.settings.sessionPlan.some(function (x) { return x.date === pe.date && x.sessionId === pe.sessionId; })) return;
+                state.settings.sessionPlan.push(pe); back++;
+            });
+            if (back) setTimeout(function () { showToast("« " + entry.data.name + " » restaurée, avec " + back + " séance" + (back > 1 ? "s" : "") + " au calendrier"); }, 0);
         } else {
             var inst = findById(state.instruments, entry.instrumentId) || state.instruments[0];
             if (entry.type === "exercise") {
@@ -1491,7 +1535,7 @@
     // Geste partagé clic droit / appui long, indépendant de ce qu'il ouvre (menu de dossier ou
     // d'exercice ci-dessous). Sur un champ texte (renommage inline, titre d'exercice), on laisse
     // le menu natif du navigateur s'ouvrir (copier/coller) plutôt que le nôtre.
-    function bindContextGesture(el, openFn) {
+    function bindContextGesture(el, openFn, opts) {
         var triggeredByPress = false;
 
         el.addEventListener("contextmenu", function (e) {
@@ -1517,7 +1561,10 @@
 
         el.addEventListener("pointerdown", function (e) {
             if (e.pointerType === "mouse") return;
-            if (e.target.closest("button, input, textarea, select")) return;
+            var inner = e.target.closest("button, input, textarea, select");
+            // Un bouton garde son propre clic ; `opts.selfButton` : l'élément est lui-même un bouton dont
+            // le clic vérifie suppressNextClick (l'appui long y ouvre donc le menu sans déclencher le clic).
+            if (inner && !(opts && opts.selfButton && inner === el)) return;
             startX = e.clientX;
             startY = e.clientY;
             cancelPress();
@@ -1593,10 +1640,6 @@
         bindContextGesture(el, function (x, y) { openFolderMenu(x, y, getParentArray, folder, inst); });
     }
 
-    function bindExerciseMenu(el, ex, folder) {
-        bindContextGesture(el, function (x, y) { openExerciseMenu(x, y, ex, folder); });
-    }
-
     // ---------- menu contextuel (renommer / supprimer) ----------
 
     var openMenu = null;
@@ -1639,6 +1682,175 @@
         if (inPath !== -1) setNavPath(inst, path.slice(0, inPath));
         save();
         render();
+        toastUndo("« " + folder.name + " » mis à la corbeille");
+    }
+
+    // Suppression d'un exercice : si des sessions l'utilisent, on le dit (avec leurs noms) avant de confirmer.
+    function deleteExerciseGuarded(ex, folder, inst) {
+        var u = exerciseUsage(ex.id);
+        var msg = "Supprimer « " + ex.title + " » ?";
+        if (u.sessions.length) msg += "\n\n⚠ " + exerciseUsageText(u) + "\nCes sessions afficheront « exercice supprimé » à sa place. Il reste récupérable dans la corbeille.";
+        if (!window.confirm(msg)) return false;
+        addToTrash("exercise", ex, { instrumentId: (inst || getActiveInstrument()).id, parentFolderId: folder.id });
+        var i = folder.exercises.indexOf(ex);
+        if (i !== -1) folder.exercises.splice(i, 1);
+        save();
+        render();
+        toastUndo("« " + ex.title + " » mis à la corbeille");
+        return true;
+    }
+
+    // Suppression d'une session : ses séances prévues au calendrier partent avec elle (et reviennent si on la
+    // restaure depuis la corbeille) ; l'historique des séances déjà faites, lui, ne bouge pas.
+    function deleteSessionGuarded(session, after) {
+        var today = calTodayKey();
+        var plan = state.settings.sessionPlan.filter(function (pe) { return pe.sessionId === session.id; });
+        var future = plan.filter(function (pe) { return pe.date >= today; }).sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+        var msg = "Supprimer la session « " + session.name + " » ?";
+        if (future.length) msg += "\n\n⚠ Elle est prévue " + future.length + " fois au calendrier (prochaine : " + calLongDate(future[0].date) + ") : ces séances seront retirées du calendrier.";
+        if (gsDraftDirty(session.id)) msg += "\n⚠ Ses modifications non enregistrées seront perdues.";
+        msg += "\n\nLes séances déjà faites restent dans l'historique. La session reste récupérable dans la corbeille" + (future.length ? ", avec son planning." : ".");
+        if (!window.confirm(msg)) return false;
+        addToTrash("session", session, { plan: cloneJson(plan) });
+        state.settings.sessionPlan = state.settings.sessionPlan.filter(function (pe) { return pe.sessionId !== session.id; });
+        delete gsDrafts[session.id];
+        if (gsEditingSession && gsEditingSession.id === session.id) { gsEditingSession = null; if (gsScreen === "edit" || gsScreen === "pick") gsScreen = "list"; }
+        var arr = state.settings.guidedSessions, k = arr.indexOf(session);
+        if (k !== -1) arr.splice(k, 1);
+        save();
+        render();
+        if (after) after();
+        toastUndo("Session « " + session.name + " » mise à la corbeille" + (future.length ? " (et " + future.length + " séance" + (future.length > 1 ? "s" : "") + " du calendrier)" : ""));
+        return true;
+    }
+
+    // Tableau qui contient un dossier (les chapitres de l'espace, ou les sous-dossiers de son parent).
+    function parentArrayOf(inst, folder) {
+        var p = findPathTo(inst, folder.id);
+        if (!p) return null;
+        if (p.length === 1) return inst.categories;
+        var parent = findFolderById(inst, p[p.length - 2]);
+        return parent ? parent.folders : null;
+    }
+    // Range un dossier (et tout son contenu) dans un autre dossier. Les sessions et les statistiques suivent :
+    // elles désignent les exercices par identifiant, pas par emplacement.
+    function moveFolderInto(inst, folder, dest) {
+        if (dest === folder || collectFolderAndDescendantIds(folder).indexOf(dest.id) !== -1) { showToast("Impossible de ranger un dossier dans lui-même ou dans un de ses sous-dossiers."); return false; }
+        var parentArray = parentArrayOf(inst, folder);
+        if (!parentArray) return false;
+        if (dest.folders === parentArray) { showToast("« " + folder.name + " » est déjà dans « " + dest.name + " »"); return false; }
+        if (folderDepth(inst, dest.id) + folderSubtreeDepth(folder) > MAX_FOLDER_DEPTH) {
+            window.alert("Impossible de déplacer ici : la profondeur maximale (" + MAX_FOLDER_DEPTH + " niveaux) serait dépassée.");
+            return false;
+        }
+        if (folderNameTaken(dest.folders, folder.name) && !confirmNameCollision("dossier", folder.name)) return false;
+        parentArray.splice(parentArray.indexOf(folder), 1);
+        dest.folders.push(folder);
+        var currentPath = getNavPath(inst);
+        if (currentPath.indexOf(folder.id) !== -1) setNavPath(inst, (findPathTo(inst, dest.id) || []).concat(folder.id));
+        treeExpanded[dest.id] = true;
+        save();
+        render();
+        toastUndo("« " + folder.name + " » rangé dans « " + dest.name + " »");
+        return true;
+    }
+    // Copie d'un dossier placée ailleurs : le suffixe « (copie) » n'est gardé que si le nom est déjà pris là-bas.
+    function copyFolderInto(inst, folder, dest) {
+        if (folderDepth(inst, dest.id) + folderSubtreeDepth(folder) > MAX_FOLDER_DEPTH) {
+            window.alert("Impossible de copier ici : la profondeur maximale (" + MAX_FOLDER_DEPTH + " niveaux) serait dépassée.");
+            return false;
+        }
+        var copy = duplicateFolderDeep(folder);
+        (function strip(f) {
+            f.folders.forEach(function (sub) { sub.name = sub.name.replace(/ \(copie\)$/, ""); strip(sub); });
+            f.exercises.forEach(function (e) { e.title = e.title.replace(/ \(copie\)$/, ""); });
+        })(copy);
+        if (!folderNameTaken(dest.folders, folder.name)) copy.name = folder.name;
+        delete copy.color;
+        dest.folders.push(copy);
+        treeExpanded[dest.id] = true;
+        save();
+        render();
+        toastUndo("« " + folder.name + " » copié dans « " + dest.name + " »");
+        return true;
+    }
+    function openFolderDropMenu(x, y, inst, folder, dest) {
+        if (dest === folder) { render(); return; }
+        openLinksQuickMenu(x, y, [
+            { label: "Ranger « " + folder.name + " » dans « " + dest.name + " »", open: function () { moveFolderInto(inst, folder, dest); } },
+            { label: "Copier dans « " + dest.name + " »", open: function () { copyFolderInto(inst, folder, dest); } },
+            { label: "Annuler", open: function () { render(); } }
+        ]);
+    }
+
+    // Choix d'un exercice pour une session : glisser (souris) un exercice ou un dossier sur un dossier
+    // (attribut data-pick-folder) pour le ranger ; clic droit, ou appui long au doigt, pour son menu.
+    // Au doigt, pas de glisser : le geste sert à faire défiler la liste (le menu propose « Déplacer vers… »).
+    function bindPickGesture(el, onMenu, onDrop) {
+        var sx = 0, sy = 0, pid = null, ghost = null, moved = false, timer = null, menuAt = 0, hover = null, offX = 0, offY = 0;
+        el.addEventListener("contextmenu", function (e) {
+            e.preventDefault(); e.stopPropagation();
+            if (Date.now() - menuAt < 900) return; // déjà ouvert par l'appui long
+            onMenu(e.clientX, e.clientY);
+        });
+        function cleanup() {
+            if (timer) { clearTimeout(timer); timer = null; }
+            window.removeEventListener("pointermove", mv);
+            window.removeEventListener("pointerup", up);
+            window.removeEventListener("pointercancel", cleanup);
+            if (ghost) { ghost.remove(); ghost = null; }
+            if (hover) { hover.classList.remove("drop-hover"); hover = null; }
+            el.classList.remove("dragging");
+            pid = null; moved = false;
+        }
+        el.addEventListener("pointerdown", function (e) {
+            if (e.button !== undefined && e.button !== 0) return;
+            if (e.target.closest(".tree-twisty")) return;
+            cleanup();
+            sx = e.clientX; sy = e.clientY; pid = e.pointerId;
+            if (e.pointerType !== "mouse") timer = setTimeout(function () {
+                timer = null; menuAt = Date.now();
+                suppressNextClick = true;
+                setTimeout(function () { suppressNextClick = false; }, 700);
+                cleanup();
+                onMenu(sx, sy);
+            }, LONG_PRESS_MS);
+            window.addEventListener("pointermove", mv);
+            window.addEventListener("pointerup", up);
+            window.addEventListener("pointercancel", cleanup);
+        });
+        function mv(e) {
+            if (e.pointerId !== pid) return;
+            if (!moved) {
+                if (Math.abs(e.clientX - sx) < 10 && Math.abs(e.clientY - sy) < 10) return;
+                if (timer) { clearTimeout(timer); timer = null; }
+                if (e.pointerType !== "mouse" || !onDrop) { cleanup(); return; }
+                moved = true;
+                var r = el.getBoundingClientRect();
+                offX = sx - r.left; offY = sy - r.top;
+                ghost = el.cloneNode(true);
+                ghost.classList.add("drag-ghost", "gs-pick-ghost");
+                ghost.style.position = "fixed"; ghost.style.width = r.width + "px"; ghost.style.margin = "0"; ghost.style.pointerEvents = "none";
+                document.body.appendChild(ghost);
+                el.classList.add("dragging");
+            }
+            e.preventDefault();
+            ghost.style.left = (e.clientX - offX) + "px";
+            ghost.style.top = (e.clientY - offY) + "px";
+            var under = document.elementFromPoint ? document.elementFromPoint(e.clientX, e.clientY) : null;
+            var t = under && under.closest ? under.closest("[data-pick-folder]") : null;
+            if (t && el.contains(t)) t = null;
+            if (t !== hover) { if (hover) hover.classList.remove("drop-hover"); hover = t; if (t) t.classList.add("drop-hover"); }
+        }
+        function up(e) {
+            if (e.pointerId !== pid) return;
+            var target = hover, wasMoved = moved;
+            cleanup();
+            if (!wasMoved) return;
+            suppressNextClick = true;
+            setTimeout(function () { suppressNextClick = false; }, 60);
+            if (target) { var rr = target.getBoundingClientRect(); onDrop(target.getAttribute("data-pick-folder"), rr.right, rr.top + rr.height / 2); }
+        }
     }
 
     function openFolderMenu(x, y, getParentArray, folder, inst, startScreen) {
@@ -1656,6 +1868,7 @@
         menu.className = "ctx-menu";
         menu.setAttribute("role", "menu");
         menu.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+        if (closeActiveModal) { backdrop.classList.add("ctx-over-modal"); menu.classList.add("ctx-over-modal"); } // ouvert depuis une fenêtre (statistiques, calendrier) : au-dessus d'elle
 
         function menuButton(text, className, onClick) {
             var b = document.createElement("button");
@@ -1703,28 +1916,8 @@
             menu.appendChild(menuButton("Déplacer vers…", "", function () {
                 closeFolderMenu();
                 var excludeIds = collectFolderAndDescendantIds(folder);
-                openFolderPickerModal("Déplacer « " + folder.name + " » vers…", excludeIds, function (dest) {
-                    var destDepth = folderDepth(inst, dest.id);
-                    if (destDepth + folderSubtreeDepth(folder) > MAX_FOLDER_DEPTH) {
-                        window.alert("Impossible de déplacer ici : la profondeur maximale (" + MAX_FOLDER_DEPTH + " niveaux) serait dépassée.");
-                        return;
-                    }
-                    if (folderNameTaken(dest.folders, folder.name) && !confirmNameCollision("dossier", folder.name)) return;
-                    var parentArray = getParentArray();
-                    var pos = parentArray.indexOf(folder);
-                    if (pos !== -1) parentArray.splice(pos, 1);
-                    dest.folders.push(folder);
-                    // Si le dossier déplacé faisait partie du chemin affiché, on le suit à son nouvel
-                    // emplacement plutôt que de laisser l'écran pointer vers un chemin qui n'existe plus.
-                    var currentPath = getNavPath(inst);
-                    if (currentPath.indexOf(folder.id) !== -1) {
-                        var destPath = findPathTo(inst, dest.id) || [];
-                        setNavPath(inst, destPath.concat(folder.id));
-                    }
-                    save();
-                    render();
-                    showToast("« " + folder.name + " » déplacé vers « " + dest.name + " »");
-                });
+                // Si le dossier déplacé faisait partie du chemin affiché, on le suit à son nouvel emplacement (voir moveFolderInto).
+                openFolderPickerModal("Déplacer « " + folder.name + " » vers…", excludeIds, function (dest) { moveFolderInto(inst, folder, dest); });
             }));
             menu.appendChild(menuButton("Fusionner avec…", "", function () {
                 closeFolderMenu();
@@ -1748,7 +1941,7 @@
                     }
                     save();
                     render();
-                    showToast("« " + folder.name + " » fusionné dans « " + dest.name + " »");
+                    toastUndo("« " + folder.name + " » fusionné dans « " + dest.name + " »");
                 });
             }));
             menu.appendChild(menuButton("Supprimer", "ctx-danger", showDelete));
@@ -1831,6 +2024,13 @@
             msg.className = "ctx-message";
             msg.textContent = "Supprimer « " + folder.name + " »" + (hasContent ? " et tout son contenu (sous-dossiers et exercices)" : "") + " ?";
             menu.appendChild(msg);
+            var nEx = folderExerciseIds(folder).length, u = exerciseUsage(folderExerciseIds(folder));
+            if (nEx || u.sessions.length) {
+                var warn = document.createElement("div");
+                warn.className = "ctx-message ctx-warn";
+                warn.textContent = (nEx ? nEx + " exercice" + (nEx > 1 ? "s" : "") + " dedans. " : "") + (u.sessions.length ? "⚠ " + u.steps + " pas de session" + (u.steps > 1 ? "s" : "") + " les utilise" + (u.steps > 1 ? "nt" : "") + " (" + u.sessions.slice(0, 3).map(function (g) { return "« " + g.name + " »"; }).join(", ") + (u.sessions.length > 3 ? "…" : "") + ") : ils afficheront « exercice supprimé ». " : "") + "Tout reste récupérable dans la corbeille.";
+                menu.appendChild(warn);
+            }
             var actions = document.createElement("div");
             actions.className = "ctx-actions";
             actions.appendChild(menuButton("Annuler", "ctx-secondary", closeFolderMenu));
@@ -1864,10 +2064,59 @@
         place();
     }
 
-    // Menu, plus simple, d'un exercice : juste les deux cases "favoris" et "archiver" demandées
-    // (le statu quo avec les statuts à faire/en cours/terminé/à revoir était jugé trop compliqué).
-    function openExerciseMenu(x, y, ex, folder) {
+    // Renommer un exercice : le nouveau nom apparaît partout (sessions, calendrier, statistiques), car tout
+    // y fait référence par identifiant ; seul l'historique garde aussi le nom d'alors.
+    function renameExercisePrompt(ex, folder, after) {
+        var n = window.prompt("Nouveau nom de l'exercice :", ex.title);
+        if (n === null) return false;
+        n = n.trim();
+        if (!n || n === ex.title) return false;
+        if (folder && exerciseTitleTaken(folder.exercises, n, ex) && !confirmNameCollision("exercice", n)) return false;
+        var old = ex.title;
+        ex.title = n;
+        touchExercise(ex);
+        save();
+        render();
+        if (after) after();
+        var u = exerciseUsage(ex.id);
+        toastUndo("« " + old + " » renommé en « " + n + " »" + (u.sessions.length ? " (à jour dans " + u.sessions.length + " session" + (u.sessions.length > 1 ? "s" : "") + ")" : ""));
+        return true;
+    }
+    // Ajoute un exercice à une session enregistrée (et à son brouillon ouvert, pour que rien ne s'écrase).
+    function gsAddExerciseToSession(session, ex) {
+        var step = { id: uid(), exerciseId: ex.id, minutes: gsDefaultMinutes(ex) };
+        var de = gsDrafts[session.id], clean = de ? !gsDraftDirty(session.id) : true;
+        session.steps.push(step);
+        if (de) { de.draft.steps.push(cloneJson(step)); if (clean) de.base = gsDraftSig(de); }
+        save();
+        render();
+        toastUndo("« " + ex.title + " » ajouté à « " + session.name + " » (" + step.minutes + " min)");
+    }
+    function openAddToSessionMenu(x, y, ex) {
+        var inst = (findExerciseById(ex.id) || {}).inst || getActiveInstrument();
+        var list = state.settings.guidedSessions.filter(function (g) { return g.instrumentId === inst.id && !g.archived; })
+            .sort(function (a, b) { return a.name.localeCompare(b.name, "fr", { sensitivity: "base" }); });
+        var items = [{ label: "＋ Nouvelle session avec cet exercice", open: function () {
+            var name = window.prompt("Nom de la nouvelle session :", ex.title);
+            if (name === null || !name.trim()) return;
+            var sess = { id: uid(), name: name.trim(), steps: [], instrumentId: inst.id, tabIds: [], createdAt: Date.now() };
+            state.settings.guidedSessions.push(sess);
+            gsAddExerciseToSession(sess, ex);
+        } }];
+        list.forEach(function (g) {
+            var n = g.steps.filter(function (st) { return st.exerciseId === ex.id; }).length;
+            items.push({ label: g.name + (n ? "  (déjà " + (n > 1 ? n + " fois" : "dedans") + ")" : ""), open: function () { gsAddExerciseToSession(g, ex); } });
+        });
+        openLinksQuickMenu(x, y, items);
+    }
+
+    // Menu d'un exercice (clic droit / appui long), le même partout : liste des exercices, choix d'un exercice
+    // pour une session, statistiques. `opts.reveal` : proposer « Ouvrir dans son dossier » ; `opts.after` :
+    // rafraîchir la fenêtre d'où l'on vient ; `opts.noAddToSession` : déjà en train de choisir pour une session.
+    function openExerciseMenu(x, y, ex, folder, opts) {
+        opts = opts || {};
         closeFolderMenu();
+        function done() { closeFolderMenu(); render(); if (opts.after) opts.after(); }
 
         var backdrop = document.createElement("div");
         backdrop.className = "ctx-backdrop";
@@ -1878,6 +2127,7 @@
         menu.className = "ctx-menu";
         menu.setAttribute("role", "menu");
         menu.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+        if (closeActiveModal) { backdrop.classList.add("ctx-over-modal"); menu.classList.add("ctx-over-modal"); } // ouvert depuis une fenêtre (statistiques, calendrier) : au-dessus d'elle
 
         function menuButton(text, className, onClick) {
             var b = document.createElement("button");
@@ -1907,28 +2157,36 @@
         title.className = "ctx-title";
         title.textContent = ex.title;
         menu.appendChild(title);
+        var usage = exerciseUsage(ex.id);
+        if (usage.sessions.length) {
+            var useLine = document.createElement("div");
+            useLine.className = "ctx-message ctx-usage";
+            useLine.textContent = exerciseUsageText(usage);
+            menu.appendChild(useLine);
+        }
 
+        if (opts.reveal) menu.appendChild(menuButton("Ouvrir dans son dossier", "", function () { closeFolderMenu(); revealExercise(ex.id); }));
+        menu.appendChild(menuButton("Renommer…", "", function () { closeFolderMenu(); renameExercisePrompt(ex, folder, opts.after); }));
+        if (!opts.noAddToSession) menu.appendChild(menuButton("Ajouter à une session…", "", function () { closeFolderMenu(); openAddToSessionMenu(x, y, ex); }));
         menu.appendChild(menuButton(ex.favorite ? "★ Retirer des favoris" : "☆ Marquer en favori", "", function () {
             ex.favorite = !ex.favorite;
             touchExercise(ex);
             save();
-            closeFolderMenu();
-            render();
+            done();
         }));
         menu.appendChild(menuButton(ex.archived ? "Désarchiver" : "Archiver", "", function () {
             ex.archived = !ex.archived;
             touchExercise(ex);
             save();
-            closeFolderMenu();
-            render();
+            done();
+            if (ex.archived && usage.sessions.length) showToast("« " + ex.title + " » archivé : il reste dans ses sessions (rien n'est perdu).", 4500);
         }));
 
         if (folder) {
             menu.appendChild(menuButton("Dupliquer", "", function () {
                 folder.exercises.push(duplicateExercise(ex));
                 save();
-                closeFolderMenu();
-                render();
+                done();
                 // La copie ne reprend pas le statut favori/archivé (voir duplicateExercise) : sans ce
                 // message, dupliquer depuis la vue Archivés ferait "disparaître" la copie de cette vue
                 // sans explication, l'air d'un bug plutôt que d'un choix.
@@ -1945,8 +2203,13 @@
                     dest.exercises.push(ex);
                     save();
                     render();
-                    showToast("« " + ex.title + " » déplacé vers « " + dest.name + " »");
+                    if (opts.after) opts.after();
+                    toastUndo("« " + ex.title + " » déplacé vers « " + dest.name + " »");
                 });
+            }));
+            menu.appendChild(menuButton("Supprimer…", "ctx-danger", function () {
+                closeFolderMenu();
+                if (deleteExerciseGuarded(ex, folder, (findExerciseById(ex.id) || {}).inst) && opts.after) opts.after();
             }));
         }
 
@@ -1980,6 +2243,7 @@
         var menu = document.createElement("div");
         menu.className = "ctx-menu ctx-menu-dialog";
         menu.setAttribute("role", "dialog");
+        if (closeActiveModal) { backdrop.classList.add("ctx-over-modal"); menu.classList.add("ctx-over-modal"); }
         var h = document.createElement("div");
         h.className = "ctx-menu-title ctx-menu-title-wrap";
         h.textContent = heading;
@@ -2066,7 +2330,7 @@
             destFolder.exercises.push(ex);
             save();
             render();
-            showToast("« " + ex.title + " » déplacé vers « " + destFolder.name + " »");
+            toastUndo("« " + ex.title + " » déplacé vers « " + destFolder.name + " »");
         });
         choice("Copier ici", "", function () {
             closeFolderMenu();
@@ -2076,7 +2340,7 @@
             destFolder.exercises.push(copy);
             save();
             render();
-            showToast("« " + ex.title + " » copié dans « " + destFolder.name + " »");
+            toastUndo("« " + ex.title + " » copié dans « " + destFolder.name + " »");
         });
         choice("Annuler", "ctx-item-muted", cancel);
 
@@ -2109,6 +2373,7 @@
         menu.className = "ctx-menu";
         menu.setAttribute("role", "menu");
         menu.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+        if (closeActiveModal) { backdrop.classList.add("ctx-over-modal"); menu.classList.add("ctx-over-modal"); } // ouvert depuis une fenêtre (statistiques, calendrier) : au-dessus d'elle
 
         function menuButton(text, className, onClick) {
             var b = document.createElement("button");
@@ -2551,12 +2816,24 @@
         name = name.trim();
         if (!name) {
             if (state.instruments.length <= 1) return;
-            if (!window.confirm("Supprimer l'espace « " + inst.name + " », tous ses exercices et ses sessions ?")) return;
+            var nEx = 0; (inst.categories || []).forEach(function (c) { nEx += folderExerciseIds(c).length; });
+            var nSess = state.settings.guidedSessions.filter(function (gs) { return gs.instrumentId === instrumentId; }).length;
+            if (!window.confirm("Supprimer l'espace « " + inst.name + " » ?\n\n⚠ " + nEx + " exercice" + (nEx > 1 ? "s" : "") + " et " + nSess + " session" + (nSess > 1 ? "s" : "") + " (avec leur planning) seront mis à la corbeille, d'où tu pourras tout restaurer d'un coup.")) return;
+            addToTrash("instrument", inst, {
+                sessions: state.settings.guidedSessions.filter(function (gs) { return gs.instrumentId === instrumentId; }),
+                sessionFolders: state.settings.sessionFolders.filter(function (f) { return f.instrumentId === instrumentId; }),
+                plan: state.settings.sessionPlan.filter(function (pe) { return pe.instrumentId === instrumentId; })
+            });
             state.instruments = state.instruments.filter(function (i) { return i.id !== instrumentId; });
             state.settings.guidedSessions = state.settings.guidedSessions.filter(function (gs) { return gs.instrumentId !== instrumentId; });
             state.settings.sessionFolders = state.settings.sessionFolders.filter(function (f) { return f.instrumentId !== instrumentId; });
+            state.settings.sessionPlan = state.settings.sessionPlan.filter(function (pe) { return pe.instrumentId !== instrumentId; });
             delete navPaths[instrumentId];
             if (state.activeInstrumentId === instrumentId) state.activeInstrumentId = state.instruments[0].id;
+            save();
+            render();
+            toastUndo("Espace « " + inst.name + " » mis à la corbeille");
+            return;
         } else {
             inst.name = name;
         }
@@ -3302,8 +3579,9 @@
 
         var row = document.createElement("div");
         row.className = "exercise-row";
-        row.title = "Cliquer pour les détails (notes, liens…) · clic droit ou appui long : favoris / archiver";
-        bindExerciseMenu(row, ex, folder);
+        row.title = "Cliquer pour les détails (notes, liens…) · clic droit ou appui long : renommer, déplacer, ajouter à une session…";
+        // Hors de la vue d'un dossier (recherche, favoris, archivés) : le menu propose aussi d'ouvrir son dossier.
+        bindContextGesture(row, function (x, y) { openExerciseMenu(x, y, ex, folder, { reveal: !orderingEnabled }); });
         row.addEventListener("click", function (e) {
             if (suppressNextClick) { suppressNextClick = false; return; }
             // Le titre (et les boutons) gardent leur propre clic : cliquer le reste de la ligne
@@ -3388,11 +3666,7 @@
         }
 
         var delBtn = iconButton("✕", "Supprimer l'exercice", function () {
-            if (!window.confirm("Supprimer « " + ex.title + " » ?")) return;
-            addToTrash("exercise", ex, { instrumentId: getActiveInstrument().id, parentFolderId: folder.id });
-            folder.exercises = folder.exercises.filter(function (e) { return e.id !== ex.id; });
-            save();
-            render();
+            deleteExerciseGuarded(ex, folder, getActiveInstrument());
         });
         tools.appendChild(delBtn);
 
@@ -4872,6 +5146,10 @@
     function trashEntryLabel(entry) {
         if (entry.type === "exercise") return "Exercice · " + entry.data.title;
         if (entry.type === "folder") return "Dossier · " + entry.data.name;
+        if (entry.type === "instrument") {
+            var n = 0; (entry.data.categories || []).forEach(function (c) { n += folderExerciseIds(c).length; });
+            return "Espace · " + entry.data.name + " (" + n + " exercice" + (n > 1 ? "s" : "") + ", " + (entry.sessions || []).length + " session" + ((entry.sessions || []).length > 1 ? "s" : "") + ")";
+        }
         return "Session guidée · " + entry.data.name;
     }
 
@@ -4928,7 +5206,10 @@
                 purgeBtn.className = "ctx-danger-solid";
                 purgeBtn.textContent = "Supprimer définitivement";
                 purgeBtn.addEventListener("click", function () {
-                    if (!window.confirm("Supprimer définitivement cet élément ? Impossible à annuler.")) return;
+                    var ids = entry.type === "exercise" && entry.data ? [entry.data.id] : entry.type === "folder" && entry.data ? folderExerciseIds(entry.data) : [];
+                    var u = ids.length ? exerciseUsage(ids) : { sessions: [] };
+                    var warnTxt = u.sessions.length ? "\n\n⚠ " + exerciseUsageText(u).replace(/^Utilisé/, ids.length > 1 ? "Ses exercices sont utilisés" : "Utilisé") + " Ces pas resteront « exercice supprimé » pour de bon." : "";
+                    if (!window.confirm("Supprimer définitivement cet élément ? Impossible à annuler." + warnTxt)) return;
                     purgeFromTrash(entry.id);
                     openTrashPanel();
                 });
@@ -8735,6 +9016,120 @@
         if (gsAnyDraftDirty()) { e.preventDefault(); e.returnValue = ""; return ""; }
     });
 
+    // ---- accès direct depuis n'importe où (calendrier, « À venir », statistiques, menus clic droit) ----
+    function gsFindSession(id) { return state.settings.guidedSessions.filter(function (g) { return g.id === id; })[0] || null; }
+    function gsRunActive() { return !!(gsRunSession && gsScreen === "run"); }
+    // Ouvre l'écran d'édition d'une session (ses exercices) en fermant la fenêtre d'où l'on vient.
+    function gsOpenSessionEditor(session) {
+        if (!session) { showToast("Cette session n'existe plus (voir la corbeille)"); return false; }
+        if (gsRunActive()) { showToast("Une session est en cours : termine-la avant d'en modifier une.", 4500); return false; }
+        function go() {
+            if (closeActiveModal) closeActiveModal();
+            closeFolderMenu();
+            if (session.instrumentId && session.instrumentId !== state.activeInstrumentId && findById(state.instruments, session.instrumentId)) { state.activeInstrumentId = session.instrumentId; persist(); }
+            guidedSessionViewActive = true;
+            if ($guidedSessionBtn) $guidedSessionBtn.classList.add("active");
+            gsEditingSession = session;
+            gsScreen = "edit";
+            render();
+            try { window.scrollTo(0, 0); } catch (e) {}
+        }
+        var cur = guidedSessionViewActive && (gsScreen === "edit" || gsScreen === "pick") ? gsEditingSession : null;
+        if (cur && cur.id !== session.id && gsDraftDirty(cur.id)) { gsDraftPrompt(cur.id, {}, go); return true; }
+        go();
+        return true;
+    }
+    // Renomme une session (et son brouillon s'il n'a pas été renommé à part). Le calendrier, « À venir »,
+    // l'historique et les statistiques affichent tous le nom actuel.
+    function gsRenameSession(session, after) {
+        if (!session) return false;
+        var n = window.prompt("Nouveau nom de la session :", session.name);
+        if (n === null || !n.trim() || n.trim() === session.name) return false;
+        var old = session.name;
+        var de = gsDrafts[session.id], clean = de ? !gsDraftDirty(session.id) : true;
+        session.name = n.trim();
+        if (de) { if (de.draft.name === old) de.draft.name = session.name; if (clean) de.base = gsDraftSig(de); }
+        save();
+        render();
+        if (after) after();
+        showToast("Session renommée : « " + session.name + " »");
+        return true;
+    }
+    // Nom à afficher pour une séance enregistrée : celui d'aujourd'hui si la session existe encore, sinon celui
+    // d'alors (figé dans le journal). `frozen` : le nom d'alors, s'il diffère.
+    function logRecName(rec) {
+        var g = rec && rec.sessionId ? gsFindSession(rec.sessionId) : null;
+        return g ? g.name : (rec && rec.name) || "(session)";
+    }
+    function logRecOldName(rec) {
+        var cur = logRecName(rec);
+        return rec && rec.name && rec.name !== cur ? rec.name : null;
+    }
+    // Titre à afficher pour un exercice d'une séance enregistrée : titre actuel s'il existe encore.
+    function logStepTitle(st) {
+        var f = st && st.exerciseId ? findExerciseById(st.exerciseId) : null;
+        return f ? f.ex.title : (st && st.title) || "(exercice)";
+    }
+    // Sessions (et pas) qui utilisent un exercice — brouillons non enregistrés compris.
+    function exerciseUsage(exIds) {
+        var set = {}, out = { sessions: [], steps: 0, planned: 0 };
+        (Array.isArray(exIds) ? exIds : [exIds]).forEach(function (id) { set[id] = true; });
+        var today = calTodayKey();
+        state.settings.guidedSessions.forEach(function (g) {
+            var de = gsDrafts[g.id], steps = de ? de.draft.steps : g.steps;
+            var n = steps.filter(function (st) { return set[st.exerciseId]; }).length;
+            if (!n) return;
+            out.sessions.push(g); out.steps += n;
+            out.planned += state.settings.sessionPlan.filter(function (pe) { return pe.sessionId === g.id && pe.date >= today; }).length;
+        });
+        return out;
+    }
+    function exerciseUsageText(u) {
+        if (!u.sessions.length) return "";
+        var names = u.sessions.slice(0, 4).map(function (g) { return "« " + g.name + " »"; }).join(", ") + (u.sessions.length > 4 ? "…" : "");
+        return "Utilisé dans " + u.sessions.length + " session" + (u.sessions.length > 1 ? "s" : "") + " : " + names + (u.planned ? " (dont " + u.planned + " séance" + (u.planned > 1 ? "s" : "") + " au calendrier)" : "") + ".";
+    }
+    function folderExerciseIds(folder) {
+        var ids = [];
+        (function walk(f) { (f.exercises || []).forEach(function (e) { ids.push(e.id); }); (f.folders || []).forEach(walk); })(folder);
+        return ids;
+    }
+
+    // Montre un exercice dans son dossier (quitte la session guidée si besoin, déplie l'exercice, le met en évidence).
+    function revealExercise(exId) {
+        var f = findExerciseById(exId);
+        if (!f) { showToast("Exercice introuvable : il a peut-être été supprimé (voir la corbeille)."); return false; }
+        if (gsRunActive() && guidedSessionViewActive) { showToast("Une session est en cours : termine-la avant d'aller dans les dossiers.", 4500); return false; }
+        if (closeActiveModal) closeActiveModal();
+        closeFolderMenu();
+        var keptDraft = guidedSessionViewActive && gsEditingSession && gsDraftDirty(gsEditingSession.id) ? gsDrafts[gsEditingSession.id].draft.name : null;
+        if (guidedSessionViewActive) {
+            guidedSessionViewActive = false;
+            if ($guidedSessionBtn) $guidedSessionBtn.classList.remove("active");
+            if (gsRunInterval) { clearInterval(gsRunInterval); gsRunInterval = null; }
+        }
+        if (f.inst.id !== state.activeInstrumentId) { state.activeInstrumentId = f.inst.id; persist(); }
+        clearFilters();
+        setNavPath(f.inst, f.ex.archived ? [ARCHIVED_ID] : f.pathIds.slice());
+        f.pathIds.forEach(function (id) { treeExpanded[id] = true; });
+        if (f.ex.collapsed) { f.ex.collapsed = false; persist(); }
+        render();
+        function flash() {
+            var el = document.querySelector('.exercise[data-reorder-id="' + exId + '"]');
+            if (!el) return false;
+            try { el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) { el.scrollIntoView(); }
+            el.classList.add("reveal-flash");
+            setTimeout(function () { el.classList.remove("reveal-flash"); }, 2200);
+            return true;
+        }
+        if (!flash()) {
+            var v = loadExView();
+            if (!exViewIsDefault(v)) { saveExView({ sort: v.sort, att: "", notes: "", video: false, fav: false }); render(); flash(); showToast("Filtres d'affichage des exercices retirés pour montrer « " + f.ex.title + " »", 4500); return true; }
+        }
+        if (keptDraft) showToast("« " + keptDraft + " » n'est pas encore enregistrée : tes modifications t'attendent (bouton Session guidée).", 6000);
+        return true;
+    }
+
     // ---- écran liste : onglets (Tout + onglets libres), filtre de durée ----
     var GS_TAB_KEY = "trainhub.gsTab.v1";
     var GS_SORTS = [["manual", "Ordre manuel"], ["dur-asc", "Durée : courtes d'abord"], ["dur-desc", "Durée : longues d'abord"], ["created-desc", "Ajout : récentes d'abord"], ["created-asc", "Ajout : anciennes d'abord"], ["updated", "Modifiées récemment"], ["used-desc", "Les plus utilisées"], ["used-asc", "Les moins utilisées"], ["az", "A → Z"], ["za", "Z → A"]];
@@ -8892,12 +9287,7 @@
                     save(); render();
                     return;
                 }
-                if (!window.confirm("Supprimer la session « " + session.name + " » ?")) return;
-                addToTrash("session", session, {});
-                delete gsDrafts[session.id];
-                allSessions.splice(allSessions.indexOf(session), 1);
-                save();
-                render();
+                deleteSessionGuarded(session);
             });
             var archBtn = svgIconButton(ARCHIVE_ICON_SVG, session.archived ? "Désarchiver cette session (elle revient dans « Tout »)" : "Archiver cette session (masquée, jamais perdue : onglet « Archivées »)", function () {
                 session.archived = !session.archived;
@@ -8919,15 +9309,7 @@
             var items = [];
             if (!session.archived) items.push({ label: "▶ Lancer la session", open: function () { if (session.steps.length) gsStartRun(session); else showToast("Cette session n'a pas encore d'exercice"); } });
             items.push({ label: "Modifier les exercices", open: function () { gsEditingSession = session; gsScreen = "edit"; render(); } });
-            items.push({ label: "Renommer…", open: function () {
-                var n = window.prompt("Nouveau nom de la session :", session.name);
-                if (n === null || !n.trim()) return;
-                var old = session.name;
-                session.name = n.trim();
-                var de = gsDrafts[session.id];
-                if (de) { var clean = !gsDraftDirty(session.id); if (de.draft.name === old) de.draft.name = session.name; if (clean) de.base = gsDraftSig(de); }
-                save(); render();
-            } });
+            items.push({ label: "Renommer…", open: function () { gsRenameSession(session); } });
             items.push({ label: "Dupliquer", open: function () {
                 var copy = cloneJson(session);
                 copy.id = uid(); copy.createdAt = Date.now(); copy.runCount = 0; copy.name = session.name + " (copie)";
@@ -8955,13 +9337,7 @@
             [["dur-asc", "Trier la liste : durée croissante"], ["used-desc", "Trier la liste : les plus utilisées"], ["az", "Trier la liste : A → Z"], ["manual", "Trier la liste : ordre manuel"]].forEach(function (o) {
                 items.push({ label: (gsSort === o[0] ? "✓ " : "") + o[1], open: function () { gsSort = o[0]; gsSaveView(); render(); } });
             });
-            items.push({ label: "Supprimer…", open: function () {
-                if (!window.confirm("Supprimer la session « " + session.name + " » ?")) return;
-                addToTrash("session", session, {});
-                delete gsDrafts[session.id];
-                allSessions.splice(allSessions.indexOf(session), 1);
-                save(); render();
-            } });
+            items.push({ label: "Supprimer…", open: function () { deleteSessionGuarded(session); } });
             openLinksQuickMenu(x, y, items);
         }
 
@@ -9067,9 +9443,19 @@
                 info.appendChild(nm); info.appendChild(meta); row.appendChild(info);
                 var acts = document.createElement("div"); acts.className = "gs-session-actions";
                 if (en.date === calTodayKey() && sess && sess.steps.length) { var pb = svgIconButton(METRO_PLAY_ICON_SVG, "Lancer cette session maintenant", function () { gsStartRun(sess); }); pb.classList.add("gs-session-play-btn"); acts.appendChild(pb); }
+                if (sess) { var ed = iconButton("✎", "Modifier les exercices de cette session", function () { gsOpenSessionEditor(sess); }); ed.classList.add("gs-up-edit"); acts.appendChild(ed); }
                 var rm = iconButton("✕", en.seriesId ? "Retirer du planning (cette session ou toute la série)" : "Retirer du planning", function () { calRemovePlanEntry(en, rm, function () { render(); }); });
                 acts.appendChild(rm); row.appendChild(acts);
-                row.addEventListener("click", function (ev) { if (ev.target.closest("button")) return; openSessionCalendar({ focusDate: en.date }); });
+                row.addEventListener("click", function (ev) { if (ev.target.closest("button")) return; if (suppressNextClick) { suppressNextClick = false; return; } openSessionCalendar({ focusDate: en.date }); });
+                bindContextGesture(row, function (x, y) {
+                    var its = [];
+                    if (en.date === calTodayKey() && sess && sess.steps.length) its.push({ label: "▶ Lancer maintenant", open: function () { gsStartRun(sess); } });
+                    if (sess) its.push({ label: "✎ Modifier les exercices", open: function () { gsOpenSessionEditor(sess); } });
+                    if (sess) its.push({ label: "Renommer…", open: function () { gsRenameSession(sess); } });
+                    its.push({ label: "Ouvrir ce jour dans le calendrier", open: function () { openSessionCalendar({ focusDate: en.date }); } });
+                    its.push({ label: "✕ Retirer du planning" + (en.seriesId ? " (série)" : ""), open: function () { calRemovePlanEntry(en, rm, function () { render(); }); } });
+                    openLinksQuickMenu(x, y, its);
+                });
                 wrap.appendChild(row);
             });
             return wrap;
@@ -9395,6 +9781,48 @@
             totalRow.textContent = "Durée totale : " + sessionTotalMinutes(session) + " min";
         }
 
+        // Exercice introuvable : est-il à la corbeille (seul, ou dans un dossier supprimé) ?
+        function trashEntryFor(exId) {
+            return (state.settings.trash || []).filter(function (t) {
+                if (t.type === "exercise") return t.data && t.data.id === exId;
+                if (t.type === "folder") return folderExerciseIds(t.data || { exercises: [], folders: [] }).indexOf(exId) !== -1;
+                return false;
+            })[0] || null;
+        }
+        // Clic droit / appui long sur un exercice de la session : tout ce qu'on peut vouloir y changer.
+        function openStepMenu(x, y, step, found) {
+            var items = [];
+            if (found) {
+                items.push({ label: "✎ Modifier l'exercice (titre, notes, liens, tempo…)", open: function () {
+                    gsOpenStepDetails[step.id] = true; gsOpenStepEdit[step.id] = true; renderSteps();
+                    var r = stepsList.querySelector('.gs-step-row[data-reorder-id="' + step.id + '"]');
+                    if (r) { try { r.scrollIntoView({ block: "nearest" }); } catch (e) {} var t = r.querySelector(".gs-step-title-edit"); if (t) t.focus(); }
+                } });
+                items.push({ label: "Renommer l'exercice…", open: function () { renameExercisePrompt(found.ex, found.folder); } });
+                items.push({ label: "Ouvrir dans son dossier", open: function () { revealExercise(found.ex.id); } });
+            } else {
+                var te = trashEntryFor(step.exerciseId);
+                if (te) items.push({ label: "♻ Restaurer l'exercice (corbeille" + (te.type === "folder" ? ", avec le dossier « " + te.data.name + " »" : "") + ")", open: function () { restoreFromTrash(te.id); showToast("Exercice restauré"); } });
+            }
+            items.push({ label: "⇄ Remplacer par un autre exercice…", open: function () {
+                gsPickCallback = function (ex) { step.exerciseId = ex.id; delete step.metronome; };
+                gsScreen = "pick";
+                render();
+                showToast("Choisis l'exercice qui remplace celui-ci (même durée, même note)", 4000);
+            } });
+            items.push({ label: "Dupliquer ce pas", open: function () {
+                var copy = cloneJson(step); copy.id = uid();
+                session.steps.splice(session.steps.indexOf(step) + 1, 0, copy);
+                renderSteps(); refreshTotal(); refreshDirty();
+            } });
+            items.push({ label: "✕ Retirer de la session", open: function () {
+                session.steps.splice(session.steps.indexOf(step), 1);
+                renderSteps(); refreshTotal(); refreshDirty();
+                editRunBtn.disabled = !session.steps.length;
+            } });
+            openLinksQuickMenu(x, y, items);
+        }
+
         function renderSteps() {
             stepsList.innerHTML = "";
             session.steps.forEach(function (step) {
@@ -9413,6 +9841,7 @@
                 var label = document.createElement("span");
                 label.className = "gs-step-label" + (found ? "" : " gs-step-missing");
                 label.textContent = found ? found.ex.title : "(exercice supprimé)";
+                if (!found) label.title = "Clic droit : le restaurer depuis la corbeille ou le remplacer";
                 line.appendChild(label);
                 var stepTempoCfg = {
                     title: found ? found.ex.title : "ce pas",
@@ -9497,6 +9926,7 @@
                     editRunBtn.disabled = !session.steps.length;
                 });
                 sessZone.appendChild(removeBtn);
+                bindContextGesture(line, function (x, y) { openStepMenu(x, y, step, found); }); // la barre seulement : les détails gardent le menu natif (copier/coller)
 
                 if (detailsOpen) {
                     var details = document.createElement("div");
@@ -9513,6 +9943,11 @@
                         editToggle.addEventListener("click", function () { gsOpenStepEdit[step.id] = !editOpen; renderSteps(); });
                         details.appendChild(editToggle);
                         if (editOpen) {
+                            var everywhere = document.createElement("div");
+                            everywhere.className = "gs-step-edit-note";
+                            var nUse = exerciseUsage(found.ex.id).sessions.length;
+                            everywhere.textContent = "Modifié tout de suite, partout : dans ses dossiers" + (nUse > 1 ? " et dans ses " + nUse + " sessions" : "") + ". (La note « pour cet exercice » plus bas ne concerne que cette session.)";
+                            details.appendChild(everywhere);
                             var titleEdit = document.createElement("input");
                             titleEdit.type = "text";
                             titleEdit.className = "gs-step-title-edit";
@@ -9521,6 +9956,7 @@
                             titleEdit.addEventListener("change", function () {
                                 var v = titleEdit.value.trim();
                                 if (!v) { titleEdit.value = found.ex.title; return; }
+                                if (v !== found.ex.title && exerciseTitleTaken(found.folder.exercises, v, found.ex) && !confirmNameCollision("exercice", v)) { titleEdit.value = found.ex.title; return; }
                                 found.ex.title = v;
                                 touchExercise(found.ex);
                                 save();
@@ -9629,6 +10065,7 @@
         return el;
     }
     function renderGsPickTree(container, folders, depth, rootColor) {
+        var inst = getActiveInstrument(), parentList = folders;
         folders.forEach(function (folder) {
             var color = depth === 0 ? folder.color : rootColor;
             var visibleExercises = folder.exercises.filter(function (ex) { return !ex.archived; });
@@ -9659,7 +10096,16 @@
             label.className = "tree-label";
             label.textContent = folder.name;
             row.appendChild(label);
-            row.addEventListener("click", function () { treeExpanded[folder.id] = !expanded; render(); });
+            row.dataset.pickFolder = folder.id;
+            row.title = "Clic droit : renommer, déplacer, dupliquer… · glisser un exercice ou un dossier ici pour l'y ranger";
+            row.addEventListener("click", function () {
+                if (suppressNextClick) { suppressNextClick = false; return; }
+                treeExpanded[folder.id] = !expanded; render();
+            });
+            bindPickGesture(row, function (x, y) { openFolderMenu(x, y, function () { return parentList; }, folder, inst); }, function (destId, x, y) {
+                var dest = findFolderById(inst, destId);
+                if (dest) openFolderDropMenu(x, y, inst, folder, dest);
+            });
             node.appendChild(row);
 
             if (expanded && hasContent) {
@@ -9676,9 +10122,14 @@
                     var prev = gsNotePreview(ex);
                     if (prev) exBtn.appendChild(prev);
                     exBtn.addEventListener("click", function () {
+                        if (suppressNextClick) { suppressNextClick = false; return; }
                         gsPickCallback(ex);
                         gsScreen = "edit";
                         render();
+                    });
+                    bindPickGesture(exBtn, function (x, y) { openExerciseMenu(x, y, ex, folder, { reveal: true, noAddToSession: true }); }, function (destId, x, y) {
+                        var dest = findFolderById(inst, destId);
+                        if (dest) openExerciseDropMenu(x, y, ex, folder, dest);
                     });
                     childWrap.appendChild(exBtn);
                 });
@@ -9702,6 +10153,10 @@
         searchInput.className = "gs-pick-search";
         searchInput.placeholder = "Rechercher un exercice…";
         content.appendChild(searchInput);
+        var pickHint = document.createElement("div");
+        pickHint.className = "gs-pick-hint";
+        pickHint.textContent = "Un dossier ou un exercice mal rangé ? Clic droit (ou appui long) pour le renommer, le déplacer, le dupliquer… ou glisse-le sur un dossier.";
+        content.appendChild(pickHint);
 
         var resultsWrap = document.createElement("div");
         content.appendChild(resultsWrap);
@@ -9744,7 +10199,9 @@
                 btn.appendChild(head);
                 var prev2 = gsNotePreview(r.ex);
                 if (prev2) btn.appendChild(prev2);
+                bindPickGesture(btn, function (x, y) { openExerciseMenu(x, y, r.ex, r.folder, { reveal: true, noAddToSession: true }); }, null);
                 btn.addEventListener("click", function () {
+                    if (suppressNextClick) { suppressNextClick = false; return; }
                     gsPickCallback(r.ex);
                     gsScreen = "edit";
                     render();
@@ -9952,7 +10409,13 @@
     // Retire une session programmée ; si elle fait partie d'une série, on demande : seulement celle-ci, les suivantes, ou toute la série.
     function calRemovePlanEntry(entry, anchor, after) {
         function finish() { save(); if (after) after(); }
-        function drop(pred) { state.settings.sessionPlan = state.settings.sessionPlan.filter(function (x) { return !pred(x); }); finish(); }
+        function drop(pred) {
+            var before = state.settings.sessionPlan.length;
+            state.settings.sessionPlan = state.settings.sessionPlan.filter(function (x) { return !pred(x); });
+            var n = before - state.settings.sessionPlan.length;
+            finish();
+            if (n) toastUndo(n > 1 ? n + " séances de « " + gsSessionNameById(entry.sessionId) + " » retirées du calendrier" : "« " + gsSessionNameById(entry.sessionId) + " » retirée du " + calLongDate(entry.date));
+        }
         if (!entry.seriesId || !anchor) { drop(function (x) { return x.id === entry.id; }); return; }
         var same = state.settings.sessionPlan.filter(function (x) { return x.seriesId === entry.seriesId; });
         var later = same.filter(function (x) { return x.date >= entry.date; });
@@ -9989,25 +10452,39 @@
     // Récapitulatif d'une session réalisée : nom, durée totale, exercices et durée de chacun (valeurs figées au jour de la séance).
     function calOpenRecap(anchor, rec) {
         if (!rec) return;
-        openGsPopover(anchor, function (pop) {
+        openGsPopover(anchor, function (pop, close) {
             pop.classList.add("cal-recap");
-            var h = document.createElement("div"); h.className = "cal-recap-title"; h.textContent = rec.name;
+            var h = document.createElement("div"); h.className = "cal-recap-title"; h.textContent = logRecName(rec);
             var d = new Date(rec.date), p2 = function (n) { return (n < 10 ? "0" : "") + n; };
             var sub = document.createElement("div"); sub.className = "cal-recap-sub"; sub.textContent = calLongDate(calKey(d)) + " · " + p2(d.getHours()) + ":" + p2(d.getMinutes());
             var tot = document.createElement("div"); tot.className = "cal-recap-total";
             var tv = document.createElement("strong"); tv.textContent = gsFmtDur(rec.totalSec || 0);
             tot.appendChild(document.createTextNode("Durée totale : ")); tot.appendChild(tv);
             if (rec.plannedSec) tot.appendChild(document.createTextNode(" (prévu : " + gsFmtDur(rec.plannedSec) + ")"));
-            pop.appendChild(h); pop.appendChild(sub); pop.appendChild(tot);
+            pop.appendChild(h); pop.appendChild(sub);
+            if (logRecOldName(rec)) { var was = document.createElement("div"); was.className = "cal-recap-was"; was.textContent = "Nom au moment de la séance : « " + logRecOldName(rec) + " »"; pop.appendChild(was); }
+            pop.appendChild(tot);
             var list = document.createElement("div"); list.className = "cal-recap-list";
             (rec.steps || []).forEach(function (st) {
                 var r = document.createElement("div"); r.className = "cal-recap-row";
-                var n = document.createElement("span"); n.className = "cal-recap-name"; n.textContent = st.title || "(exercice)";
+                var n = document.createElement("span"); n.className = "cal-recap-name"; n.textContent = logStepTitle(st);
                 var v = document.createElement("span"); v.className = "cal-recap-dur"; v.textContent = gsFmtDur(st.actualSec || 0) + (st.bpmMax ? " · " + st.bpmMax + " BPM" : "");
                 r.appendChild(n); r.appendChild(v); list.appendChild(r);
+                var live = st.exerciseId ? findExerciseById(st.exerciseId) : null;
+                if (live) {
+                    r.title = "Clic droit : ouvrir l'exercice, le renommer…";
+                    bindContextGesture(r, function (x, y) { openExerciseMenu(x, y, live.ex, live.folder, { reveal: true, after: function () { close(); } }); });
+                } else if (st.exerciseId) { n.classList.add("cal-recap-gone"); n.title = "Exercice supprimé depuis (nom d'alors)"; }
             });
             if (!(rec.steps || []).length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Aucun détail d'exercice enregistré."; list.appendChild(none); }
             pop.appendChild(list);
+            var g = gsFindSession(rec.sessionId);
+            if (g) {
+                var acts = document.createElement("div"); acts.className = "cal-recap-actions";
+                var open = document.createElement("button"); open.type = "button"; open.className = "btn-ghost cal-recap-open"; open.textContent = "✎ Modifier les exercices de la session";
+                open.addEventListener("click", function () { close(); gsOpenSessionEditor(g); });
+                acts.appendChild(open); pop.appendChild(acts);
+            }
         });
     }
 
@@ -10205,13 +10682,24 @@
             function openDayMenu(x, y, key, cell) {
                 var it = calDayItems(key), past = key < todayKey, items = [];
                 if (!past) items.push({ label: "＋ Ajouter une session…", open: function () { selected = key; renderGrid(); renderDetail(); calOpenAddPopover(grid.querySelector('.cal-cell[data-key="' + key + '"]') || cell, key, refreshAll); } });
-                it.done.forEach(function (rec) { items.push({ label: "Voir « " + rec.name + " » (récapitulatif)", open: function () { selected = key; renderGrid(); renderDetail(); calOpenRecap(grid.querySelector('.cal-cell[data-key="' + key + '"]') || cell, rec); } }); });
-                it.planned.forEach(function (e) {
-                    var sess = state.settings.guidedSessions.filter(function (g) { return g.id === e.sessionId; })[0];
-                    if (key === todayKey && sess && sess.steps.length) items.push({ label: "▶ Lancer « " + gsSessionNameById(e.sessionId) + " »", open: function () { close(); gsStartRun(sess); } });
-                    items.push({ label: "✕ Retirer « " + gsSessionNameById(e.sessionId) + " »" + (e.seriesId ? " (série)" : ""), open: function () { calRemovePlanEntry(e, grid.querySelector('.cal-cell[data-key="' + key + '"]') || cell, refreshAll); } });
+                it.done.forEach(function (rec) {
+                    items.push({ label: "Voir « " + logRecName(rec) + " » (récapitulatif)", open: function () { selected = key; renderGrid(); renderDetail(); calOpenRecap(grid.querySelector('.cal-cell[data-key="' + key + '"]') || cell, rec); } });
+                    var g = gsFindSession(rec.sessionId);
+                    if (g && !it.planned.some(function (e) { return e.sessionId === g.id; })) items.push({ label: "✎ Modifier les exercices de « " + g.name + " »", open: function () { gsOpenSessionEditor(g); } });
                 });
-                if (it.planned.length > 1) items.push({ label: "✕ Retirer toutes les sessions de ce jour", open: function () { state.settings.sessionPlan = state.settings.sessionPlan.filter(function (e) { return !(e.date === key && (!e.instrumentId || e.instrumentId === state.activeInstrumentId)); }); save(); refreshAll(); } });
+                it.planned.forEach(function (e) {
+                    var sess = gsFindSession(e.sessionId), nm = gsSessionNameById(e.sessionId);
+                    if (key === todayKey && sess && sess.steps.length) items.push({ label: "▶ Lancer « " + nm + " »", open: function () { close(); gsStartRun(sess); } });
+                    if (sess) items.push({ label: "✎ Modifier les exercices de « " + nm + " »", open: function () { gsOpenSessionEditor(sess); } });
+                    if (sess) items.push({ label: "Renommer « " + nm + " »…", open: function () { gsRenameSession(sess, refreshAll); } });
+                    items.push({ label: "✕ Retirer « " + nm + " »" + (e.seriesId ? " (série)" : ""), open: function () { calRemovePlanEntry(e, grid.querySelector('.cal-cell[data-key="' + key + '"]') || cell, refreshAll); } });
+                });
+                if (it.planned.length > 1) items.push({ label: "✕ Retirer toutes les sessions de ce jour", open: function () {
+                    var n = it.planned.length;
+                    state.settings.sessionPlan = state.settings.sessionPlan.filter(function (e) { return !(e.date === key && (!e.instrumentId || e.instrumentId === state.activeInstrumentId)); });
+                    save(); refreshAll();
+                    toastUndo(n + " sessions retirées du " + calLongDate(key));
+                } });
                 if (!past && it.planned.length) items.push({ label: "Copier ce jour sur la semaine suivante", open: function () { copyToNextWeek(key); } });
                 items.push({ label: "Aller à aujourd'hui", open: function () { cur = new Date(today.getFullYear(), today.getMonth(), 1); selected = todayKey; renderGrid(); renderDetail(); } });
                 openLinksQuickMenu(x, y, items);
@@ -10231,12 +10719,12 @@
                         cell.dataset.key = key;
                         cell.className = "cal-cell" + (d.getMonth() !== cur.getMonth() ? " cal-out" : "") + (key === todayKey ? " cal-today" : "") + (key === selected ? " cal-selected" : "") + (past ? " cal-past" : "");
                         cell.setAttribute("aria-label", d.getDate() + " " + CAL_MONTHS[d.getMonth()]);
-                        var names = it.planned.map(function (e) { return (e.seriesId ? "↻ " : "") + gsSessionNameById(e.sessionId); }).concat(it.done.map(function (e) { return "✓ " + e.name; }));
+                        var names = it.planned.map(function (e) { return (e.seriesId ? "↻ " : "") + gsSessionNameById(e.sessionId); }).concat(it.done.map(function (e) { return "✓ " + logRecName(e); }));
                         if (names.length) cell.title = names.join("\n");
                         var num = document.createElement("span"); num.className = "cal-num"; num.textContent = String(d.getDate()); cell.appendChild(num);
                         var chips = document.createElement("span"); chips.className = "cal-chips";
                         it.planned.forEach(function (e) { var c = document.createElement("span"); c.className = "cal-chip cal-chip-plan"; c.textContent = (e.seriesId ? "↻ " : "") + gsSessionNameById(e.sessionId); chips.appendChild(c); });
-                        it.done.forEach(function (e) { var c = document.createElement("span"); c.className = "cal-chip cal-chip-done"; c.dataset.rec = e.id; c.textContent = "✓ " + e.name; chips.appendChild(c); });
+                        it.done.forEach(function (e) { var c = document.createElement("span"); c.className = "cal-chip cal-chip-done"; c.dataset.rec = e.id; c.textContent = "✓ " + logRecName(e); chips.appendChild(c); });
                         cell.appendChild(chips);
                         var dots = document.createElement("span"); dots.className = "cal-dots";
                         it.planned.forEach(function () { var dt = document.createElement("i"); dt.className = "cal-dot cal-dot-plan"; dots.appendChild(dt); });
@@ -10275,16 +10763,31 @@
                     var sess = state.settings.guidedSessions.filter(function (x) { return x.id === e.sessionId; })[0];
                     if (sess) { var mt = document.createElement("span"); mt.className = "cal-item-meta"; mt.textContent = "prévu " + sessionTotalMinutes(sess) + " min"; r.appendChild(mt); }
                     if (selected === todayKey && sess && sess.steps.length) r.appendChild(svgIconButton(METRO_PLAY_ICON_SVG, "Lancer cette session maintenant", function () { close(); gsStartRun(sess); }));
+                    if (sess) { var ed = iconButton("✎", "Modifier les exercices de cette session", function () { gsOpenSessionEditor(sess); }); ed.classList.add("cal-item-edit"); r.appendChild(ed); }
                     var rm = iconButton("✕", e.seriesId ? "Retirer du planning (cette session ou toute la série)" : "Retirer du planning", function () { calRemovePlanEntry(e, rm, refreshAll); });
                     r.appendChild(rm);
+                    bindContextGesture(r, function (x, y) {
+                        var its = [];
+                        if (selected === todayKey && sess && sess.steps.length) its.push({ label: "▶ Lancer maintenant", open: function () { close(); gsStartRun(sess); } });
+                        if (sess) its.push({ label: "✎ Modifier les exercices", open: function () { gsOpenSessionEditor(sess); } });
+                        if (sess) its.push({ label: "Renommer…", open: function () { gsRenameSession(sess, refreshAll); } });
+                        its.push({ label: "✕ Retirer du planning" + (e.seriesId ? " (série)" : ""), open: function () { calRemovePlanEntry(e, rm, refreshAll); } });
+                        openLinksQuickMenu(x, y, its);
+                    });
                     detail.appendChild(r);
                 });
                 it.done.forEach(function (e) {
                     var r = document.createElement("div"); r.className = "cal-item cal-item-done"; r.tabIndex = 0; r.title = "Voir le récapitulatif de la session";
-                    var nm = document.createElement("span"); nm.className = "cal-item-name"; nm.textContent = "✓ " + e.name;
+                    var nm = document.createElement("span"); nm.className = "cal-item-name"; nm.textContent = "✓ " + logRecName(e);
                     var du = document.createElement("span"); du.className = "cal-item-meta"; du.textContent = "réel " + gsFmtDur(e.totalSec) + (e.plannedSec ? " / prévu " + gsFmtDur(e.plannedSec) : "");
                     r.appendChild(nm); r.appendChild(du);
                     r.addEventListener("click", function () { calOpenRecap(r, e); });
+                    bindContextGesture(r, function (x, y) {
+                        var g = gsFindSession(e.sessionId), its = [{ label: "Voir le récapitulatif", open: function () { calOpenRecap(r, e); } }];
+                        if (g) its.push({ label: "✎ Modifier les exercices de « " + g.name + " »", open: function () { gsOpenSessionEditor(g); } });
+                        if (g) its.push({ label: "Renommer la session…", open: function () { gsRenameSession(g, refreshAll); } });
+                        openLinksQuickMenu(x, y, its);
+                    });
                     r.addEventListener("keydown", function (ev) { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); calOpenRecap(r, e); } });
                     detail.appendChild(r);
                 });
@@ -10487,10 +10990,10 @@
         var top = Object.keys(byEx).map(function (k) { return byEx[k]; }).sort(function (a, b) { return b.sec - a.sec; });
         var mine = Object.keys(ctx.ex).filter(function (id) { return ctx.ex[id].instrumentId === state.activeInstrumentId && !ctx.ex[id].ex.archived && !ctx.rules.alias[id]; });
         var favorites = mine.filter(function (id) { return ctx.ex[id].ex.favorite; }).map(function (id) {
-            var o = byEx[id]; return { title: ctx.ex[id].ex.title, sec: o ? o.sec : 0, count: o ? o.count : 0, last: (allEx[id] || {}).last || 0 };
+            var o = byEx[id]; return { id: id, title: ctx.ex[id].ex.title, sec: o ? o.sec : 0, count: o ? o.count : 0, last: (allEx[id] || {}).last || 0 };
         }).sort(function (a, b) { return b.sec - a.sec; });
         var underused = mine.filter(function (id) { return !byEx[id]; }).map(function (id) {
-            return { title: ctx.ex[id].ex.title, last: (allEx[id] || {}).last || 0, path: ctx.ex[id].pathNames.join(" › ") };
+            return { id: id, title: ctx.ex[id].ex.title, last: (allEx[id] || {}).last || 0, path: ctx.ex[id].pathNames.join(" › ") };
         }).sort(function (a, b) { return a.last - b.last; });
         return {
             recs: recs, sessions: recs.length, totalSec: totalSec, activeDays: Object.keys(periodMap).length, periodDays: periodDays,
@@ -10796,6 +11299,14 @@
         if (onIssues) onIssues(issues.length);
         function rerender() { renderStatsScreen(box, spec, onIssues); }
         function done(fn) { return function () { fn(); save(); rerender(); }; }
+        // Clic droit (appui long) sur un exercice des statistiques : l'ouvrir dans son dossier, le renommer…
+        function bindExMenu(el, exId) {
+            var f = exId && exId.indexOf("t:") !== 0 ? findExerciseById(exId) : null;
+            if (!f) return;
+            el.classList.add("st-has-menu");
+            el.title = (el.title ? el.title + "\n" : "") + "Clic droit : ouvrir dans son dossier, renommer…";
+            bindContextGesture(el, function (x, y) { openExerciseMenu(x, y, f.ex, f.folder, { reveal: true, after: rerender }); }, { selfButton: true });
+        }
 
         // --- barre de sous-onglets
         var bar = document.createElement("div"); bar.className = "st-tabs"; bar.setAttribute("role", "tablist");
@@ -10926,7 +11437,7 @@
                 var scale = 1; withPlan.forEach(function (r) { scale = Math.max(scale, r.plannedSec, r.totalSec || 0); });
                 withPlan.forEach(function (r, idx) {
                     var line = document.createElement("div"); line.className = "st-pair" + (idx === 0 ? " st-pair-ok" : ""); // dernière séance en vert clair
-                    var lb = document.createElement("span"); lb.className = "st-pair-l"; lb.textContent = statsShortDate(r.date) + " · " + r.name;
+                    var lb = document.createElement("span"); lb.className = "st-pair-l"; lb.textContent = statsShortDate(r.date) + " · " + logRecName(r);
                     var tr = document.createElement("span"); tr.className = "st-pair-track";
                     var real = document.createElement("span"); real.className = "st-pair-real"; real.style.width = Math.round((r.totalSec || 0) / scale * 100) + "%";
                     var mk = document.createElement("span"); mk.className = "st-pair-plan"; mk.style.left = Math.round(r.plannedSec / scale * 100) + "%"; mk.title = "prévu : " + gsFmtMin(r.plannedSec);
@@ -10953,15 +11464,15 @@
             s2b.appendChild(statsPie(statsSubSplit(rws, statsSubChapter), function (it) { return it.chapter && !statsSubChapter ? it.chapter : ""; }));
             if (st.top.length) {
                 var s3 = stSection(box, "Les plus travaillés");
-                st.top.slice(0, 5).forEach(function (x, i) { stRow(s3, x.title, gsFmtMin(x.sec) + " · " + x.count + "×", undefined, i === 0); });
+                st.top.slice(0, 5).forEach(function (x, i) { bindExMenu(stRow(s3, x.title, gsFmtMin(x.sec) + " · " + x.count + "×", undefined, i === 0), x.key); });
             }
             if (st.favorites.length) {
                 var s4 = stSection(box, "Mes favoris ★");
-                st.favorites.slice(0, 8).forEach(function (x) { stRow(s4, x.title, x.count ? gsFmtMin(x.sec) + " · " + gsFmtAgo(x.last, now) : "pas travaillé (" + gsFmtAgo(x.last, now) + ")"); });
+                st.favorites.slice(0, 8).forEach(function (x) { bindExMenu(stRow(s4, x.title, x.count ? gsFmtMin(x.sec) + " · " + gsFmtAgo(x.last, now) : "pas travaillé (" + gsFmtAgo(x.last, now) + ")"), x.id); });
             }
             var s5 = stSection(box, "Exercices sous-utilisés");
             if (!st.underused.length) { var ok = document.createElement("div"); ok.className = "gs-empty"; ok.textContent = "Tous tes exercices ont été travaillés sur cette période."; s5.appendChild(ok); }
-            st.underused.slice(0, 8).forEach(function (x) { stRow(s5, x.title, x.last ? "dernier passage " + gsFmtAgo(x.last, now) : "jamais travaillé"); });
+            st.underused.slice(0, 8).forEach(function (x) { var ur = stRow(s5, x.title, x.last ? "dernier passage " + gsFmtAgo(x.last, now) : "jamais travaillé"); ur.title = x.path; bindExMenu(ur, x.id); });
             if (st.underused.length > 8) { var more = document.createElement("div"); more.className = "gs-empty"; more.textContent = "… et " + (st.underused.length - 8) + " autres"; s5.appendChild(more); }
             var sp2 = stSection(box, "Exercices déplacés");
             var prow = document.createElement("label"); prow.className = "st-policy";
@@ -11009,7 +11520,8 @@
                 var bd = document.createElement("span"); bd.className = "st-ex-badges";
                 if (o.alerts.length) { var b1 = document.createElement("span"); b1.className = "gs-tab-count" + (o.warn ? " st-issue-count" : ""); b1.textContent = String(o.alerts.length); b1.title = o.alerts.length + " alerte(s)"; bd.appendChild(b1); }
                 hd.appendChild(nm); hd.appendChild(meta); hd.appendChild(dur); hd.appendChild(tp); hd.appendChild(bd);
-                hd.addEventListener("click", function () { statsExOpen[o.key] = !statsExOpen[o.key]; rerender(); });
+                hd.addEventListener("click", function () { if (suppressNextClick) { suppressNextClick = false; return; } statsExOpen[o.key] = !statsExOpen[o.key]; rerender(); });
+                bindExMenu(hd, o.key);
                 card.appendChild(hd);
                 if (open) {
                     var body = document.createElement("div"); body.className = "st-ex-body";
@@ -11082,7 +11594,8 @@
                     box.className = "gs-history-entry";
                     var head = document.createElement("div");
                     head.className = "gs-sync-row";
-                    var nm = document.createElement("span"); nm.className = "gs-sync-name"; nm.textContent = e.name;
+                    var nm = document.createElement("span"); nm.className = "gs-sync-name"; nm.textContent = logRecName(e);
+                    if (logRecOldName(e)) nm.title = "Nom au moment de la séance : « " + logRecOldName(e) + " »";
                     var du = document.createElement("span"); du.className = "gs-sync-dur"; du.textContent = gsFmtDate(e.date) + " · " + gsFmtDur(e.totalSec);
                     // Une séance supprimée du journal ne se rattrape plus par « Annuler » : confirmation en deux clics.
                     var del = iconButton("✕", "Supprimer cette entrée", function () {
@@ -11091,14 +11604,23 @@
                             setTimeout(function () { if (del.isConnected) { delete del.dataset.armed; del.textContent = "✕"; del.classList.remove("gs-del-armed"); del.title = "Supprimer cette entrée"; } }, 3000);
                             return;
                         }
+                        var removed = cloneJson(e);
                         logRemove(e.id);
                         save(); fill();
+                        showToast("Séance du " + gsFmtDate(e.date) + " supprimée de l'historique", 8000, { label: "Annuler", run: function () { logAdd(removed); save(); fill(); showToast("Séance remise dans l'historique"); } });
                     });
                     head.appendChild(nm); head.appendChild(du); head.appendChild(del);
                     var det = document.createElement("div");
                     det.className = "gs-history-steps";
-                    det.textContent = e.steps.map(function (st) { return st.title + " (" + gsFmtDur(st.actualSec) + (st.bpmMax ? ", " + (st.bpmFirst && st.bpmFirst !== st.bpmMax ? st.bpmFirst + "→" : "") + st.bpmMax + " BPM" : "") + ")"; }).join(" · ");
+                    det.textContent = e.steps.map(function (st) { return logStepTitle(st) + " (" + gsFmtDur(st.actualSec) + (st.bpmMax ? ", " + (st.bpmFirst && st.bpmFirst !== st.bpmMax ? st.bpmFirst + "→" : "") + st.bpmMax + " BPM" : "") + ")"; }).join(" · ");
                     box.appendChild(head); box.appendChild(det);
+                    var g = gsFindSession(e.sessionId);
+                    if (g) bindContextGesture(box, function (x, y) {
+                        openLinksQuickMenu(x, y, [
+                            { label: "✎ Modifier les exercices de « " + g.name + " »", open: function () { gsOpenSessionEditor(g); } },
+                            { label: "Renommer la session…", open: function () { gsRenameSession(g, fill); } }
+                        ]);
+                    });
                     list.appendChild(box);
                 });
             }

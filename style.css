@@ -2833,3 +2833,46 @@ button.cal-rule-day.active { background: color-mix(in srgb, var(--accent) 18%, t
 .cal-item { font-size: var(--fs-sm); padding: 5px 10px; }
 .cal-item-done { display: flex; align-items: center; gap: 10px; color: color-mix(in srgb, var(--cal-ink) 70%, var(--card-bg-2)); }
 .cal-item-done .cal-item-name { color: var(--cal-ink); }
+
+/* ---------- message avec action (« Annuler ») ---------- */
+.toast.toast-with-action {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    text-align: left;
+    padding: 8px 8px 8px 14px;
+}
+.toast-text { min-width: 0; }
+.toast-action {
+    flex-shrink: 0;
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    border-radius: var(--radius-sm);
+    padding: 5px 12px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+.toast-action:hover { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+
+/* exercice retrouvé depuis une session, le calendrier ou les statistiques */
+.exercise.reveal-flash {
+    animation: reveal-flash 2.1s ease;
+}
+@keyframes reveal-flash {
+    0%, 35% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 70%, transparent); }
+    100% { box-shadow: 0 0 0 2px transparent; }
+}
+.ctx-message.ctx-warn { color: var(--text-muted); padding-top: 0; max-width: 320px; }
+.ctx-message.ctx-usage { color: var(--text-muted); font-size: var(--fs-xs, 12px); padding-top: 0; max-width: 300px; }
+.gs-pick-hint { font-size: var(--fs-xs); color: var(--text-muted); margin: -2px 0 8px; line-height: 1.4; }
+.gs-pick-exercise-row.dragging, .gs-pick-tree-row.dragging { opacity: .4; }
+.drag-ghost.gs-pick-ghost { opacity: .9; z-index: 970; box-shadow: 0 8px 22px rgba(0,0,0,.45); }
+.gs-step-edit-note { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.4; margin: 2px 0 6px; }
+.cal-recap-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+.cal-recap-open { font-size: var(--fs-sm); padding: 5px 10px; }
+.cal-recap-gone { font-style: italic; opacity: .8; }
+.cal-recap-row[title] { cursor: context-menu; }
+.gs-pick-tree-row, .gs-pick-exercise-row { user-select: none; -webkit-user-select: none; }
+.cal-recap-was { font-size: var(--fs-xs); color: var(--text-muted); margin-top: -2px; }
