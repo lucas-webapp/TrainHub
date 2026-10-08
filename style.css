@@ -1893,9 +1893,9 @@ button.ex-view-chip-on { color: var(--accent); border-color: color-mix(in srgb, 
 button.metro-preset-btn { height: 30px; padding: 0 10px; font-size: var(--fs-xs); }
 .gs-step-metro-badge { flex: none; font-size: var(--fs-2xs); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border)); border-radius: var(--radius-sm); padding: 1px 6px; font-variant-numeric: tabular-nums; }
 .gs-run-preset { text-align: center; font-size: var(--fs-xs); color: var(--accent); margin-top: 4px; }
-.gs-run-auto-btn { flex: none; width: var(--gs-btn-h); padding: 0; height: var(--gs-btn-h); box-sizing: border-box; }
-.gs-run-auto-btn .icon { width: 18px; height: 18px; }
-button.gs-run-auto-on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.gs-run-auto-btn, .gs-run-bell-btn { flex: none; width: var(--gs-btn-h); padding: 0; height: var(--gs-btn-h); box-sizing: border-box; }
+.gs-run-auto-btn .icon, .gs-run-bell-btn .icon { width: 18px; height: 18px; }
+button.gs-run-auto-on, button.gs-run-bell-btn.gs-run-auto-on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 16%, transparent); }
 
 /* Bouton de masquage du bandeau (ordinateur seulement : sur mobile le bandeau n'existe pas) */
 .sidebar-toggle-btn { display: none; }
@@ -2375,7 +2375,7 @@ button.metro-progressive-toggle, .metro-tools-row button.metro-progressive-toggl
 .gs-run-controls .gs-run-pause-btn, .gs-run-controls .gs-run-metro-btn { width: 100%; flex: none; }
 .gs-run-controls .gs-run-stop-btn { width: 100%; }
 .gs-run-controls .gs-run-tools-row { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
-.gs-run-controls .gs-run-links-btn, .gs-run-controls .gs-run-auto-btn { width: 100%; height: var(--gs-btn-h); padding: 0; }
+.gs-run-controls .gs-run-links-btn, .gs-run-controls .gs-run-auto-btn, .gs-run-controls .gs-run-bell-btn { width: 100%; height: var(--gs-btn-h); padding: 0; }
 .gs-run-nav-row, .gs-run-adjust-row, button.gs-run-keep-btn { max-width: var(--gs-run-max); margin-left: auto; margin-right: auto; width: 100%; box-sizing: border-box; }
 .gs-run-nav-row { margin-bottom: 12px; }
 .gs-pathlines { padding: 0 12px; }
@@ -2945,3 +2945,48 @@ body.ex-selecting .toast, body.sess-selecting .toast { bottom: calc(84px + env(s
 .cal-item-done.cal-item-eph-row:hover { background: color-mix(in srgb, var(--eph) 14%, transparent); }
 .gs-up-row.gs-up-eph { border-left: 3px solid var(--eph); background: color-mix(in srgb, var(--eph) 7%, transparent); }
 .gs-ephemeral-title { color: var(--eph); }
+
+/* calendrier : toute la hauteur disponible (la grille s'étire, plus de vide avant « Fermer ») */
+.gs-cal-panel { height: min(960px, calc(100vh - 24px)); display: flex; flex-direction: column; }
+.gs-cal-panel .cal-grid { flex: 1 1 auto; min-height: 0; grid-template-rows: auto repeat(6, minmax(44px, 1fr)); }
+.gs-cal-panel .cal-detail { flex: none; }
+.gs-keep-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; max-width: 320px; }
+.gs-keep-pop { min-width: 280px; }
+
+/* bandeau « mettre à jour l'exercice » : une petite ligne discrète */
+.metro-link-bar { margin: 4px 0 0; padding: 2px 4px 2px 8px; gap: 6px; }
+button.metro-link-save { height: 22px; padding: 0 8px; font-size: var(--fs-2xs); }
+button.metro-link-close { width: 20px; height: 20px; font-size: 11px; }
+.gs-run-controls .gs-run-tools-row { grid-template-columns: repeat(3, 1fr); }
+
+/* paliers du tempo progressif : tableau à deux colonnes (délai | seuil) */
+table.metro-prog-table { border-collapse: collapse; margin: 4px auto; }
+table.metro-prog-table th { font-size: var(--fs-2xs); font-weight: 600; color: var(--text-muted); text-transform: none; letter-spacing: 0; padding: 0 6px 3px; text-align: center; }
+table.metro-prog-table td { padding: 2px 4px; text-align: center; }
+table.metro-prog-table td:last-child { width: 24px; }
+tr.metro-prog-stage { display: table-row; }
+table.metro-prog-table input { width: 64px; }
+
+/* plan de la session en cours : ajouter un exercice */
+.gs-plan-head { display: flex; align-items: center; gap: 6px; }
+.gs-plan-head .gs-plan-toggle { flex: 1; text-align: left; }
+button.gs-plan-add { flex: none; width: 34px; padding: 0; font-weight: 800; color: var(--accent); }
+button.gs-plan-insert { display: block; width: 100%; height: 14px; line-height: 10px; padding: 0; margin: 0; font-size: 11px; color: var(--text-muted); border: 0; background: transparent; opacity: .45; }
+button.gs-plan-insert:hover { opacity: 1; color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+
+/* relecture / correction d'une séance : durée et tempo de chaque exercice */
+.gs-rec-list { display: flex; flex-direction: column; gap: 6px; max-height: min(52vh, 440px); overflow-y: auto; margin: 6px 0; }
+.gs-rec-item { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 8px; background: var(--card-bg-2); }
+.gs-rec-item[hidden] { display: none; }
+.gs-rec-extra .gs-rec-name { color: var(--text-muted); }
+.gs-rec-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.gs-rec-name { flex: 1 1 140px; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.gs-rec-dur, .gs-rec-bw { display: inline-flex; align-items: center; gap: 2px; color: var(--text-muted); }
+input.gs-rec-in { width: 50px; padding: 4px 4px; text-align: center; font-size: var(--fs-sm); }
+input.gs-rec-bpm { width: 58px; }
+.gs-rec-ask { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; padding: 5px 8px; border-radius: var(--radius-sm); font-size: var(--fs-sm); color: #ffcf99; background: color-mix(in srgb, #ffa94d 12%, transparent); border: 1px solid color-mix(in srgb, #ffa94d 45%, var(--border)); }
+.gs-rec-ask > span { flex: 1 1 160px; }
+.gs-rec-ask.gs-rec-answered { color: var(--text-muted); background: transparent; border-color: var(--border); }
+.gs-rec-ask button { height: 26px; padding: 0 10px; font-size: var(--fs-xs); }
+.gs-rec-ask button.active { outline: 2px solid var(--accent); }
+.gs-rec-save:disabled { opacity: .45; cursor: not-allowed; }
