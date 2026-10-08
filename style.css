@@ -2997,7 +2997,7 @@ input.gs-rec-bpm { width: 58px; }
 .gs-run-fixed { margin: 8px 0; padding: 8px 12px; border-left: 3px solid var(--accent); background: var(--card-bg-2); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* Entraînement libre : bouton « Libre » à droite de « Session » ; chrono encadré, pause et arrêt en haut à gauche */
-.free-bar { display: inline-flex; align-items: center; gap: 4px; height: var(--bar-h, 40px); box-sizing: border-box; padding: 0 5px 0 12px; border: 1px solid color-mix(in srgb, var(--text-muted) 55%, var(--border)); border-radius: var(--radius); background: color-mix(in srgb, var(--text-muted) 6%, transparent); min-width: 0; flex: 0 0 auto; }
+.free-bar { display: inline-flex; align-items: center; gap: 3px; height: var(--bar-h, 40px); box-sizing: border-box; padding: 0 5px 0 12px; border: 1px solid color-mix(in srgb, var(--text-muted) 55%, var(--border)); border-radius: var(--radius); background: color-mix(in srgb, var(--text-muted) 6%, transparent); min-width: 0; flex: 0 0 auto; }
 .free-bar .free-time { font-variant-numeric: tabular-nums; font-weight: 800; font-size: var(--fs-base); min-width: 2.7em; color: var(--text-muted); }
 .free-bar .free-what { font-variant-numeric: tabular-nums; font-size: var(--fs-sm); color: var(--text-muted); }
 .free-bar .free-what:empty { display: none; }
@@ -3013,7 +3013,18 @@ input.gs-rec-bpm { width: 58px; }
 .free-bar-run .free-pause { opacity: 1; color: var(--eph); }
 .free-bar-paused .free-time { color: var(--text-dim); }
 button.free-btn.free-on { border-color: color-mix(in srgb, var(--eph) 55%, var(--border)); }
-@media (max-width: 760px) { .top-bar .free-bar { margin-right: auto; } }
+.top-actions { flex: 1 1 auto; }
+.top-actions > .free-bar { margin-right: auto; }
+.free-bar .free-sep { width: 1px; height: 20px; background: color-mix(in srgb, var(--text-muted) 55%, transparent); flex: 0 0 auto; }
+/* Récapitulatif en direct des exercices libres : nom au-dessus, durée en dessous ; une seule ligne, masqué sur petit écran */
+.free-recap { flex: 1 1 0; min-width: 0; height: var(--bar-h, 40px); display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px; overflow: hidden; margin: 0 6px; }
+.free-recap:empty { display: none; }
+.free-chip { box-sizing: border-box; height: var(--bar-h, 40px); max-width: 170px; min-width: 0; padding: 0 10px; display: flex; flex-direction: column; justify-content: center; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card-bg-2); }
+.free-chip-name { font-size: var(--fs-sm); font-weight: 600; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-main); }
+.free-chip-time { font-size: var(--fs-xs); line-height: 1.2; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+.free-chip-now { border-color: var(--eph); }
+.free-chip-now .free-chip-time { color: var(--eph); }
+@media (max-width: 1100px) { .free-recap { display: none; } }
 /* Boutons Session / Libre : chronomètres de même taille, moins d'espace perdu autour des icônes */
 .top-bar button.session-btn-highlight { padding: 0 11px; gap: 5px; }
 .session-btn-highlight .icon { height: 16px; width: auto; }
@@ -3023,3 +3034,6 @@ button.free-btn.free-on { border-color: color-mix(in srgb, var(--eph) 55%, var(-
 .gs-live-actions { display: flex; flex-direction: column; gap: 8px; }
 .gs-live-actions button { width: 100%; margin: 0; }
 .gs-live-drop-armed { border-color: #e07a7a; color: #e07a7a; }
+
+/* Téléphone : le chrono occupe quatre cases de la grille des outils, collé à gauche (pas de récapitulatif) */
+@media (max-width: 760px) { .top-actions > .free-bar { grid-column: 1 / span 4; justify-self: start; margin-right: 0; } }
