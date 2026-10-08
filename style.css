@@ -3073,3 +3073,13 @@ button.metro-mini-btn.metro-prog-presets .icon { width: 15px; height: 15px; }
 .metro-preset-row .icon-btn, .metro-preset-row > button:not(.metro-preset-main) { width: 30px; height: 30px; padding: 0; flex: 0 0 auto; }
 .metro-preset-add { margin-top: 2px; padding: 8px 10px; font: inherit; font-size: var(--fs-sm); font-weight: 700; text-align: left; color: var(--accent); background: transparent; border: 1px dashed var(--border); border-radius: var(--radius-sm); cursor: pointer; }
 .metro-preset-add:hover { border-color: var(--accent); }
+
+/* Anneau lumineux du cadran : un éclat discret qui fait le tour du contour, dans le sens horaire, en un temps */
+.metro-dial > .metro-dial-flash, .metro-transport-quad .metro-dial > .metro-dial-flash {
+    position: absolute; inset: -6px; border-radius: 50%; pointer-events: none; opacity: 0; transition: opacity .3s ease;
+    --fa: 180deg; --fs: .42;
+    background: conic-gradient(from calc(var(--fa) - 84deg), transparent 0deg, color-mix(in srgb, #eafff3 calc(var(--fs) * 100%), transparent) 80deg, transparent 86deg, transparent 360deg);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 8px), #000 calc(100% - 7px), #000 calc(100% - 2px), transparent calc(100% - 1px));
+    mask: radial-gradient(farthest-side, transparent calc(100% - 8px), #000 calc(100% - 7px), #000 calc(100% - 2px), transparent calc(100% - 1px));
+}
+.metro-dial.metro-flash-on > .metro-dial-flash { opacity: 1; }

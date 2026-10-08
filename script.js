@@ -6586,6 +6586,7 @@
         return changed;
     }
 
+    var metroBeatLog = []; // derniers temps programmés { t : instant (horloge audio), d : durée du temps (s), a : accent } — sert à l'anneau lumineux du cadran
     var metroBeatListeners = []; // fonctions (pas, estUnTemps, force) appelées à chaque clic — ex. la fenêtre flottante
     function metroScheduler() {
         var m = state.settings.metronome;
@@ -6600,6 +6601,10 @@
             var stepCount = Math.max(1, layer.pattern.length);
             if (metroCurrentStep >= stepCount) metroCurrentStep = 0;
             if (metroTrainFadeTick(m) && metroTempoCallback) metroTempoCallback();
+            if (metroCurrentStep % Math.max(1, layer.subdivision) === 0) { // un temps : l'anneau lumineux du cadran repart du bas
+                metroBeatLog.push({ t: metroNextNoteTime, d: layer.subdivision < 1 ? 60 / m.bpm / layer.subdivision : 60 / m.bpm, a: layer.pattern[metroCurrentStep] >= 2 });
+                if (metroBeatLog.length > 6) metroBeatLog.shift();
+            }
             if (!metroTrainMuted(m, metroCurrentStep, layer.subdivision)) metroClick(metroNextNoteTime, layer.pattern[metroCurrentStep]);
             if (metroBeatCallback || metroBeatListeners.length) {
                 var step = metroCurrentStep, delayMs = Math.max(0, (metroNextNoteTime - metroAudioCtx.currentTime) * 1000);
@@ -6679,6 +6684,7 @@
         metroProgNextAt = null; // le décompte du tempo progressif repart à chaque lancement
         metroProgIdx = -1; metroProgRan = false; metroProgHoldUntil = null;
         metroMeasureIdx = 0; metroTrainRemoved = []; metroTrainNextAt = null;
+        metroBeatLog.length = 0;
         var pm = state.settings.metronome.progressive;
         metroProgStartBpm = (pm.enabled && pm.restoreOnStop) ? state.settings.metronome.bpm : null;
         metroNextNoteTime = metroAudioCtx.currentTime + 0.05;
@@ -7194,6 +7200,28 @@
 
             var dial = document.createElement("div");
             dial.className = "metro-dial";
+            // Anneau lumineux discret : à chaque temps, un petit éclat part du bas du cadran et fait le tour, dans le sens
+            // des aiguilles d'une montre, en un temps. Calé sur l'horloge audio (comme le son), pas sur un minuteur.
+            var dialFlash = document.createElement("div");
+            dialFlash.className = "metro-dial-flash";
+            dialFlash.setAttribute("aria-hidden", "true");
+            dial.appendChild(dialFlash);
+            var flashRaf = null;
+            var flashReduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+            function dialFlashFrame() {
+                flashRaf = null;
+                if (!metroPlaying || !metroAudioCtx || !dialFlash.isConnected) { dial.classList.remove("metro-flash-on"); return; }
+                var now = metroAudioCtx.currentTime - (metroAudioCtx.outputLatency || 0), cur = null;
+                for (var bi = metroBeatLog.length - 1; bi >= 0; bi--) if (metroBeatLog[bi].t <= now) { cur = metroBeatLog[bi]; break; }
+                if (cur) {
+                    var ph = Math.max(0, Math.min(1, (now - cur.t) / cur.d));
+                    dialFlash.style.setProperty("--fa", (180 + ph * 360).toFixed(1) + "deg"); // 180° = bas du cadran ; l'angle croît dans le sens horaire
+                    dialFlash.style.setProperty("--fs", cur.a ? "0.62" : "0.42");
+                    dial.classList.add("metro-flash-on");
+                } else dial.classList.remove("metro-flash-on");
+                flashRaf = requestAnimationFrame(dialFlashFrame);
+            }
+            function dialFlashStart() { if (!flashRaf && !flashReduced) flashRaf = requestAnimationFrame(dialFlashFrame); }
             var bpmValue = document.createElement("button");
             bpmValue.type = "button";
             bpmValue.className = "metro-dial-value";
@@ -7752,6 +7780,7 @@
 
             refreshRhythmMode();
             metroBeatCallback = function (step) {
+                dialFlashStart();
                 var steps = padRow.querySelectorAll(".metro-step");
                 for (var i = 0; i < steps.length; i++) steps[i].classList.toggle("metro-step-current", i === step);
             };
@@ -7853,6 +7882,7 @@
                 // Fermé pendant l'édition d'un préréglage (sans Enregistrer) : annulation, réglages d'avant rétablis.
                 if (metroEdit) { var abandoned = metroEdit; metroEdit = null; applyMetronomePresetToSettings(abandoned.prev); }
                 if (chronoInterval) clearInterval(chronoInterval);
+                if (flashRaf) { cancelAnimationFrame(flashRaf); flashRaf = null; }
                 metroBeatCallback = null;
                 metroTempoCallback = null;
                 metroPanelApi = null;
