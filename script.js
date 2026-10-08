@@ -209,7 +209,24 @@
                 if (typeof step.note !== "string") step.note = "";
                 if (!Array.isArray(step.hidden)) step.hidden = [];
             });
+            // Session éphémère (programmée depuis le calendrier pour UN jour, absente de la liste des sessions) :
+            // sans date valide elle devient une session ordinaire (rien ne se perd).
+            gs.ephemeral = gs.ephemeral === true;
+            if (gs.ephemeral && !/^\d{4}-\d{2}-\d{2}$/.test(gs.date || "")) gs.ephemeral = false;
+            if (!gs.ephemeral) delete gs.date;
         });
+        purgeOrphanEphemerals(s, null);
+    }
+    // Une session éphémère n'existe que par son jour au planning : plus de séance programmée = elle disparaît.
+    // `keep` : identifiants à ne pas toucher (session en cours d'édition ou de lancement). Renvoie le nombre retiré.
+    function purgeOrphanEphemerals(s, keep) {
+        var used = {}, list = s.settings.guidedSessions, removed = 0;
+        s.settings.sessionPlan.forEach(function (pe) { used[pe.sessionId] = true; });
+        for (var i = list.length - 1; i >= 0; i--) {
+            var g = list[i];
+            if (g.ephemeral && !used[g.id] && !(keep && keep[g.id])) { list.splice(i, 1); removed++; }
+        }
+        return removed;
     }
 
     // Corbeille : garde un exercice/dossier/session supprimé assez longtemps pour être restauré par
@@ -2135,7 +2152,7 @@
     function openAddToSessionMenu(x, y, exs, above) {
         exs = Array.isArray(exs) ? exs : [exs];
         var first = exs[0], inst = (findExerciseById(first.id) || {}).inst || getActiveInstrument();
-        var list = state.settings.guidedSessions.filter(function (g) { return g.instrumentId === inst.id && !g.archived; })
+        var list = state.settings.guidedSessions.filter(function (g) { return g.instrumentId === inst.id && !g.archived && !g.ephemeral; })
             .sort(function (a, b) { return a.name.localeCompare(b.name, "fr", { sensitivity: "base" }); });
         var items = [{ label: "＋ Nouvelle session avec " + (exs.length > 1 ? "ces " + exs.length + " exercices" : "cet exercice"), open: function () {
             var name = window.prompt("Nom de la nouvelle session :", first.title);
@@ -8791,7 +8808,7 @@
         state.settings.guidedSessions.forEach(function (gs) { if (gs.steps.indexOf(step) !== -1) mineId = gs.id; });
         state.settings.guidedSessions.forEach(function (gs) { if (gs.id === mineId) mine = gs; });
         state.settings.guidedSessions.forEach(function (gs) {
-            if (gs.id === mineId) return;
+            if (gs.id === mineId || gs.ephemeral) return; // une durée réglée ici ne se propage pas aux sessions éphémères d'autres jours
             gs.steps.forEach(function (st) { if (st.exerciseId === step.exerciseId) rows.push({ gs: gs, st: st }); });
         });
         return { mine: mine, rows: rows };
@@ -9298,6 +9315,64 @@
     // ---- accès direct depuis n'importe où (calendrier, « À venir », statistiques, menus clic droit) ----
     function gsFindSession(id) { return state.settings.guidedSessions.filter(function (g) { return g.id === id; })[0] || null; }
     function gsRunActive() { return !!(gsRunSession && gsScreen === "run"); }
+    // ---- sessions éphémères : « Session du 08-10-2026 », créées depuis le calendrier pour un seul jour ----
+    var gsAutoPick = null; // id de la session éphémère qu'on vient de créer : on ouvre tout de suite le choix des exercices
+    function gsProtectedIds() { var k = {}; if (gsRunSession) k[gsRunSession.id] = true; if (gsEditingSession) k[gsEditingSession.id] = true; return k; }
+    function gsEphemeralDateText(key) { var d = calParse(key), p2 = function (n) { return (n < 10 ? "0" : "") + n; }; return p2(d.getDate()) + "-" + p2(d.getMonth() + 1) + "-" + d.getFullYear(); }
+    function gsEphemeralName(key) {
+        var n = state.settings.guidedSessions.filter(function (g) { return g.ephemeral && g.date === key; }).length;
+        return "Session du " + gsEphemeralDateText(key) + (n ? " (" + (n + 1) + ")" : "");
+    }
+    function gsNewEphemeralObject(key, steps) {
+        return { id: uid(), name: gsEphemeralName(key), steps: steps || [], instrumentId: state.activeInstrumentId, tabIds: [], createdAt: Date.now(), ephemeral: true, date: key };
+    }
+    // Crée la session éphémère ET sa séance au planning (une seule entrée d'historique : « Annuler » défait les deux).
+    function gsCreateEphemeral(key) {
+        var s = gsNewEphemeralObject(key);
+        state.settings.guidedSessions.push(s);
+        state.settings.sessionPlan.push({ id: uid(), date: key, sessionId: s.id, instrumentId: state.activeInstrumentId });
+        save();
+        return s;
+    }
+    // Depuis le calendrier : nouvelle session pour ce jour, puis choix des exercices un à un.
+    function gsStartEphemeral(key) {
+        if (key < calTodayKey()) { showToast("Impossible de programmer dans le passé"); return null; }
+        if (gsRunActive()) { showToast("Une session est en cours : termine-la avant d'en préparer une autre.", 4500); return null; }
+        var s = gsCreateEphemeral(key);
+        gsAutoPick = s.id;
+        gsOpenSessionEditor(s);
+        return s;
+    }
+    // Retire une session éphémère et sa séance au planning (sans corbeille : elle n'existe que pour ce jour-là ; « Annuler » la rend).
+    function gsDropEphemeral(session) {
+        state.settings.sessionPlan = state.settings.sessionPlan.filter(function (pe) { return pe.sessionId !== session.id; });
+        delete gsDrafts[session.id];
+        var arr = state.settings.guidedSessions, k = arr.indexOf(session);
+        if (k !== -1) arr.splice(k, 1);
+        save();
+    }
+    // Copie d'une éphémère vers un autre jour : une NOUVELLE session éphémère (nom daté du nouveau jour), mêmes exercices.
+    function gsCloneEphemeralTo(session, key) {
+        var steps = cloneJson(session.steps); steps.forEach(function (st) { st.id = uid(); });
+        var c = gsNewEphemeralObject(key, steps);
+        state.settings.guidedSessions.push(c);
+        return c;
+    }
+    // Donner un nom à une session éphémère = la garder parmi les sessions ordinaires (son jour reste programmé).
+    function gsKeepEphemeral(session, after) {
+        var n = window.prompt("Cette session est éphémère (seulement pour le " + (session.date ? calLongDate(session.date) : "jour prévu") + ", absente de tes sessions). Donne-lui un nom pour la garder :", "");
+        if (n === null || !n.trim()) return false;
+        session.ephemeral = false; delete session.date; session.name = n.trim();
+        var de = gsDrafts[session.id];
+        if (de) { var clean = !gsDraftDirty(session.id); de.draft.name = session.name; delete de.draft.ephemeral; delete de.draft.date; if (clean) de.base = gsDraftSig(de); }
+        save(); render();
+        if (after) after();
+        showToast("« " + session.name + " » est maintenant dans tes sessions");
+        return true;
+    }
+    function gsIsEphemeralId(id) { var g = gsFindSession(id); return !!(g && g.ephemeral); }
+    function gsIsEphemeralRec(rec) { return !!(rec && (rec.ephemeral || gsIsEphemeralId(rec.sessionId))); } // la séance enregistrée garde le repère après la disparition de la session
+    function gsNameActionLabel(sess, nm) { return sess && sess.ephemeral ? "Garder « " + nm + " » comme session…" : "Renommer « " + nm + " »…"; }
     // Ouvre l'écran d'édition d'une session (ses exercices) en fermant la fenêtre d'où l'on vient.
     function gsOpenSessionEditor(session) {
         if (!session) { showToast("Cette session n'existe plus (voir la corbeille)"); return false; }
@@ -9322,6 +9397,7 @@
     // l'historique et les statistiques affichent tous le nom actuel.
     function gsRenameSession(session, after) {
         if (!session) return false;
+        if (session.ephemeral) return gsKeepEphemeral(session, after); // lui donner un nom = la garder
         var n = window.prompt("Nouveau nom de la session :", session.name);
         if (n === null || !n.trim() || n.trim() === session.name) return false;
         var old = session.name;
@@ -9611,7 +9687,7 @@
                 (function walk(list, names, ids) { list.forEach(function (f) { var nn = names.concat(f.name), ii = ids.concat(f.id); f.exercises.forEach(function (ex) { if (!ex.archived && ex.updatedAt) all.push({ type: "exercise", ex: ex, folder: f, inst: inst, names: nn, ids: ii, score: -ex.updatedAt }); }); walk(f.folders, nn, ii); }); })(inst.categories, [], []);
             });
             out.exercises = all.sort(function (a, b) { return a.score - b.score; }).slice(0, 6);
-            out.sessions = state.settings.guidedSessions.filter(function (g) { return !g.archived && g.lastRunAt; }).sort(function (a, b) { return b.lastRunAt - a.lastRunAt; }).slice(0, 4).map(function (g) { return { type: "session", g: g, score: 0 }; });
+            out.sessions = state.settings.guidedSessions.filter(function (g) { return !g.archived && !g.ephemeral && g.lastRunAt; }).sort(function (a, b) { return b.lastRunAt - a.lastRunAt; }).slice(0, 4).map(function (g) { return { type: "session", g: g, score: 0 }; });
             return out;
         }
         state.instruments.forEach(function (inst) {
@@ -9629,6 +9705,7 @@
             })(inst.categories, [], []);
         });
         state.settings.guidedSessions.forEach(function (g) {
+            if (g.ephemeral) return;
             var sc = qfScore(tokens, qfNorm(g.name), "", "");
             if (sc >= 0) out.sessions.push({ type: "session", g: g, score: sc + (g.archived ? 3 : 0) });
         });
@@ -9868,7 +9945,7 @@
         var allSessions = state.settings.guidedSessions;
         var tabs = state.settings.sessionFolders.filter(function (f) { return f.instrumentId === state.activeInstrumentId; });
         var activeInstId = state.activeInstrumentId;
-        var sessions = allSessions.filter(function (gs) { return gs.instrumentId === activeInstId; });
+        var sessions = allSessions.filter(function (gs) { return gs.instrumentId === activeInstId && !gs.ephemeral; }); // les éphémères n'apparaissent que dans le calendrier et « À venir »
         gsRefreshModified(sessions);
         var archivedAll = sessions.filter(function (gs) { return gs.archived; });
         sessions = sessions.filter(function (gs) { return !gs.archived; });
@@ -10108,11 +10185,11 @@
             items.forEach(function (en) {
                 if (en.date !== lastKey) { lastKey = en.date; var h = document.createElement("div"); h.className = "gs-up-day" + (en.date === calTodayKey() ? " gs-up-today" : ""); h.textContent = calRelLabel(en.date); wrap.appendChild(h); }
                 var sess = allSessions.filter(function (g) { return g.id === en.sessionId; })[0];
-                var row = document.createElement("div"); row.className = "gs-up-row"; row.dataset.date = en.date; row.title = "Ouvrir ce jour dans le calendrier";
+                var row = document.createElement("div"); row.className = "gs-up-row" + (sess && sess.ephemeral ? " gs-up-eph" : ""); row.dataset.date = en.date; row.title = "Ouvrir ce jour dans le calendrier";
                 var info = document.createElement("div"); info.className = "gs-up-info";
                 var nm = document.createElement("span"); nm.className = "gs-up-name"; nm.textContent = gsSessionNameById(en.sessionId);
                 var meta = document.createElement("span"); meta.className = "gs-up-meta";
-                meta.textContent = (sess ? sess.steps.length + " exercice" + (sess.steps.length > 1 ? "s" : "") + " · " + sessionTotalMinutes(sess) + " min" + (sess.steps.some(function (st) { return !liveIds[st.exerciseId]; }) ? " · ⚠ exercice supprimé" : "") : "session supprimée") + (en.seriesId ? " · ↻ " + calRuleLabel(en.rule) : "");
+                meta.textContent = (sess ? sess.steps.length + " exercice" + (sess.steps.length > 1 ? "s" : "") + " · " + sessionTotalMinutes(sess) + " min" + (sess.steps.some(function (st) { return !liveIds[st.exerciseId]; }) ? " · ⚠ exercice supprimé" : "") + (sess.ephemeral ? " · éphémère" : "") : "session supprimée") + (en.seriesId ? " · ↻ " + calRuleLabel(en.rule) : "");
                 info.appendChild(nm); info.appendChild(meta); row.appendChild(info);
                 var acts = document.createElement("div"); acts.className = "gs-session-actions";
                 if (en.date === calTodayKey() && sess && sess.steps.length) { var pb = svgIconButton(METRO_PLAY_ICON_SVG, "Lancer cette session maintenant", function () { gsStartRun(sess); }); pb.classList.add("gs-session-play-btn"); acts.appendChild(pb); }
@@ -10124,7 +10201,7 @@
                     var its = [];
                     if (en.date === calTodayKey() && sess && sess.steps.length) its.push({ label: "▶ Lancer maintenant", open: function () { gsStartRun(sess); } });
                     if (sess) its.push({ label: "✎ Modifier les exercices", open: function () { gsOpenSessionEditor(sess); } });
-                    if (sess) its.push({ label: "Renommer…", open: function () { gsRenameSession(sess); } });
+                    if (sess) its.push({ label: sess.ephemeral ? "Garder comme session…" : "Renommer…", open: function () { gsRenameSession(sess); } });
                     its.push({ label: "Ouvrir ce jour dans le calendrier", open: function () { openSessionCalendar({ focusDate: en.date }); } });
                     its.push({ label: "✕ Retirer du planning" + (en.seriesId ? " (série)" : ""), open: function () { calRemovePlanEntry(en, rm, function () { render(); }); } });
                     openLinksQuickMenu(x, y, its);
@@ -10326,14 +10403,25 @@
         var entry = gsDraftFor(real);
         var session = entry.draft; // tout ce qui suit modifie cette copie de travail, pas la session enregistrée
 
-        function leaveEdit() { delete gsDrafts[real.id]; gsEditingSession = null; gsScreen = "list"; render(); }
+        function leaveEdit() {
+            delete gsDrafts[real.id]; gsEditingSession = null; gsScreen = "list";
+            if (real.ephemeral) { // éphémère : on revient au calendrier, et une session restée vide n'est pas programmée
+                var cur = gsFindSession(real.id), key = real.date, dropped = false;
+                if (cur && cur.ephemeral && !cur.steps.length) { gsDropEphemeral(cur); dropped = true; }
+                render();
+                if (dropped) showToast("Session vide : rien n'a été programmé pour ce jour-là.", 4000);
+                if (key) setTimeout(function () { openSessionCalendar({ focusDate: key }); }, 0);
+                return;
+            }
+            render();
+        }
         // Barre du haut : retour à gauche, annuler / enregistrer à droite (collée en haut pendant le défilement)
         var topRow = document.createElement("div");
         topRow.className = "gs-edit-topbar";
         var backBtn = document.createElement("button");
         backBtn.type = "button";
         backBtn.className = "btn-ghost gs-back-btn";
-        backBtn.textContent = "← Retour à la liste";
+        backBtn.textContent = real.ephemeral ? "← Retour au calendrier" : "← Retour à la liste";
         backBtn.addEventListener("click", function () {
             if (gsDraftDirty(real.id)) gsDraftPrompt(real.id, {}, leaveEdit); else leaveEdit();
         });
@@ -10369,6 +10457,19 @@
         // Après chaque saisie ou clic dans l'écran, on relit l'état (rien à brancher bouton par bouton)
         ["input", "change", "click"].forEach(function (evt) { content.addEventListener(evt, function () { setTimeout(refreshDirty, 0); }, true); });
 
+        if (real.ephemeral) {
+            // Session éphémère : « Session du JJ-MM-AAAA », pas de nom à saisir ni d'onglets ; on peut la garder en lui donnant un nom.
+            var eb = document.createElement("div");
+            eb.className = "gs-ephemeral-banner";
+            var et = document.createElement("div"); et.className = "gs-ephemeral-title"; et.textContent = session.name;
+            var es = document.createElement("div"); es.className = "gs-ephemeral-sub";
+            es.textContent = "Éphémère : seulement pour le " + (real.date ? calLongDate(real.date) : "jour prévu") + ". Elle n'apparaît pas dans tes sessions.";
+            var ek = document.createElement("button"); ek.type = "button"; ek.className = "btn-ghost gs-ephemeral-keep"; ek.textContent = "Garder comme session…";
+            ek.title = "Lui donner un nom pour la retrouver dans tes sessions";
+            ek.addEventListener("click", function () { gsKeepEphemeral(real); });
+            eb.appendChild(et); eb.appendChild(es); eb.appendChild(ek);
+            content.appendChild(eb);
+        }
         var nameInput = document.createElement("input");
         nameInput.type = "text";
         nameInput.className = "gs-name-input";
@@ -10378,9 +10479,9 @@
             session.name = nameInput.value.trim() || session.name;
             save();
         });
-        content.appendChild(nameInput);
+        if (!real.ephemeral) content.appendChild(nameInput);
 
-        var sessTabs = state.settings.sessionFolders.filter(function (f) { return f.instrumentId === session.instrumentId; });
+        var sessTabs = real.ephemeral ? [] : state.settings.sessionFolders.filter(function (f) { return f.instrumentId === session.instrumentId; });
         if (sessTabs.length) {
             var tabPick = document.createElement("div");
             tabPick.className = "gs-tabpick";
@@ -10577,7 +10678,7 @@
                 minLabel.className = "gs-step-min-label";
                 minLabel.textContent = "min";
                 sessZone.appendChild(minLabel);
-                if (gsOtherStepsOf(step).rows.length) {
+                if (!real.ephemeral && gsOtherStepsOf(step).rows.length) {
                     var applyBtn = svgIconButton(GS_APPLY_ICON_SVG, "Appliquer cette durée à d'autres sessions contenant cet exercice", function () { gsOfferSyncMinutes(step); });
                     applyBtn.classList.add("gs-step-apply-btn");
                     sessZone.appendChild(applyBtn);
@@ -10732,7 +10833,7 @@
         addStepBtn.type = "button";
         addStepBtn.className = "btn-ghost gs-add-step-btn";
         addStepBtn.textContent = "+ Ajouter un exercice";
-        addStepBtn.addEventListener("click", function () {
+        function startAddStep() {
             gsPickCallback = function (ex) {
                 session.steps.push({ id: uid(), exerciseId: ex.id, minutes: gsDefaultMinutes(ex) });
                 save();
@@ -10744,9 +10845,14 @@
             exSel = {}; exSelAnchor = null;
             gsScreen = "pick";
             render();
-        });
+        }
+        addStepBtn.addEventListener("click", startAddStep);
         content.appendChild(addStepBtn);
         content.appendChild(totalRow);
+        if (gsAutoPick === real.id) { // session éphémère qu'on vient de créer : le choix du 1er exercice s'ouvre tout de suite
+            gsAutoPick = null;
+            setTimeout(function () { if (gsScreen === "edit" && gsEditingSession && gsEditingSession.id === real.id) startAddStep(); }, 0);
+        }
     }
 
     // ---- écran choix d'un exercice (instrument actif) ----
@@ -10993,7 +11099,9 @@
             plannedTotal += st.minutes * 60;
         });
         if (total < GS_MIN_RECORD_SEC * 1000) return null; // moins de 10 min de pratique : rien à enregistrer
-        return { v: 2, id: uid(), sessionId: gsRunSession.id, name: gsRunSession.name, instrumentId: gsRunSession.instrumentId, date: gsRunStartedAt || Date.now(), endedAt: Date.now(), totalSec: Math.round(total / 1000), plannedSec: plannedTotal, steps: steps };
+        var rec = { v: 2, id: uid(), sessionId: gsRunSession.id, name: gsRunSession.name, instrumentId: gsRunSession.instrumentId, date: gsRunStartedAt || Date.now(), endedAt: Date.now(), totalSec: Math.round(total / 1000), plannedSec: plannedTotal, steps: steps }
+        if (gsRunSession.ephemeral) rec.ephemeral = true;
+        return rec;
     }
     function gsFmtDur(sec) { var m = Math.floor(sec / 60), r = sec % 60; return m + " min" + (r ? " " + (r < 10 ? "0" : "") + r + " s" : ""); }
     function gsFmtDate(ts) { var d = new Date(ts); function p2(n) { return (n < 10 ? "0" : "") + n; } return p2(d.getDate()) + "/" + p2(d.getMonth() + 1) + "/" + String(d.getFullYear()).slice(2) + " " + p2(d.getHours()) + ":" + p2(d.getMinutes()); }
@@ -11046,7 +11154,7 @@
     function calPurgePast() {
         var t = calTodayKey(), before = state.settings.sessionPlan.length;
         state.settings.sessionPlan = state.settings.sessionPlan.filter(function (e) { return e.date >= t; });
-        return before - state.settings.sessionPlan.length;
+        return before - state.settings.sessionPlan.length + purgeOrphanEphemerals(state, gsProtectedIds()); // les éphémères d'un jour passé partent avec leur séance
     }
     // Sessions programmées pour un jour (hors celles déjà réalisées ce jour-là) et séances enregistrées ce jour-là.
     function calDayItems(key) {
@@ -11125,6 +11233,7 @@
             var before = state.settings.sessionPlan.length;
             state.settings.sessionPlan = state.settings.sessionPlan.filter(function (x) { return !pred(x); });
             var n = before - state.settings.sessionPlan.length;
+            purgeOrphanEphemerals(state, gsProtectedIds()); // une session éphémère retirée du planning disparaît avec lui
             finish();
             if (n) toastUndo(n > 1 ? n + " séances de « " + gsSessionNameById(entry.sessionId) + " » retirées du calendrier" : "« " + gsSessionNameById(entry.sessionId) + " » retirée du " + calLongDate(entry.date));
         }
@@ -11254,6 +11363,11 @@
             var activeTab = "all", dur = "", q = "";
             var title = document.createElement("div"); title.className = "ctx-menu-title ctx-menu-title-wrap"; title.textContent = "Ajouter le " + calLongDate(key);
             pop.appendChild(title);
+            var newBtn = document.createElement("button"); newBtn.type = "button"; newBtn.className = "cal-pick-new";
+            newBtn.textContent = "＋ Nouvelle session pour ce jour";
+            newBtn.title = "Choisis tes exercices un à un : « Session du " + gsEphemeralDateText(key) + " », seulement pour ce jour-là (elle n'est pas gardée dans tes sessions)";
+            newBtn.addEventListener("click", function () { close(); gsStartEphemeral(key); });
+            pop.appendChild(newBtn);
             var search = document.createElement("input"); search.type = "search"; search.className = "cal-pick-search"; search.placeholder = "Rechercher une session…"; search.setAttribute("aria-label", "Rechercher une session");
             pop.appendChild(search);
             var chipsRow = document.createElement("div"); chipsRow.className = "cal-pick-tabs"; pop.appendChild(chipsRow);
@@ -11276,7 +11390,7 @@
             function renderList() {
                 list.innerHTML = "";
                 var items = state.settings.guidedSessions.filter(function (g) {
-                    return g.instrumentId === instId && !g.archived && (activeTab === "all" || (g.tabIds || []).indexOf(activeTab) !== -1) && inDur(g) && (!q || g.name.toLowerCase().indexOf(q) !== -1);
+                    return g.instrumentId === instId && !g.archived && !g.ephemeral && (activeTab === "all" || (g.tabIds || []).indexOf(activeTab) !== -1) && inDur(g) && (!q || g.name.toLowerCase().indexOf(q) !== -1);
                 }).sort(function (a, b) { return (b.runCount || 0) - (a.runCount || 0) || a.name.localeCompare(b.name, "fr", { sensitivity: "base" }); });
                 if (!items.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Aucune session ne correspond."; list.appendChild(none); return; }
                 items.forEach(function (g) {
@@ -11387,12 +11501,17 @@
             }
             function copyToNextWeek(key) {
                 var it = calDayItems(key), n = 0, d = calParse(key); d.setDate(d.getDate() + 7);
-                it.planned.forEach(function (e) { var r = calAddPlan(e.sessionId, calKey(d), { freq: "1" }); n += r.added || 0; });
+                it.planned.forEach(function (e) {
+                    var sess = gsFindSession(e.sessionId), sid = e.sessionId;
+                    if (sess && sess.ephemeral) sid = gsCloneEphemeralTo(sess, calKey(d)).id; // éphémère : une copie propre à l'autre jour
+                    var r = calAddPlan(sid, calKey(d), { freq: "1" }); n += r.added || 0;
+                });
                 showToast(n ? n + " session" + (n > 1 ? "s copiée" + "s" : " copiée") + " sur le " + calLongDate(calKey(d)) : "Rien à copier (déjà présent)");
                 refreshAll();
             }
             function openDayMenu(x, y, key, cell) {
                 var it = calDayItems(key), past = key < todayKey, items = [];
+                if (!past) items.push({ label: "＋ Nouvelle session pour ce jour…", open: function () { gsStartEphemeral(key); } });
                 if (!past) items.push({ label: "＋ Ajouter une session…", open: function () { selected = key; renderGrid(); renderDetail(); calOpenAddPopover(grid.querySelector('.cal-cell[data-key="' + key + '"]') || cell, key, refreshAll); } });
                 it.done.forEach(function (rec) {
                     items.push({ label: "Voir « " + logRecName(rec) + " » (récapitulatif)", open: function () { selected = key; renderGrid(); renderDetail(); calOpenRecap(grid.querySelector('.cal-cell[data-key="' + key + '"]') || cell, rec); } });
@@ -11403,12 +11522,13 @@
                     var sess = gsFindSession(e.sessionId), nm = gsSessionNameById(e.sessionId);
                     if (key === todayKey && sess && sess.steps.length) items.push({ label: "▶ Lancer « " + nm + " »", open: function () { close(); gsStartRun(sess); } });
                     if (sess) items.push({ label: "✎ Modifier les exercices de « " + nm + " »", open: function () { gsOpenSessionEditor(sess); } });
-                    if (sess) items.push({ label: "Renommer « " + nm + " »…", open: function () { gsRenameSession(sess, refreshAll); } });
+                    if (sess) items.push({ label: gsNameActionLabel(sess, nm), open: function () { gsRenameSession(sess, refreshAll); } });
                     items.push({ label: "✕ Retirer « " + nm + " »" + (e.seriesId ? " (série)" : ""), open: function () { calRemovePlanEntry(e, grid.querySelector('.cal-cell[data-key="' + key + '"]') || cell, refreshAll); } });
                 });
                 if (it.planned.length > 1) items.push({ label: "✕ Retirer toutes les sessions de ce jour", open: function () {
                     var n = it.planned.length;
                     state.settings.sessionPlan = state.settings.sessionPlan.filter(function (e) { return !(e.date === key && (!e.instrumentId || e.instrumentId === state.activeInstrumentId)); });
+                    purgeOrphanEphemerals(state, gsProtectedIds());
                     save(); refreshAll();
                     toastUndo(n + " sessions retirées du " + calLongDate(key));
                 } });
@@ -11435,12 +11555,12 @@
                         if (names.length) cell.title = names.join("\n");
                         var num = document.createElement("span"); num.className = "cal-num"; num.textContent = String(d.getDate()); cell.appendChild(num);
                         var chips = document.createElement("span"); chips.className = "cal-chips";
-                        it.planned.forEach(function (e) { var c = document.createElement("span"); c.className = "cal-chip cal-chip-plan"; c.textContent = (e.seriesId ? "↻ " : "") + gsSessionNameById(e.sessionId); chips.appendChild(c); });
-                        it.done.forEach(function (e) { var c = document.createElement("span"); c.className = "cal-chip cal-chip-done"; c.dataset.rec = e.id; c.textContent = "✓ " + logRecName(e); chips.appendChild(c); });
+                        it.planned.forEach(function (e) { var c = document.createElement("span"); var es = gsFindSession(e.sessionId); c.className = "cal-chip cal-chip-plan" + (es && es.ephemeral ? " cal-chip-eph" : ""); c.textContent = (e.seriesId ? "↻ " : "") + gsSessionNameById(e.sessionId); chips.appendChild(c); });
+                        it.done.forEach(function (e) { var c = document.createElement("span"); c.className = "cal-chip cal-chip-done" + (gsIsEphemeralRec(e) ? " cal-chip-eph" : ""); c.dataset.rec = e.id; c.textContent = "✓ " + logRecName(e); chips.appendChild(c); });
                         cell.appendChild(chips);
                         var dots = document.createElement("span"); dots.className = "cal-dots";
-                        it.planned.forEach(function () { var dt = document.createElement("i"); dt.className = "cal-dot cal-dot-plan"; dots.appendChild(dt); });
-                        it.done.forEach(function () { var dt = document.createElement("i"); dt.className = "cal-dot cal-dot-done"; dots.appendChild(dt); });
+                        it.planned.forEach(function (e) { var dt = document.createElement("i"); dt.className = "cal-dot cal-dot-plan" + (gsIsEphemeralId(e.sessionId) ? " cal-dot-eph" : ""); dots.appendChild(dt); });
+                        it.done.forEach(function (e) { var dt = document.createElement("i"); dt.className = "cal-dot cal-dot-done" + (gsIsEphemeralRec(e) ? " cal-dot-eph" : ""); dots.appendChild(dt); });
                         cell.appendChild(dots);
                         cell.addEventListener("click", function (ev) {
                             var chipEl = ev.target && ev.target.closest ? ev.target.closest(".cal-chip-done") : null, recId = chipEl && chipEl.dataset ? chipEl.dataset.rec : null;
@@ -11468,11 +11588,12 @@
                 var h = document.createElement("div"); h.className = "cal-detail-title"; h.textContent = calLongDate(selected);
                 detail.appendChild(h);
                 it.planned.forEach(function (e) {
-                    var r = document.createElement("div"); r.className = "cal-item cal-item-plan";
+                    var r = document.createElement("div"); r.className = "cal-item cal-item-plan" + (gsIsEphemeralId(e.sessionId) ? " cal-item-eph-row" : "");
                     var nm = document.createElement("span"); nm.className = "cal-item-name"; nm.textContent = gsSessionNameById(e.sessionId);
                     r.appendChild(nm);
                     if (e.seriesId) { var rep = document.createElement("span"); rep.className = "cal-item-rep"; rep.textContent = "↻ " + calRuleLabel(e.rule); rep.title = "Session répétée"; r.appendChild(rep); }
                     var sess = state.settings.guidedSessions.filter(function (x) { return x.id === e.sessionId; })[0];
+                    if (sess && sess.ephemeral) { var eph = document.createElement("span"); eph.className = "cal-item-eph"; eph.textContent = "éphémère"; eph.title = "Seulement pour ce jour : absente de la liste des sessions"; r.appendChild(eph); }
                     if (sess) { var mt = document.createElement("span"); mt.className = "cal-item-meta"; mt.textContent = "prévu " + sessionTotalMinutes(sess) + " min"; r.appendChild(mt); }
                     if (selected === todayKey && sess && sess.steps.length) r.appendChild(svgIconButton(METRO_PLAY_ICON_SVG, "Lancer cette session maintenant", function () { close(); gsStartRun(sess); }));
                     if (sess) { var ed = iconButton("✎", "Modifier les exercices de cette session", function () { gsOpenSessionEditor(sess); }); ed.classList.add("cal-item-edit"); r.appendChild(ed); }
@@ -11482,14 +11603,14 @@
                         var its = [];
                         if (selected === todayKey && sess && sess.steps.length) its.push({ label: "▶ Lancer maintenant", open: function () { close(); gsStartRun(sess); } });
                         if (sess) its.push({ label: "✎ Modifier les exercices", open: function () { gsOpenSessionEditor(sess); } });
-                        if (sess) its.push({ label: "Renommer…", open: function () { gsRenameSession(sess, refreshAll); } });
+                        if (sess) its.push({ label: sess.ephemeral ? "Garder comme session…" : "Renommer…", open: function () { gsRenameSession(sess, refreshAll); } });
                         its.push({ label: "✕ Retirer du planning" + (e.seriesId ? " (série)" : ""), open: function () { calRemovePlanEntry(e, rm, refreshAll); } });
                         openLinksQuickMenu(x, y, its);
                     });
                     detail.appendChild(r);
                 });
                 it.done.forEach(function (e) {
-                    var r = document.createElement("div"); r.className = "cal-item cal-item-done"; r.tabIndex = 0; r.title = "Voir le récapitulatif de la session";
+                    var r = document.createElement("div"); r.className = "cal-item cal-item-done" + (gsIsEphemeralRec(e) ? " cal-item-eph-row" : ""); r.tabIndex = 0; r.title = "Voir le récapitulatif de la session";
                     var nm = document.createElement("span"); nm.className = "cal-item-name"; nm.textContent = "✓ " + logRecName(e);
                     var du = document.createElement("span"); du.className = "cal-item-meta"; du.textContent = "réel " + gsFmtDur(e.totalSec) + (e.plannedSec ? " / prévu " + gsFmtDur(e.plannedSec) : "");
                     r.appendChild(nm); r.appendChild(du);
@@ -12330,7 +12451,7 @@
                     if (g) bindContextGesture(box, function (x, y) {
                         openLinksQuickMenu(x, y, [
                             { label: "✎ Modifier les exercices de « " + g.name + " »", open: function () { gsOpenSessionEditor(g); } },
-                            { label: "Renommer la session…", open: function () { gsRenameSession(g, fill); } }
+                            { label: g.ephemeral ? "Garder comme session…" : "Renommer la session…", open: function () { gsRenameSession(g, fill); } }
                         ]);
                     });
                     list.appendChild(box);
