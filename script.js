@@ -135,6 +135,8 @@
             if (!Array.isArray(ex.notesArchive)) ex.notesArchive = [];
             ex.notesArchive = ex.notesArchive.filter(function (e) { return e && typeof e.t === "string"; });
             if (!Array.isArray(ex.noteDates)) ex.noteDates = [];
+            // Notes fixes (toujours visibles, sans date) ; ex.notes = notes mobiles (suivi daté au jour le jour).
+            if (typeof ex.fixedNotes !== "string") ex.fixedNotes = "";
             // Remplace les statuts (à faire/en cours/terminé/à revoir), jugés trop compliqués au
             // quotidien : juste deux cases à cocher, accessibles par clic droit/appui long.
             if (typeof ex.favorite !== "boolean") ex.favorite = false;
@@ -1525,7 +1527,7 @@
     function autoGrowAllNotes() {
         if (typeof requestAnimationFrame !== "function") return;
         requestAnimationFrame(function () {
-            var areas = document.querySelectorAll(".notes-textarea");
+            var areas = document.querySelectorAll(".notes-textarea, .notes-fixed-textarea");
             for (var i = 0; i < areas.length; i++) autoGrowNotes(areas[i]);
         });
     }
@@ -1637,6 +1639,7 @@
             id: uid(),
             title: ex.title + " (copie)",
             notes: ex.notes || "",
+            fixedNotes: ex.fixedNotes || "",
             favorite: false,
             archived: false,
             links: cloneLinksForDuplicate(ex.links),
@@ -3671,7 +3674,7 @@
             if (v.fav && !ex.favorite) return false;
             if (v.att === "with" && !exHasAttachments(ex)) return false;
             if (v.att === "without" && exHasAttachments(ex)) return false;
-            var hasNotes = !!(ex.notes && ex.notes.trim());
+            var hasNotes = !!((ex.notes && ex.notes.trim()) || (ex.fixedNotes && ex.fixedNotes.trim()));
             if (v.notes === "with" && !hasNotes) return false;
             if (v.notes === "without" && hasNotes) return false;
             if (v.video && !(ex.links || []).some(function (l) { return !!youTubeVideoInfo(l.url); })) return false;
@@ -3810,7 +3813,7 @@
             // (ex. "Youtube bassless"), ou par le contenu de ses notes — pas seulement par son titre.
             if (ex.links.some(function (l) { return (l.label || "").toLowerCase().indexOf(query) !== -1; })) return true;
             if (ex.files.some(function (f) { return (f.name || "").toLowerCase().indexOf(query) !== -1; })) return true;
-            if ((ex.notes || "").toLowerCase().indexOf(query) !== -1) return true;
+            if ((ex.notes || "").toLowerCase().indexOf(query) !== -1 || (ex.fixedNotes || "").toLowerCase().indexOf(query) !== -1) return true;
             return false;
         }
         var results = collectExercises(inst, matchFn);
@@ -3931,7 +3934,7 @@
         tools.className = "exercise-row-tools";
         row.appendChild(tools);
         appendExerciseLinkButtons(tools, ex);
-        if (ex.notes && ex.notes.trim()) {
+        if ((ex.notes && ex.notes.trim()) || (ex.fixedNotes && ex.fixedNotes.trim())) {
             var noteMark = document.createElement("span");
             noteMark.className = "exercise-note-mark";
             noteMark.innerHTML = NOTE_BUBBLE_SVG;
@@ -3965,6 +3968,14 @@
             el.appendChild(renderExerciseDetails(ex));
         } else {
             delete exerciseVideosOpen[ex.id];
+            if (ex.fixedNotes && ex.fixedNotes.trim()) { // les notes fixes restent visibles même exercice replié
+                var fixedView = document.createElement("div");
+                fixedView.className = "exercise-fixed-view";
+                fixedView.textContent = ex.fixedNotes.trim();
+                fixedView.title = "Note fixe (clic : ouvrir l'exercice)";
+                fixedView.addEventListener("click", function () { ex.collapsed = false; save(); render(); });
+                el.appendChild(fixedView);
+            }
         }
 
         return el;
@@ -4185,9 +4196,38 @@
             set: function (p) { setExerciseMetronome(ex, p); }
         }));
 
+        // Notes fixes : consignes importantes, sans date, toujours visibles (aussi exercice replié et en session).
+        var fixedLabel = document.createElement("div");
+        fixedLabel.className = "section-label";
+        fixedLabel.textContent = "Notes fixes";
+        fixedLabel.title = "Toujours visibles : consignes importantes de l'exercice";
+        var fixedStatus = document.createElement("span");
+        fixedStatus.className = "save-status";
+        fixedLabel.appendChild(fixedStatus);
+        var fixedTa = document.createElement("textarea");
+        fixedTa.className = "notes-fixed-textarea";
+        fixedTa.rows = NOTES_MIN_ROWS;
+        fixedTa.value = ex.fixedNotes || "";
+        fixedTa.placeholder = "À ne pas oublier…";
+        fixedTa.addEventListener("input", function () { autoGrowNotes(fixedTa); });
+        bindAutosaveTextarea(fixedTa, function (value) {
+            ex.fixedNotes = value;
+            touchExercise(ex);
+        }, fixedStatus, {
+            onLeave: function () {
+                var ft = ex.fixedNotes || "";
+                askApplyToSameNamed(ex, ft.trim() ? "Remplacer leur note fixe par celle-ci ?" : "Effacer aussi leur note fixe ?",
+                    function (o) { return (o.fixedNotes || "") !== ft; },
+                    function (o) { o.fixedNotes = ft; });
+            }
+        });
+        details.appendChild(fixedLabel);
+        details.appendChild(fixedTa);
+
         var notesLabel = document.createElement("div");
         notesLabel.className = "section-label";
-        notesLabel.textContent = "Notes";
+        notesLabel.textContent = "Notes mobiles";
+        notesLabel.title = "Suivi au jour le jour : une date en tête de ligne, les plus anciennes lignes partent aux archives";
         var notesStatus = document.createElement("span");
         notesStatus.className = "save-status";
         notesLabel.appendChild(notesStatus);
@@ -6305,17 +6345,78 @@
     }
     var METRO_LOOKAHEAD_MS = 25;
     var METRO_SCHEDULE_AHEAD_S = 0.12;
+    // Page masquée ou vidéo en plein écran : le fil principal peut être ralenti → on programme plus loin à l'avance.
+    function metroAheadS() { return (document.hidden || document.fullscreenElement || document.webkitFullscreenElement) ? 0.4 : METRO_SCHEDULE_AHEAD_S; }
 
-    function ensureMetroAudio() {
-        if (!metroAudioCtx) {
-            metroAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            metroMasterGain = metroAudioCtx.createGain();
-            metroMasterGain.gain.value = state.settings.metronome.volume;
-            metroMasterGain.connect(metroAudioCtx.destination);
+    // Le contexte audio peut être « interrupted » (iOS : autre appli, écran verrouillé) ou « suspended » : seul un
+    // resume() lancé pendant un geste le réveille, et il arrive qu'il reste mort. Dans ce cas on en reconstruit un
+    // neuf au prochain geste (lancer le métronome) plutôt que de laisser un son muet jusqu'au redémarrage de l'appli.
+    var metroCtxLost = false;       // la page a quitté l'avant-plan : le contexte est peut-être mort
+    function metroBuildAudio() {
+        var old = metroAudioCtx;
+        metroAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        metroMasterGain = metroAudioCtx.createGain();
+        metroMasterGain.gain.value = state.settings.metronome.volume;
+        metroMasterGain.connect(metroAudioCtx.destination);
+        metroCtxLost = false;
+        var built = metroAudioCtx;
+        built.onstatechange = function () { // coupé puis rendu (vidéo plein écran, appel, autre appli) : on relance le son tout seul
+            if (built !== metroAudioCtx || !metroPlaying) return;
+            if (built.state === "running") metroNextNoteTime = Math.max(metroNextNoteTime, built.currentTime + 0.05);
+            else metroReviveAudio();
+        };
+        if (old) { try { old.close(); } catch (e) {} }
+        try { // note muette : « débloque » la sortie son sur iOS dès ce geste
+            var b = metroAudioCtx.createBuffer(1, 1, 22050), src = metroAudioCtx.createBufferSource();
+            src.buffer = b; src.connect(metroAudioCtx.destination); src.start(0);
+        } catch (e) {}
+    }
+    function ensureMetroAudio(fromGesture) {
+        var ctx = metroAudioCtx;
+        if (!ctx || ctx.state === "closed" || (fromGesture && metroCtxLost && !metroPlaying)) metroBuildAudio();
+        if (metroAudioCtx.state !== "running") {
+            try { var pr = metroAudioCtx.resume(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {}
         }
-        if (metroAudioCtx.state === "suspended") metroAudioCtx.resume();
         return metroAudioCtx;
     }
+    // Tant que le métronome joue et que le contexte audio n'est pas en marche, on tente de le réveiller (toutes les 0,5 s).
+    var metroReviveTimer = null;
+    function metroReviveAudio() {
+        if (metroReviveTimer || !metroPlaying) return;
+        (function again() {
+            metroReviveTimer = null;
+            if (!metroPlaying || !metroAudioCtx || metroAudioCtx.state === "running") return;
+            try { var pr = metroAudioCtx.resume(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {}
+            metroReviveTimer = setTimeout(again, 500);
+        })();
+    }
+    ["fullscreenchange", "webkitfullscreenchange"].forEach(function (ev) {
+        document.addEventListener(ev, function () { if (metroPlaying) { metroReviveAudio(); if (metroAudioCtx && metroAudioCtx.state === "running") metroNextNoteTime = Math.max(metroNextNoteTime, metroAudioCtx.currentTime + 0.05); } });
+    });
+    // Le contexte avance-t-il vraiment ? (une horloge figée = sortie morte)
+    function metroAudioAlive() { return !!metroAudioCtx && metroAudioCtx.state === "running"; }
+
+    // Retour sur la page : le métronome qui « jouait » a pu être coupé par le système. On tente de réveiller le son ;
+    // si le contexte ne repart pas, on arrête proprement le métronome (le bouton repasse sur « Jouer ») : un appui
+    // suffit alors pour repartir, avec un contexte neuf.
+    function metroOnReturn() {
+        if (!metroAudioCtx) return;
+        if (metroAudioCtx.state !== "running") { try { var pr = metroAudioCtx.resume(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {} }
+        if (!metroPlaying) return;
+        setTimeout(function () {
+            if (!metroPlaying || document.hidden) return;
+            if (metroAudioAlive()) { metroNextNoteTime = Math.max(metroNextNoteTime, metroAudioCtx.currentTime + 0.05); return; }
+            if (!metroCtxLost) return; // simple retour de focus, sans passage en arrière-plan : on ne coupe rien
+            metroCtxLost = true;
+            if (metroPanelApi) metroPanelApi.toggle(); else stopMetronome();
+            showToast("Le son du métronome a été coupé par le système : appuie sur Jouer pour le relancer.", 5000);
+        }, 450);
+    }
+    document.addEventListener("visibilitychange", function () {
+        if (document.hidden) metroCtxLost = true; else metroOnReturn();
+    });
+    window.addEventListener("pageshow", function () { metroOnReturn(); });
+    window.addEventListener("focus", function () { if (metroAudioCtx && metroAudioCtx.state !== "running") metroOnReturn(); });
 
     function setMetroVolume(v) {
         state.settings.metronome.volume = v;
@@ -6393,7 +6494,11 @@
     var metroBeatListeners = []; // fonctions (pas, estUnTemps, force) appelées à chaque clic — ex. la fenêtre flottante
     function metroScheduler() {
         var m = state.settings.metronome;
-        while (metroNextNoteTime < metroAudioCtx.currentTime + METRO_SCHEDULE_AHEAD_S) {
+        // Minuteur ralenti (onglet en arrière-plan) : si l'on a pris plus de 0,25 s de retard, on repart de
+        // maintenant plutôt que de rattraper d'un coup une rafale de clics.
+        if (metroNextNoteTime < metroAudioCtx.currentTime - 0.25) metroNextNoteTime = metroAudioCtx.currentTime + 0.05;
+        var ahead = metroAheadS();
+        while (metroNextNoteTime < metroAudioCtx.currentTime + ahead) {
             // Relu à chaque pas : changer de formule ou basculer "…" pendant la lecture prend effet
             // tout de suite, sans pas fantôme au-delà de la nouvelle longueur de motif.
             var layer = metroActiveLayer(m);
@@ -6450,12 +6555,30 @@
             if (metroPanelApi) metroPanelApi.toggle(); else stopMetronome();
             return;
         }
-        metroTimer = setTimeout(metroScheduler, METRO_LOOKAHEAD_MS);
+        if (!metroWorker) metroTimer = setTimeout(metroScheduler, METRO_LOOKAHEAD_MS);
     }
+
+    // Cadence du planificateur : un Web Worker (ses minuteries ne sont pas ralenties quand la page est en arrière-plan,
+    // masquée ou recouverte par une vidéo en plein écran, contrairement à setTimeout). Repli sur setTimeout sans Worker.
+    var metroWorker = null, metroWorkerUrl = null;
+    function metroStartTicker() {
+        if (typeof Worker !== "function" || typeof Blob !== "function" || !window.URL || !URL.createObjectURL) return;
+        try {
+            if (!metroWorker) {
+                var src = "var t=null;onmessage=function(e){if(e.data==='start'){if(t)clearInterval(t);t=setInterval(function(){postMessage(1)}," + METRO_LOOKAHEAD_MS + ")}else if(e.data==='stop'){if(t){clearInterval(t);t=null}}};";
+                metroWorkerUrl = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
+                metroWorker = new Worker(metroWorkerUrl);
+                metroWorker.onmessage = function () { if (metroPlaying) metroScheduler(); };
+                metroWorker.onerror = function () { metroWorker = null; if (metroPlaying && !metroTimer) metroTimer = setTimeout(metroScheduler, METRO_LOOKAHEAD_MS); };
+            }
+            metroWorker.postMessage("start");
+        } catch (e) { metroWorker = null; }
+    }
+    function metroStopTicker() { if (metroWorker) { try { metroWorker.postMessage("stop"); } catch (e) {} } }
 
     function startMetronome() {
         if (metroPlaying) return;
-        ensureMetroAudio();
+        ensureMetroAudio(true);
         metroPlaying = true;
         metroCurrentStep = 0;
         metroProgNextAt = null; // le décompte du tempo progressif repart à chaque lancement
@@ -6464,6 +6587,7 @@
         var pm = state.settings.metronome.progressive;
         metroProgStartBpm = (pm.enabled && pm.restoreOnStop) ? state.settings.metronome.bpm : null;
         metroNextNoteTime = metroAudioCtx.currentTime + 0.05;
+        metroStartTicker();
         metroScheduler();
     }
 
@@ -6471,7 +6595,9 @@
     function stopMetronome() {
         if (metroPlaying) metroStopListeners.forEach(function (fn) { try { fn(); } catch (e) {} });
         metroPlaying = false;
+        metroStopTicker();
         if (metroTimer) { clearTimeout(metroTimer); metroTimer = null; }
+        if (metroReviveTimer) { clearTimeout(metroReviveTimer); metroReviveTimer = null; }
         // "Revenir au tempo de départ" : le prochain lancement repart du tempo d'origine.
         if (metroProgStartBpm !== null) {
             var mm = state.settings.metronome;
@@ -9084,6 +9210,7 @@
             if (step.note && step.note.trim()) writeLines("Note : " + step.note.trim(), 10, "bold", 5.5);
             if (found) {
                 writeLines(found.pathNames.join(" › "), 9, "italic", 5.5);
+                if (found.ex.fixedNotes && found.ex.fixedNotes.trim()) writeLines(found.ex.fixedNotes.trim(), 10, "bold", 5.5);
                 if (found.ex.notes && found.ex.notes.trim()) writeLines(found.ex.notes.trim(), 10, "normal", 5.5);
                 (found.ex.links || []).forEach(function (link) {
                     writeLines("Lien : " + link.label + " — " + link.url, 9, "normal", 5.5);
@@ -9696,10 +9823,10 @@
     }
     var qfCache = typeof WeakMap === "function" ? new WeakMap() : null;
     function qfExtra(ex) { // liens, fichiers et notes, normalisés une fois (recalculés si l'exercice change)
-        var key = (ex.updatedAt || 0) + ":" + (ex.notes || "").length + ":" + (ex.links || []).length + ":" + (ex.files || []).length;
+        var key = (ex.updatedAt || 0) + ":" + (ex.notes || "").length + ":" + (ex.fixedNotes || "").length + ":" + (ex.links || []).length + ":" + (ex.files || []).length;
         var c = qfCache && qfCache.get(ex);
         if (c && c.key === key) return c.text;
-        var text = qfNorm([ex.notes || ""].concat((ex.links || []).map(function (l) { return l.label || ""; }), (ex.files || []).map(function (f) { return f.name || ""; })).join(" \n "));
+        var text = qfNorm([ex.notes || "", ex.fixedNotes || ""].concat((ex.links || []).map(function (l) { return l.label || ""; }), (ex.files || []).map(function (f) { return f.name || ""; })).join(" \n "));
         if (qfCache) qfCache.set(ex, { key: key, text: text });
         return text;
     }
@@ -10427,6 +10554,13 @@
             histBtn.title += " — " + nToSort + " exercice" + (nToSort > 1 ? "s" : "") + " à ranger pour les statistiques";
         }
         headActions.appendChild(histBtn);
+        var freeBtn = document.createElement("button");
+        freeBtn.type = "button";
+        freeBtn.className = "gs-free-btn";
+        freeBtn.textContent = freeRun ? "Entraînement en cours" : "Entraînement libre";
+        freeBtn.title = "Hors session : un chrono suit l'exercice affiché à l'écran principal";
+        freeBtn.addEventListener("click", freeStart);
+        headActions.appendChild(freeBtn);
         if (window.matchMedia && window.matchMedia("(min-width: 880px)").matches) $contentHeading.appendChild(headActions);
         else content.insertBefore(headActions, content.firstChild);
     }
@@ -10678,7 +10812,7 @@
                 var detailsBtn = document.createElement("span");
                 detailsBtn.className = "exercise-note-mark gs-step-note-mark";
                 function refreshNoteMark() {
-                    var has = !!((found && found.ex.notes && found.ex.notes.trim()) || (step.note && step.note.trim()));
+                    var has = !!((found && ((found.ex.notes && found.ex.notes.trim()) || (found.ex.fixedNotes && found.ex.fixedNotes.trim()))) || (step.note && step.note.trim()));
                     detailsBtn.innerHTML = has ? NOTE_BUBBLE_SVG : "";
                     detailsBtn.title = "Cet exercice a des notes";
                 }
@@ -10772,8 +10906,7 @@
                             details.appendChild(titleEdit);
                             var exEditor = renderExerciseDetails(found.ex);
                             details.appendChild(exEditor);
-                            var exTa = exEditor.querySelector(".notes-textarea");
-                            if (exTa) setTimeout(function () { autoGrowNotes(exTa); }, 0);
+                            Array.prototype.forEach.call(exEditor.querySelectorAll(".notes-textarea, .notes-fixed-textarea"), function (exTa) { setTimeout(function () { autoGrowNotes(exTa); }, 0); });
                         }
                     }
                     details.appendChild(buildMetronomePresetRow(stepTempoCfg));
@@ -11056,10 +11189,11 @@
 
     // ---- écran de guidage (lecture) ----
     function gsStartRun(session) {
+        if (freeRun) { showToast("Arrête d'abord l'entraînement libre.", 3500); return; }
         session.runCount = (session.runCount || 0) + 1;
         session.lastRunAt = Date.now();
         persist();
-        if (gsAutoAdvanceOn()) { try { ensureMetroAudio(); } catch (e) {} } // le clic de lancement autorise le son du carillon
+        if (gsAutoAdvanceOn()) { try { ensureMetroAudio(true); } catch (e) {} } // le clic de lancement autorise le son du carillon
         gsRunSession = session;
         gsRunStepIndex = 0;
         gsRunSpent = {}; gsRunBpm = {}; gsRunCurrentStepId = null; gsRunStartedAt = Date.now();
@@ -11106,8 +11240,8 @@
     // Une entrée d'historique (schéma v2) : de quoi calculer des statistiques plus tard sans rien deviner —
     // chaque exercice garde son identifiant, son chapitre, le temps réellement passé et le tempo joué.
     // Un pas de la séance enregistrée (ms = temps passé dessus). `bpmShort` : on a coupé avant le seuil visé.
-    function gsStepRecord(st, ms) {
-        var f = findExerciseById(st.exerciseId), t = gsRunBpm[st.id], played = t && t.playedMs > 0;
+    function gsStepRecord(st, ms, bpmMap) {
+        var f = findExerciseById(st.exerciseId), t = (bpmMap || gsRunBpm)[st.id], played = t && t.playedMs > 0;
         var o = {
             sid: st.id,
             exerciseId: st.exerciseId,
@@ -11240,11 +11374,272 @@
         });
     }
     // À la fin d'une session : on propose de l'enregistrer dans l'historique (durées et tempos relisibles avant de valider).
-    function gsAskSaveRun(record, extraSteps) {
+    function gsAskSaveRun(record, extraSteps, title) {
+        gsLiveWrite({ v: 1, kind: "record", savedAt: Date.now(), record: record, extraSteps: extraSteps || [] }); // gardée tant que rien n'est décidé
         openRunRecordEditor(record, {
+            title: title,
             extraSteps: extraSteps || [],
-            onSave: function (rec) { logAdd(rec); save(); showToast("Session enregistrée dans l'historique"); }
+            onSave: function (rec) { logAdd(rec); save(); gsLiveClear(); showToast(rec.free ? "Entraînement enregistré dans l'historique" : "Session enregistrée dans l'historique"); },
+            onCancel: function () { gsLiveClear(); }
         });
+    }
+    // ---------- session en cours : sauvegarde continue, reprise après une fermeture brutale ----------
+    // Propre à cet appareil (localStorage) : l'état de la session (ou de l'entraînement libre) en cours est recopié
+    // toutes les quelques secondes. Au prochain lancement de l'appli, s'il en reste une trace, on propose de la
+    // reprendre ou de l'enregistrer dans les statistiques (récapitulatif modifiable) — rien n'est perdu.
+    var GS_LIVE_KEY = "trainhub.gsLive.v1";
+    var GS_LIVE_MIN_MS = 60000;   // en dessous d'une minute de pratique, la trace est écartée sans rien demander
+    function gsLiveRead() { try { var o = JSON.parse(localStorage.getItem(GS_LIVE_KEY)); return o && o.v === 1 ? o : null; } catch (e) { return null; } }
+    function gsLiveWrite(o) { try { localStorage.setItem(GS_LIVE_KEY, JSON.stringify(o)); } catch (e) {} }
+    function gsLiveClear() { try { localStorage.removeItem(GS_LIVE_KEY); } catch (e) {} }
+    function gsLiveSnapshot() {
+        if (gsRunSession) {
+            var spent = {};
+            Object.keys(gsRunSpent).forEach(function (k) { spent[k] = gsRunSpent[k]; });
+            if (gsRunCurrentStepId) spent[gsRunCurrentStepId] = (spent[gsRunCurrentStepId] || 0) + gsRunElapsedNowMs();
+            return { v: 1, kind: "session", savedAt: Date.now(), startedAt: gsRunStartedAt, sessionId: gsRunSession.id, name: gsRunSession.name,
+                instrumentId: gsRunSession.instrumentId, ephemeral: !!gsRunSession.ephemeral, stepIndex: gsRunStepIndex, curStepId: gsRunCurrentStepId,
+                elapsedMs: gsRunElapsedNowMs(), allocatedSec: gsRunAllocatedSec, totalMs: gsTotalNowMs(), spent: spent, bpm: cloneJson(gsRunBpm),
+                steps: gsRunSession.steps.map(function (st) { return { id: st.id, exerciseId: st.exerciseId, minutes: st.minutes }; }) };
+        }
+        if (freeRun) return freeSnapshot();
+        return null;
+    }
+    var gsLiveTimer = null;
+    function gsLiveSave() {
+        var snap = gsLiveSnapshot();
+        if (!snap) return;
+        gsLiveWrite(snap);
+        if (!gsLiveTimer) gsLiveTimer = setInterval(function () { // recopie régulière, seulement tant qu'une session ou un entraînement libre est en cours
+            if (!gsRunSession && !freeRun) { clearInterval(gsLiveTimer); gsLiveTimer = null; return; }
+            gsLiveSave();
+        }, 5000);
+    }
+    // Séance (schéma v2) reconstruite depuis une trace : mêmes champs qu'à la fin normale d'une session.
+    function gsRecordFromSnap(snap, minTotalMs) {
+        var steps = [], total = 0, planned = 0;
+        (snap.steps || []).forEach(function (st) {
+            var ms = (snap.spent || {})[st.id] || 0;
+            if (ms < 3000) return;
+            steps.push(gsStepRecord(st, ms, snap.bpm || {}));
+            total += ms; planned += (st.minutes || 0) * 60;
+        });
+        if (!steps.length || total < minTotalMs) return null;
+        var rec = { v: 2, id: uid(), sessionId: snap.sessionId, name: snap.name, instrumentId: snap.instrumentId, date: snap.startedAt || snap.savedAt, endedAt: snap.savedAt, totalSec: Math.round(total / 1000), plannedSec: planned, steps: steps };
+        if (snap.ephemeral) rec.ephemeral = true;
+        if (snap.kind === "free") rec.free = true;
+        return rec;
+    }
+    function gsLiveResumeSession(snap, session) {
+        var idx = -1;
+        session.steps.forEach(function (st, i) { if (st.id === snap.curStepId) idx = i; });
+        if (idx < 0) idx = Math.min(Math.max(0, snap.stepIndex || 0), session.steps.length - 1);
+        var cur = session.steps[idx], same = snap.curStepId === cur.id;
+        gsRunSession = session; gsRunStepIndex = idx;
+        gsRunSpent = cloneJson(snap.spent || {}); gsRunBpm = cloneJson(snap.bpm || {}); gsRunCurrentStepId = null;
+        gsRunStartedAt = snap.startedAt || Date.now();
+        if (same) gsRunSpent[cur.id] = Math.max(0, (gsRunSpent[cur.id] || 0) - (snap.elapsedMs || 0)); // le temps de l'exercice en cours repart de son compteur
+        gsTrackBpm(true);
+        gsTotalMs = snap.totalMs || 0; gsTotalStartTs = null;
+        gsEnterRunStep();
+        if (same) { gsRunElapsedMs = snap.elapsedMs || 0; if (snap.allocatedSec) gsRunAllocatedSec = snap.allocatedSec; }
+        gsPauseRun(); // la reprise reste manuelle : on remet les mains à l'instrument avant de relancer le chrono
+        guidedSessionViewActive = true;
+        if ($guidedSessionBtn) $guidedSessionBtn.classList.add("active");
+        gsScreen = "run";
+        render();
+    }
+    function gsLiveCheck() {
+        var snap = gsLiveRead();
+        if (!snap || gsRunSession || freeRun) return;
+        var rec = null, extra = [];
+        if (snap.kind === "record") { rec = snap.record; extra = snap.extraSteps || []; }
+        else rec = gsRecordFromSnap(snap, GS_LIVE_MIN_MS);
+        if (!rec) { gsLiveClear(); return; }
+        var session = snap.kind === "session" ? gsFindSession(snap.sessionId) : null;
+        var canResume = snap.kind === "free" || (snap.kind === "session" && session && session.steps.length > 0);
+        openModal("gs-live-panel", function (panel, close) {
+            var title = document.createElement("div");
+            title.className = "backups-title";
+            title.textContent = snap.kind === "record" ? "Séance non enregistrée" : "Séance interrompue";
+            panel.appendChild(title);
+            var intro = document.createElement("div");
+            intro.className = "gs-sync-intro gs-live-intro";
+            intro.textContent = "« " + rec.name + " » · " + gsFmtDur(rec.totalSec) + " de pratique · " + gsFmtDate(snap.savedAt || rec.endedAt || Date.now());
+            panel.appendChild(intro);
+            var actions = document.createElement("div");
+            actions.className = "gs-live-actions";
+            if (canResume) {
+                var resume = document.createElement("button"); resume.type = "button"; resume.className = "btn-accent gs-live-resume"; resume.textContent = "Reprendre";
+                resume.addEventListener("click", function () {
+                    close();
+                    if (snap.kind === "free") freeResume(snap); else gsLiveResumeSession(snap, session);
+                });
+                actions.appendChild(resume);
+            }
+            var saveBtn = document.createElement("button"); saveBtn.type = "button"; saveBtn.className = (canResume ? "btn-ghost" : "btn-accent") + " gs-live-save"; saveBtn.textContent = "Enregistrer dans les statistiques";
+            saveBtn.addEventListener("click", function () {
+                close();
+                openRunRecordEditor(rec, {
+                    title: "Enregistrer cette séance ?", extraSteps: extra,
+                    onSave: function (out) { logAdd(out); save(); gsLiveClear(); showToast("Séance enregistrée dans l'historique"); },
+                    onCancel: function () { gsLiveClear(); }
+                });
+            });
+            actions.appendChild(saveBtn);
+            var drop = document.createElement("button"); drop.type = "button"; drop.className = "btn-ghost gs-live-drop"; drop.textContent = "Abandonner";
+            var armed = false;
+            drop.addEventListener("click", function () {
+                if (!armed) { armed = true; drop.textContent = "Confirmer l'abandon"; drop.classList.add("gs-live-drop-armed"); return; }
+                gsLiveClear(); close();
+            });
+            actions.appendChild(drop);
+            panel.appendChild(actions);
+        });
+    }
+    window.addEventListener("pagehide", gsLiveSave);
+    window.addEventListener("beforeunload", gsLiveSave);
+    document.addEventListener("visibilitychange", function () { if (document.hidden) gsLiveSave(); });
+
+    // ---------- entraînement libre : un chrono qui suit l'exercice affiché à l'écran principal ----------
+    // Hors session : le décompte démarre quand un exercice déplié reste visible plus de 10 s, se met en pause dès
+    // qu'on change d'exercice (puis repart 10 s après), et reste grisé tant qu'aucun exercice n'est affiché.
+    // « Arrêter » ouvre le récapitulatif modifiable (comme une session), puis la séance « Session libre » entre
+    // dans l'historique et les statistiques.
+    var FREE_START_DELAY_MS = 10000, FREE_MIN_RECORD_MS = 60000, FREE_MIN_VISIBLE_PX = 80;
+    var freeRun = null, freeTimer = null, freeBarEl = null;
+    function freeStepId(exId) { return "free:" + exId; }
+    // Exercice déplié le plus visible dans la zone principale (sous la barre du haut) ; null si aucun.
+    function freeVisibleExercise() {
+        if (document.hidden || guidedSessionViewActive) return null;
+        var cont = document.getElementById("folder-container");
+        if (!cont) return null;
+        var bar = document.querySelector(".top-bar"), top = bar ? bar.getBoundingClientRect().bottom : 0;
+        var bottom = window.innerHeight || document.documentElement.clientHeight;
+        var els = cont.querySelectorAll(".exercise:not(.collapsed)"), best = null, bestH = 0;
+        for (var i = 0; i < els.length; i++) {
+            var r = els[i].getBoundingClientRect(), h = Math.min(r.bottom, bottom) - Math.max(r.top, top);
+            if (h > bestH) { bestH = h; best = els[i]; }
+        }
+        return best && bestH >= FREE_MIN_VISIBLE_PX && best.dataset.exId ? best.dataset.exId : null;
+    }
+    function freeSnapshot() {
+        var fr = freeRun, steps = Object.keys(fr.spent).map(function (id) { return { id: id, exerciseId: id.slice(5), minutes: 0 }; });
+        return { v: 1, kind: "free", savedAt: Date.now(), startedAt: fr.startedAt, sessionId: "free", name: "Session libre", instrumentId: fr.instrumentId,
+            spent: cloneJson(fr.spent), bpm: cloneJson(fr.bpm), totalMs: fr.totalMs, steps: steps };
+    }
+    function freeBeat(step, isBeat) {
+        if (!freeRun || !freeRun.counting || !freeRun.cur) return;
+        var id = freeStepId(freeRun.cur), bpm = state.settings.metronome.bpm;
+        var t = freeRun.bpm[id] || (freeRun.bpm[id] = { first: bpm, max: bpm, end: bpm, playedMs: 0 });
+        if (bpm > t.max) t.max = bpm;
+        t.end = bpm;
+        if (isBeat) t.playedMs += 60000 / bpm;
+    }
+    function freeTick() {
+        if (!freeRun) return;
+        var now = Date.now(), dt = Math.min(2000, Math.max(0, now - freeRun.last)), cur = freeVisibleExercise();
+        freeRun.last = now;
+        if (cur !== freeRun.cur) { freeRun.cur = cur; freeRun.seen = now; freeRun.counting = false; } // changement d'exercice : pause automatique
+        if (!cur) freeRun.counting = false;
+        else if (!freeRun.manual && !freeRun.counting && now - freeRun.seen >= FREE_START_DELAY_MS) freeRun.counting = true;
+        if (freeRun.counting && cur && !freeRun.manual) {
+            var id = freeStepId(cur);
+            freeRun.spent[id] = (freeRun.spent[id] || 0) + dt;
+            freeRun.totalMs += dt;
+        }
+        freeRefreshBar();
+    }
+    function freeStatus() { // "run" | "wait" | "paused" | "idle"
+        if (!freeRun) return "idle";
+        if (freeRun.manual) return "paused";
+        if (!freeRun.cur) return "idle";
+        return freeRun.counting ? "run" : "wait";
+    }
+    function freeRefreshBar() {
+        if (!freeBarEl || !freeRun) return;
+        var st = freeStatus(), f = freeRun.cur ? findExerciseById(freeRun.cur) : null;
+        freeBarEl.className = "free-bar free-bar-" + st;
+        freeBarEl.querySelector(".free-time").textContent = gsFormatTotal(freeRun.totalMs);
+        var what = freeBarEl.querySelector(".free-what");
+        what.textContent = st === "run" ? (f ? f.ex.title : "") : st === "wait" ? "Départ dans " + Math.max(1, Math.ceil((FREE_START_DELAY_MS - (Date.now() - freeRun.seen)) / 1000)) + " s" : st === "paused" ? "En pause" : "Aucun exercice affiché";
+        var pb = freeBarEl.querySelector(".free-pause");
+        pb.textContent = freeRun.manual ? "Reprendre" : "Pause";
+        pb.disabled = !freeRun.manual && st === "idle";
+    }
+    function freeShowBar() {
+        if (freeBarEl) return;
+        var bar = document.createElement("div");
+        bar.id = "free-bar";
+        bar.className = "free-bar free-bar-idle";
+        var lbl = document.createElement("span"); lbl.className = "free-label"; lbl.textContent = "Libre"; lbl.title = "Entraînement libre";
+        var tm = document.createElement("span"); tm.className = "free-time"; tm.textContent = "0:00";
+        var wh = document.createElement("span"); wh.className = "free-what";
+        var pb = document.createElement("button"); pb.type = "button"; pb.className = "btn-ghost free-pause"; pb.textContent = "Pause";
+        pb.addEventListener("click", function () {
+            if (!freeRun) return;
+            freeRun.manual = !freeRun.manual;
+            if (!freeRun.manual && freeRun.cur) freeRun.counting = true; // relancé à la main : pas d'attente de 10 s
+            if (freeRun.manual) freeRun.counting = false;
+            freeRefreshBar();
+        });
+        var sp = document.createElement("button"); sp.type = "button"; sp.className = "btn-ghost free-stop"; sp.textContent = "Arrêter";
+        sp.addEventListener("click", freeStop);
+        [lbl, tm, wh, pb, sp].forEach(function (n) { bar.appendChild(n); });
+        var top = document.querySelector(".top-bar");
+        if (top) top.appendChild(bar);
+        freeBarEl = bar;
+        updateMetroDockMetrics();
+    }
+    function freeHideBar() {
+        if (freeBarEl && freeBarEl.parentNode) freeBarEl.parentNode.removeChild(freeBarEl);
+        freeBarEl = null;
+        updateMetroDockMetrics();
+    }
+    function freeAttach(fr) {
+        freeRun = fr;
+        metroBeatListeners = metroBeatListeners.filter(function (fn) { return fn !== freeBeat; });
+        metroBeatListeners.push(freeBeat);
+        freeShowBar();
+        if (freeTimer) clearInterval(freeTimer);
+        freeTimer = setInterval(freeTick, 500);
+        freeTick();
+    }
+    function freeDetach() {
+        if (freeTimer) { clearInterval(freeTimer); freeTimer = null; }
+        metroBeatListeners = metroBeatListeners.filter(function (fn) { return fn !== freeBeat; });
+        freeRun = null;
+        freeHideBar();
+    }
+    function freeLeaveSessionsView() {
+        if (!guidedSessionViewActive) return;
+        guidedSessionViewActive = false;
+        if ($guidedSessionBtn) $guidedSessionBtn.classList.remove("active");
+        if (gsRunInterval) { clearInterval(gsRunInterval); gsRunInterval = null; }
+        render();
+    }
+    function freeStart() {
+        if (freeRun) { freeLeaveSessionsView(); return; }
+        if (gsRunSession) { showToast("Termine d'abord la session en cours.", 3500); return; }
+        var now = Date.now();
+        freeAttach({ startedAt: now, instrumentId: state.activeInstrumentId, spent: {}, bpm: {}, totalMs: 0, cur: null, seen: now, counting: false, manual: false, last: now });
+        freeLeaveSessionsView();
+        gsLiveSave();
+        showToast("Ouvre un exercice : le décompte démarre après 10 s.", 4500);
+    }
+    function freeResume(snap) {
+        var now = Date.now();
+        freeAttach({ startedAt: snap.startedAt || now, instrumentId: snap.instrumentId, spent: cloneJson(snap.spent || {}), bpm: cloneJson(snap.bpm || {}), totalMs: snap.totalMs || 0, cur: null, seen: now, counting: false, manual: false, last: now });
+        freeLeaveSessionsView();
+        gsLiveSave();
+    }
+    function freeStop() {
+        if (!freeRun) return;
+        var snap = freeSnapshot();
+        freeDetach();
+        var rec = gsRecordFromSnap(snap, FREE_MIN_RECORD_MS);
+        if (!rec) { gsLiveClear(); showToast("Entraînement trop court (moins d'une minute) : rien à enregistrer.", 4000); return; }
+        gsAskSaveRun(rec, [], "Enregistrer cet entraînement ?");
     }
     // Séance déjà enregistrée : corriger une durée oubliée ou un tempo erroné.
     function editLoggedRecord(rec, afterClose) {
@@ -12587,6 +12982,7 @@
         gsRunPaused = false;
         if (gsTotalStartTs === null) gsTotalStartTs = Date.now(); // 1er exercice, ou changement d'exercice pendant une pause
         transportLastTouched = "session";
+        gsLiveSave();
     }
 
     function gsTotalNowMs() {
@@ -12608,6 +13004,7 @@
         if (gsTotalStartTs !== null) { gsTotalMs += Date.now() - gsTotalStartTs; gsTotalStartTs = null; }
         gsRunPaused = true;
         transportLastTouched = "session";
+        gsLiveSave();
     }
 
     function gsResumeRun() {
@@ -12628,7 +13025,7 @@
         gsRunSession = null;
         gsScreen = "list";
         render();
-        if (runRecord) gsAskSaveRun(runRecord, extraSteps);
+        if (runRecord) gsAskSaveRun(runRecord, extraSteps); else gsLiveClear();
     }
 
     // ---------- lecteurs YouTube intégrés (sous la session) ----------
@@ -13465,7 +13862,7 @@
         refreshAutoBtn();
         autoBtn.addEventListener("click", function () {
             setGsAutoAdvance(!gsAutoAdvanceOn());
-            if (gsAutoAdvanceOn()) ensureMetroAudio(); // réveille l'audio pendant ce clic (autorisé par le navigateur)
+            if (gsAutoAdvanceOn()) ensureMetroAudio(true); // réveille l'audio pendant ce clic (autorisé par le navigateur)
             gsWarnKey = null;
             refreshAutoBtn();
             refreshTimer();
@@ -13485,7 +13882,7 @@
         refreshBellBtn();
         bellBtn.addEventListener("click", function () {
             setGsBell(!gsBellOn());
-            if (gsBellOn()) { ensureMetroAudio(); playEndBeepShort(); } // essai audible, et réveille l'audio pendant ce clic
+            if (gsBellOn()) { ensureMetroAudio(true); playEndBeepShort(); } // essai audible, et réveille l'audio pendant ce clic
             gsBellKeyDone = null;
             refreshBellBtn();
         });
@@ -13525,6 +13922,13 @@
         // l'exercice a déjà une note ; le choix de l'utilisateur est ensuite retenu.
         if (found) {
             var exDetailsOpen = gsExDetailsOpen === null ? !!(found.ex.notes && found.ex.notes.trim()) : gsExDetailsOpen;
+            var runFixed = null;
+            if (found.ex.fixedNotes && found.ex.fixedNotes.trim()) { // notes fixes : toujours sous les yeux pendant la session
+                runFixed = document.createElement("div");
+                runFixed.className = "gs-run-fixed";
+                runFixed.textContent = found.ex.fixedNotes.trim();
+                content.appendChild(runFixed);
+            }
             var detailsWrap = document.createElement("div");
             detailsWrap.className = "gs-run-exdetails";
             var detailsToggle = document.createElement("button");
@@ -13545,13 +13949,13 @@
             function showDetails(open) {
                 exDetailsOpen = open;
                 if (runPaths) runPaths.hidden = !open;
+                if (runFixed) runFixed.hidden = open; // dépliées, les notes fixes sont déjà dans la zone d'édition
                 detailsToggle.setAttribute("aria-expanded", open ? "true" : "false");
                 dtChev.textContent = open ? "▾" : "▸";
                 if (open && !detailsBody) {
                     detailsBody = renderExerciseDetails(found.ex);
                     detailsWrap.appendChild(detailsBody);
-                    var ta = detailsBody.querySelector(".notes-textarea");
-                    if (ta) autoGrowNotes(ta);
+                    Array.prototype.forEach.call(detailsBody.querySelectorAll(".notes-textarea, .notes-fixed-textarea"), autoGrowNotes);
                 }
                 if (detailsBody) detailsBody.hidden = !open;
             }
@@ -13834,6 +14238,7 @@
 
     // ---------- init ----------
     render();
+    setTimeout(gsLiveCheck, 400); // trace d'une session interrompée (fermeture brutale) : reprendre ou enregistrer
 
     if ("serviceWorker" in navigator) {
         window.addEventListener("load", function () {
