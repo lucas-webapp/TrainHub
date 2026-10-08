@@ -168,7 +168,8 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
     min-width: 110px;
 }
 .top-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-left: auto; }
-.top-actions button.active { border-color: #4dabf7; color: #4dabf7; }
+.top-actions button.active, .top-actions button.active:hover { border-color: #4dabf7; background: color-mix(in srgb, #4dabf7 30%, transparent); color: #fff; }
+.top-actions button.active:hover { background: color-mix(in srgb, #4dabf7 40%, transparent); }
 /* Le métronome est utilisé très souvent : on le distingue visuellement des autres icônes. */
 button.metronome-btn-highlight {
     color: var(--text-dim);
@@ -1267,10 +1268,10 @@ button.metro-play-btn-big.metro-play-btn-active { background: #ff5252; color: #2
 /* ---------- aides : cercle des quintes ---------- */
 .aides-panel { align-items: center; text-align: center; display: flex; flex-direction: column; }
 /* max-height propre (celui de .backups-panel, 600px, plafonnerait sinon la hauteur voulue ici). */
-.aides-panel { width: min(420px, calc(100vw - 24px)); height: min(480px, calc(100vh - 24px)); max-height: calc(100vh - 24px); min-width: 300px; min-height: 320px; }
+.aides-panel { width: min(calc(100vw - 24px), max(420px, 62vmin)); height: min(calc(100vh - 24px), max(480px, 72vmin)); max-height: calc(100vh - 24px); min-width: 300px; min-height: 320px; }
 /* Hauteur ajustée au contenu (le diagramme a une taille fixe × zoom, voir openScalesPanel) ; la
    largeur grandit pour le manche jusqu'à la largeur de l'écran (recalcPanelFit), au-delà il défile. */
-.scales-panel { width: min(760px, calc(100vw - 24px)); height: auto; max-height: calc(100vh - 24px); min-width: 320px; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.scales-panel { width: min(calc(100vw - 24px), max(760px, 68vw)); height: auto; max-height: calc(100vh - 24px); min-width: 320px; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
 .scales-row { display: grid; grid-template-columns: 92px 1fr; align-items: center; gap: 10px; }
 .scales-row-label { font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; text-align: left; }
 .scales-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
@@ -3037,3 +3038,17 @@ button.free-btn.free-on { border-color: color-mix(in srgb, var(--eph) 55%, var(-
 
 /* Téléphone : le chrono occupe quatre cases de la grille des outils, collé à gauche (pas de récapitulatif) */
 @media (max-width: 760px) { .top-actions > .free-bar { grid-column: 1 / span 4; justify-self: start; margin-right: 0; } }
+
+/* Les outils suivent la taille de la fenêtre : accordeur plus grand sur grand écran */
+.tuner-panel { width: min(calc(100vw - 32px), max(480px, 42vmin)); }
+.tuner-gauge-wrap { width: min(100%, max(340px, 36vmin)); }
+.tuner-note { font-size: clamp(64px, 8vmin, 112px); }
+
+/* Tempo progressif : un seul tableau à droite du bouton, sans phrases */
+.metro-prog-side { align-items: stretch; gap: 4px; }
+.metro-prog-side table.metro-prog-table { margin: 0; }
+.metro-prog-side table.metro-prog-table th { padding: 0 4px 2px; white-space: nowrap; vertical-align: middle; }
+.metro-prog-side table.metro-prog-table td:last-child, .metro-prog-side table.metro-prog-table th:last-child { width: 30px; }
+button.metro-mini-btn.metro-prog-return { width: 28px; min-width: 0; height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+button.metro-mini-btn.metro-prog-return .icon { width: 15px; height: 15px; }
+button.metro-mini-btn.metro-prog-add { width: 100%; min-width: 0; height: 26px; padding: 0; font-size: var(--fs-lg); line-height: 1; }
