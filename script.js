@@ -11500,7 +11500,7 @@
     // « Arrêter » ouvre le récapitulatif modifiable (comme une session), puis la séance « Session libre » entre
     // dans l'historique et les statistiques.
     var FREE_START_DELAY_MS = 10000, FREE_MIN_RECORD_MS = 60000, FREE_MIN_VISIBLE_PX = 80;
-    var freeRun = null, freeTimer = null, freeBarEl = null;
+    var freeRun = null, freeTimer = null, freeBarEl = null, freeRecapEl = null;
     function freeStepId(exId) { return "free:" + exId; }
     // Exercice déplié le plus visible dans la zone principale (sous la barre du haut) ; null si aucun.
     function freeVisibleExercise() {
@@ -11539,6 +11539,7 @@
         if (freeRun.counting && cur && !freeRun.manual) {
             var id = freeStepId(cur);
             freeRun.spent[id] = (freeRun.spent[id] || 0) + dt;
+            freeRun.lastAt[id] = now;
             freeRun.totalMs += dt;
         }
         freeRefreshBar();
@@ -11565,6 +11566,32 @@
         var pbTxt = freeRun.manual ? "Reprendre le décompte" : "Mettre en pause";
         pb.title = pbTxt; pb.setAttribute("aria-label", pbTxt);
         pb.disabled = !freeRun.manual && st === "idle";
+        freeRecapRefresh();
+    }
+    // Récapitulatif en direct (grands écrans seulement) : un repère par exercice libre déjà pratiqué, nom puis durée.
+    function freeRecapRefresh() {
+        if (!freeRecapEl || !freeRun) return;
+        var ids = Object.keys(freeRun.spent).filter(function (id) { return freeRun.spent[id] >= 5000; });
+        ids.sort(function (a, b) { return (freeRun.lastAt[b] || 0) - (freeRun.lastAt[a] || 0) || freeRun.spent[b] - freeRun.spent[a]; });
+        var sig = ids.join(",");
+        if (freeRecapEl.getAttribute("data-sig") !== sig) {
+            freeRecapEl.setAttribute("data-sig", sig);
+            freeRecapEl.innerHTML = "";
+            ids.forEach(function (id) {
+                var chip = document.createElement("div"); chip.className = "free-chip"; chip.setAttribute("data-id", id);
+                var nm = document.createElement("span"); nm.className = "free-chip-name";
+                var du = document.createElement("span"); du.className = "free-chip-time";
+                chip.appendChild(nm); chip.appendChild(du); freeRecapEl.appendChild(chip);
+            });
+        }
+        var curId = freeRun.cur && freeRun.counting && !freeRun.manual ? freeStepId(freeRun.cur) : null;
+        Array.prototype.forEach.call(freeRecapEl.children, function (chip) {
+            var id = chip.getAttribute("data-id"), f = findExerciseById(id.slice(5)), title = f ? f.ex.title : "(exercice supprimé)";
+            var nm = chip.firstChild, du = chip.lastChild, t = gsFormatTotal(freeRun.spent[id] || 0);
+            if (nm.textContent !== title) { nm.textContent = title; chip.title = title; }
+            if (du.textContent !== t) du.textContent = t;
+            chip.classList.toggle("free-chip-now", id === curId);
+        });
     }
     function freeShowBar() {
         if (freeBarEl) return;
@@ -11573,6 +11600,7 @@
         bar.className = "free-bar free-bar-idle";
         var tm = document.createElement("span"); tm.className = "free-time"; tm.textContent = "0:00";
         var wh = document.createElement("span"); wh.className = "free-what";
+        function sep() { var x = document.createElement("span"); x.className = "free-sep"; x.setAttribute("aria-hidden", "true"); return x; }
         var pb = document.createElement("button"); pb.type = "button"; pb.className = "btn-ghost free-pause";
         pb.addEventListener("click", function () {
             if (!freeRun) return;
@@ -11584,10 +11612,12 @@
         var sp = document.createElement("button"); sp.type = "button"; sp.className = "btn-ghost free-stop"; sp.innerHTML = FREE_STOP_SVG;
         sp.title = "Arrêter l'entraînement libre"; sp.setAttribute("aria-label", "Arrêter l'entraînement libre");
         sp.addEventListener("click", freeStop);
-        [tm, wh, pb, sp].forEach(function (n) { bar.appendChild(n); });
+        [tm, wh, sep(), pb, sep(), sp].forEach(function (n) { bar.appendChild(n); });
         var anchor = document.getElementById("free-btn"), actions = document.querySelector(".top-bar .top-actions");
-        if (actions && actions.parentNode) actions.parentNode.insertBefore(bar, actions); // en haut à gauche, avant les icônes
+        var recap = document.createElement("div"); recap.id = "free-recap"; recap.className = "free-recap";
+        if (actions) { actions.insertBefore(recap, actions.firstChild); actions.insertBefore(bar, actions.firstChild); } // sur la ligne des outils, collé à gauche
         if (anchor) anchor.classList.add("free-on");
+        freeRecapEl = recap;
         freeBarEl = bar;
         updateMetroDockMetrics();
     }
@@ -11595,7 +11625,8 @@
         var anchor = document.getElementById("free-btn");
         if (anchor) anchor.classList.remove("free-on");
         if (freeBarEl && freeBarEl.parentNode) freeBarEl.parentNode.removeChild(freeBarEl);
-        freeBarEl = null;
+        if (freeRecapEl && freeRecapEl.parentNode) freeRecapEl.parentNode.removeChild(freeRecapEl);
+        freeBarEl = null; freeRecapEl = null;
         updateMetroDockMetrics();
     }
     function freeAttach(fr) {
@@ -11624,14 +11655,14 @@
         if (freeRun) { freeLeaveSessionsView(); return; }
         if (gsRunSession) { showToast("Termine d'abord la session en cours.", 3500); return; }
         var now = Date.now();
-        freeAttach({ startedAt: now, instrumentId: state.activeInstrumentId, spent: {}, bpm: {}, totalMs: 0, cur: null, seen: now, counting: false, manual: false, last: now });
+        freeAttach({ startedAt: now, instrumentId: state.activeInstrumentId, spent: {}, lastAt: {}, bpm: {}, totalMs: 0, cur: null, seen: now, counting: false, manual: false, last: now });
         freeLeaveSessionsView();
         gsLiveSave();
         showToast("Ouvre un exercice : le décompte démarre après 10 s.", 4500);
     }
     function freeResume(snap) {
         var now = Date.now();
-        freeAttach({ startedAt: snap.startedAt || now, instrumentId: snap.instrumentId, spent: cloneJson(snap.spent || {}), bpm: cloneJson(snap.bpm || {}), totalMs: snap.totalMs || 0, cur: null, seen: now, counting: false, manual: false, last: now });
+        freeAttach({ startedAt: snap.startedAt || now, instrumentId: snap.instrumentId, spent: cloneJson(snap.spent || {}), lastAt: {}, bpm: cloneJson(snap.bpm || {}), totalMs: snap.totalMs || 0, cur: null, seen: now, counting: false, manual: false, last: now });
         freeLeaveSessionsView();
         gsLiveSave();
     }
