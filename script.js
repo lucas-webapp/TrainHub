@@ -160,6 +160,8 @@
         if (!Array.isArray(s.settings.sessionPlan)) s.settings.sessionPlan = [];
         s.settings.sessionPlan = s.settings.sessionPlan.filter(function (e) { return e && /^\d{4}-\d{2}-\d{2}$/.test(e.date) && e.sessionId; });
         s.settings.sessionPlan.forEach(function (e) { if (!e.id) e.id = uid(); });
+        // Le passé n'est fait que de sessions réalisées et enregistrées : une programmation dont le jour est passé disparaît.
+        (function () { var d = new Date(), t = d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2); s.settings.sessionPlan = s.settings.sessionPlan.filter(function (e) { return e.date >= t; }); })();
         // Dossiers de sessions (facultatifs, propres à chaque espace) : [{ id, name, instrumentId, collapsed }].
         // Aucun dossier au départ ; une session sans dossier valide reste simplement à la racine.
         if (!Array.isArray(s.settings.sessionFolders)) s.settings.sessionFolders = [];
@@ -320,12 +322,14 @@
         if ($redoBtn) $redoBtn.disabled = historyIndex < 0 || historyIndex >= historyStack.length - 1;
     }
 
+    var historyListeners = []; // fonctions rappelées après un annuler/rétablir (ex. le calendrier ouvert se rafraîchit)
     function goToHistory(index) {
         if (index < 0 || index >= historyStack.length) return;
         historyIndex = index;
         state = normalizeState(JSON.parse(historyStack[historyIndex]));
         persist();
         render();
+        historyListeners.forEach(function (fn) { try { fn(); } catch (e) {} });
     }
 
     function undo() { goToHistory(historyIndex - 1); }
@@ -3295,6 +3299,7 @@
         menu.className = "ctx-menu";
         menu.setAttribute("role", "menu");
         menu.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+        if (closeActiveModal) { backdrop.classList.add("ctx-over-modal"); menu.classList.add("ctx-over-modal"); } // ouvert depuis une fenêtre : au-dessus d'elle
 
         function menuButton(text, onClick) {
             var b = document.createElement("button");
@@ -5121,7 +5126,7 @@
                 if (closeActiveModal === close) { closeActiveModal = null; activeModalKind = null; }
             }
         }
-        function onKey(e) { if (e.key === "Escape") close(); }
+        function onKey(e) { if (e.key === "Escape") { if (document.querySelector(".ctx-menu")) return; close(); } } // un menu ouvert par-dessus (popover, clic droit) se referme seul : Échap ne ferme que lui
         if (!docked) {
             backdrop.addEventListener("click", close);
             document.addEventListener("keydown", onKey, true);
@@ -5190,7 +5195,10 @@
         }
 
         function refit() {
-            if (!fitContent) { recalcPanelFit(panel, baseMin.w, baseMin.h); return; }
+            if (!fitContent) {
+                if (userSized || panel.dataset.userSized) { panel.style.minWidth = baseMin.w + "px"; panel.style.minHeight = baseMin.h + "px"; return; } // taille choisie à la main : on ne la « cliquette » plus vers le haut
+                recalcPanelFit(panel, baseMin.w, baseMin.h); return;
+            }
             if (!userSized && !docked && !isMobilePanelLayout() && panel.isConnected) {
                 var prevH = panel.offsetHeight, prevW = panel.offsetWidth;
                 var size = autoSizeFitPanel(panel, fitInner);
@@ -7703,14 +7711,77 @@
     }
 
     // ---------- paramètres généraux ----------
+    // ---------- raccourcis et astuces (ampoule des paramètres) ----------
+    var IS_APPLE = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
+    function openShortcutsPanel() {
+        openModal("gs-keys-panel", function (panel, close) {
+            var MOD = IS_APPLE ? "⌘" : "Ctrl";
+            var head = document.createElement("div"); head.className = "settings-head";
+            var back = document.createElement("button"); back.type = "button"; back.className = "btn-ghost keys-back-btn"; back.textContent = "‹ Paramètres"; back.setAttribute("aria-label", "Retour aux paramètres");
+            back.addEventListener("click", function () { close(); openSettingsPanel(); });
+            var title = document.createElement("div"); title.className = "backups-title"; title.textContent = "Raccourcis et astuces";
+            head.appendChild(title); head.appendChild(back);
+            panel.appendChild(head);
+            var body = document.createElement("div"); body.className = "keys-body"; panel.appendChild(body);
+            function group(name, rows) {
+                var g = document.createElement("div"); g.className = "keys-group";
+                var h = document.createElement("div"); h.className = "keys-group-title"; h.textContent = name; g.appendChild(h);
+                rows.forEach(function (r) {
+                    var row = document.createElement("div"); row.className = "keys-row";
+                    var k = document.createElement("div"); k.className = "keys-keys";
+                    r[0].forEach(function (part) {
+                        if (part === "+" || part === "|") { var o = document.createElement("span"); o.className = "keys-or"; o.textContent = part === "|" ? "ou" : "+"; k.appendChild(o); return; }
+                        var kb = document.createElement("kbd"); kb.textContent = part; k.appendChild(kb);
+                    });
+                    row.appendChild(k);
+                    var d = document.createElement("div"); d.className = "keys-desc"; d.textContent = r[1]; row.appendChild(d);
+                    g.appendChild(row);
+                });
+                body.appendChild(g);
+            }
+            // [touches, description] ; dans « touches », « + » = combinaison, « | » = ou
+            group("Clavier", [
+                [["Espace"], "Démarrer / arrêter le métronome. Pendant une session guidée avec le métronome ouvert : appui simple = métronome, double appui rapide = pause / reprise de la session. Sans effet dans un champ de saisie ou sous une fenêtre."],
+                [[MOD, "+", "Z"], "Annuler la dernière modification (aussi dans le calendrier)."],
+                [[MOD, "+", "Y", "|", MOD, "+", "Maj", "+", "Z"], "Rétablir."],
+                [[MOD, "+", "B"], "Masquer / afficher la barre latérale."],
+                [[MOD, "+", "Maj", "+", "N"], "Nouveau sous-dossier dans le dossier ouvert."],
+                [[MOD, "+", "V"], "Coller une capture d'écran dans l'exercice ouvert (ou celui de la session en cours)."],
+                [["Échap"], "Fermer la fenêtre, le menu ou la recherche."],
+                [["←", "|", "→"], "Image précédente / suivante dans la visionneuse (clic = suivante, double-clic = plein écran)."]
+            ]);
+            group("Souris et doigts", [
+                [["Clic droit"], "Menus d'actions : exercices, dossiers, chapitres, liens, fichiers, titres de session, jours du calendrier. Sur téléphone : appui long."],
+                [["Glisser-déposer"], "Réordonner exercices, dossiers et chapitres ; déposer un exercice sur un dossier, une session sur un onglet (déplacer ou dupliquer, au choix, au lâcher)."],
+                [["Glisser", "|", "Molette"], "Sur un nombre (durée, BPM…) : le faire varier ; ou chevrons ‹ › et saisie au clavier."],
+                [["Molette"], "Sur le cadran du métronome : ±1 BPM."],
+                [["Double-clic"], "Sur un onglet de sessions : le renommer. Sur la barre entre la liste et le contenu : largeur par défaut (← → pour l'ajuster)."],
+                [["Maj", "+", "clic ‹ ›"], "Dans la mini-fenêtre de session : ±5 BPM (molette sur le tempo : ±1)."]
+            ]);
+            group("Calendrier", [
+                [["Clic"], "Sur un jour : propose d'y ajouter une session (dossiers + filtres)."],
+                [["Clic droit"], "Sur un jour : ajouter, retirer, lancer, copier sur la semaine suivante…"],
+                [["Bords de la fenêtre"], "Tirer le bord droit, le bord bas ou le coin pour l'élargir à volonté."]
+            ]);
+            var note = document.createElement("div"); note.className = "keys-note"; note.textContent = "Sur Mac, ⌘ remplace Ctrl : la liste s'adapte à ton système."; body.appendChild(note);
+        });
+    }
+
     function openSettingsPanel() {
         openModal("settings-panel", function (panel) {
             var a = state.settings.appearance;
 
+            var head = document.createElement("div");
+            head.className = "settings-head";
             var title = document.createElement("div");
             title.className = "backups-title";
             title.textContent = "Paramètres";
-            panel.appendChild(title);
+            var bulb = document.createElement("button");
+            bulb.type = "button"; bulb.className = "settings-bulb-btn btn-ghost"; bulb.title = "Raccourcis et astuces"; bulb.setAttribute("aria-label", "Raccourcis et astuces");
+            bulb.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>';
+            bulb.addEventListener("click", function () { openShortcutsPanel(); });
+            head.appendChild(title); head.appendChild(bulb);
+            panel.appendChild(head);
 
             // Réglages rangés par onglets (un onglet = un thème) : ajouter un réglage = le mettre dans le bon
             // onglet, sans allonger une liste unique. Le dernier onglet ouvert est retenu.
@@ -8473,6 +8544,7 @@
         backdrop.className = "ctx-backdrop";
         var pop = document.createElement("div");
         pop.className = "ctx-menu gs-pop";
+        if (closeActiveModal) { backdrop.classList.add("ctx-over-modal"); pop.classList.add("ctx-over-modal"); }
         function close() { closeFolderMenu(); }
         backdrop.addEventListener("pointerdown", function (e) { e.preventDefault(); close(); });
         backdrop.addEventListener("contextmenu", function (e) { e.preventDefault(); close(); });
@@ -9502,11 +9574,20 @@
             panel.appendChild(actions);
         });
     }
-    // ---------- calendrier : programmer des sessions, voir celles déjà faites (grisées) ----------
+    // ---------- calendrier : programmer des sessions (futur) ; le passé = sessions réalisées et enregistrées ----------
     function calKey(d) { function p2(n) { return (n < 10 ? "0" : "") + n; } return d.getFullYear() + "-" + p2(d.getMonth() + 1) + "-" + p2(d.getDate()); }
     function calParse(k) { var m = k.split("-"); return new Date(+m[0], +m[1] - 1, +m[2]); }
     var CAL_MONTHS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
     var CAL_DAYS = ["lun", "mar", "mer", "jeu", "ven", "sam", "dim"];
+    var CAL_DAYS_FULL = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
+    function calTodayKey() { return calKey(new Date()); }
+    function calLongDate(key) { var d = calParse(key); return CAL_DAYS_FULL[d.getDay()] + " " + d.getDate() + " " + CAL_MONTHS[d.getMonth()]; }
+    // Retire les programmations dont le jour est passé (elles n'ont pas été réalisées : l'historique ne les contient pas).
+    function calPurgePast() {
+        var t = calTodayKey(), before = state.settings.sessionPlan.length;
+        state.settings.sessionPlan = state.settings.sessionPlan.filter(function (e) { return e.date >= t; });
+        return before - state.settings.sessionPlan.length;
+    }
     // Sessions programmées pour un jour (hors celles déjà réalisées ce jour-là) et séances enregistrées ce jour-là.
     function calDayItems(key) {
         var instId = state.activeInstrumentId;
@@ -9519,30 +9600,181 @@
         var g = state.settings.guidedSessions.filter(function (x) { return x.id === id; })[0];
         return g ? g.name : "(session supprimée)";
     }
+    // Programme une session (une fois ou chaque semaine). Refuse tout jour passé.
+    function calAddPlan(sessionId, key, weeks) {
+        if (key < calTodayKey()) return { error: "Impossible de programmer dans le passé : les jours passés ne contiennent que les sessions réalisées et enregistrées." };
+        var added = 0, dup = 0;
+        for (var k = 0; k < (weeks || 1); k++) {
+            var dd = calParse(key); dd.setDate(dd.getDate() + 7 * k);
+            var kk = calKey(dd);
+            if (state.settings.sessionPlan.some(function (x) { return x.date === kk && x.sessionId === sessionId; })) { dup++; continue; }
+            state.settings.sessionPlan.push({ id: uid(), date: kk, sessionId: sessionId, instrumentId: state.activeInstrumentId });
+            added++;
+        }
+        if (added) save();
+        return { added: added, dup: dup };
+    }
+    var CAL_REPEATS = [["1", "Une seule fois"], ["2", "Chaque semaine, 2 semaines"], ["4", "Chaque semaine, 4 semaines"], ["8", "Chaque semaine, 8 semaines"], ["12", "Chaque semaine, 12 semaines"]];
+
+    // Popover « Ajouter une session » : dossiers (onglets) + filtres (recherche, durée) + liste, au lieu d'un simple menu déroulant.
+    function calOpenAddPopover(anchor, key, onAdded) {
+        if (key < calTodayKey()) { showToast("Impossible de programmer dans le passé"); return; }
+        openGsPopover(anchor, function (pop, close) {
+            pop.classList.add("cal-pick-pop");
+            var instId = state.activeInstrumentId;
+            var tabs = state.settings.sessionFolders.filter(function (f) { return f.instrumentId === instId; });
+            var activeTab = "all", dur = "", q = "", weeks = 1;
+            var title = document.createElement("div"); title.className = "ctx-menu-title ctx-menu-title-wrap"; title.textContent = "Ajouter le " + calLongDate(key);
+            pop.appendChild(title);
+            var search = document.createElement("input"); search.type = "search"; search.className = "cal-pick-search"; search.placeholder = "Rechercher une session…"; search.setAttribute("aria-label", "Rechercher une session");
+            pop.appendChild(search);
+            var chipsRow = document.createElement("div"); chipsRow.className = "cal-pick-tabs"; pop.appendChild(chipsRow);
+            var durSel = document.createElement("select"); durSel.className = "cal-pick-dur"; durSel.setAttribute("aria-label", "Durée");
+            [["", "Toutes durées"], ["30", "≤ 30 min"], ["45", "31 – 45 min"], ["60", "46 – 60 min"], ["61", "> 60 min"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; durSel.appendChild(op); });
+            pop.appendChild(durSel);
+            var list = document.createElement("div"); list.className = "cal-pick-list"; pop.appendChild(list);
+            var repRow = document.createElement("label"); repRow.className = "cal-pick-rep";
+            var repLbl = document.createElement("span"); repLbl.textContent = "Répétition";
+            var repSel = document.createElement("select"); repSel.className = "cal-repeat-sel";
+            CAL_REPEATS.forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; repSel.appendChild(op); });
+            repRow.appendChild(repLbl); repRow.appendChild(repSel); pop.appendChild(repRow);
+            function inDur(g) { var m = sessionTotalMinutes(g); return !dur || (dur === "30" ? m <= 30 : dur === "45" ? m > 30 && m <= 45 : dur === "60" ? m > 45 && m <= 60 : m > 60); }
+            function renderTabs() {
+                chipsRow.innerHTML = "";
+                [["all", "Tout"]].concat(tabs.map(function (t) { return [t.id, t.name]; })).forEach(function (t) {
+                    var b = document.createElement("button"); b.type = "button"; b.className = "cal-pick-chip" + (activeTab === t[0] ? " active" : ""); b.textContent = t[1];
+                    b.addEventListener("click", function () { activeTab = t[0]; renderTabs(); renderList(); });
+                    chipsRow.appendChild(b);
+                });
+            }
+            function renderList() {
+                list.innerHTML = "";
+                var items = state.settings.guidedSessions.filter(function (g) {
+                    return g.instrumentId === instId && !g.archived && (activeTab === "all" || (g.tabIds || []).indexOf(activeTab) !== -1) && inDur(g) && (!q || g.name.toLowerCase().indexOf(q) !== -1);
+                }).sort(function (a, b) { return (b.runCount || 0) - (a.runCount || 0) || a.name.localeCompare(b.name, "fr", { sensitivity: "base" }); });
+                if (!items.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Aucune session ne correspond."; list.appendChild(none); return; }
+                items.forEach(function (g) {
+                    var already = state.settings.sessionPlan.some(function (x) { return x.date === key && x.sessionId === g.id; });
+                    var b = document.createElement("button"); b.type = "button"; b.className = "cal-pick-row"; b.disabled = already;
+                    var nm = document.createElement("span"); nm.className = "cal-pick-name"; nm.textContent = g.name;
+                    var mt = document.createElement("span"); mt.className = "cal-pick-meta"; mt.textContent = already ? "déjà prévue" : g.steps.length + " ex. · " + sessionTotalMinutes(g) + " min";
+                    b.appendChild(nm); b.appendChild(mt);
+                    b.addEventListener("click", function () {
+                        var res = calAddPlan(g.id, key, parseInt(repSel.value, 10) || 1);
+                        if (res.error) { showToast(res.error, 5000); return; }
+                        close();
+                        showToast(res.added > 1 ? "« " + g.name + " » programmée sur " + res.added + " semaines" : "« " + g.name + " » programmée le " + calLongDate(key));
+                        if (onAdded) onAdded(res);
+                    });
+                    list.appendChild(b);
+                });
+            }
+            search.addEventListener("input", function () { q = search.value.trim().toLowerCase(); renderList(); });
+            durSel.addEventListener("change", function () { dur = durSel.value; renderList(); });
+            renderTabs(); renderList();
+            setTimeout(function () { try { search.focus(); } catch (e) {} }, 30);
+        });
+    }
+
+    // Poignées de redimensionnement (bord droit, bord bas, coin) : élargir ou réduire à volonté ; taille retenue.
+    function attachResizeGrips(panel, kind) {
+        function grip(cls, dx, dy) {
+            var g = document.createElement("div"); g.className = "panel-grip " + cls; panel.appendChild(g);
+            g.addEventListener("pointerdown", function (e) {
+                e.preventDefault(); e.stopPropagation();
+                panel.dataset.userSized = "1";
+                var r = panel.getBoundingClientRect(), sx = e.clientX, sy = e.clientY, sw = r.width, sh = r.height;
+                try { g.setPointerCapture(e.pointerId); } catch (err) {}
+                function mv(ev) {
+                    if (dx) panel.style.width = Math.min(window.innerWidth - 8, Math.max(320, sw + ev.clientX - sx)) + "px";
+                    if (dy) panel.style.height = Math.min(window.innerHeight - 8, Math.max(280, sh + ev.clientY - sy)) + "px";
+                    panel.style.minWidth = "320px"; panel.style.minHeight = "280px";
+                }
+                function up() { g.removeEventListener("pointermove", mv); g.removeEventListener("pointerup", up); g.removeEventListener("pointercancel", up); savePanelSize(kind, panel.offsetWidth, panel.offsetHeight); }
+                g.addEventListener("pointermove", mv); g.addEventListener("pointerup", up); g.addEventListener("pointercancel", up);
+            });
+        }
+        grip("panel-grip-e", true, false); grip("panel-grip-s", false, true); grip("panel-grip-se", true, true);
+        // la fenêtre défile : les poignées restent collées aux bords visibles
+        panel.addEventListener("scroll", function () { panel.style.setProperty("--gx", panel.scrollLeft + "px"); panel.style.setProperty("--gy", panel.scrollTop + "px"); });
+    }
+
     function openSessionCalendar(opts) {
         opts = opts || {};
+        if (calPurgePast()) save();
         openModal("gs-cal-panel", function (panel, close) {
-            var today = new Date(), todayKey = calKey(today);
+            var todayKey = calTodayKey(), today = calParse(todayKey);
             var cur = new Date(today.getFullYear(), today.getMonth(), 1);
             var selected = todayKey;
+            var pickSession = opts.sessionId || null; // mode « choisis le(s) jour(s) » (depuis le clic droit sur une session)
+            var pickWeeks = 1;
             var title = document.createElement("div");
             title.className = "backups-title";
             title.textContent = "Calendrier des sessions";
             panel.appendChild(title);
+            var errBox = document.createElement("div"); errBox.className = "cal-error"; errBox.hidden = true; errBox.setAttribute("role", "alert");
+            var errTimer = null;
+            function showError(msg) { errBox.textContent = msg; errBox.hidden = false; clearTimeout(errTimer); errTimer = setTimeout(function () { errBox.hidden = true; }, 5000); }
+            var pickBar = document.createElement("div"); pickBar.className = "cal-pickbar"; panel.appendChild(pickBar);
+            panel.appendChild(errBox);
             var nav = document.createElement("div");
             nav.className = "cal-nav";
-            var prev = document.createElement("button"); prev.type = "button"; prev.className = "cal-nav-btn"; prev.textContent = "‹"; prev.title = "Mois précédent";
-            var next = document.createElement("button"); next.type = "button"; next.className = "cal-nav-btn"; next.textContent = "›"; next.title = "Mois suivant";
+            function navBtn(txt, ttl, cls) { var b = document.createElement("button"); b.type = "button"; b.className = cls || "cal-nav-btn"; b.textContent = txt; b.title = ttl; b.setAttribute("aria-label", ttl); return b; }
+            var undoB = navBtn("", "Annuler (Ctrl+Z)", "cal-nav-btn cal-undo-btn"); undoB.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>';
+            var redoB = navBtn("", "Rétablir (Ctrl+Y)", "cal-nav-btn cal-redo-btn"); redoB.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/></svg>';
+            var prev = navBtn("‹", "Mois précédent"), next = navBtn("›", "Mois suivant");
             var monthLbl = document.createElement("div"); monthLbl.className = "cal-month";
-            var todayBtn = document.createElement("button"); todayBtn.type = "button"; todayBtn.className = "cal-today-btn"; todayBtn.textContent = "Aujourd'hui";
-            nav.appendChild(prev); nav.appendChild(monthLbl); nav.appendChild(next); nav.appendChild(todayBtn);
+            var todayBtn = navBtn("Aujourd'hui", "Revenir à aujourd'hui", "cal-today-btn");
+            nav.appendChild(undoB); nav.appendChild(redoB); nav.appendChild(prev); nav.appendChild(monthLbl); nav.appendChild(next); nav.appendChild(todayBtn);
             panel.appendChild(nav);
             var grid = document.createElement("div"); grid.className = "cal-grid"; panel.appendChild(grid);
             var detail = document.createElement("div"); detail.className = "cal-detail"; panel.appendChild(detail);
             var legend = document.createElement("div"); legend.className = "cal-legend";
-            legend.innerHTML = '<span><i class="cal-dot cal-dot-plan"></i> programmée</span><span><i class="cal-dot cal-dot-done"></i> réalisée (historique)</span>';
+            legend.innerHTML = '<span><i class="cal-dot cal-dot-plan"></i> programmée</span><span><i class="cal-dot cal-dot-done"></i> réalisée (durées réelles)</span><span class="cal-legend-hint">clic : ajouter · clic droit : actions</span>';
             panel.appendChild(legend);
+            attachResizeGrips(panel, "gs-cal-panel");
 
+            function refreshUndo() { undoB.disabled = historyIndex <= 0; redoB.disabled = historyIndex < 0 || historyIndex >= historyStack.length - 1; }
+            function refreshAll() { calPurgePast(); renderPickBar(); renderGrid(); renderDetail(); refreshUndo(); }
+            function renderPickBar() {
+                pickBar.innerHTML = ""; pickBar.hidden = !pickSession;
+                if (!pickSession) return;
+                var t = document.createElement("span"); t.className = "cal-pickbar-txt"; t.textContent = "Choisis le ou les jours pour « " + gsSessionNameById(pickSession) + " »";
+                var rs = document.createElement("select"); rs.className = "cal-repeat-sel"; rs.setAttribute("aria-label", "Répétition");
+                CAL_REPEATS.forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if (o[0] === String(pickWeeks)) op.selected = true; rs.appendChild(op); });
+                rs.addEventListener("change", function () { pickWeeks = parseInt(rs.value, 10) || 1; });
+                var done = document.createElement("button"); done.type = "button"; done.className = "btn-accent cal-pick-done"; done.textContent = "Terminer";
+                done.addEventListener("click", function () { pickSession = null; renderPickBar(); renderGrid(); });
+                pickBar.appendChild(t); pickBar.appendChild(rs); pickBar.appendChild(done);
+            }
+            function addTo(key, sessionId, weeks) {
+                var res = calAddPlan(sessionId, key, weeks);
+                if (res.error) { showError(res.error); return res; }
+                showToast(res.added ? "« " + gsSessionNameById(sessionId) + " » programmée le " + calLongDate(key) + (res.added > 1 ? " (+ " + (res.added - 1) + " semaines)" : "") : "Déjà programmée ce jour-là");
+                refreshAll();
+                return res;
+            }
+            function removePlan(id) { state.settings.sessionPlan = state.settings.sessionPlan.filter(function (x) { return x.id !== id; }); save(); refreshAll(); }
+            function copyToNextWeek(key) {
+                var it = calDayItems(key), n = 0, d = calParse(key); d.setDate(d.getDate() + 7);
+                it.planned.forEach(function (e) { var r = calAddPlan(e.sessionId, calKey(d), 1); n += r.added || 0; });
+                showToast(n ? n + " session" + (n > 1 ? "s copiée" + "s" : " copiée") + " sur le " + calLongDate(calKey(d)) : "Rien à copier (déjà présent)");
+                refreshAll();
+            }
+            function openDayMenu(x, y, key, cell) {
+                var it = calDayItems(key), past = key < todayKey, items = [];
+                if (!past) items.push({ label: "＋ Ajouter une session…", open: function () { selected = key; renderGrid(); renderDetail(); calOpenAddPopover(cell, key, refreshAll); } });
+                it.planned.forEach(function (e) {
+                    var sess = state.settings.guidedSessions.filter(function (g) { return g.id === e.sessionId; })[0];
+                    if (key === todayKey && sess && sess.steps.length) items.push({ label: "▶ Lancer « " + gsSessionNameById(e.sessionId) + " »", open: function () { close(); gsStartRun(sess); } });
+                    items.push({ label: "✕ Retirer « " + gsSessionNameById(e.sessionId) + " »", open: function () { removePlan(e.id); } });
+                });
+                if (it.planned.length > 1) items.push({ label: "✕ Retirer toutes les sessions de ce jour", open: function () { state.settings.sessionPlan = state.settings.sessionPlan.filter(function (e) { return !(e.date === key && (!e.instrumentId || e.instrumentId === state.activeInstrumentId)); }); save(); refreshAll(); } });
+                if (!past && it.planned.length) items.push({ label: "Copier ce jour sur la semaine suivante", open: function () { copyToNextWeek(key); } });
+                if (past) items.push({ label: it.done.length ? "Voir les sessions réalisées" : "Jour passé : rien à programmer", open: function () { selected = key; renderGrid(); renderDetail(); } });
+                items.push({ label: "Aller à aujourd'hui", open: function () { cur = new Date(today.getFullYear(), today.getMonth(), 1); selected = todayKey; renderGrid(); renderDetail(); } });
+                openLinksQuickMenu(x, y, items);
+            }
             function renderGrid() {
                 monthLbl.textContent = CAL_MONTHS[cur.getMonth()] + " " + cur.getFullYear();
                 grid.innerHTML = "";
@@ -9552,77 +9784,75 @@
                 var start = new Date(first.getFullYear(), first.getMonth(), 1 - offset);
                 for (var i = 0; i < 42; i++) {
                     (function (d) {
-                        var key = calKey(d), it = calDayItems(key);
+                        var key = calKey(d), it = calDayItems(key), past = key < todayKey;
                         var cell = document.createElement("button");
                         cell.type = "button";
-                        cell.className = "cal-cell" + (d.getMonth() !== cur.getMonth() ? " cal-out" : "") + (key === todayKey ? " cal-today" : "") + (key === selected ? " cal-selected" : "") + (key < todayKey ? " cal-past" : "");
+                        cell.dataset.key = key;
+                        cell.className = "cal-cell" + (d.getMonth() !== cur.getMonth() ? " cal-out" : "") + (key === todayKey ? " cal-today" : "") + (key === selected ? " cal-selected" : "") + (past ? " cal-past" : "");
                         cell.setAttribute("aria-label", d.getDate() + " " + CAL_MONTHS[d.getMonth()]);
                         var num = document.createElement("span"); num.className = "cal-num"; num.textContent = String(d.getDate()); cell.appendChild(num);
                         var chips = document.createElement("span"); chips.className = "cal-chips";
-                        it.planned.forEach(function (e) { var c = document.createElement("span"); c.className = "cal-chip cal-chip-plan" + (key < todayKey ? " cal-chip-missed" : ""); c.textContent = gsSessionNameById(e.sessionId); chips.appendChild(c); });
+                        it.planned.forEach(function (e) { var c = document.createElement("span"); c.className = "cal-chip cal-chip-plan"; c.textContent = gsSessionNameById(e.sessionId); chips.appendChild(c); });
                         it.done.forEach(function (e) { var c = document.createElement("span"); c.className = "cal-chip cal-chip-done"; c.textContent = "✓ " + e.name; chips.appendChild(c); });
                         cell.appendChild(chips);
                         var dots = document.createElement("span"); dots.className = "cal-dots";
                         it.planned.forEach(function () { var dt = document.createElement("i"); dt.className = "cal-dot cal-dot-plan"; dots.appendChild(dt); });
                         it.done.forEach(function () { var dt = document.createElement("i"); dt.className = "cal-dot cal-dot-done"; dots.appendChild(dt); });
                         cell.appendChild(dots);
-                        cell.addEventListener("click", function () { selected = key; if (d.getMonth() !== cur.getMonth()) cur = new Date(d.getFullYear(), d.getMonth(), 1); renderGrid(); renderDetail(); });
+                        cell.addEventListener("click", function () {
+                            selected = key;
+                            if (d.getMonth() !== cur.getMonth()) cur = new Date(d.getFullYear(), d.getMonth(), 1);
+                            if (pickSession) { addTo(key, pickSession, pickWeeks); return; }
+                            renderGrid(); renderDetail();
+                            if (past) { showError("Jour passé : seules les sessions réalisées et enregistrées apparaissent (avec leurs durées réelles). On ne programme que pour aujourd'hui et plus tard."); return; }
+                            var fresh = grid.querySelector('.cal-cell[data-key="' + key + '"]') || cell;
+                            calOpenAddPopover(fresh, key, refreshAll); // « ajouter une session ? » dès le clic sur un jour
+                        });
+                        bindContextGesture(cell, function (x, y) { selected = key; renderGrid(); renderDetail(); openDayMenu(x, y, key, grid.querySelector('.cal-cell[data-key="' + key + '"]') || cell); });
                         grid.appendChild(cell);
                     })(new Date(start.getFullYear(), start.getMonth(), start.getDate() + i));
                 }
             }
             function renderDetail() {
                 detail.innerHTML = "";
-                var d = calParse(selected), it = calDayItems(selected);
-                var h = document.createElement("div"); h.className = "cal-detail-title";
-                h.textContent = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"][d.getDay()] + " " + d.getDate() + " " + CAL_MONTHS[d.getMonth()];
+                var it = calDayItems(selected), past = selected < todayKey;
+                var h = document.createElement("div"); h.className = "cal-detail-title"; h.textContent = calLongDate(selected);
                 detail.appendChild(h);
                 it.planned.forEach(function (e) {
                     var r = document.createElement("div"); r.className = "cal-item cal-item-plan";
                     var nm = document.createElement("span"); nm.className = "cal-item-name"; nm.textContent = gsSessionNameById(e.sessionId);
                     r.appendChild(nm);
                     var sess = state.settings.guidedSessions.filter(function (x) { return x.id === e.sessionId; })[0];
-                    if (sess && sess.steps.length) r.appendChild(svgIconButton(METRO_PLAY_ICON_SVG, "Lancer cette session maintenant", function () { close(); gsStartRun(sess); }));
-                    r.appendChild(iconButton("✕", "Retirer du planning", function () {
-                        state.settings.sessionPlan = state.settings.sessionPlan.filter(function (x) { return x.id !== e.id; });
-                        save(); renderGrid(); renderDetail();
-                    }));
+                    if (sess) { var mt = document.createElement("span"); mt.className = "cal-item-meta"; mt.textContent = "prévu " + sessionTotalMinutes(sess) + " min"; r.appendChild(mt); }
+                    if (selected === todayKey && sess && sess.steps.length) r.appendChild(svgIconButton(METRO_PLAY_ICON_SVG, "Lancer cette session maintenant", function () { close(); gsStartRun(sess); }));
+                    r.appendChild(iconButton("✕", "Retirer du planning", function () { removePlan(e.id); }));
                     detail.appendChild(r);
                 });
                 it.done.forEach(function (e) {
                     var r = document.createElement("div"); r.className = "cal-item cal-item-done";
+                    var top = document.createElement("div"); top.className = "cal-item-top";
                     var nm = document.createElement("span"); nm.className = "cal-item-name"; nm.textContent = "✓ " + e.name;
-                    var du = document.createElement("span"); du.className = "cal-item-meta"; du.textContent = gsFmtDur(e.totalSec);
-                    r.appendChild(nm); r.appendChild(du); detail.appendChild(r);
+                    var du = document.createElement("span"); du.className = "cal-item-meta"; du.textContent = "réel " + gsFmtDur(e.totalSec) + (e.plannedSec ? " / prévu " + gsFmtDur(e.plannedSec) : "");
+                    top.appendChild(nm); top.appendChild(du); r.appendChild(top);
+                    if (e.steps && e.steps.length) { var st = document.createElement("div"); st.className = "cal-item-steps"; st.textContent = e.steps.map(function (x) { return x.title + " (" + gsFmtDur(x.actualSec) + (x.bpmMax ? ", " + x.bpmMax + " BPM" : "") + ")"; }).join(" · "); r.appendChild(st); }
+                    detail.appendChild(r);
                 });
-                if (!it.planned.length && !it.done.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Rien de prévu ce jour-là."; detail.appendChild(none); }
-                // programmer
-                var avail = state.settings.guidedSessions.filter(function (g) { return g.instrumentId === state.activeInstrumentId && !g.archived; });
-                var form = document.createElement("div"); form.className = "cal-form";
-                if (!avail.length) { var no = document.createElement("div"); no.className = "gs-empty"; no.textContent = "Crée d'abord une session pour pouvoir la programmer."; form.appendChild(no); detail.appendChild(form); return; }
-                var sel = document.createElement("select"); sel.className = "cal-session-sel"; sel.setAttribute("aria-label", "Session à programmer");
-                avail.forEach(function (g) { var o = document.createElement("option"); o.value = g.id; o.textContent = g.name + " (" + sessionTotalMinutes(g) + " min)"; if (opts.sessionId === g.id) o.selected = true; sel.appendChild(o); });
-                var rep = document.createElement("select"); rep.className = "cal-repeat-sel"; rep.setAttribute("aria-label", "Répétition");
-                [["1", "Une seule fois"], ["2", "Chaque semaine, 2 semaines"], ["4", "Chaque semaine, 4 semaines"], ["8", "Chaque semaine, 8 semaines"], ["12", "Chaque semaine, 12 semaines"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; rep.appendChild(op); });
-                var add = document.createElement("button"); add.type = "button"; add.className = "btn-accent cal-add-btn"; add.textContent = "+ Programmer";
-                add.addEventListener("click", function () {
-                    var n = parseInt(rep.value, 10) || 1;
-                    for (var k = 0; k < n; k++) {
-                        var dd = calParse(selected); dd.setDate(dd.getDate() + 7 * k);
-                        var key = calKey(dd);
-                        if (state.settings.sessionPlan.some(function (x) { return x.date === key && x.sessionId === sel.value; })) continue;
-                        state.settings.sessionPlan.push({ id: uid(), date: key, sessionId: sel.value, instrumentId: state.activeInstrumentId });
-                    }
-                    save(); renderGrid(); renderDetail();
-                    showToast(n > 1 ? "Programmée sur " + n + " semaines" : "Session programmée");
-                });
-                form.appendChild(sel); form.appendChild(rep); form.appendChild(add);
-                detail.appendChild(form);
+                if (!it.planned.length && !it.done.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = past ? "Aucune session réalisée ce jour-là." : "Rien de prévu ce jour-là."; detail.appendChild(none); }
+                if (past) { var note = document.createElement("div"); note.className = "cal-past-note"; note.textContent = "Jour passé : on n'y voit que les sessions réalisées et enregistrées, avec leurs durées réelles."; detail.appendChild(note); }
+                else {
+                    var add = document.createElement("button"); add.type = "button"; add.className = "btn-accent cal-add-btn"; add.textContent = "+ Ajouter une session";
+                    add.addEventListener("click", function () { calOpenAddPopover(add, selected, refreshAll); });
+                    detail.appendChild(add);
+                }
             }
             prev.addEventListener("click", function () { cur = new Date(cur.getFullYear(), cur.getMonth() - 1, 1); renderGrid(); });
             next.addEventListener("click", function () { cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1); renderGrid(); });
             todayBtn.addEventListener("click", function () { cur = new Date(today.getFullYear(), today.getMonth(), 1); selected = todayKey; renderGrid(); renderDetail(); });
-            renderGrid(); renderDetail();
+            undoB.addEventListener("click", function () { undo(); });
+            redoB.addEventListener("click", function () { redo(); });
+            historyListeners.push(refreshAll);
+            renderPickBar(); renderGrid(); renderDetail(); refreshUndo();
+            return function onClose() { historyListeners = historyListeners.filter(function (fn) { return fn !== refreshAll; }); };
         });
     }
 
