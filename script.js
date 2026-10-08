@@ -10554,13 +10554,6 @@
             histBtn.title += " — " + nToSort + " exercice" + (nToSort > 1 ? "s" : "") + " à ranger pour les statistiques";
         }
         headActions.appendChild(histBtn);
-        var freeBtn = document.createElement("button");
-        freeBtn.type = "button";
-        freeBtn.className = "gs-free-btn";
-        freeBtn.textContent = freeRun ? "Entraînement en cours" : "Entraînement libre";
-        freeBtn.title = "Hors session : un chrono suit l'exercice affiché à l'écran principal";
-        freeBtn.addEventListener("click", freeStart);
-        headActions.appendChild(freeBtn);
         if (window.matchMedia && window.matchMedia("(min-width: 880px)").matches) $contentHeading.appendChild(headActions);
         else content.insertBefore(headActions, content.firstChild);
     }
@@ -11556,15 +11549,21 @@
         if (!freeRun.cur) return "idle";
         return freeRun.counting ? "run" : "wait";
     }
+    var FREE_PAUSE_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
+    var FREE_STOP_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
     function freeRefreshBar() {
         if (!freeBarEl || !freeRun) return;
         var st = freeStatus(), f = freeRun.cur ? findExerciseById(freeRun.cur) : null;
         freeBarEl.className = "free-bar free-bar-" + st;
         freeBarEl.querySelector(".free-time").textContent = gsFormatTotal(freeRun.totalMs);
-        var what = freeBarEl.querySelector(".free-what");
-        what.textContent = st === "run" ? (f ? f.ex.title : "") : st === "wait" ? "Départ dans " + Math.max(1, Math.ceil((FREE_START_DELAY_MS - (Date.now() - freeRun.seen)) / 1000)) + " s" : st === "paused" ? "En pause" : "Aucun exercice affiché";
+        var left = Math.max(1, Math.ceil((FREE_START_DELAY_MS - (Date.now() - freeRun.seen)) / 1000));
+        var full = st === "run" ? (f ? f.ex.title : "") : st === "wait" ? "Départ dans " + left + " s" : st === "paused" ? "En pause" : "Aucun exercice affiché";
+        freeBarEl.querySelector(".free-what").textContent = st === "wait" ? left + " s" : ""; // le détail est dans l'info-bulle : peu de texte dans la barre
+        freeBarEl.title = "Entraînement libre — " + full;
         var pb = freeBarEl.querySelector(".free-pause");
-        pb.textContent = freeRun.manual ? "Reprendre" : "Pause";
+        pb.innerHTML = freeRun.manual ? METRO_PLAY_ICON_SVG : FREE_PAUSE_SVG;
+        var pbTxt = freeRun.manual ? "Reprendre le décompte" : "Mettre en pause";
+        pb.title = pbTxt; pb.setAttribute("aria-label", pbTxt);
         pb.disabled = !freeRun.manual && st === "idle";
     }
     function freeShowBar() {
@@ -11572,10 +11571,9 @@
         var bar = document.createElement("div");
         bar.id = "free-bar";
         bar.className = "free-bar free-bar-idle";
-        var lbl = document.createElement("span"); lbl.className = "free-label"; lbl.textContent = "Libre"; lbl.title = "Entraînement libre";
         var tm = document.createElement("span"); tm.className = "free-time"; tm.textContent = "0:00";
         var wh = document.createElement("span"); wh.className = "free-what";
-        var pb = document.createElement("button"); pb.type = "button"; pb.className = "btn-ghost free-pause"; pb.textContent = "Pause";
+        var pb = document.createElement("button"); pb.type = "button"; pb.className = "btn-ghost free-pause";
         pb.addEventListener("click", function () {
             if (!freeRun) return;
             freeRun.manual = !freeRun.manual;
@@ -11583,15 +11581,18 @@
             if (freeRun.manual) freeRun.counting = false;
             freeRefreshBar();
         });
-        var sp = document.createElement("button"); sp.type = "button"; sp.className = "btn-ghost free-stop"; sp.textContent = "Arrêter";
+        var sp = document.createElement("button"); sp.type = "button"; sp.className = "btn-ghost free-stop"; sp.innerHTML = FREE_STOP_SVG;
+        sp.title = "Arrêter l'entraînement libre"; sp.setAttribute("aria-label", "Arrêter l'entraînement libre");
         sp.addEventListener("click", freeStop);
-        [lbl, tm, wh, pb, sp].forEach(function (n) { bar.appendChild(n); });
-        var top = document.querySelector(".top-bar");
-        if (top) top.appendChild(bar);
+        [tm, wh, pb, sp].forEach(function (n) { bar.appendChild(n); });
+        var anchor = document.getElementById("free-btn");
+        if (anchor && anchor.parentNode) { anchor.parentNode.insertBefore(bar, anchor.nextSibling); anchor.classList.add("free-on"); }
         freeBarEl = bar;
         updateMetroDockMetrics();
     }
     function freeHideBar() {
+        var anchor = document.getElementById("free-btn");
+        if (anchor) anchor.classList.remove("free-on");
         if (freeBarEl && freeBarEl.parentNode) freeBarEl.parentNode.removeChild(freeBarEl);
         freeBarEl = null;
         updateMetroDockMetrics();
@@ -14233,6 +14234,8 @@
         if (!guidedSessionViewActive && gsRunInterval) { clearInterval(gsRunInterval); gsRunInterval = null; }
         render();
     });
+    var $freeBtn = document.getElementById("free-btn");
+    if ($freeBtn) $freeBtn.addEventListener("click", freeStart);
     var $settingsBtn = document.getElementById("settings-btn");
     if ($settingsBtn) $settingsBtn.addEventListener("click", openSettingsPanel);
 

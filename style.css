@@ -170,11 +170,11 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 .top-actions button.active { border-color: #4dabf7; color: #4dabf7; }
 /* Le métronome est utilisé très souvent : on le distingue visuellement des autres icônes. */
 button.metronome-btn-highlight {
-    color: var(--accent);
-    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--text-dim);
+    border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
-button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+button.metronome-btn-highlight:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
 .metronome-btn-highlight .icon { width: 22px; height: 22px; }
 /* La session guidée mérite la même mise en avant que le métronome (juste à côté) plutôt que de se
    fondre parmi les icônes simples : texte + icône, plus large qu'un bouton carré. */
@@ -185,13 +185,13 @@ button.session-btn-highlight {
     padding: 7px 14px;
     height: 36px;
     box-sizing: border-box;
-    color: var(--accent);
-    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--text-dim);
+    border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
     font-weight: 700;
     font-size: var(--fs-sm);
 }
-button.session-btn-highlight:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+button.session-btn-highlight:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
 .session-btn-highlight .icon { width: 18px; height: 18px; }
 
 /* ---------- auth / synchro ---------- */
@@ -2996,18 +2996,19 @@ input.gs-rec-bpm { width: 58px; }
 .exercise-fixed-view { margin: 0 12px 10px; padding: 6px 10px; border-left: 3px solid var(--accent); background: var(--card-bg-2); border-radius: 6px; font-size: var(--fs-sm); color: var(--text-main); white-space: pre-wrap; overflow-wrap: anywhere; cursor: pointer; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .gs-run-fixed { margin: 8px 0; padding: 8px 12px; border-left: 3px solid var(--accent); background: var(--card-bg-2); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
-/* Entraînement libre : petit compteur dans la barre du haut */
-.free-bar { flex: 1 0 100%; order: 99; display: flex; align-items: center; gap: 10px; padding: 4px 0 0; min-width: 0; }
-.free-bar .free-label { font-weight: 700; font-size: var(--fs-sm); color: var(--accent); letter-spacing: .3px; }
-.free-bar .free-time { font-variant-numeric: tabular-nums; font-weight: 800; font-size: var(--fs-lg); min-width: 3.4em; }
-.free-bar .free-what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim, #9a9a9a); font-size: var(--fs-sm); }
-.free-bar button { height: 30px; padding: 0 12px; flex: 0 0 auto; margin: 0; width: auto; }
-.top-bar .free-bar button { height: 30px; }
-.free-bar-run .free-time, .free-bar-run .free-what { color: var(--accent); }
-.free-bar-wait .free-time { color: var(--text-main); }
+/* Entraînement libre : bouton « Libre » à droite de « Session », chrono encadré avec pause / arrêt juste à côté */
+.free-bar { display: inline-flex; align-items: center; gap: 6px; height: 36px; box-sizing: border-box; padding: 0 4px 0 10px; border: 1px solid color-mix(in srgb, var(--accent) 70%, var(--border)); border-radius: var(--radius); background: color-mix(in srgb, var(--accent) 7%, transparent); min-width: 0; }
+.free-bar .free-time { font-variant-numeric: tabular-nums; font-weight: 800; font-size: var(--fs-base); min-width: 2.6em; color: var(--text-main); }
+.free-bar .free-what { font-variant-numeric: tabular-nums; font-size: var(--fs-sm); color: var(--text-muted); }
+.free-bar .free-what:empty { display: none; }
+.top-bar .free-bar button { height: 28px; width: 28px; padding: 0; flex: 0 0 auto; margin: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--text-dim); }
+.free-bar button .icon { width: 14px; height: 14px; }
+.free-bar-run { border-color: var(--accent); }
+.free-bar-wait .free-time { color: var(--text-dim); }
 .free-bar-idle, .free-bar-paused { opacity: .6; }
-.free-bar-idle .free-time { filter: grayscale(1); }
-.gs-head-actions button.gs-free-btn { border-color: var(--accent); color: var(--accent); }
+.free-bar-idle .free-time { color: var(--text-muted); }
+button.free-btn.free-on { border-color: var(--accent); }
+@media (max-width: 760px) { .top-actions > .free-bar { grid-column: span 4; justify-self: start; gap: 12px; } }
 .gs-live-panel { width: min(420px, calc(100vw - 24px)); }
 .gs-live-intro { margin: 8px 0 12px; }
 .gs-live-actions { display: flex; flex-direction: column; gap: 8px; }
