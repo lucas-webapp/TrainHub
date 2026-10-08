@@ -10355,7 +10355,7 @@
         return { mode: mode, items: order.map(function (k) { return map[k]; }) };
     }
     function statsBarChart(bk) {
-        var items = bk.items, mode = bk.mode, W = 600, H = 190, L = 44, R = 8, T = 10, B = 26;
+        var items = bk.items, mode = bk.mode, W = 600, H = 190, L = 44, R = 66, T = 10, B = 26; // marge droite : étiquette de la moyenne
         var svg = svgNode("svg", { viewBox: "0 0 " + W + " " + H, "class": "st-chart st-bars", role: "img", "aria-label": "Temps de pratique par " + (mode === "day" ? "jour" : mode === "week" ? "semaine" : "mois") });
         var maxSec = 60; items.forEach(function (i) { if (i.sec > maxSec) maxSec = i.sec; });
         var hours = maxSec >= 3 * 3600, unit = hours ? 3600 : 60, top = statsNiceMax(maxSec / unit);
@@ -10366,13 +10366,21 @@
             svgNode("text", { x: L - 6, y: y + 3.5, "class": "st-axis", "text-anchor": "end" }, svg, statsNum(top * g / 4) + (hours ? " h" : " min"));
         }
         var bw = plotW / n, barW = Math.max(2, Math.min(28, bw * 0.68)), every = Math.max(1, Math.ceil(n / Math.max(1, Math.floor(plotW / 52))));
+        var sum = 0; items.forEach(function (i) { sum += i.sec; });
+        var avgSec = n ? sum / n : 0;
         items.forEach(function (it, i) {
             var x = L + i * bw + (bw - barW) / 2, h = it.sec / unit / top * plotH;
             var d = new Date(it.t);
             var label = mode === "month" ? STATS_MONTHS_SHORT[d.getMonth()] + " " + String(d.getFullYear()).slice(2) : statsShortDate(it.t);
-            if (it.sec > 0) svgTip(svgNode("rect", { x: x, y: T + plotH - h, width: barW, height: Math.max(1.5, h), rx: 2, "class": "st-bar" }, svg), (mode === "week" ? "semaine du " : "") + label + " : " + gsFmtMin(it.sec) + " · " + it.n + " session" + (it.n > 1 ? "s" : ""));
+            var current = i === n - 1; // période en cours : la donnée importante, en vert clair
+            if (it.sec > 0) svgTip(svgNode("rect", { x: x, y: T + plotH - h, width: barW, height: Math.max(1.5, h), rx: 2, "class": "st-bar" + (current ? " st-bar-hi" : "") }, svg), (mode === "week" ? "semaine du " : "") + label + " : " + gsFmtMin(it.sec) + " · " + it.n + " session" + (it.n > 1 ? "s" : "") + (current ? " (en cours)" : ""));
             if (i % every === 0) svgNode("text", { x: x + barW / 2, y: H - 8, "class": "st-axis", "text-anchor": "middle" }, svg, label);
         });
+        if (avgSec > 0) { // moyenne de la période : trait pointillé gris
+            var ay = T + plotH - avgSec / unit / top * plotH;
+            svgNode("line", { x1: L, x2: W - R, y1: ay, y2: ay, "class": "st-avg" }, svg);
+            svgNode("text", { x: W - R + 6, y: ay + 3.5, "class": "st-axis st-avg-label", "text-anchor": "start" }, svg, "moy. " + gsFmtMin(avgSec));
+        }
         return svg;
     }
     // Carte de l'année : une case par jour, 53 semaines (lundi en haut).
@@ -10416,8 +10424,8 @@
         function xOf(t) { return pts.length === 1 || t1 === t0 ? L + plotW / 2 : L + (t - t0) / dt * plotW; }
         svgNode("polyline", { points: pts.map(function (p) { return xOf(p.date).toFixed(1) + "," + yOf(p.bpm).toFixed(1); }).join(" "), "class": "st-line", fill: "none" }, svg);
         pts.forEach(function (p, i) {
-            svgTip(svgNode("circle", { cx: xOf(p.date), cy: yOf(p.bpm), r: 4, "class": "st-dot" }, svg), statsShortDate(p.date) + " : " + p.bpm + " BPM" + (p.first && p.first !== p.bpm ? " (départ " + p.first + ")" : ""));
-            if (i === 0 || i === pts.length - 1) svgNode("text", { x: xOf(p.date), y: yOf(p.bpm) - 9, "class": "st-axis st-axis-strong", "text-anchor": i === 0 && pts.length > 1 ? "start" : "end" }, svg, String(p.bpm));
+            svgTip(svgNode("circle", { cx: xOf(p.date), cy: yOf(p.bpm), r: 4, "class": "st-dot" + (i === pts.length - 1 ? " st-dot-hi" : "") }, svg), statsShortDate(p.date) + " : " + p.bpm + " BPM" + (p.first && p.first !== p.bpm ? " (départ " + p.first + ")" : ""));
+            if (i === 0 || i === pts.length - 1) svgNode("text", { x: xOf(p.date), y: yOf(p.bpm) - 9, "class": "st-axis st-axis-strong" + (i === pts.length - 1 ? " st-axis-hi" : ""), "text-anchor": i === 0 && pts.length > 1 ? "start" : "end" }, svg, String(p.bpm));
         });
         svgNode("text", { x: L, y: H - 8, "class": "st-axis", "text-anchor": "start" }, svg, statsShortDate(t0));
         if (pts.length > 1) svgNode("text", { x: W - R, y: H - 8, "class": "st-axis", "text-anchor": "end" }, svg, statsShortDate(t1));
@@ -10438,8 +10446,9 @@
             box.appendChild(h);
             var b = document.createElement("div"); b.className = "gs-stat-block"; box.appendChild(b); return b;
         }
-        function row(parent, left, right, pct) {
-            var r = document.createElement("div"); r.className = "gs-stat-row";
+        // hi = donnée importante : affichée en vert clair ; le reste est en gris clair
+        function row(parent, left, right, pct, hi) {
+            var r = document.createElement("div"); r.className = "gs-stat-row" + (hi ? " st-top" : "");
             if (pct !== undefined) { var bar = document.createElement("span"); bar.className = "gs-stat-bar"; bar.style.width = Math.max(2, pct) + "%"; r.appendChild(bar); }
             var l = document.createElement("span"); l.className = "gs-stat-l"; l.textContent = left;
             var v = document.createElement("span"); v.className = "gs-stat-r"; v.textContent = right;
@@ -10502,11 +10511,11 @@
         }
         // --- Chiffres clés
         var tiles = document.createElement("div"); tiles.className = "st-tiles";
-        [["Temps total", gsFmtMin(st.totalSec)], ["Sessions", String(st.sessions)], ["Jours pratiqués", st.activeDays + " / " + st.periodDays],
-         ["Moyenne / semaine", gsFmtMin(st.avgPerWeekSec)], ["Durée moyenne", st.sessions ? gsFmtMin(st.avgSessionSec) : "–"],
-         ["Série en cours", st.streak + " j"], ["Record de série", st.bestStreak + " j"], ["Réel / prévu", st.ratio === null ? "–" : Math.round(st.ratio * 100) + " %"]]
+        [["Temps total", gsFmtMin(st.totalSec), true], ["Sessions", String(st.sessions)], ["Jours pratiqués", st.activeDays + " / " + st.periodDays],
+         ["Moyenne / semaine", gsFmtMin(st.avgPerWeekSec), true], ["Durée moyenne", st.sessions ? gsFmtMin(st.avgSessionSec) : "–"],
+         ["Série en cours", st.streak + " j", true], ["Record de série", st.bestStreak + " j"], ["Réel / prévu", st.ratio === null ? "–" : Math.round(st.ratio * 100) + " %"]]
             .forEach(function (t) {
-                var el = document.createElement("div"); el.className = "st-tile";
+                var el = document.createElement("div"); el.className = "st-tile" + (t[2] ? " st-tile-hi" : "");
                 var v = document.createElement("div"); v.className = "st-tile-v"; v.textContent = t[1];
                 var l = document.createElement("div"); l.className = "st-tile-l"; l.textContent = t[0];
                 el.appendChild(v); el.appendChild(l); tiles.appendChild(el);
@@ -10524,29 +10533,32 @@
             var sb = section("Temps de pratique dans le temps");
             var bk = statsBuckets(st.recs, days, now, log.length ? log[0].date : 0);
             var wrap = document.createElement("div"); wrap.className = "st-chart-wrap"; wrap.appendChild(statsBarChart(bk)); sb.appendChild(wrap);
-            var cap = document.createElement("div"); cap.className = "st-caption"; cap.textContent = "Par " + (bk.mode === "day" ? "jour" : bk.mode === "week" ? "semaine (lundi)" : "mois") + " · survole une barre pour le détail"; sb.appendChild(cap);
+            var cap = document.createElement("div"); cap.className = "st-caption"; cap.textContent = "Par " + (bk.mode === "day" ? "jour" : bk.mode === "week" ? "semaine (lundi)" : "mois") + " · vert clair : période en cours · pointillé : moyenne · survole une barre pour le détail"; sb.appendChild(cap);
         }
         // --- Répartition par chapitre
         if (st.chapters.length) {
             var s2 = section("Répartition par type d'exercices");
             var stack = document.createElement("div"); stack.className = "st-stack";
             st.chapters.forEach(function (c, i) {
-                var seg = document.createElement("span"); seg.className = "st-seg"; seg.style.width = Math.max(1, c.pct) + "%";
-                seg.style.background = c.color || ["#8bd3a6", "#7fb2e5", "#e5b87f", "#c79be0", "#e58f8f", "#a3a3a3"][i % 6];
+                var seg = document.createElement("span"); seg.className = "st-seg" + (i === 0 ? " st-seg-hi" : ""); seg.style.width = Math.max(1, c.pct) + "%";
+                if (i > 0) seg.style.background = "color-mix(in srgb, var(--st-data) " + Math.max(26, 74 - i * 13) + "%, var(--card-bg-2))";
                 seg.title = c.name + " : " + c.pct + " %";
                 stack.appendChild(seg);
             });
             s2.appendChild(stack);
-            st.chapters.forEach(function (c) { row(s2, c.name, c.pct + " % · " + gsFmtMin(c.sec), c.pct); });
+            st.chapters.forEach(function (c, i) { row(s2, c.name, c.pct + " % · " + gsFmtMin(c.sec), c.pct, i === 0); });
         }
         // --- Carte de l'année
         if (log.length) {
             var sh = section("Régularité sur 12 mois");
             var hw = document.createElement("div"); hw.className = "st-chart-wrap st-heat-wrap"; hw.appendChild(statsHeatmap(st.dayMap, now)); sh.appendChild(hw);
+            var hc = document.createElement("div"); hc.className = "st-caption st-legend";
+            hc.innerHTML = '<span>moins</span><i class="st-sw st-sw0"></i><i class="st-sw st-sw1"></i><i class="st-sw st-sw2"></i><i class="st-sw st-sw3"></i><i class="st-sw st-sw4"></i><span>plus (vert clair : les journées les plus longues)</span>';
+            sh.appendChild(hc);
         }
         if (st.top.length) {
             var s3 = section("Les plus travaillés");
-            st.top.slice(0, 5).forEach(function (x) { row(s3, x.title, gsFmtMin(x.sec) + " · " + x.count + "×"); });
+            st.top.slice(0, 5).forEach(function (x, i) { row(s3, x.title, gsFmtMin(x.sec) + " · " + x.count + "×", undefined, i === 0); });
         }
         if (st.favorites.length) {
             var s4 = section("Mes favoris ★");
@@ -10573,8 +10585,10 @@
                 pick.addEventListener("change", drawTempo);
                 s6.appendChild(pick); s6.appendChild(tw); s6.appendChild(tcap); drawTempo();
             }
-            st.progress.slice(0, 8).forEach(function (x) {
-                var r = row(s6, x.title, x.from + " → " + x.to + " BPM" + (x.delta ? " (" + (x.delta > 0 ? "+" : "") + x.delta + ")" : ""));
+            var shown = st.progress.slice(0, 8), bestGain = 0;
+            shown.forEach(function (x) { if (x.delta > bestGain) bestGain = x.delta; });
+            shown.forEach(function (x) {
+                var r = row(s6, x.title, x.from + " → " + x.to + " BPM" + (x.delta ? " (" + (x.delta > 0 ? "+" : "") + x.delta + ")" : ""), undefined, bestGain > 0 && x.delta === bestGain); // meilleur gain en vert clair
                 var sp = document.createElement("span"); sp.className = "gs-stat-spark"; sp.innerHTML = gsStatsSparkline(x.pts); r.insertBefore(sp, r.lastChild);
             });
         }
@@ -10583,8 +10597,8 @@
         if (withPlan.length) {
             var s7 = section("Réel contre prévu");
             var scale = 1; withPlan.forEach(function (r) { scale = Math.max(scale, r.plannedSec, r.totalSec || 0); });
-            withPlan.forEach(function (r) {
-                var line = document.createElement("div"); line.className = "st-pair";
+            withPlan.forEach(function (r, idx) {
+                var line = document.createElement("div"); line.className = "st-pair" + (idx === 0 ? " st-pair-ok" : ""); // dernière séance en vert clair
                 var lb = document.createElement("span"); lb.className = "st-pair-l"; lb.textContent = statsShortDate(r.date) + " · " + r.name;
                 var tr = document.createElement("span"); tr.className = "st-pair-track";
                 var real = document.createElement("span"); real.className = "st-pair-real"; real.style.width = Math.round((r.totalSec || 0) / scale * 100) + "%";
@@ -10593,7 +10607,7 @@
                 var tx = document.createElement("span"); tx.className = "st-pair-r"; tx.textContent = gsFmtMin(r.totalSec || 0) + " / " + gsFmtMin(r.plannedSec) + " · " + Math.round((r.totalSec || 0) / r.plannedSec * 100) + " %";
                 line.appendChild(lb); line.appendChild(tr); line.appendChild(tx); s7.appendChild(line);
             });
-            var pc = document.createElement("div"); pc.className = "st-caption"; pc.textContent = "Barre = temps réel · trait = temps prévu"; s7.appendChild(pc);
+            var pc = document.createElement("div"); pc.className = "st-caption"; pc.textContent = "Barre = temps réel (vert clair : dernière séance) · trait = temps prévu"; s7.appendChild(pc);
         }
         // --- Réglage : exercice déplacé
         var sp2 = section("Exercices déplacés");

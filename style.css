@@ -2675,3 +2675,43 @@ button.gs-del-armed { width: auto; padding: 0 10px; color: #ff6b6b; border-color
 button.gs-hist-tab .gs-tab-count, button.gs-history-btn .gs-tab-count { margin-left: 6px; }
 .st-issue-bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 2px; font-size: var(--fs-sm); }
 .st-issue-bulk button { height: 32px; padding: 0 12px; font-size: var(--fs-sm); }
+
+/* ---------- statistiques : gris clair pour les données, vert clair pour l'important ---------- */
+.gs-history-panel {
+  --st-data: color-mix(in srgb, var(--text-main) 82%, var(--card-bg-2));      /* gris clair */
+  --st-data-dim: color-mix(in srgb, var(--text-main) 48%, var(--card-bg-2));  /* gris moyen : repères, moyenne */
+  --st-hi: color-mix(in srgb, var(--accent) 38%, #d8e0dc);                     /* vert clair, plus doux que l'accent */
+}
+.gs-stat-bar { background: color-mix(in srgb, var(--st-data) 13%, transparent); }
+.gs-stat-row.st-top .gs-stat-bar { background: color-mix(in srgb, var(--st-hi) 24%, transparent); }
+.gs-stat-row.st-top .gs-stat-r { color: var(--st-hi); font-weight: 700; }
+.gs-stat-spark { color: var(--st-data); }
+.st-tile-v { color: var(--st-data); }
+.st-tile-hi { border-color: color-mix(in srgb, var(--st-hi) 38%, var(--border)); }
+.st-tile-hi .st-tile-v { color: var(--st-hi); }
+.st-bar { fill: var(--st-data); }
+.st-bar:hover { fill: #fff; }
+.st-bar-hi { fill: var(--st-hi); }
+.st-bar-hi:hover { fill: color-mix(in srgb, var(--st-hi) 70%, #fff); }
+.st-avg { stroke: var(--st-data-dim); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.st-avg-label { fill: var(--st-data-dim); }
+.st-line { stroke: var(--st-data); }
+.st-dot { stroke: var(--st-data); }
+.st-dot-hi { fill: var(--st-hi); stroke: var(--st-hi); }
+.st-axis-hi { fill: var(--st-hi); }
+.st-cell { fill: color-mix(in srgb, var(--st-data) 11%, transparent); }
+.st-lv1 { fill: color-mix(in srgb, var(--st-data) 30%, transparent); }
+.st-lv2 { fill: color-mix(in srgb, var(--st-data) 52%, transparent); }
+.st-lv3 { fill: color-mix(in srgb, var(--st-data) 78%, transparent); }
+.st-lv4 { fill: var(--st-hi); }
+.st-seg { background: var(--st-data); }
+.st-seg-hi { background: var(--st-hi); }
+.st-pair-real { background: color-mix(in srgb, var(--st-data) 70%, transparent); }
+.st-pair-ok .st-pair-real { background: var(--st-hi); }
+.st-legend { display: flex; align-items: center; gap: 4px; }
+.st-sw { display: inline-block; width: 11px; height: 11px; border-radius: 3px; }
+.st-sw0 { background: color-mix(in srgb, var(--st-data) 11%, transparent); }
+.st-sw1 { background: color-mix(in srgb, var(--st-data) 30%, transparent); }
+.st-sw2 { background: color-mix(in srgb, var(--st-data) 52%, transparent); }
+.st-sw3 { background: color-mix(in srgb, var(--st-data) 78%, transparent); }
+.st-sw4 { background: var(--st-hi); }
