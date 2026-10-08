@@ -156,6 +156,8 @@
         inst.pinnedOrder = order;
     }
 
+    var METRO_SOUNDS = ["click", "wood", "clave", "bell"];
+    var METRO_SOUND_LABELS = { click: "Clic classique", wood: "Bois", clave: "Clave", bell: "Cloche douce" };
     var METRO_POSITIONS = ["center", "top", "bottom", "corner"];
     var MAIN_LAYOUTS = ["vertical", "horizontal"];
     var DENSITIES = ["compact", "comfortable", "spacious"];
@@ -5840,8 +5842,12 @@
     // les mesures de l'élément zoomé lui-même ne sont pas exprimées pareil partout.
     var PANEL_FIT_MIN_ZOOM = 0.3;
     var PANEL_FIT_MAX_ZOOM = 2.4;
-    function fitPanelContentZoom(box, inner) {
+    // `allowGrow` : seulement quand la HAUTEUR de la boîte est imposée (fenêtre flottante à taille fixée, volet dont la
+    // hauteur a été choisie). Sinon (volet « auto »), un contenu qui grossit agrandirait la boîte, qui laisserait encore
+    // grossir le contenu… jusqu'au maximum : on garde alors le comportement d'avant (jamais au-delà de 100 %).
+    function fitPanelContentZoom(box, inner, allowGrow) {
         if (!box.clientHeight || !box.clientWidth) return 1;
+        var maxZ = allowGrow ? PANEL_FIT_MAX_ZOOM : 1;
         function fitsAt(z) {
             inner.style.zoom = z === 1 ? "" : String(z);
             return box.scrollHeight <= box.clientHeight + 1 && box.scrollWidth <= box.clientWidth + 1;
@@ -5849,11 +5855,12 @@
         // Déjà bien ajusté (le zoom actuel tient et un cran de plus ne tiendrait plus) : rien à recalculer — évite une
         // recherche complète à chaque changement de texte (tap tempo, tempo qui monte…).
         var z0 = parseFloat(inner.style.zoom) || 1;
-        if (fitsAt(z0) && (z0 >= PANEL_FIT_MAX_ZOOM - 1e-6 || !fitsAt(Math.min(PANEL_FIT_MAX_ZOOM, z0 * 1.015)))) { fitsAt(z0); return z0; }
+        if (z0 <= maxZ + 1e-6 && fitsAt(z0) && (z0 >= maxZ - 1e-6 || !fitsAt(Math.min(maxZ, z0 * 1.015)))) { fitsAt(z0); return z0; }
         var lo, hi;
         if (fitsAt(1)) {
+            if (maxZ <= 1) return 1;
             // Plus de place que de contenu (fenêtre agrandie) : le contenu grossit pour la remplir.
-            lo = 1; hi = PANEL_FIT_MAX_ZOOM;
+            lo = 1; hi = maxZ;
             if (fitsAt(hi)) return hi;
         } else { lo = PANEL_FIT_MIN_ZOOM; hi = 1; }
         for (var i = 0; i < 10; i++) {
@@ -6069,7 +6076,8 @@
                     if (rect.right > window.innerWidth - 8) panel.style.left = Math.max(8, window.innerWidth - 8 - size.w) + "px";
                 }
             }
-            fitPanelContentZoom(fitBox, fitInner);
+            var dockFixedH = docked && $metroDock && !!$metroDock.style.getPropertyValue("--metro-panel-h");
+            fitPanelContentZoom(fitBox, fitInner, !isMobilePanelLayout() && (!docked || dockFixedH));
         }
         function scheduleRefit() {
             if (fitFrame) return;
@@ -6224,6 +6232,23 @@
         if (typeof m.bpm !== "number" || isNaN(m.bpm) || m.bpm < 30 || m.bpm > 300) m.bpm = 100;
         m.bpm = Math.round(m.bpm);
         if (typeof m.volume !== "number" || isNaN(m.volume) || m.volume < 0 || m.volume > 1) m.volume = 0.8;
+        if (METRO_SOUNDS.indexOf(m.sound) === -1) m.sound = "click"; // timbre du clic (réglage général, voir Paramètres)
+        // Réglages de tempo progressif enregistrés (à retrouver d'un clic) : [{ id, name, progressive }].
+        if (!Array.isArray(m.progPresets)) m.progPresets = [];
+        m.progPresets = m.progPresets.filter(function (pr) { return pr && typeof pr === "object" && pr.progressive && typeof pr.progressive === "object"; }).map(function (pr) {
+            var q = pr.progressive, stages = Array.isArray(q.stages) ? q.stages : [];
+            return {
+                id: typeof pr.id === "string" && pr.id ? pr.id : uid(),
+                name: typeof pr.name === "string" && pr.name.trim() ? pr.name.trim().slice(0, 40) : "Réglage",
+                progressive: {
+                    stagesMode: q.stagesMode === true && stages.length > 0,
+                    everySeconds: Math.min(600, Math.max(1, Math.round(Number(q.everySeconds)) || 20)),
+                    limitBpm: Math.min(300, Math.max(0, Math.round(Number(q.limitBpm)) || 0)),
+                    restoreOnStop: q.restoreOnStop === true,
+                    stages: stages.map(function (st) { return { inc: 1, every: Math.min(600, Math.max(1, Math.round(Number(st && st.every)) || 20)), until: Math.min(300, Math.max(30, Math.round(Number(st && st.until)) || 100)) }; })
+                }
+            };
+        });
         if (typeof m.beatsPerMeasure !== "number" || isNaN(m.beatsPerMeasure) || m.beatsPerMeasure < 1 || m.beatsPerMeasure > 12) m.beatsPerMeasure = 4;
         m.beatsPerMeasure = Math.round(m.beatsPerMeasure);
         if ([0.5, 1, 2, 3, 4].indexOf(m.subdivision) === -1) m.subdivision = 1;
@@ -6436,12 +6461,59 @@
         if (metroMasterGain) metroMasterGain.gain.value = v;
     }
 
-    // Son plus doux qu'un simple bip : un filtre passe-bas adoucit les harmoniques aiguës, et une
-    // courte montée en volume (linearRamp, quelques ms) avant la décroissance évite le "clic" sec
-    // d'un signal qui démarre net à son maximum.
+    // Quatre timbres au choix (Paramètres › Métronome). Tous sont synthétisés ici (aucun fichier audio) et
+    // distinguent le temps accentué (level 2) du temps normal (level 1) par la hauteur et le niveau.
+    // Le « clic classique » : un filtre passe-bas adoucit les harmoniques aiguës, et une courte montée en volume
+    // (quelques ms) avant la décroissance évite le « clic » sec d'un signal qui démarre net à son maximum.
+    function metroNoiseBuffer(ctx) {
+        if (!ctx._trNoise) {
+            var n = Math.floor(ctx.sampleRate * 0.08), buf = ctx.createBuffer(1, n, ctx.sampleRate), d = buf.getChannelData(0), last = 0;
+            for (var i = 0; i < n; i++) { var w = Math.random() * 2 - 1; last = 0.55 * last + 0.45 * w; d[i] = last * 1.6; } // bruit « rose » léger
+            ctx._trNoise = buf;
+        }
+        return ctx._trNoise;
+    }
     function metroClick(time, level) {
         if (!level) return; // pas rendu muet
-        var ctx = metroAudioCtx;
+        var ctx = metroAudioCtx, accent = level >= 2, kind = state.settings.metronome.sound || "click";
+        if (kind === "wood") { // bloc de bois : un bruit bref coloré par une résonance étroite, plus un petit corps grave
+            var src = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), g = ctx.createGain();
+            src.buffer = metroNoiseBuffer(ctx);
+            bp.type = "bandpass"; bp.frequency.value = accent ? 1250 : 880; bp.Q.value = 2.4;
+            g.gain.setValueAtTime(0.0001, time);
+            g.gain.linearRampToValueAtTime(accent ? 3.1 : 2.1, time + 0.002);
+            g.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+            src.connect(bp); bp.connect(g); g.connect(metroMasterGain);
+            src.start(time); src.stop(time + 0.06);
+            var body = ctx.createOscillator(), bg = ctx.createGain();
+            body.type = "sine"; body.frequency.setValueAtTime(accent ? 420 : 320, time);
+            bg.gain.setValueAtTime(0.0001, time); bg.gain.linearRampToValueAtTime(accent ? 0.28 : 0.2, time + 0.002); bg.gain.exponentialRampToValueAtTime(0.001, time + 0.045);
+            body.connect(bg); bg.connect(metroMasterGain); body.start(time); body.stop(time + 0.05);
+            return;
+        }
+        if (kind === "clave") { // claves : deux résonances aiguës très brèves, non harmoniques
+            [[1, 1], [2.47, 0.32]].forEach(function (p) {
+                var o = ctx.createOscillator(), g2 = ctx.createGain();
+                o.type = "sine"; o.frequency.value = (accent ? 2750 : 2250) * p[0];
+                g2.gain.setValueAtTime(0.0001, time);
+                g2.gain.linearRampToValueAtTime((accent ? 0.62 : 0.42) * p[1], time + 0.001);
+                g2.gain.exponentialRampToValueAtTime(0.001, time + 0.07);
+                o.connect(g2); g2.connect(metroMasterGain); o.start(time); o.stop(time + 0.08);
+            });
+            return;
+        }
+        if (kind === "bell") { // cloche douce : fondamentale + partiels inharmoniques qui s'éteignent plus vite
+            var f0 = accent ? 1046.5 : 784;
+            [[1, 0.32, 0.42], [2.76, 0.085, 0.22], [5.4, 0.03, 0.1]].forEach(function (p) {
+                var o = ctx.createOscillator(), g3 = ctx.createGain();
+                o.type = "sine"; o.frequency.value = f0 * p[0];
+                g3.gain.setValueAtTime(0.0001, time);
+                g3.gain.linearRampToValueAtTime(p[1] * (accent ? 1.25 : 1), time + 0.006);
+                g3.gain.exponentialRampToValueAtTime(0.001, time + p[2]);
+                o.connect(g3); g3.connect(metroMasterGain); o.start(time); o.stop(time + p[2] + 0.02);
+            });
+            return;
+        }
         var osc = ctx.createOscillator();
         var gain = ctx.createGain();
         var filter = ctx.createBiquadFilter();
@@ -6452,13 +6524,23 @@
         osc.connect(filter);
         filter.connect(gain);
         gain.connect(metroMasterGain);
-        osc.frequency.value = level >= 2 ? 1100 : 780;
-        var peak = level >= 2 ? 0.75 : 0.38;
+        osc.frequency.value = accent ? 1100 : 780;
+        var peak = accent ? 0.75 : 0.38;
         gain.gain.setValueAtTime(0.0001, time);
         gain.gain.linearRampToValueAtTime(peak, time + 0.004);
         gain.gain.exponentialRampToValueAtTime(0.001, time + 0.065);
         osc.start(time);
         osc.stop(time + 0.07);
+    }
+    // Écoute d'un timbre (Paramètres) : un temps accentué puis deux temps normaux.
+    function metroPreviewSound(kind) {
+        var m = state.settings.metronome, prev = m.sound;
+        try {
+            var ctx = ensureMetroAudio(true), t = ctx.currentTime + 0.06;
+            m.sound = kind;
+            [2, 1, 1].forEach(function (lvl, i) { metroClick(t + i * 0.42, lvl); });
+        } catch (e) {}
+        m.sound = prev; // le timbre ne change réellement qu'une fois choisi dans la liste
     }
 
     // Ce qui se joue (et s'affiche dans le pavé) : le pavé détaillé seulement quand "…" est activé,
@@ -7468,6 +7550,8 @@
                 });
                 tbl.appendChild(body);
                 progSide.appendChild(tbl);
+                var foot = document.createElement("div");
+                foot.className = "metro-prog-foot";
                 var add = document.createElement("button");
                 add.type = "button";
                 add.className = "metro-mini-btn metro-prog-add";
@@ -7483,8 +7567,86 @@
                     p.stages.push({ inc: 1, every: last ? last.every : 20, until: Math.min(300, (last ? last.until : m.bpm) + 10) });
                     progChanged(); renderProgFields();
                 });
-                progSide.appendChild(add);
+                foot.appendChild(add);
+                // Réglages enregistrés : retrouver d'un clic des paliers souvent utilisés (nommés, renommables).
+                var presetsBtn = document.createElement("button");
+                presetsBtn.type = "button";
+                presetsBtn.className = "metro-mini-btn metro-prog-presets";
+                presetsBtn.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4h12v17l-6-4-6 4z"/></svg>';
+                presetsBtn.title = "Réglages enregistrés";
+                presetsBtn.setAttribute("aria-label", "Réglages de tempo progressif enregistrés");
+                presetsBtn.addEventListener("click", function () { openProgPresets(presetsBtn); });
+                foot.appendChild(presetsBtn);
+                progSide.appendChild(foot);
                 refreshProgStatus();
+            }
+
+            function progSummary(q) {
+                if (q.stagesMode) return q.stages.map(function (st) { return st.every + " s → " + st.until; }).join(" · ");
+                return q.everySeconds + " s" + (q.limitBpm ? " → " + q.limitBpm : "");
+            }
+            function applyProgPreset(pr) {
+                var p = m.progressive, q = pr.progressive;
+                p.enabled = true; p.stagesMode = q.stagesMode; p.everySeconds = q.everySeconds; p.limitBpm = q.limitBpm;
+                p.restoreOnStop = q.restoreOnStop; p.stages = cloneJson(q.stages);
+                metroProgNextAt = null; metroProgIdx = -1;
+                save(); refreshProgToggle(); renderProgFields();
+                showToast("« " + pr.name + " » appliqué", 1800);
+            }
+            function openProgPresets(anchor) {
+                openGsPopover(anchor, function (pop, close) {
+                    pop.classList.add("metro-presets-pop");
+                    function build(renameId) {
+                        pop.innerHTML = "";
+                        var list = m.progPresets;
+                        if (!list.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Aucun réglage enregistré"; pop.appendChild(none); }
+                        list.forEach(function (pr, i) {
+                            var row = document.createElement("div");
+                            row.className = "metro-preset-row";
+                            var main = document.createElement("button");
+                            main.type = "button"; main.className = "metro-preset-main";
+                            var nm = document.createElement("span"); nm.className = "metro-preset-name"; nm.textContent = pr.name;
+                            var sm = document.createElement("span"); sm.className = "metro-preset-sum"; sm.textContent = progSummary(pr.progressive);
+                            main.appendChild(nm); main.appendChild(sm);
+                            main.title = "Appliquer ce réglage";
+                            main.addEventListener("click", function () { close(); applyProgPreset(pr); });
+                            var ren = iconButton("✎", "Renommer", function () { startRename(); });
+                            var del = iconButton("✕", "Supprimer ce réglage", function () { m.progPresets.splice(i, 1); save(); build(); });
+                            function startRename() {
+                                var inp = document.createElement("input");
+                                inp.type = "text"; inp.className = "metro-preset-input"; inp.value = pr.name; inp.maxLength = 40;
+                                inp.setAttribute("aria-label", "Nom du réglage");
+                                row.replaceChild(inp, main);
+                                inp.focus(); inp.select();
+                                var done = false;
+                                function commit(ok) {
+                                    if (done) return; done = true;
+                                    var v = inp.value.trim();
+                                    if (ok && v && v !== pr.name) { pr.name = v.slice(0, 40); save(); }
+                                    build();
+                                }
+                                inp.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); commit(true); } else if (e.key === "Escape") { e.stopPropagation(); commit(false); } });
+                                inp.addEventListener("blur", function () { commit(true); });
+                            }
+                            row.appendChild(main); row.appendChild(ren); row.appendChild(del);
+                            pop.appendChild(row);
+                            if (renameId === pr.id) setTimeout(startRename, 0);
+                        });
+                        var save1 = document.createElement("button");
+                        save1.type = "button"; save1.className = "metro-preset-add";
+                        save1.textContent = "+ Enregistrer le réglage actuel";
+                        save1.addEventListener("click", function () {
+                            var p = m.progressive;
+                            var pr = { id: uid(), name: "Paliers " + (m.progPresets.length + 1), progressive: {
+                                stagesMode: p.stagesMode && p.stages.length > 0, everySeconds: p.everySeconds, limitBpm: p.limitBpm || 0,
+                                restoreOnStop: p.restoreOnStop === true, stages: cloneJson(p.stages || [])
+                            } };
+                            m.progPresets.push(pr); save(); build(pr.id); // le nom s'édite tout de suite
+                        });
+                        pop.appendChild(save1);
+                    }
+                    build();
+                });
             }
 
             function refreshProgToggle() {
@@ -8740,6 +8902,17 @@
             cur.appendChild(selectField("Taille", [
                 ["small", "Petite"], ["medium", "Moyenne"], ["large", "Grande"]
             ], a.metronomeSize, function (v) { a.metronomeSize = v; save(); }));
+
+            var soundField = selectField("Son", METRO_SOUNDS.map(function (k) { return [k, METRO_SOUND_LABELS[k]]; }), state.settings.metronome.sound, function (v) {
+                state.settings.metronome.sound = v; save(); metroPreviewSound(v);
+            });
+            var soundSel = soundField.querySelector("select");
+            var soundPlay = document.createElement("button");
+            soundPlay.type = "button"; soundPlay.className = "btn-ghost settings-sound-play"; soundPlay.title = "Écouter ce son"; soundPlay.setAttribute("aria-label", "Écouter ce son");
+            soundPlay.innerHTML = METRO_PLAY_ICON_SVG;
+            soundPlay.addEventListener("click", function () { metroPreviewSound(soundSel.value); });
+            soundField.appendChild(soundPlay);
+            cur.appendChild(soundField);
 
             section("Vidéos");
             var volOptions = [["auto", "Automatique (volume de YouTube)"]];
@@ -14245,7 +14418,14 @@
         render();
     });
     var $freeBtn = document.getElementById("free-btn");
-    if ($freeBtn) $freeBtn.addEventListener("click", freeStart);
+    if ($freeBtn) $freeBtn.addEventListener("click", function () {
+        if (!freeRun) { freeStart(); return; }
+        // Entraînement libre en cours : un nouveau clic propose de l'arrêter (récapitulatif ensuite).
+        openChoiceMenu("Arrêter l'entraînement libre ?", "", [
+            { text: "Arrêter et voir le récapitulatif", onClick: freeStop },
+            { text: "Continuer", muted: true }
+        ]);
+    });
     var $settingsBtn = document.getElementById("settings-btn");
     if ($settingsBtn) $settingsBtn.addEventListener("click", openSettingsPanel);
 
