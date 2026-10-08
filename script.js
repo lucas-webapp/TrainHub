@@ -11585,8 +11585,9 @@
         sp.title = "Arrêter l'entraînement libre"; sp.setAttribute("aria-label", "Arrêter l'entraînement libre");
         sp.addEventListener("click", freeStop);
         [tm, wh, pb, sp].forEach(function (n) { bar.appendChild(n); });
-        var anchor = document.getElementById("free-btn");
-        if (anchor && anchor.parentNode) { anchor.parentNode.insertBefore(bar, anchor.nextSibling); anchor.classList.add("free-on"); }
+        var anchor = document.getElementById("free-btn"), actions = document.querySelector(".top-bar .top-actions");
+        if (actions && actions.parentNode) actions.parentNode.insertBefore(bar, actions); // en haut à gauche, avant les icônes
+        if (anchor) anchor.classList.add("free-on");
         freeBarEl = bar;
         updateMetroDockMetrics();
     }
@@ -12309,17 +12310,6 @@
         recs.forEach(function (r) { periodMap[calKey(new Date(r.date))] = true; });
         var first = log.length ? log[0].date : now;
         var periodDays = Math.max(1, Math.ceil((Math.min(end, now + 1) - 1 - (start || first)) / STATS_DAY));
-        // séries de jours consécutifs (sur tout le journal)
-        var keys = Object.keys(dayMap).sort(), best = 0, run = 0, prevT = null;
-        keys.forEach(function (k) {
-            var t = calParse(k).getTime();
-            run = prevT !== null && Math.round((t - prevT) / STATS_DAY) === 1 ? run + 1 : 1;
-            if (run > best) best = run;
-            prevT = t;
-        });
-        var cur = 0, d = new Date(now); d.setHours(0, 0, 0, 0);
-        if (!dayMap[calKey(d)]) d.setDate(d.getDate() - 1);
-        while (dayMap[calKey(d)]) { cur++; d.setDate(d.getDate() - 1); }
         // chapitres, exercices
         var chap = {}, byEx = {}, allEx = {};
         rows.forEach(function (r) { var o = allEx[r.exKey] || (allEx[r.exKey] = { last: 0 }); if (r.date > o.last) o.last = r.date; });
@@ -12342,7 +12332,7 @@
         return {
             recs: recs, sessions: recs.length, totalSec: totalSec, activeDays: Object.keys(periodMap).length, periodDays: periodDays,
             avgPerWeekSec: totalSec / (periodDays / 7), avgSessionSec: recs.length ? totalSec / recs.length : 0,
-            ratio: plannedSum ? realOfPlanned / plannedSum : null, streak: cur, bestStreak: best, dayMap: dayMap,
+            ratio: plannedSum ? realOfPlanned / plannedSum : null, dayMap: dayMap,
             chapters: chapters, top: top, favorites: favorites, underused: underused
         };
     }
@@ -12675,7 +12665,6 @@
              ["Jours pratiqués", st.activeDays + " / " + st.periodDays, false, hasPrev ? stDeltaAbs(st.activeDays, pv.activeDays, "j") : ""],
              ["Moyenne / semaine", gsFmtMin(st.avgPerWeekSec), true, hasPrev ? stDeltaPct(st.avgPerWeekSec, pv.avgPerWeekSec) : ""],
              ["Durée moyenne", st.sessions ? gsFmtMin(st.avgSessionSec) : "–", false, hasPrev ? stDeltaPct(st.avgSessionSec, pv.avgSessionSec) : ""],
-             ["Série en cours", st.streak + " j", true, ""], ["Record de série", st.bestStreak + " j", false, ""],
              ["Réel / prévu", rNow === null ? "–" : rNow + " %", false, rNow !== null && rPrev !== null ? stDeltaAbs(rNow, rPrev, "pts") : ""]]
                 .forEach(function (t) {
                     var el = document.createElement("div"); el.className = "st-tile" + (t[2] ? " st-tile-hi" : "");

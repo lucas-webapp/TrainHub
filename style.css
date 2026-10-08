@@ -192,7 +192,6 @@ button.session-btn-highlight {
     font-size: var(--fs-sm);
 }
 button.session-btn-highlight:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
-.session-btn-highlight .icon { width: 18px; height: 18px; }
 
 /* ---------- auth / synchro ---------- */
 .auth-area { display: flex; align-items: center; }
@@ -1981,7 +1980,7 @@ html.sidebar-hidden .gs-main.gs-main-roomy { max-width: 1200px; }
 .top-bar { --bar-h: 40px; }
 .top-bar button, .top-bar select, .top-bar .account-info { box-sizing: border-box; height: var(--bar-h); }
 .top-bar .icon-btn { width: var(--bar-h); padding: 0; }
-.top-bar button.session-btn-highlight { width: auto; padding: 0 14px; }
+.top-bar button.session-btn-highlight { width: auto; padding: 0 11px; }
 .top-bar .btn-google { padding: 0 12px; }
 .top-bar #instrument-select { padding: 0 10px; }
 .top-bar .account-info { padding: 0 4px 0 12px; }
@@ -2996,19 +2995,28 @@ input.gs-rec-bpm { width: 58px; }
 .exercise-fixed-view { margin: 0 12px 10px; padding: 6px 10px; border-left: 3px solid var(--accent); background: var(--card-bg-2); border-radius: 6px; font-size: var(--fs-sm); color: var(--text-main); white-space: pre-wrap; overflow-wrap: anywhere; cursor: pointer; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .gs-run-fixed { margin: 8px 0; padding: 8px 12px; border-left: 3px solid var(--accent); background: var(--card-bg-2); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
-/* Entraînement libre : bouton « Libre » à droite de « Session », chrono encadré avec pause / arrêt juste à côté */
-.free-bar { display: inline-flex; align-items: center; gap: 6px; height: 36px; box-sizing: border-box; padding: 0 4px 0 10px; border: 1px solid color-mix(in srgb, var(--accent) 70%, var(--border)); border-radius: var(--radius); background: color-mix(in srgb, var(--accent) 7%, transparent); min-width: 0; }
-.free-bar .free-time { font-variant-numeric: tabular-nums; font-weight: 800; font-size: var(--fs-base); min-width: 2.6em; color: var(--text-main); }
+/* Entraînement libre : bouton « Libre » à droite de « Session » ; chrono encadré, pause et arrêt en haut à gauche */
+.free-bar { display: inline-flex; align-items: center; gap: 4px; height: var(--bar-h, 40px); box-sizing: border-box; padding: 0 5px 0 12px; border: 1px solid color-mix(in srgb, var(--text-muted) 55%, var(--border)); border-radius: var(--radius); background: color-mix(in srgb, var(--text-muted) 6%, transparent); min-width: 0; flex: 0 0 auto; }
+.free-bar .free-time { font-variant-numeric: tabular-nums; font-weight: 800; font-size: var(--fs-base); min-width: 2.7em; color: var(--text-muted); }
 .free-bar .free-what { font-variant-numeric: tabular-nums; font-size: var(--fs-sm); color: var(--text-muted); }
 .free-bar .free-what:empty { display: none; }
-.top-bar .free-bar button { height: 28px; width: 28px; padding: 0; flex: 0 0 auto; margin: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--text-dim); }
-.free-bar button .icon { width: 14px; height: 14px; }
-.free-bar-run { border-color: var(--accent); }
+.top-bar .free-bar button { height: 32px; width: 32px; padding: 0; flex: 0 0 auto; margin: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--text-main); }
+.free-bar button .icon { width: 18px; height: 18px; }
+.free-bar .free-pause { opacity: .55; }
+.free-bar .free-pause:disabled { opacity: .3; }
+.free-bar .free-stop { opacity: 1; } /* l'arrêt reste toujours bien visible et utilisable */
+/* Décompte en cours : le cadre s'allume en violet clair (comme les sessions éphémères du calendrier) */
 .free-bar-wait .free-time { color: var(--text-dim); }
-.free-bar-idle, .free-bar-paused { opacity: .6; }
-.free-bar-idle .free-time { color: var(--text-muted); }
-button.free-btn.free-on { border-color: var(--accent); }
-@media (max-width: 760px) { .top-actions > .free-bar { grid-column: span 4; justify-self: start; gap: 12px; } }
+.free-bar-run { border-color: var(--eph); background: color-mix(in srgb, var(--eph) 12%, transparent); }
+.free-bar-run .free-time { color: var(--eph); }
+.free-bar-run .free-pause { opacity: 1; color: var(--eph); }
+.free-bar-paused .free-time { color: var(--text-dim); }
+button.free-btn.free-on { border-color: color-mix(in srgb, var(--eph) 55%, var(--border)); }
+@media (max-width: 760px) { .top-bar .free-bar { margin-right: auto; } }
+/* Boutons Session / Libre : chronomètres de même taille, moins d'espace perdu autour des icônes */
+.top-bar button.session-btn-highlight { padding: 0 11px; gap: 5px; }
+.session-btn-highlight .icon { height: 16px; width: auto; }
+.top-actions { align-items: center; }
 .gs-live-panel { width: min(420px, calc(100vw - 24px)); }
 .gs-live-intro { margin: 8px 0 12px; }
 .gs-live-actions { display: flex; flex-direction: column; gap: 8px; }
