@@ -3100,7 +3100,21 @@
             if (inst.id === state.activeInstrumentId) opt.selected = true;
             $instrumentSelect.appendChild(opt);
         });
+        fitInstrumentSelect();
     }
+    // La liste des espaces s'ajuste à la largeur du nom choisi (un <select> prend sinon la largeur du plus long nom).
+    function fitInstrumentSelect() {
+        var sel = $instrumentSelect, opt = sel.options[sel.selectedIndex];
+        if (!opt) return;
+        var cs = window.getComputedStyle(sel), probe = document.createElement("span");
+        probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre;left:-9999px;top:0;font:" + cs.font + ";letter-spacing:" + cs.letterSpacing;
+        probe.textContent = opt.textContent;
+        document.body.appendChild(probe);
+        var w = probe.getBoundingClientRect().width;
+        probe.remove();
+        if (w > 0) sel.style.width = Math.ceil(w + (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) + 22) + "px"; // 22 px : la flèche
+    }
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { fitInstrumentSelect(); });
 
     function renameInstrument(instrumentId) {
         var inst = state.instruments.filter(function (i) { return i.id === instrumentId; })[0];
@@ -4913,6 +4927,55 @@
         });
     }
 
+    // Conflit de première synchronisation : le cloud contient nettement plus d'exercices que cet appareil. Le choix sûr
+    // (garder les données en ligne) est le premier bouton, celui d'Échap et d'un clic à côté ; remplacer demande une
+    // seconde confirmation qui dit ce qui sera effacé.
+    function askSyncConflict(remoteN, localN) {
+        return new Promise(function (resolve) {
+            var backdrop = document.createElement("div");
+            backdrop.className = "ctx-backdrop";
+            var menu = document.createElement("div");
+            menu.className = "ctx-menu ctx-menu-dialog";
+            menu.setAttribute("role", "dialog");
+            function plural(n) { return n + " exercice" + (n > 1 ? "s" : ""); }
+            function done(keepRemote) {
+                backdrop.remove(); menu.remove(); document.removeEventListener("keydown", onKey, true);
+                resolve(keepRemote);
+            }
+            function onKey(e) { if (e.key === "Escape") { e.preventDefault(); done(true); } }
+            function put(title, text, buttons) {
+                menu.innerHTML = "";
+                var h = document.createElement("div"); h.className = "ctx-menu-title ctx-menu-title-wrap"; h.textContent = title; menu.appendChild(h);
+                var t = document.createElement("div"); t.className = "ctx-menu-text"; t.textContent = text; menu.appendChild(t);
+                buttons.forEach(function (c) {
+                    var b = document.createElement("button"); b.type = "button";
+                    b.className = "ctx-item" + (c.muted ? " ctx-item-muted" : "") + (c.main ? " ctx-item-main" : "");
+                    b.textContent = c.text; b.addEventListener("click", c.run); menu.appendChild(b);
+                });
+            }
+            function step1() {
+                put("Données en ligne trouvées", "En ligne : " + plural(remoteN) + ". Sur cet appareil : " + plural(localN) + ".", [
+                    { text: "Garder les données en ligne (recommandé)", main: true, run: function () { done(true); } },
+                    { text: "Remplacer les données en ligne par celles de cet appareil…", muted: true, run: step2 }
+                ]);
+            }
+            function step2() {
+                put("Remplacer les données en ligne ?", "Les " + plural(remoteN) + " en ligne seront remplacés par les " + plural(localN) + " de cet appareil, sur tous tes appareils. Une sauvegarde de secours de la version en ligne est gardée sur cet appareil.", [
+                    { text: "Non, garder les données en ligne", main: true, run: function () { done(true); } },
+                    { text: "Oui, remplacer", muted: true, run: function () { done(false); } }
+                ]);
+            }
+            backdrop.addEventListener("pointerdown", function (e) { e.preventDefault(); done(true); });
+            step1();
+            document.body.appendChild(backdrop);
+            document.body.appendChild(menu);
+            document.addEventListener("keydown", onKey, true);
+            var w = menu.offsetWidth || 320, h2 = menu.offsetHeight || 180;
+            menu.style.left = Math.max(8, (window.innerWidth - w) / 2) + "px";
+            menu.style.top = Math.max(8, (window.innerHeight - h2) / 3) + "px";
+        });
+    }
+
     function onAuthChanged(user) {
         currentUser = user;
         updateAuthUI(user);
@@ -4942,15 +5005,18 @@
             // de ce qui va être écrasé, et on demande confirmation.
             if (remote && totalExerciseCount(remote) > totalExerciseCount(state) + 1) {
                 backupSnapshot("Version cloud sur le point d'être remplacée depuis " + (navigator.userAgent || "cet appareil"), remote);
-                var keepLocal = window.confirm(
-                    "Les données déjà enregistrées en ligne contiennent plus d'exercices (" + totalExerciseCount(remote) +
-                    ") que celles de cet appareil/navigateur (" + totalExerciseCount(state) + ").\n\n" +
-                    "OK = garder les données en ligne (recommandé)\nAnnuler = remplacer quand même par celles de cet appareil"
-                );
-                if (keepLocal) {
+                var remoteN = totalExerciseCount(remote), localN = totalExerciseCount(state);
+                if (localN === 0) {
+                    // Appareil (ou navigateur) vide : rien à « garder » ici, et pousser du vide effacerait les données en
+                    // ligne sur tous les appareils. On récupère simplement la version en ligne, sans rien demander.
                     applyRemoteState(remote);
+                    showToast("Données en ligne récupérées (" + remoteN + " exercice" + (remoteN > 1 ? "s" : "") + ").", 4000);
                     return null;
                 }
+                return askSyncConflict(remoteN, localN).then(function (keepRemote) {
+                    if (keepRemote) { applyRemoteState(remote); return null; }
+                    return docRef.set(cloudState());
+                });
             }
             return docRef.set(cloudState());
         }).then(function () {
@@ -8980,6 +9046,16 @@
             cur.appendChild(selectField("Taille des images dans les sessions", imgSizes, getImgSize("gs"), function (v) { setImgSize("gs", v); render(); }));
 
             section("Données");
+            [["Sauvegardes de secours", "backups-btn"], ["Exporter (sauvegarde JSON)", "export-btn"], ["Importer une sauvegarde JSON", "import-btn"]].forEach(function (d) {
+                var row = document.createElement("div");
+                row.className = "settings-field";
+                var btn = document.createElement("button");
+                btn.type = "button"; btn.className = "btn-ghost settings-data-btn"; btn.textContent = d[0];
+                btn.addEventListener("click", function () { var target = document.getElementById(d[1]); if (target) target.click(); });
+                row.appendChild(btn);
+                cur.appendChild(row);
+            });
+
             var dataNote = document.createElement("div");
             dataNote.className = "gs-empty";
             dataNote.textContent = "Réinjecte des images exportées (fichiers « Espace - Titre - n »). Elles retrouvent leur exercice ; celles dont l'exercice a changé de nom te sont proposées une à une.";
