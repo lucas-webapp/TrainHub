@@ -4,32 +4,71 @@
     var STORAGE_KEY = "trainhub.v1";
     var DEFAULT_CATEGORIES = ["Technique", "Gammes", "Improvisation", "Jeu en groupe", "Copie de morceaux"];
     var DEFAULT_INSTRUMENTS = ["Basse", "Guitare", "Piano"];
-    // Jeux de couleurs des chapitres, choisis dans les paramètres généraux (voir
-    // openSettingsPanel) : currentPalette() renvoie toujours le jeu actif, à utiliser à la place
-    // d'une constante fixe partout où une nouvelle couleur de chapitre est choisie.
+    // Jeux de couleurs des chapitres, choisis dans les paramètres généraux (voir openSettingsPanel) :
+    // currentPalette() renvoie toujours le jeu actif, à utiliser à la place d'une constante fixe partout où une
+    // nouvelle couleur de chapitre est choisie. Quatre jeux vraiment différents : pâle, flashy, sobre, monochrome.
+    // Toutes les couleurs restent lisibles sur le fond sombre (≥ 4,5:1) et sous du texte noir.
     var COLOR_SCHEMES = {
-        default: { label: "Défaut", colors: ["#00e676", "#a78bfa", "#f472b6", "#2dd4bf", "#fb923c", "#f87171"] },
-        flashy: { label: "Flashy", colors: ["#ff2e63", "#08d9d6", "#f8b400", "#ea00ff", "#00ff87", "#ff6f00"] },
-        sobre: { label: "Sobre", colors: ["#8892b0", "#6b8f71", "#a67c52", "#7c93a3", "#9d8189", "#7d7d7d"] },
-        pastel: { label: "Pastel", colors: ["#a3c4f3", "#ffcfd2", "#b9fbc0", "#fde4cf", "#d0bdf4", "#98f5e1"] },
-        contraste: { label: "Contrasté", colors: ["#ffffff", "#ffeb3b", "#00e5ff", "#ff1744", "#76ff03", "#d500f9"] }
+        flashy: { label: "Flashy", hint: "Couleurs vives et saturées", colors: ["#00e676", "#a259ff", "#ff3d9a", "#00d9ff", "#ff9100", "#ff4d4d"] },
+        pale: { label: "Pâle", hint: "Tons pastel, très doux", colors: ["#a5c8ff", "#ffb8d1", "#c5f0a4", "#ffd3a5", "#d4b8ff", "#9be8e1"] },
+        sobre: { label: "Sobre", hint: "Teintes discrètes et sourdes", colors: ["#7f93b5", "#7ea58a", "#b98b6a", "#a58ab0", "#b8a05e", "#6f9c9f"] },
+        mono: { label: "Monochrome", hint: "Une teinte, six nuances", colors: null } // les couleurs dépendent de la teinte choisie (monoColors)
     };
+    var SCHEME_ORDER = ["flashy", "pale", "sobre", "mono"];
+    // Anciens noms (avant la refonte à quatre jeux) : « Défaut » et « Contrasté » deviennent « Flashy », « Pastel » devient « Pâle ».
+    var COLOR_SCHEME_RENAMED = { "default": "flashy", contraste: "flashy", pastel: "pale" };
+    // Monochrome : six nuances d'UNE teinte, calculées en OKLCH (la clarté perçue est la même quelle que soit la teinte,
+    // donc les six nuances restent lisibles et bien distinctes pour toutes les teintes). Teinte -1 = gris.
+    var MONO_HUES = [25, 55, 85, 110, 145, 175, 205, 235, 265, 295, 325, 355];
+    var MONO_DEFAULT_HUE = 145;
+    var MONO_STOPS = [[0.66, 1], [0.94, 0.5], [0.74, 0.5], [0.86, 0.7], [0.62, 0.5], [0.74, 0.15]]; // [clarté, part de la chroma maximale]
+    function oklchToLinear(L, C, h) {
+        var a = C * Math.cos(h * Math.PI / 180), b = C * Math.sin(h * Math.PI / 180);
+        var l = Math.pow(L + 0.3963377774 * a + 0.2158037573 * b, 3), m = Math.pow(L - 0.1055613458 * a - 0.0638541728 * b, 3), n = Math.pow(L - 0.0894841775 * a - 1.2914855480 * b, 3);
+        return [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * n, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * n, -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * n];
+    }
+    function oklchToHex(L, fraction, hue) {
+        var C = 0;
+        if (hue >= 0) { // chroma maximale affichable pour cette clarté et cette teinte, puis la part voulue
+            var lo = 0, hi = 0.32;
+            for (var i = 0; i < 22; i++) {
+                var mid = (lo + hi) / 2, ok = oklchToLinear(L, mid, hue).every(function (x) { return x >= -0.0005 && x <= 1.0005; });
+                if (ok) lo = mid; else hi = mid;
+            }
+            C = lo * fraction;
+        }
+        return "#" + oklchToLinear(L, C, hue < 0 ? 0 : hue).map(function (x) {
+            x = Math.max(0, Math.min(1, x));
+            var v = x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055;
+            var h2 = Math.round(v * 255).toString(16); return h2.length < 2 ? "0" + h2 : h2;
+        }).join("");
+    }
+    var MONO_GREY_L = [0.74, 0.94, 0.62, 0.87, 0.68, 0.80]; // gris : six clartés différentes (sans chroma, seule la clarté distingue)
+    function monoColors(hue) {
+        if (hue < 0) return MONO_GREY_L.map(function (L) { return oklchToHex(L, 0, -1); });
+        return MONO_STOPS.map(function (st) { return oklchToHex(st[0], st[1], hue); });
+    }
+    function schemeColors(key, monoHue) {
+        var sc = COLOR_SCHEMES[key];
+        return sc && sc.colors ? sc.colors : monoColors(typeof monoHue === "number" ? monoHue : MONO_DEFAULT_HUE);
+    }
     // Variante sans dépendre de la variable globale `state` (encore non affectée lors de
     // normalizeState/makeDefaultState, qui construisent justement cet objet) : on lui passe
     // directement les `settings` en cours de normalisation.
     function paletteFor(settings) {
-        var scheme = COLOR_SCHEMES[settings.appearance && settings.appearance.colorScheme];
-        return (scheme || COLOR_SCHEMES.default).colors;
+        var a = settings.appearance || {};
+        return schemeColors(COLOR_SCHEMES[a.colorScheme] ? a.colorScheme : "flashy", a.monoHue);
     }
     function currentPalette() {
         return paletteFor(state.settings);
     }
     // Change le jeu de couleurs ET recolore les chapitres existants (sinon le réglage ne
     // s'appliquerait qu'aux nouveaux chapitres créés après coup, pas à ceux déjà là).
-    function applyColorScheme(key) {
+    function applyColorScheme(key, monoHue) {
         if (!COLOR_SCHEMES[key]) return;
         state.settings.appearance.colorScheme = key;
-        var palette = COLOR_SCHEMES[key].colors;
+        if (typeof monoHue === "number") state.settings.appearance.monoHue = monoHue;
+        var palette = schemeColors(key, state.settings.appearance.monoHue);
         state.instruments.forEach(function (inst) {
             inst.categories.forEach(function (cat, i) { cat.color = palette[i % palette.length]; });
         });
@@ -247,7 +286,7 @@
     // `withDefaultFolders` : chapitres pré-remplis (Technique, Gammes…). Seul l'espace « Basse » de départ
     // en reçoit ; les autres espaces (Guitare, Piano, et tout espace créé ensuite) démarrent vides.
     function makeInstrument(name, palette, withDefaultFolders) {
-        var pal = palette || COLOR_SCHEMES.default.colors;
+        var pal = palette || COLOR_SCHEMES.flashy.colors;
         var categories = withDefaultFolders ? DEFAULT_CATEGORIES.map(function (catName, i) {
             return makeFolder(catName, pal[i % pal.length]);
         }) : [];
@@ -314,7 +353,9 @@
     function normalizeAppearanceSettings(s) {
         if (!s.settings.appearance || typeof s.settings.appearance !== "object") s.settings.appearance = {};
         var a = s.settings.appearance;
-        if (!COLOR_SCHEMES[a.colorScheme]) a.colorScheme = "default";
+        if (COLOR_SCHEME_RENAMED[a.colorScheme]) a.colorScheme = COLOR_SCHEME_RENAMED[a.colorScheme]; // anciens noms (avant les quatre jeux)
+        if (!COLOR_SCHEMES[a.colorScheme]) a.colorScheme = "flashy";
+        if (typeof a.monoHue !== "number" || a.monoHue < -1 || a.monoHue > 360) a.monoHue = MONO_DEFAULT_HUE;
         if (METRO_POSITIONS.indexOf(a.metronomePosition) === -1) a.metronomePosition = "center";
         if (METRO_SIZES.indexOf(a.metronomeSize) === -1) a.metronomeSize = "medium";
         if (TREE_FONT_SCALES.indexOf(a.treeFontScale) === -1) a.treeFontScale = 1;
@@ -9354,109 +9395,204 @@
             head.appendChild(title); head.appendChild(bulb);
             panel.appendChild(head);
 
-            // Réglages rangés par onglets (un onglet = un thème) : ajouter un réglage = le mettre dans le bon
-            // onglet, sans allonger une liste unique. Le dernier onglet ouvert est retenu.
-            var pages = {}, cur = null;
+            // Mise en page : colonne d'onglets à gauche (icône + nom), réglages à droite, rangés en cartes. Sur téléphone la
+            // colonne devient une rangée d'onglets au-dessus. Ajouter un réglage = le mettre dans la bonne carte de la bonne page.
+            var layout = document.createElement("div");
+            layout.className = "settings-layout";
             var tabBar = document.createElement("div");
             tabBar.className = "settings-tabs";
-            panel.appendChild(tabBar);
-            function section(labelText) {
+            tabBar.setAttribute("role", "tablist");
+            var body = document.createElement("div");
+            body.className = "settings-body";
+            layout.appendChild(tabBar); layout.appendChild(body);
+            panel.appendChild(layout);
+
+            var ICONS = {
+                "Affichage": '<circle cx="13.5" cy="6.5" r="1.2"/><circle cx="17.5" cy="10.5" r="1.2"/><circle cx="8.5" cy="7.5" r="1.2"/><circle cx="6.5" cy="12.5" r="1.2"/><path d="M12 3a9 9 0 1 0 0 18c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.4-.3-.3-.5-.7-.5-1.2 0-1.1.9-2 2-2h2.3A3.7 3.7 0 0 0 21 10.8C21 6.5 17 3 12 3z"/>',
+                "Métronome": '<path d="M8.5 21 10.6 4.5h2.8L15.5 21z"/><path d="M12 15 16.5 6"/><path d="M9.5 21h5"/>',
+                "Vidéos": '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10 9.5v5l4.5-2.5z"/>',
+                "Images": '<rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="m21 16-5-5-9 9"/>',
+                "Données": '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>'
+            };
+            var pages = {}, cur = null, curCard = null;
+            function section(name) { // une page (= un onglet)
                 cur = document.createElement("div");
                 cur.className = "settings-page";
+                cur.setAttribute("role", "tabpanel");
                 cur.hidden = true;
-                panel.appendChild(cur);
-                pages[labelText] = cur;
+                body.appendChild(cur);
+                pages[name] = cur;
+                curCard = null;
             }
-
-            function selectField(labelText, options, value, onChange) {
-                var field = document.createElement("label");
-                field.className = "settings-field";
+            function card(titleText, note) { // un groupe de réglages liés
+                curCard = document.createElement("div");
+                curCard.className = "settings-card";
+                if (titleText) { var t = document.createElement("div"); t.className = "settings-card-title"; t.textContent = titleText; curCard.appendChild(t); }
+                if (note) { var n = document.createElement("div"); n.className = "settings-card-note"; n.textContent = note; curCard.appendChild(n); }
+                cur.appendChild(curCard);
+            }
+            function field(labelText, control, hintText) { // une ligne : nom à gauche, réglage à droite
+                var f = document.createElement("div");
+                f.className = "settings-field";
+                var left = document.createElement("div");
+                left.className = "settings-field-text";
                 var span = document.createElement("span");
                 span.className = "settings-field-label";
                 span.textContent = labelText;
-                field.appendChild(span);
+                left.appendChild(span);
+                if (hintText) { var h = document.createElement("span"); h.className = "settings-field-hint"; h.textContent = hintText; left.appendChild(h); }
+                f.appendChild(left);
+                f.appendChild(control);
+                curCard.appendChild(f);
+                return f;
+            }
+            function selectControl(options, value, onChange) {
                 var select = document.createElement("select");
                 options.forEach(function (opt) {
                     var o = document.createElement("option");
-                    o.value = opt[0];
-                    o.textContent = opt[1];
+                    o.value = opt[0]; o.textContent = opt[1];
                     if (String(opt[0]) === String(value)) o.selected = true;
                     select.appendChild(o);
                 });
                 select.addEventListener("change", function () { onChange(select.value); });
-                field.appendChild(select);
-                return field;
+                return select;
+            }
+            // Choix rapide à plusieurs boutons accolés (un seul appui, tout est visible) : pour 2 à 4 options courtes.
+            function segControl(options, value, onChange) {
+                var seg = document.createElement("div");
+                seg.className = "settings-seg";
+                seg.setAttribute("role", "radiogroup");
+                options.forEach(function (opt) {
+                    var b = document.createElement("button");
+                    b.type = "button"; b.className = "settings-seg-btn"; b.dataset.value = String(opt[0]); b.textContent = opt[1];
+                    b.setAttribute("role", "radio");
+                    function paint(v) { var on = String(v) === b.dataset.value; b.classList.toggle("on", on); b.setAttribute("aria-checked", on ? "true" : "false"); }
+                    paint(value);
+                    b.addEventListener("click", function () {
+                        Array.prototype.forEach.call(seg.children, function (x) { var on = x === b; x.classList.toggle("on", on); x.setAttribute("aria-checked", on ? "true" : "false"); });
+                        onChange(opt[0]);
+                    });
+                    seg.appendChild(b);
+                });
+                return seg;
+            }
+            function switchControl(value, onChange) {
+                var b = document.createElement("button");
+                b.type = "button"; b.className = "settings-switch"; b.setAttribute("role", "switch");
+                function paint(v) { b.classList.toggle("on", v); b.setAttribute("aria-checked", v ? "true" : "false"); }
+                paint(!!value);
+                b.addEventListener("click", function () { var v = !b.classList.contains("on"); paint(v); onChange(v); });
+                var knob = document.createElement("span"); knob.className = "settings-switch-knob"; b.appendChild(knob);
+                return b;
+            }
+            function actionRow(titleText, hintText, onClick, extraClass) { // ligne cliquable (sauvegardes, export…)
+                var b = document.createElement("button");
+                b.type = "button"; b.className = "settings-action settings-data-btn" + (extraClass ? " " + extraClass : "");
+                var t = document.createElement("span"); t.className = "settings-action-text";
+                var l1 = document.createElement("span"); l1.className = "settings-action-title"; l1.textContent = titleText; t.appendChild(l1);
+                if (hintText) { var l2 = document.createElement("span"); l2.className = "settings-field-hint"; l2.textContent = hintText; t.appendChild(l2); }
+                var chev = document.createElement("span"); chev.className = "settings-action-chev"; chev.textContent = "›";
+                b.appendChild(t); b.appendChild(chev);
+                b.addEventListener("click", onClick);
+                curCard.appendChild(b);
+                return b;
             }
 
-            section("Métronome");
-            cur.appendChild(selectField("Position", [
-                ["center", "Centre"], ["top", "Haut"], ["bottom", "Bas"], ["corner", "Coin (bas à droite)"]
-            ], a.metronomePosition, function (v) { a.metronomePosition = v; save(); }));
-            cur.appendChild(selectField("Taille", [
-                ["small", "Petite"], ["medium", "Moyenne"], ["large", "Grande"]
-            ], a.metronomeSize, function (v) { a.metronomeSize = v; save(); }));
+            // ===== Affichage =====
+            section("Affichage");
+            card("Couleurs des chapitres", "Les chapitres existants prennent les nouvelles couleurs.");
+            var schemeGrid = document.createElement("div");
+            schemeGrid.className = "settings-schemes";
+            var huesLabel = document.createElement("div");
+            huesLabel.className = "settings-hues-label"; huesLabel.textContent = "Teinte du jeu monochrome";
+            var huesRow = document.createElement("div");
+            huesRow.className = "settings-hues";
+            function paintSchemes() {
+                Array.prototype.forEach.call(schemeGrid.children, function (b) { var on = b.dataset.scheme === a.colorScheme; b.classList.toggle("on", on); b.setAttribute("aria-checked", on ? "true" : "false"); });
+                huesRow.hidden = huesLabel.hidden = a.colorScheme !== "mono"; // la teinte ne se choisit que pour le jeu monochrome
+                Array.prototype.forEach.call(huesRow.querySelectorAll(".settings-hue"), function (b) { var on = parseInt(b.dataset.hue, 10) === a.monoHue; b.classList.toggle("on", on); b.setAttribute("aria-checked", on ? "true" : "false"); });
+                // aperçu des pastilles du jeu monochrome : suit la teinte choisie
+                var monoCard = schemeGrid.querySelector('[data-scheme="mono"] .settings-scheme-dots');
+                if (monoCard) fillDots(monoCard, schemeColors("mono", a.monoHue));
+            }
+            function fillDots(box, colors) { box.innerHTML = ""; colors.forEach(function (c) { var d = document.createElement("span"); d.style.background = c; box.appendChild(d); }); }
+            SCHEME_ORDER.forEach(function (key) {
+                var sc = COLOR_SCHEMES[key];
+                var b = document.createElement("button");
+                b.type = "button"; b.className = "settings-scheme"; b.dataset.scheme = key; b.setAttribute("role", "radio");
+                var nm = document.createElement("span"); nm.className = "settings-scheme-name"; nm.textContent = sc.label;
+                var dots = document.createElement("span"); dots.className = "settings-scheme-dots"; fillDots(dots, schemeColors(key, a.monoHue));
+                var ht = document.createElement("span"); ht.className = "settings-field-hint"; ht.textContent = sc.hint;
+                b.appendChild(nm); b.appendChild(dots); b.appendChild(ht);
+                b.addEventListener("click", function () { applyColorScheme(key); paintSchemes(); });
+                schemeGrid.appendChild(b);
+            });
+            curCard.appendChild(schemeGrid);
+            MONO_HUES.concat([-1]).forEach(function (h) {
+                var b = document.createElement("button");
+                b.type = "button"; b.className = "settings-hue"; b.dataset.hue = String(h); b.setAttribute("role", "radio");
+                b.title = h < 0 ? "Gris" : "Teinte " + h + "°"; b.setAttribute("aria-label", b.title);
+                b.style.background = oklchToHex(0.72, 1, h);
+                b.addEventListener("click", function () { applyColorScheme("mono", h); paintSchemes(); });
+                huesRow.appendChild(b);
+            });
+            curCard.appendChild(huesLabel); curCard.appendChild(huesRow);
+            paintSchemes();
 
-            var soundField = selectField("Son", METRO_SOUNDS.map(function (k) { return [k, METRO_SOUND_LABELS[k]]; }), state.settings.metronome.sound, function (v) {
+            card("Texte et densité");
+            field("Taille du texte des dossiers", segControl([["0.85", "Petite"], ["1", "Normale"], ["1.15", "Grande"], ["1.3", "Très grande"]], a.treeFontScale, function (v) {
+                a.treeFontScale = parseFloat(v); save(); render();
+            }));
+            field("Densité de l'interface", segControl([["compact", "Compacte"], ["comfortable", "Confortable"], ["spacious", "Spacieuse"]], a.density, function (v) { a.density = v; save(); render(); }));
+            card("Disposition");
+            field("Écran principal", segControl([["vertical", "Verticale"], ["horizontal", "Horizontale (Finder)"]], a.mainLayout, function (v) { a.mainLayout = v; save(); render(); }));
+
+            // ===== Métronome =====
+            section("Métronome");
+            card("Fenêtre");
+            field("Position", selectControl([["center", "Centre"], ["top", "Haut"], ["bottom", "Bas"], ["corner", "Coin (bas à droite)"]], a.metronomePosition, function (v) { a.metronomePosition = v; save(); }));
+            field("Taille", segControl([["small", "Petite"], ["medium", "Moyenne"], ["large", "Grande"]], a.metronomeSize, function (v) { a.metronomeSize = v; save(); }));
+            card("Son");
+            var soundSel = selectControl(METRO_SOUNDS.map(function (k) { return [k, METRO_SOUND_LABELS[k]]; }), state.settings.metronome.sound, function (v) {
                 state.settings.metronome.sound = v; save(); metroPreviewSound(v);
             });
-            var soundSel = soundField.querySelector("select");
+            var soundWrap = document.createElement("div");
+            soundWrap.className = "settings-sound";
             var soundPlay = document.createElement("button");
             soundPlay.type = "button"; soundPlay.className = "btn-ghost settings-sound-play"; soundPlay.title = "Écouter ce son"; soundPlay.setAttribute("aria-label", "Écouter ce son");
             soundPlay.innerHTML = METRO_PLAY_ICON_SVG;
             soundPlay.addEventListener("click", function () { metroPreviewSound(soundSel.value); });
-            soundField.appendChild(soundPlay);
-            cur.appendChild(soundField);
+            soundWrap.appendChild(soundSel); soundWrap.appendChild(soundPlay);
+            field("Son du clic", soundWrap);
 
+            // ===== Vidéos =====
             section("Vidéos");
+            card("Lecteur YouTube");
             var volOptions = [["auto", "Automatique (volume de YouTube)"]];
             for (var vv = 10; vv <= 100; vv += 10) volOptions.push([String(vv), vv + " %"]);
             var curStartVol = getYtStartVolume();
-            cur.appendChild(selectField("Barres de réglage (temps, volume, vitesse)", [["1", "Affichées"], ["0", "Masquées"]], ytBarsEnabled() ? "1" : "0", function (v) {
-                setYtBarsEnabled(v === "1");
+            field("Barres de réglage", switchControl(ytBarsEnabled(), function (on) {
+                setYtBarsEnabled(on);
                 document.dispatchEvent(new Event("trainhub-yt-bars")); // les vidéos déjà affichées se mettent à jour
-            }));
-            cur.appendChild(selectField("Volume de départ", volOptions, curStartVol === null ? "auto" : String(Math.round(curStartVol / 10) * 10), function (v) {
+            }), "Temps, volume et vitesse sous la vidéo");
+            field("Volume de départ", selectControl(volOptions, curStartVol === null ? "auto" : String(Math.round(curStartVol / 10) * 10), function (v) {
                 setYtStartVolume(v === "auto" ? null : parseInt(v, 10));
             }));
 
-            section("Affichage");
-            cur.appendChild(selectField("Couleurs des chapitres", Object.keys(COLOR_SCHEMES).map(function (key) {
-                return [key, COLOR_SCHEMES[key].label];
-            }), a.colorScheme, function (v) { applyColorScheme(v); }));
-            cur.appendChild(selectField("Taille du texte des dossiers", [
-                ["0.85", "Petite"], ["1", "Normale"], ["1.15", "Grande"], ["1.3", "Très grande"]
-            ], a.treeFontScale, function (v) {
-                a.treeFontScale = parseFloat(v);
-                save();
-                render();
-            }));
-            cur.appendChild(selectField("Densité de l'interface", [
-                ["compact", "Compacte"], ["comfortable", "Confortable"], ["spacious", "Spacieuse"]
-            ], a.density, function (v) { a.density = v; save(); render(); }));
-            cur.appendChild(selectField("Disposition de l'écran principal", [
-                ["vertical", "Verticale"], ["horizontal", "Horizontale (façon Finder)"]
-            ], a.mainLayout, function (v) { a.mainLayout = v; save(); render(); }));
-
+            // ===== Images =====
             section("Images");
+            card("Taille d'affichage");
             var imgSizes = [["small", "Petite"], ["medium", "Moyenne"], ["large", "Grande"]];
-            cur.appendChild(selectField("Taille des images dans les exercices", imgSizes, getImgSize("ex"), function (v) { setImgSize("ex", v); render(); }));
-            cur.appendChild(selectField("Taille des images dans les sessions", imgSizes, getImgSize("gs"), function (v) { setImgSize("gs", v); render(); }));
+            field("Dans les exercices", segControl(imgSizes, getImgSize("ex"), function (v) { setImgSize("ex", v); render(); }));
+            field("Dans les sessions", segControl(imgSizes, getImgSize("gs"), function (v) { setImgSize("gs", v); render(); }));
 
+            // ===== Données =====
             section("Données");
-            [["Sauvegardes de secours", openBackupsPanel], ["Exporter (sauvegarde JSON)", "export-btn"], ["Importer une sauvegarde JSON", "import-btn"]].forEach(function (d) {
-                var row = document.createElement("div");
-                row.className = "settings-field";
-                var btn = document.createElement("button");
-                btn.type = "button"; btn.className = "btn-ghost settings-data-btn"; btn.textContent = d[0];
-                btn.addEventListener("click", function () { if (typeof d[1] === "function") { d[1](); return; } var target = document.getElementById(d[1]); if (target) target.click(); });
-                row.appendChild(btn);
-                cur.appendChild(row);
-            });
-
-            var dataNote = document.createElement("div");
-            dataNote.className = "gs-empty";
-            dataNote.textContent = "Réinjecte des images exportées (fichiers « Espace - Titre - n »). Elles retrouvent leur exercice ; celles dont l'exercice a changé de nom te sont proposées une à une.";
-            cur.appendChild(dataNote);
+            card("Sauvegarde");
+            actionRow("Sauvegardes de secours", "Revenir à une version précédente de tes données", openBackupsPanel);
+            actionRow("Exporter", "Télécharger tout dans un fichier JSON", function () { var t = document.getElementById("export-btn"); if (t) t.click(); });
+            actionRow("Importer", "Remplacer tes données par un fichier JSON", function () { var t = document.getElementById("import-btn"); if (t) t.click(); });
+            card("Images");
             var reFile = document.createElement("input");
             reFile.type = "file"; reFile.accept = "image/*"; reFile.multiple = true; reFile.hidden = true;
             reFile.addEventListener("change", function () {
@@ -9464,26 +9600,24 @@
                 reFile.value = "";
                 if (files.length) { if (closeActiveModal) closeActiveModal(); reimportImages(files); }
             });
-            var reBtn = document.createElement("button");
-            reBtn.type = "button";
-            reBtn.className = "settings-data-btn";
-            reBtn.textContent = "Réimporter des images…";
-            reBtn.addEventListener("click", function () { reFile.click(); });
-            cur.appendChild(reBtn);
-            cur.appendChild(reFile);
+            actionRow("Réimporter des images…", "Rattache des images exportées à leurs exercices", function () { reFile.click(); }, "settings-reimport-btn");
+            curCard.appendChild(reFile);
 
             var TAB_ORDER = ["Affichage", "Métronome", "Vidéos", "Images", "Données"];
             function showTab(name) {
                 settingsTab = name;
                 TAB_ORDER.forEach(function (n) { pages[n].hidden = n !== name; });
-                Array.prototype.forEach.call(tabBar.children, function (btn) { btn.classList.toggle("settings-tab-active", btn.dataset.tab === name); });
+                Array.prototype.forEach.call(tabBar.children, function (btn) { var on = btn.dataset.tab === name; btn.classList.toggle("settings-tab-active", on); btn.setAttribute("aria-selected", on ? "true" : "false"); });
+                body.scrollTop = 0;
             }
             TAB_ORDER.forEach(function (n) {
                 var tb = document.createElement("button");
                 tb.type = "button";
                 tb.className = "settings-tab";
                 tb.dataset.tab = n;
-                tb.textContent = n;
+                tb.setAttribute("role", "tab");
+                tb.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICONS[n] + '</svg>';
+                var lbl = document.createElement("span"); lbl.textContent = n; tb.appendChild(lbl);
                 tb.addEventListener("click", function () { showTab(n); });
                 tabBar.appendChild(tb);
             });

@@ -1808,11 +1808,6 @@ button.gs-plan-move:disabled { opacity: .3; }
 .update-banner { position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 960; display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--card-bg-2); border: 1px solid var(--accent); border-radius: var(--radius); box-shadow: 0 10px 30px rgba(0,0,0,.5); font-size: var(--fs-sm); max-width: calc(100vw - 24px); flex-wrap: wrap; }
 
 /* ---------- paramètres généraux ---------- */
-.settings-panel { text-align: left; }
-.settings-section-label { margin-top: 4px; }
-.settings-field { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; }
-.settings-field-label { font-size: var(--fs-sm); color: var(--text-muted); }
-.settings-field select { min-width: 160px; }
 @media (max-width: 700px) {
     /* Plein écran sur téléphone : l'accordeur se centre verticalement au lieu de rester collé en haut. */
     .tuner-panel .tuner-gauge-wrap { margin-top: auto; width: min(420px, 100%); }
@@ -1874,11 +1869,6 @@ button.img-lightbox-close { position: fixed; top: calc(12px + env(safe-area-inse
 .img-lightbox-caption { position: fixed; left: 0; right: 0; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); text-align: center; font-size: var(--fs-xs); color: #ccc; pointer-events: none; }
 
 /* Paramètres : onglets */
-.settings-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
-button.settings-tab { height: 34px; padding: 0 14px; font-size: var(--fs-xs); background: transparent; color: var(--text-muted); }
-button.settings-tab-active { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 14%, transparent); }
-.settings-page[hidden] { display: none; }
-.settings-page { display: flex; flex-direction: column; gap: 10px; }
 
 /* Tri et filtres de la liste d'exercices */
 .ex-view-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
@@ -1922,7 +1912,6 @@ button.sidebar-toggle-btn[aria-pressed="true"] { color: var(--accent); }
 .reimport-name { font-size: var(--fs-xs); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reimport-right select { width: 100%; font-size: var(--fs-xs); }
 .reimport-actions { display: flex; justify-content: flex-end; gap: 8px; }
-button.settings-data-btn { height: 40px; align-self: flex-start; padding: 0 16px; }
 
 /* Tempo cible : pastille et fenêtre de réglage */
 .metro-preset-unit { font-size: var(--fs-2xs); color: var(--text-muted); }
@@ -3068,8 +3057,6 @@ button.metro-mini-btn.metro-prog-add { width: 100%; min-width: 0; height: 26px; 
 
 /* Métronome, Session et Libre : un groupe à part dans la barre d'outils, un léger encadré vert pâle */
 @media (min-width: 761px) { #metronome-btn { margin-left: 8px; } #free-btn { margin-right: 8px; } }
-.settings-field .settings-sound-play { width: 36px; height: 36px; padding: 0; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; }
-.settings-field .settings-sound-play .icon { width: 14px; height: 14px; }
 
 /* Tempo progressif : bas du tableau (ajouter un palier, réglages enregistrés) et fenêtre des réglages enregistrés */
 .metro-prog-foot { display: flex; gap: 4px; }
@@ -3097,7 +3084,6 @@ button.metro-mini-btn.metro-prog-presets .icon { width: 15px; height: 15px; }
 }
 .metro-dial.metro-flash-on > .metro-dial-flash { opacity: 1; }
 
-.settings-data-btn { width: 100%; justify-content: flex-start; text-align: left; }
 .ctx-item-main { font-weight: 700; color: var(--accent); }
 
 /* Tempo progressif : le bas du tableau (+ et réglages enregistrés) s'aligne sur les cases au-dessus (même marge que les cellules) */
@@ -3223,3 +3209,59 @@ button.metro-mini-btn.metro-progressive-toggle.metro-progressive-active { backgr
 @keyframes appDlgFade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes appDlgPop { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .app-dialog-overlay, .app-dialog { animation: none; } }
+
+/* ---------- paramètres : onglets à gauche, réglages rangés en cartes ---------- */
+.backups-panel.settings-panel { width: min(800px, calc(100vw - 32px)); height: min(600px, calc(100vh - 32px)); text-align: left; }
+.settings-layout { flex: 1 1 auto; min-height: 0; display: flex; gap: 18px; }
+.settings-tabs { flex: 0 0 170px; display: flex; flex-direction: column; gap: 4px; margin: 0; }
+button.settings-tab { height: 40px; justify-content: flex-start; gap: 10px; padding: 0 12px; font-size: var(--fs-sm); font-weight: 600; background: transparent; border: 1px solid transparent; border-radius: 10px; color: var(--text-muted); }
+button.settings-tab .icon { width: 18px; height: 18px; flex: none; }
+button.settings-tab-active { color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, transparent); border-color: color-mix(in srgb, var(--accent) 38%, transparent); }
+@media (hover: hover) { button.settings-tab:not(.settings-tab-active):hover { color: var(--text-main); background: rgba(255,255,255,.05); } }
+.settings-body { flex: 1 1 auto; min-width: 0; overflow-y: auto; padding-right: 4px; }
+.settings-page { display: flex; flex-direction: column; gap: 14px; }
+.settings-page[hidden] { display: none; }
+.settings-card { display: flex; flex-direction: column; padding: 4px 14px 6px; background: rgba(255,255,255,.03); border: 1px solid var(--border); border-radius: var(--radius); }
+.settings-card-title { padding: 10px 0 4px; font-size: var(--fs-2xs); font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); }
+.settings-card-note { padding-bottom: 8px; font-size: var(--fs-xs); line-height: 1.4; color: var(--text-muted); }
+.settings-field { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 0; border-top: 1px solid color-mix(in srgb, var(--border) 75%, transparent); }
+.settings-card > .settings-field:first-child, .settings-card-title + .settings-field, .settings-card-note + .settings-field { border-top: none; }
+.settings-field-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.settings-field-label { font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); }
+.settings-field-hint { font-size: var(--fs-xs); font-weight: 400; line-height: 1.35; color: var(--text-muted); }
+.settings-field select { min-width: 150px; max-width: 100%; }
+.settings-seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; }
+button.settings-seg-btn { height: 30px; padding: 0 12px; font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; background: transparent; border: 1px solid transparent; border-radius: 8px; color: var(--text-muted); }
+button.settings-seg-btn.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+button.settings-switch { position: relative; flex: none; width: 46px; height: 27px; padding: 0; border-radius: 999px; background: var(--card-bg); border: 1px solid var(--border); }
+.settings-switch-knob { position: absolute; top: 2px; left: 2px; width: 21px; height: 21px; border-radius: 50%; background: var(--text-muted); transition: transform .16s ease, background .16s ease; }
+button.settings-switch.on { background: color-mix(in srgb, var(--accent) 28%, transparent); border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
+button.settings-switch.on .settings-switch-knob { transform: translateX(19px); background: var(--accent); }
+.settings-sound { display: inline-flex; align-items: center; gap: 6px; }
+.settings-sound .settings-sound-play { width: 34px; height: 34px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.settings-sound .settings-sound-play .icon { width: 14px; height: 14px; }
+.settings-schemes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 4px 0 10px; }
+button.settings-scheme { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 8px; height: auto; padding: 12px; text-align: left; border-radius: 12px; background: var(--card-bg); border: 1px solid var(--border); }
+button.settings-scheme.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--card-bg)); }
+.settings-scheme-name { font-size: var(--fs-sm); font-weight: 800; color: var(--text-main); }
+.settings-scheme-dots { display: flex; gap: 5px; }
+.settings-scheme-dots span { width: 18px; height: 18px; border-radius: 50%; }
+.settings-hues-label { padding: 2px 0 8px; font-size: var(--fs-xs); color: var(--text-muted); }
+.settings-hues { display: flex; flex-wrap: wrap; gap: 10px; padding: 2px 2px 10px; }
+.settings-hues[hidden], .settings-hues-label[hidden] { display: none; }
+button.settings-hue { width: 28px; height: 28px; padding: 0; border-radius: 50%; border: 1px solid rgba(255,255,255,.18); }
+button.settings-hue.on { box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--text-main); }
+button.settings-action { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; height: auto; padding: 12px 2px 12px 0; text-align: left; background: transparent; border: none; border-top: 1px solid color-mix(in srgb, var(--border) 75%, transparent); border-radius: 0; }
+.settings-card-title + button.settings-action, .settings-card-note + button.settings-action { border-top: none; }
+.settings-action-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.settings-action-title { font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); }
+.settings-action-chev { font-size: 22px; line-height: 1; color: var(--text-muted); }
+@media (hover: hover) { button.settings-action:hover { background: rgba(255,255,255,.04); } }
+@media (max-width: 700px) {
+    .settings-layout { flex-direction: column; gap: 10px; }
+    .settings-tabs { flex: none; flex-direction: row; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+    .settings-tabs::-webkit-scrollbar { display: none; }
+    button.settings-tab { flex: none; height: 38px; }
+    .settings-field { flex-wrap: wrap; }
+    .settings-seg { flex-wrap: wrap; }
+}
