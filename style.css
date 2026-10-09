@@ -3337,14 +3337,15 @@ button.settings-action { display: flex; align-items: center; justify-content: sp
    cartes de sous-dossiers, exercice déplié. Seule la couleur change (--hc) ; la forme est identique partout.
    LISERÉ (trait de couleur opaque, à gauche) : dossiers principaux + favoris + archivés 1,5 px (ombre interne : net sur tous les
    écrans) ; sous-dossiers (barre latérale : ombre interne ; cartes de la vue principale : bordure) 1 px ; exercice déplié 1 px
-   (bordure). HALO : lueur douce d'environ 10 px à gauche du liseré, portée par un petit élément transparent (::before) posé sur
+   (bordure). HALO : lueur douce d'environ 13 px à gauche du liseré, portée par un petit élément transparent (::before) posé sur
    le bord gauche : elle ne suit pas la barre sur sa longueur, quelle que soit sa largeur. Deux profils (data-halo) : « diffus »
    (défaut) et « net » ; « off » = aucun halo. --g-edge / --glass-hi ne servent qu'au verre.
    ============================================================ */
 :root {
-    /* « diffus » (défaut) : lueur proche + lueur large, discrètes (≈ 10 px) */
-    --g-n-o: -1px; --g-n-b: 5px;  --g-n-s: 0px; --g-n-a: 45%;
-    --g-f-o: -3px; --g-f-b: 16px; --g-f-s: 0px; --g-f-a: 34%;
+    /* « diffus » (défaut) : lueur proche + lueur large (≈ 13 px) */
+    --g-n-o: -1px; --g-n-b: 6px;  --g-n-s: 0px; --g-n-a: 60%;
+    --g-f-o: -4px; --g-f-b: 28px; --g-f-s: 0px; --g-f-a: 55%;
+    --g-vi: -2px; /* le trait lumineux dépasse de 2 px en haut et en bas : la lueur est pleine jusqu'au début des arrondis des angles */
     --g-ix: 6px;  --g-ib: 9px;  --g-is: -8px; --g-a3: 22%;
 }
 html[data-halo="net"] {
@@ -3360,7 +3361,7 @@ html[data-halo="off"] { --g-n-a: 0%; --g-f-a: 0%; --g-a3: 0%; }
 }
 :root :is(.tree-row-d0, :is(.tree-row-d1, .tree-row-d2).selected, .tree-row-fixed.virtual-favorites, .tree-row-fixed.virtual-archived, .folder-row, .exercise:not(.collapsed))::before {
     content: ""; position: absolute; pointer-events: none;
-    left: var(--g-bl, 0px); width: 8px; top: min(14%, 10px); bottom: min(14%, 10px); border-radius: 2px;
+    left: var(--g-bl, 0px); width: 8px; top: var(--g-vi, 0px); bottom: var(--g-vi, 0px); border-radius: 2px;
     clip-path: inset(-30px 100% -30px -40px); /* la lueur n'existe qu'à gauche du bord de la barre : rien à l'intérieur (sinon le petit élément laisserait un « trou » visible) */ /* barre basse : 14 % de marge ; grande carte : 10 px seulement */
     box-shadow: var(--g-n-o) 0 var(--g-n-b) var(--g-n-s) color-mix(in srgb, var(--hc) var(--g-n-a), transparent),
                 var(--g-f-o) 0 var(--g-f-b) var(--g-f-s) color-mix(in srgb, var(--hc) var(--g-f-a), transparent);
