@@ -3398,14 +3398,26 @@ html[data-glass="1"] .tree-twisty { box-shadow: none; } /* bouton sans cadre : p
 html[data-glass="1"] button.btn-ghost, html[data-glass="1"] button.icon-btn.btn-ghost { box-shadow: none; }
 html[data-glass="1"] :is(.exercise, .folder-row, .gs-session-row, .gs-step-row, .st-tile, .st-ex, .gs-plan-row) { box-shadow: var(--glass-hi); }
 
+/* ---- halos : une seule règle pour tous (dossiers, sélection, favoris/archivés, cartes de sous-dossiers, exercice déplié).
+   --hc = couleur du halo ; --g-halo-in = bande lumineuse étroite à l'intérieur du bord gauche ;
+   --g-halo-out = lueur douce qui se diffuse vers la gauche dans le fond. ---- */
+html[data-glass="1"] { --g-halo-in: 34%; --g-halo-out: 72%; }
+html[data-glass="1"] :is(.tree-row-d0, :is(.tree-row-d1, .tree-row-d2).selected, .tree-row-fixed.virtual-favorites, .tree-row-fixed.virtual-archived, .folder-row, .exercise:not(.collapsed)) {
+    box-shadow: var(--glass-hi),
+        inset 7px 0 9px -9px color-mix(in srgb, var(--hc) var(--g-halo-in), transparent),
+        -10px 0 26px -10px color-mix(in srgb, var(--hc) var(--g-halo-out), transparent);
+}
+/* un peu de place à gauche du bandeau pour que la lueur ne soit pas coupée */
+html[data-glass="1"] .sidebar-tree { padding-left: 20px; }
+
 /* ---- dossiers : contour de couleur à gauche + halo (arborescence, cartes de sous-dossiers, favoris/archivés) ---- */
 html[data-glass="1"] .tree-row-d0 {
     --tint: 5%;
+    --hc: var(--rc, var(--accent));
     border: 1px solid var(--border);
     border-radius: var(--g-bar-radius);
     padding: calc(5px * var(--g-dens, 1)) 8px;
     background: linear-gradient(color-mix(in srgb, var(--rc, var(--accent)) var(--tint), transparent), color-mix(in srgb, var(--rc, var(--accent)) var(--tint), transparent)), var(--card-bg-2) !important;
-    box-shadow: var(--glass-hi), inset 14px 0 16px -16px color-mix(in srgb, var(--rc, var(--accent)) 55%, transparent), -3px 0 12px -8px color-mix(in srgb, var(--rc, var(--accent)) 42%, transparent);
 }
 /* Échelle de densité propre au verre : écarts plus marqués que le réglage général (0,65 / 1 / 1,5) car les rangées verre sont déjà plus basses */
 html[data-glass="1"] { --g-dens: 1; }
@@ -3414,8 +3426,8 @@ html[data-glass="1"].density-spacious { --g-dens: 2; }
 html[data-glass="1"] .tree-list { gap: calc(4px * var(--g-dens, 1)); }
 html[data-glass="1"] .tree-row-d0:hover { --tint: 10%; }
 html[data-glass="1"] .tree-row-d0.selected {
-    --tint: 17%;
-    box-shadow: var(--glass-hi), inset 22px 0 22px -16px color-mix(in srgb, var(--rc, var(--accent)) 85%, transparent), -5px 0 18px -6px color-mix(in srgb, var(--rc, var(--accent)) 75%, transparent);
+    --tint: 15%;
+    --g-halo-in: 30%; --g-halo-out: 92%; /* sélection : moins de lumière sous le chevron, un peu plus de lueur dans le fond */
 }
 /* sous-dossiers : discrets comme avant (tailles de police et poids inchangés) ; la sélection prend le contour et le halo */
 html[data-glass="1"] .tree-row-d1, html[data-glass="1"] .tree-row-d2 { border-left: 2px solid transparent; }
@@ -3423,17 +3435,18 @@ html[data-glass="1"] .tree-row-d1 { padding: calc(4px * var(--g-dens, 1)) 8px; }
 html[data-glass="1"] .tree-row-d2 { padding: calc(2px * var(--g-dens, 1)) 8px; }
 html[data-glass="1"] :is(.tree-row-d1, .tree-row-d2).selected {
     border-left-color: var(--rc, var(--accent));
-    box-shadow: inset 12px 0 16px -14px color-mix(in srgb, var(--rc, var(--accent)) 60%, transparent), -3px 0 10px -7px color-mix(in srgb, var(--rc, var(--accent)) 45%, transparent);
+    --hc: var(--rc, var(--accent));
+    --g-halo-in: 28%; --g-halo-out: 80%;
 }
 html[data-glass="1"] .tree-row-fixed { border-top: 1px solid var(--border); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); border-radius: var(--g-bar-radius); padding-top: calc(5px * var(--g-dens, 1)); padding-bottom: calc(5px * var(--g-dens, 1)); box-shadow: var(--glass-hi); }
-html[data-glass="1"] .tree-row-fixed.virtual-favorites { box-shadow: var(--glass-hi), inset 12px 0 14px -14px color-mix(in srgb, var(--c-gold) 50%, transparent), -3px 0 10px -8px color-mix(in srgb, var(--c-gold) 40%, transparent); }
-html[data-glass="1"] .tree-row-fixed.virtual-archived { box-shadow: var(--glass-hi), inset 12px 0 14px -14px color-mix(in srgb, var(--c-grey) 50%, transparent), -3px 0 10px -8px color-mix(in srgb, var(--c-grey) 40%, transparent); }
+html[data-glass="1"] .tree-row-fixed.virtual-favorites { --hc: var(--c-gold); }
+html[data-glass="1"] .tree-row-fixed.virtual-archived { --hc: var(--c-grey); }
 html[data-glass="1"] .tree-row-fixed { margin-bottom: calc(4px * var(--g-dens, 1)); }
 html[data-glass="1"] .folder-row {
     border-left: 3px solid var(--chapter-accent);
     padding: calc(6px * var(--g-dens, 1)) 12px;
     border-radius: var(--g-bar-radius);
-    box-shadow: var(--glass-hi), inset 14px 0 16px -14px color-mix(in srgb, var(--chapter-accent) 60%, transparent), -4px 0 12px -8px color-mix(in srgb, var(--chapter-accent) 50%, transparent);
+    --hc: var(--chapter-accent);
 }
 
 /* ---- exercices : lignes translucides plus basses ; l'exercice déplié a le contour + halo, pas ses notes ---- */
@@ -3443,7 +3456,7 @@ html[data-glass="1"] .exercise:not(.collapsed) {
     border-left: 3px solid var(--chapter-accent);
     padding-left: 8px;
     background: linear-gradient(color-mix(in srgb, var(--chapter-accent) 6%, transparent), color-mix(in srgb, var(--chapter-accent) 6%, transparent)), var(--card-bg-2);
-    box-shadow: var(--glass-hi), inset 18px 0 20px -18px color-mix(in srgb, var(--chapter-accent) 60%, transparent), -4px 0 16px -8px color-mix(in srgb, var(--chapter-accent) 55%, transparent), 0 16px 30px -22px color-mix(in srgb, var(--chapter-accent) 45%, transparent);
+    --hc: var(--chapter-accent);
 }
 html[data-glass="1"] :is(.notes-fixed-textarea, .exercise-fixed-view, .gs-run-fixed, .gs-run-note) { border-left: 1px solid var(--border); box-shadow: none; }
 
