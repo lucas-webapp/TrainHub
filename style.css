@@ -3195,3 +3195,24 @@ button.metro-mini-btn.metro-progressive-toggle.metro-progressive-active { backgr
 .gs-preview-dur { flex: 0 0 auto; margin-left: auto; padding-left: 10px; color: var(--accent); font-size: var(--fs-xs); font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .gs-preview-missing .gs-preview-name { color: var(--text-muted); font-style: italic; font-weight: 500; }
 .gs-preview-missing .gs-preview-dur { color: var(--text-muted); }
+
+/* ---------- boîtes de dialogue de l'appli (confirmation, saisie, information) ---------- */
+.app-dialog-overlay { position: fixed; inset: 0; z-index: 1200; display: flex; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; background: rgba(0,0,0,.58); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); overscroll-behavior: contain; animation: appDlgFade .14s ease-out; }
+.app-dialog { width: min(420px, 100%); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; padding: 18px 18px 14px; background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 18px 50px rgba(0,0,0,.6); animation: appDlgPop .16s ease-out; }
+.app-dialog-title { font-size: var(--fs-md); font-weight: 800; line-height: 1.3; color: var(--text-main); overflow-wrap: anywhere; }
+.app-dialog-msg { font-size: var(--fs-sm); line-height: 1.5; color: var(--text-dim); white-space: pre-line; overflow-wrap: anywhere; overflow-y: auto; }
+.app-dialog-items { margin: 0; padding: 0 0 0 1.2em; font-size: var(--fs-sm); line-height: 1.5; color: var(--text-dim); max-height: 28vh; overflow-y: auto; overflow-wrap: anywhere; }
+.app-dialog-warn { font-size: var(--fs-sm); line-height: 1.45; color: var(--status-en-cours); padding-left: 1.5em; text-indent: -1.5em; overflow-wrap: anywhere; }
+.app-dialog-note { font-size: var(--fs-xs); line-height: 1.45; color: var(--text-muted); }
+.app-dialog-input { width: 100%; box-sizing: border-box; font-size: var(--fs-base); padding: 9px 11px; }
+.app-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+.app-dialog-actions button { min-height: 36px; padding: 7px 14px; }
+.app-dialog-actions .app-dialog-left { margin-right: auto; }
+.app-dialog-danger .app-dialog-title { color: var(--text-main); }
+@media (max-width: 480px) {
+    .app-dialog-many .app-dialog-actions button, .app-dialog-actions button.app-dialog-left { flex: 1 1 100%; }
+    .app-dialog-actions .app-dialog-left { margin-right: 0; order: 9; }
+}
+@keyframes appDlgFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes appDlgPop { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .app-dialog-overlay, .app-dialog { animation: none; } }
