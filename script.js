@@ -1749,7 +1749,9 @@
             // Largeur MAXIMALE = celle du texte : le titre n'occupe pas plus que son texte (le reste de la ligne reste
             // cliquable pour déplier), mais il peut rétrécir (points de suspension) quand la place manque.
             input.style.width = "";
-            input.style.maxWidth = (exerciseTitleMeasurer.offsetWidth + 22) + "px";
+            var wanted = exerciseTitleMeasurer.offsetWidth + 22;
+            input.style.maxWidth = wanted + "px";
+            input.style.setProperty("--t-w", wanted + "px"); // largeur souhaitée : sert de base à la ligne (voir .exercise-title dans style.css)
         } catch (e) {}
     }
     function autoSizeAllExerciseTitles() {
