@@ -9558,6 +9558,71 @@
         return session.steps.reduce(function (sum, s) { return sum + s.minutes; }, 0);
     }
 
+    // ---------- aperçu d'une session au survol du titre : tous ses exercices, dans l'ordre, avec leur durée ----------
+    // Carte flottante, jamais cliquable (elle ne gêne pas la souris) ; réservée aux appareils avec survol (pas au toucher).
+    var SESS_PREVIEW_DELAY_MS = 350, SESS_PREVIEW_PER_COLUMN = 14;
+    var sessPreviewEl = null, sessPreviewTimer = null, sessPreviewAnchor = null;
+    var SESS_PREVIEW_EVENTS = ["pointermove", "pointerdown", "keydown", "scroll", "wheel", "dragstart", "contextmenu"];
+    function sessPreviewOnEvent(e) {
+        if (e.type === "pointermove" && sessPreviewAnchor && sessPreviewAnchor.contains(e.target)) return;
+        sessPreviewHide();
+    }
+    function sessPreviewHide() {
+        if (sessPreviewTimer) { clearTimeout(sessPreviewTimer); sessPreviewTimer = null; }
+        if (sessPreviewEl) {
+            SESS_PREVIEW_EVENTS.forEach(function (n) { document.removeEventListener(n, sessPreviewOnEvent, true); });
+            if (sessPreviewEl.parentNode) sessPreviewEl.parentNode.removeChild(sessPreviewEl);
+        }
+        sessPreviewEl = null; sessPreviewAnchor = null;
+    }
+    function sessPreviewShow(anchor, session) {
+        var steps = session.steps || [];
+        var card = document.createElement("div");
+        card.className = "gs-preview";
+        card.setAttribute("role", "tooltip");
+        var head = document.createElement("div");
+        head.className = "gs-preview-head";
+        head.textContent = steps.length ? steps.length + " exercice" + (steps.length > 1 ? "s" : "") + " · " + gsFmtMin(sessionTotalMinutes(session) * 60) : "Aucun exercice pour l'instant";
+        card.appendChild(head);
+        if (steps.length) {
+            var list = document.createElement("ol");
+            list.className = "gs-preview-list";
+            var cols = Math.min(3, Math.ceil(steps.length / SESS_PREVIEW_PER_COLUMN));
+            if (cols > 1) list.style.columnCount = String(cols);
+            steps.forEach(function (st) {
+                var f = findExerciseById(st.exerciseId);
+                var li = document.createElement("li");
+                if (!f) li.className = "gs-preview-missing";
+                var nm = document.createElement("span"); nm.className = "gs-preview-name"; nm.textContent = f ? f.ex.title : "(exercice supprimé)";
+                var du = document.createElement("span"); du.className = "gs-preview-dur"; du.textContent = gsFmtMin((st.minutes || 0) * 60);
+                li.appendChild(nm); li.appendChild(du); list.appendChild(li);
+            });
+            card.appendChild(list);
+        }
+        document.body.appendChild(card);
+        var r = anchor.getBoundingClientRect(), w = card.offsetWidth, h = card.offsetHeight, vw = window.innerWidth, vh = window.innerHeight;
+        var top = r.bottom + 6;
+        if (top + h > vh - 8) top = r.top - 6 - h >= 8 ? r.top - 6 - h : Math.max(8, vh - h - 8); // sous le titre, sinon au-dessus
+        card.style.left = Math.min(Math.max(8, r.left), Math.max(8, vw - w - 8)) + "px";
+        card.style.top = top + "px";
+        sessPreviewEl = card; sessPreviewAnchor = anchor;
+        SESS_PREVIEW_EVENTS.forEach(function (n) { document.addEventListener(n, sessPreviewOnEvent, true); });
+    }
+    // Accroche l'aperçu à un élément (le titre d'une session) ; getSession() est relu à l'affichage, donc toujours à jour.
+    function attachSessionPreview(anchor, getSession) {
+        if (!(window.matchMedia && window.matchMedia("(hover: hover)").matches)) return;
+        function arm() { // se (re)déclenche à l'entrée puis au moindre mouvement : revient après un défilement ou une touche
+            if (sessPreviewEl || sessPreviewTimer) return;
+            sessPreviewTimer = setTimeout(function () {
+                sessPreviewTimer = null;
+                var sess = getSession();
+                if (sess && anchor.isConnected && anchor.matches(":hover")) sessPreviewShow(anchor, sess);
+            }, SESS_PREVIEW_DELAY_MS);
+        }
+        anchor.addEventListener("mouseenter", function () { sessPreviewHide(); arm(); });
+        anchor.addEventListener("mousemove", arm);
+        anchor.addEventListener("mouseleave", sessPreviewHide);
+    }
     // Liens et pièces jointes d'un exercice, sous la forme utilisée par l'écran "Liens et pièces jointes".
     function gsExerciseItems(ex) {
         var items = [];
@@ -10698,6 +10763,7 @@
             meta.textContent = session.steps.length + " exercice" + (session.steps.length > 1 ? "s" : "") + " · " + sessionTotalMinutes(session) + " min";
             info.appendChild(name);
             info.appendChild(meta);
+            attachSessionPreview(info, function () { return session; });
             var plannedToday = state.settings.sessionPlan.some(function (pe) { return pe.sessionId === session.id && pe.date === calKey(new Date()); });
             if (plannedToday && !calDayItems(calKey(new Date())).done.some(function (e) { return e.sessionId === session.id; })) {
                 var todayPill = document.createElement("span");
@@ -10900,6 +10966,7 @@
                 var meta = document.createElement("span"); meta.className = "gs-up-meta";
                 meta.textContent = (sess ? sess.steps.length + " exercice" + (sess.steps.length > 1 ? "s" : "") + " · " + sessionTotalMinutes(sess) + " min" + (sess.steps.some(function (st) { return !liveIds[st.exerciseId]; }) ? " · ⚠ exercice supprimé" : "") : "session supprimée") + (en.seriesId ? " · ↻ " + calRuleLabel(en.rule) : "");
                 info.appendChild(nm); info.appendChild(meta); row.appendChild(info);
+                if (sess) attachSessionPreview(info, function () { return gsFindSession(en.sessionId); });
                 var acts = document.createElement("div"); acts.className = "gs-session-actions";
                 if (en.date === calTodayKey() && sess && sess.steps.length) { var pb = svgIconButton(METRO_PLAY_ICON_SVG, "Lancer cette session maintenant", function () { gsStartRun(sess); }); pb.classList.add("gs-session-play-btn"); acts.appendChild(pb); }
                 if (sess) { var ed = iconButton("✎", "Modifier les exercices de cette session", function () { gsOpenSessionEditor(sess); }); ed.classList.add("gs-up-edit"); acts.appendChild(ed); }
@@ -12694,7 +12761,7 @@
                         if (names.length) cell.title = names.join("\n");
                         var num = document.createElement("span"); num.className = "cal-num"; num.textContent = String(d.getDate()); cell.appendChild(num);
                         var chips = document.createElement("span"); chips.className = "cal-chips";
-                        it.planned.forEach(function (e) { var c = document.createElement("span"); var es = gsFindSession(e.sessionId); c.className = "cal-chip cal-chip-plan" + (es && es.ephemeral ? " cal-chip-eph" : ""); c.textContent = (e.seriesId ? "↻ " : "") + gsSessionNameById(e.sessionId); chips.appendChild(c); });
+                        it.planned.forEach(function (e) { var c = document.createElement("span"); var es = gsFindSession(e.sessionId); c.className = "cal-chip cal-chip-plan" + (es && es.ephemeral ? " cal-chip-eph" : ""); c.textContent = (e.seriesId ? "↻ " : "") + gsSessionNameById(e.sessionId); attachSessionPreview(c, function () { return gsFindSession(e.sessionId); }); chips.appendChild(c); });
                         it.done.forEach(function (e) { var c = document.createElement("span"); c.className = "cal-chip cal-chip-done" + (gsIsEphemeralRec(e) ? " cal-chip-eph" : ""); c.dataset.rec = e.id; c.textContent = "✓ " + logRecName(e); chips.appendChild(c); });
                         cell.appendChild(chips);
                         var dots = document.createElement("span"); dots.className = "cal-dots";
@@ -12729,6 +12796,7 @@
                 it.planned.forEach(function (e) {
                     var r = document.createElement("div"); r.className = "cal-item cal-item-plan" + (gsIsEphemeralId(e.sessionId) ? " cal-item-eph-row" : "");
                     var nm = document.createElement("span"); nm.className = "cal-item-name"; nm.textContent = gsSessionNameById(e.sessionId);
+                    attachSessionPreview(nm, function () { return gsFindSession(e.sessionId); });
                     r.appendChild(nm);
                     if (e.seriesId) { var rep = document.createElement("span"); rep.className = "cal-item-rep"; rep.textContent = "↻ " + calRuleLabel(e.rule); rep.title = "Session répétée"; r.appendChild(rep); }
                     var sess = state.settings.guidedSessions.filter(function (x) { return x.id === e.sessionId; })[0];
