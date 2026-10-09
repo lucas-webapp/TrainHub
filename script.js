@@ -5510,10 +5510,7 @@
     });
 
     // ---------- panneau des sauvegardes de secours ----------
-    var $backupsBtn = document.getElementById("backups-btn");
-    if ($backupsBtn) {
-        $backupsBtn.addEventListener("click", openBackupsPanel);
-    }
+    // (plus de bouton dans la barre d'outils : « Sauvegardes de secours » s'ouvre depuis Paramètres › Données)
 
     function openBackupsPanel() {
         closeFolderMenu();
@@ -9446,12 +9443,12 @@
             cur.appendChild(selectField("Taille des images dans les sessions", imgSizes, getImgSize("gs"), function (v) { setImgSize("gs", v); render(); }));
 
             section("Données");
-            [["Sauvegardes de secours", "backups-btn"], ["Exporter (sauvegarde JSON)", "export-btn"], ["Importer une sauvegarde JSON", "import-btn"]].forEach(function (d) {
+            [["Sauvegardes de secours", openBackupsPanel], ["Exporter (sauvegarde JSON)", "export-btn"], ["Importer une sauvegarde JSON", "import-btn"]].forEach(function (d) {
                 var row = document.createElement("div");
                 row.className = "settings-field";
                 var btn = document.createElement("button");
                 btn.type = "button"; btn.className = "btn-ghost settings-data-btn"; btn.textContent = d[0];
-                btn.addEventListener("click", function () { var target = document.getElementById(d[1]); if (target) target.click(); });
+                btn.addEventListener("click", function () { if (typeof d[1] === "function") { d[1](); return; } var target = document.getElementById(d[1]); if (target) target.click(); });
                 row.appendChild(btn);
                 cur.appendChild(row);
             });
@@ -12352,13 +12349,12 @@
         bar.className = "free-bar free-bar-idle";
         var tm = document.createElement("span"); tm.className = "free-time"; tm.textContent = "0:00";
         var wh = document.createElement("span"); wh.className = "free-what";
-        function sep() { var x = document.createElement("span"); x.className = "free-sep"; x.setAttribute("aria-hidden", "true"); return x; }
         var pb = document.createElement("button"); pb.type = "button"; pb.className = "btn-ghost free-pause";
         pb.addEventListener("click", freeTogglePause);
         var sp = document.createElement("button"); sp.type = "button"; sp.className = "btn-ghost free-stop"; sp.innerHTML = FREE_STOP_SVG;
         sp.title = "Arrêter l'entraînement libre"; sp.setAttribute("aria-label", "Arrêter l'entraînement libre");
         sp.addEventListener("click", freeStop);
-        [tm, wh, sep(), pb, sep(), sp].forEach(function (n) { bar.appendChild(n); });
+        [tm, wh, pb, sp].forEach(function (n) { bar.appendChild(n); });
         var anchor = document.getElementById("free-btn"), actions = document.querySelector(".top-bar .top-actions");
         var recap = document.createElement("div"); recap.id = "free-recap"; recap.className = "free-recap";
         if (actions) { actions.insertBefore(recap, actions.firstChild); actions.insertBefore(bar, actions.firstChild); } // sur la ligne des outils, collé à gauche
