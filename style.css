@@ -1961,6 +1961,7 @@ button.tempo-chip-empty { color: var(--text-muted); border-style: dashed; backgr
 .top-actions .icon { width: 21px; height: 21px; }
 .top-actions .metronome-btn-highlight .icon { width: 24px; height: 24px; }
 .top-actions { gap: 8px; }
+.top-break { display: none; }
 .sidebar-toggle-btn { padding: 9px; }
 .sidebar-toggle-btn .icon { width: 21px; height: 21px; }
 
@@ -2458,7 +2459,7 @@ button.gs-tab-archive { margin-left: auto; color: var(--text-muted); }
 .gs-step-exdata { min-width: min-content; }
 /* Le titre ne réclame que 96 px pour rester sur la ligne des vignettes (il grandit jusqu'à la largeur de son
    texte, puis se tronque) : la ligne ne passe sur deux lignes qu'en dernier recours, et pareil pour toutes. */
-.exercise-title { flex: 1 1 96px; }
+.exercise-title { flex: 100 1 min(var(--t-w, 96px), 200px); } /* le titre prend la place libre en priorité (l'espace cliquable à droite garde le reste) ; s'il ne tient pas en entier à côté des vignettes (jusqu'à 200 px), elles passent dessous */
 @container exl (max-width: 440px) {
   .exercise-row-tools .exercise-note-mark { display: none; } /* information seulement : visible dans les détails */
 }
@@ -2478,19 +2479,19 @@ button.gs-tab-archive { margin-left: auto; color: var(--text-muted); }
   .top-bar .instrument-select-wrap { flex: 0 1 auto; min-width: 0; }
   .top-bar #instrument-select { flex: 0 1 auto; min-width: 0; }
   .top-bar .account-name { max-width: 90px; }
-  .top-actions { flex: 1 1 100%; margin-left: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; justify-items: stretch; }
-  .top-actions > button { width: 100% !important; height: 36px !important; padding: 0 !important; margin: 0 !important; justify-content: center; }
-  .top-actions > button.session-btn-highlight { grid-column: auto; padding: 0 !important; }
+  /* Outils : deux rangées dont chaque bouton s'étire à parts égales pour occuper TOUTE la largeur, quelle que soit celle de l'écran
+     (6 boutons en haut, 5 en bas — le saut de ligne est le repère .top-break). Plus de colonnes vides sur la droite. */
+  .top-actions { flex: 1 1 100%; margin-left: 0; display: flex; flex-wrap: wrap; align-items: stretch; gap: 0 4px; margin-bottom: -4px; }
+  .top-actions > button { flex: 1 1 0 !important; width: auto !important; min-width: 34px !important; height: 36px !important; padding: 0 !important; margin: 0 0 4px !important; justify-content: center; }
+  .top-actions > button.session-btn-highlight { padding: 0 !important; }
+  .top-break { display: block; flex: 0 0 100%; height: 0; }
+  .top-actions:has(> .free-bar) > .top-break { display: none; } /* pendant le chrono libre : enchaînement continu, pas de rangée en plus */
+  .top-actions > .free-bar { flex: 0 0 auto; margin: 0 4px 4px 0; }
   /* Téléphone : outils sur deux lignes, icônes seules, un peu plus petites ; export / import sont dans les Paramètres */
   .top-actions button.session-btn-highlight span { display: none; }
   #export-btn, #import-btn { display: none; }
   .top-actions button .icon, .top-actions button.metronome-btn-highlight .icon { width: 18px; height: 18px; }
   .top-actions button.session-btn-highlight .icon { height: 17px; width: auto; }
-  .top-actions > .free-bar { grid-column: 1 / -1; }
-  /* Ligne du milieu : annuler / rétablir / recherche / métronome / session / libre. Ligne du bas : tous les outils ensemble
-     (cercle des quintes, gammes, accordeur, corbeille, paramètres) — « cercle des quintes » commence la ligne du bas.
-     Pendant le chrono libre (sa barre prend déjà une ligne), l'ancien enchaînement est gardé pour ne pas ajouter une ligne de plus. */
-  .top-actions:not(:has(> .free-bar)) #aides-btn { grid-column: 1; }
 }
 @media (max-width: 440px) {
   .top-bar .btn-google span { display: none; } /* icône Google seule */
@@ -3066,7 +3067,7 @@ button.free-btn.free-on { border-color: color-mix(in srgb, var(--eph) 55%, var(-
 .gs-live-drop-armed { border-color: var(--c-red); color: var(--c-red); }
 
 /* Téléphone : le chrono occupe quatre cases de la grille des outils, collé à gauche (pas de récapitulatif) */
-@media (max-width: 760px) { .top-actions > .free-bar { grid-column: 1 / span 4; justify-self: start; margin-right: 0; } }
+
 
 /* Les outils suivent la taille de la fenêtre : accordeur plus grand sur grand écran */
 .tuner-panel { width: min(calc(100vw - 32px), max(480px, 42vmin)); }
