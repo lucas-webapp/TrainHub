@@ -3184,3 +3184,14 @@ button.metro-mini-btn.metro-progressive-toggle.metro-progressive-active { backgr
 .scales-rand-hist-kind { flex: 0 0 auto; color: var(--text-muted); font-size: var(--fs-xs); white-space: nowrap; }
 @media (max-width: 719px) { .scales-rand-pop { overflow-y: auto; max-height: calc(100vh - 16px); } }
 .gs-rec-title-in { margin-bottom: 8px; }
+
+/* Aperçu d'une session au survol du titre : exercices dans l'ordre, avec leur durée */
+.gs-preview { position: fixed; z-index: 1100; box-sizing: border-box; max-width: min(92vw, 880px); padding: 10px 12px; background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 10px 30px rgba(0,0,0,.55); pointer-events: none; font-size: var(--fs-sm); color: var(--text-main); }
+.gs-preview-head { font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); margin-bottom: 6px; }
+.gs-preview-list { list-style: none; margin: 0; padding: 0; counter-reset: gsp; column-gap: 22px; }
+.gs-preview-list li { counter-increment: gsp; display: flex; align-items: baseline; gap: 8px; padding: 2px 0; break-inside: avoid; }
+.gs-preview-list li::before { content: counter(gsp); flex: 0 0 1.6em; text-align: right; color: var(--text-muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.gs-preview-name { flex: 1 1 auto; min-width: 12ch; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.gs-preview-dur { flex: 0 0 auto; margin-left: auto; padding-left: 10px; color: var(--accent); font-size: var(--fs-xs); font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.gs-preview-missing .gs-preview-name { color: var(--text-muted); font-style: italic; font-weight: 500; }
+.gs-preview-missing .gs-preview-dur { color: var(--text-muted); }
