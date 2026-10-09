@@ -3326,7 +3326,7 @@ button.settings-action { display: flex; align-items: center; justify-content: sp
    Paramètres continue de s'appliquer par-dessus). Sans effet quand l'attribut est absent. L'intensité du flou vient de
    data-glass-blur (léger / moyen / fort).
    ============================================================ */
-html[data-glass="1"] { --glass-blur: 24px; }
+html[data-glass="1"] { --glass-blur: 24px; --g-bar-radius: 8px; } /* arrondi des barres de dossier (le liseré + halo à gauche supporte mal un grand arrondi) */
 html[data-glass="1"][data-glass-blur="light"] { --glass-blur: 12px; }
 html[data-glass="1"][data-glass-blur="strong"] { --glass-blur: 40px; }
 
@@ -3399,7 +3399,7 @@ html[data-glass="1"] :is(.exercise, .folder-row, .gs-session-row, .gs-step-row, 
 html[data-glass="1"] .tree-row-d0 {
     --tint: 5%;
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: var(--g-bar-radius);
     padding: calc(5px * var(--g-dens, 1)) 8px;
     background: linear-gradient(color-mix(in srgb, var(--rc, var(--accent)) var(--tint), transparent), color-mix(in srgb, var(--rc, var(--accent)) var(--tint), transparent)), var(--card-bg-2) !important;
     box-shadow: var(--glass-hi), inset 14px 0 16px -16px color-mix(in srgb, var(--rc, var(--accent)) 55%, transparent), -3px 0 12px -8px color-mix(in srgb, var(--rc, var(--accent)) 42%, transparent);
@@ -3422,14 +3422,14 @@ html[data-glass="1"] :is(.tree-row-d1, .tree-row-d2).selected {
     border-left-color: var(--rc, var(--accent));
     box-shadow: inset 12px 0 16px -14px color-mix(in srgb, var(--rc, var(--accent)) 60%, transparent), -3px 0 10px -7px color-mix(in srgb, var(--rc, var(--accent)) 45%, transparent);
 }
-html[data-glass="1"] .tree-row-fixed { border-top: 1px solid var(--border); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); border-radius: 12px; padding-top: calc(5px * var(--g-dens, 1)); padding-bottom: calc(5px * var(--g-dens, 1)); box-shadow: var(--glass-hi); }
+html[data-glass="1"] .tree-row-fixed { border-top: 1px solid var(--border); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); border-radius: var(--g-bar-radius); padding-top: calc(5px * var(--g-dens, 1)); padding-bottom: calc(5px * var(--g-dens, 1)); box-shadow: var(--glass-hi); }
 html[data-glass="1"] .tree-row-fixed.virtual-favorites { box-shadow: var(--glass-hi), inset 12px 0 14px -14px color-mix(in srgb, var(--c-gold) 50%, transparent), -3px 0 10px -8px color-mix(in srgb, var(--c-gold) 40%, transparent); }
 html[data-glass="1"] .tree-row-fixed.virtual-archived { box-shadow: var(--glass-hi), inset 12px 0 14px -14px color-mix(in srgb, var(--c-grey) 50%, transparent), -3px 0 10px -8px color-mix(in srgb, var(--c-grey) 40%, transparent); }
 html[data-glass="1"] .tree-row-fixed { margin-bottom: calc(4px * var(--g-dens, 1)); }
 html[data-glass="1"] .folder-row {
     border-left: 3px solid var(--chapter-accent);
     padding: calc(6px * var(--g-dens, 1)) 12px;
-    border-radius: 12px;
+    border-radius: var(--g-bar-radius);
     box-shadow: var(--glass-hi), inset 14px 0 16px -14px color-mix(in srgb, var(--chapter-accent) 60%, transparent), -4px 0 12px -8px color-mix(in srgb, var(--chapter-accent) 50%, transparent);
 }
 
