@@ -8368,6 +8368,14 @@
         ["extensions", "Extensions", SCALE_MENU[4].keys]];
     var SCALE_RAND_DEFAULT_ON = ["simples", "penta", "modes", "triades", "tetrades"];
     var SCALE_RAND_NATURALS = [0, 2, 4, 5, 7, 9, 11];
+    var SCALE_RAND_HISTORY_MAX = 30;
+    // Nature de ce qu'on affiche : gamme (7 notes…), pentatonique, ou arpège (triade, tétrade, 5 notes et plus).
+    function scaleKindInfo(def) {
+        var n = def.semis.length;
+        if (def.kind === "Arpèges") return { arp: true, name: n === 3 ? "Triade" : n === 4 ? "Tétrade" : "Arpège", count: n };
+        return { arp: false, name: n === 5 ? "Pentatonique" : "Gamme", count: n };
+    }
+    function scaleDefByKey(key) { return SCALE_DEFS.filter(function (d) { return d.key === key; })[0]; }
     function normalizeScaleRand(r) {
         r = r && typeof r === "object" ? r : {};
         var fam = {}, roots = [], rf = r.families || {};
@@ -8377,7 +8385,11 @@
             fam[id] = typeof rf[id] === "boolean" ? rf[id] : id === "penta" && typeof rf.simples === "boolean" ? rf.simples : SCALE_RAND_DEFAULT_ON.indexOf(id) !== -1;
         });
         for (var i = 0; i < 12; i++) roots.push(Array.isArray(r.roots) && typeof r.roots[i] === "boolean" ? r.roots[i] : true);
-        return { families: fam, roots: roots, avoid: r.avoid !== false,
+        var hist = [];
+        (Array.isArray(r.history) ? r.history : []).forEach(function (h) {
+            if (h && scaleDefByKey(h.key) && typeof h.root === "number" && h.root >= 0 && h.root < 12 && hist.length < SCALE_RAND_HISTORY_MAX) hist.push({ key: h.key, root: h.root });
+        });
+        return { families: fam, roots: roots, avoid: r.avoid !== false, history: hist,
             recent: Array.isArray(r.recent) ? r.recent.filter(function (k) { return typeof k === "string"; }).slice(-8) : [] };
     }
     // Gammes candidates selon les familles cochées.
@@ -8388,6 +8400,10 @@
             f[2].forEach(function (k) { if (keys.indexOf(k) === -1 && SCALE_DEFS.some(function (x) { return x.key === k; })) keys.push(k); });
         });
         return keys;
+    }
+    // Historique des tirages (le plus récent en premier, sans doublon) : un tirage déjà fait remonte en tête.
+    function scaleRandRecord(rand, pick) {
+        rand.history = [{ key: pick.key, root: pick.root }].concat(rand.history.filter(function (h) { return h.key !== pick.key || h.root !== pick.root; })).slice(0, SCALE_RAND_HISTORY_MAX);
     }
     // Tire { key, root } : d'abord la gamme (à égalité entre gammes, sans favoriser les grandes familles), en évitant les
     // dernières tirées si demandé, puis la tonique parmi celles cochées (pas deux fois la même de suite quand on peut).
@@ -8610,16 +8626,50 @@
             pop.appendChild(avoid);
             var result = document.createElement("div"); result.className = "scales-rand-result"; pop.appendChild(result);
             pop.appendChild(count);
+            // Dernier tirage : en vert tant que c'est la gamme affichée (même après avoir fermé et rouvert le dé).
+            function drawIsCurrent() { var h = rand.history[0]; return !!h && h.key === prefs.type && h.root === prefs.root; }
+            function pickLabel(h) { return NOTE_NAMES_SHARP[h.root] + " " + scaleDefByKey(h.key).label; }
+            function refreshResult() {
+                var h = rand.history[0];
+                result.textContent = drawIsCurrent() ? pickLabel(h) + " · " + scaleDefByKey(h.key).semis.length + " notes" : "";
+            }
+            var hist = document.createElement("div"); hist.className = "scales-rand-hist";
             var go = document.createElement("button"); go.type = "button"; go.className = "btn-accent scales-rand-go";
             go.innerHTML = SCALES_DICE_SVG; go.appendChild(document.createTextNode(" Tirer au hasard"));
             go.addEventListener("click", function () {
                 var pick = scaleRandomPick(rand, prefs.root);
-                if (!pick) { result.textContent = ""; summaries(); return; }
-                var d = SCALE_DEFS.filter(function (x) { return x.key === pick.key; })[0];
-                result.textContent = NOTE_NAMES_SHARP[pick.root] + " " + d.label + " · " + d.semis.length + " notes";
+                if (!pick) { summaries(); return; }
                 onPick(pick);
+                refreshResult(); renderHist();
             });
             pop.appendChild(go);
+            // Historique : tirages précédents (le dernier, s'il est affiché, est déjà en vert plus haut). Un clic rejoue la gamme.
+            pop.appendChild(hist);
+            function renderHist() {
+                var items = rand.history.slice(drawIsCurrent() ? 1 : 0);
+                hist.innerHTML = "";
+                hist.hidden = !items.length;
+                if (items.length) {
+                    var head = document.createElement("div"); head.className = "scales-rand-hist-head";
+                    var ht = document.createElement("span"); ht.textContent = "Historique";
+                    var clr = document.createElement("button"); clr.type = "button"; clr.textContent = "Effacer";
+                    clr.addEventListener("click", function () { rand.history = drawIsCurrent() ? [rand.history[0]] : []; persist(); renderHist(); });
+                    head.appendChild(ht); head.appendChild(clr); hist.appendChild(head);
+                    var list = document.createElement("div"); list.className = "scales-rand-hist-list";
+                    items.forEach(function (h) {
+                        var d = scaleDefByKey(h.key), ki = scaleKindInfo(d);
+                        var b = document.createElement("button"); b.type = "button"; b.className = "scales-rand-hist-item"; b.title = pickLabel(h) + " · " + ki.name + ", " + ki.count + " notes";
+                        var nm = document.createElement("span"); nm.className = "scales-rand-hist-name"; nm.textContent = pickLabel(h);
+                        var kd = document.createElement("span"); kd.className = "scales-rand-hist-kind"; kd.textContent = ki.name + " · " + ki.count;
+                        b.appendChild(nm); b.appendChild(kd);
+                        b.addEventListener("click", function () { onPick({ key: h.key, root: h.root }); refreshResult(); renderHist(); });
+                        list.appendChild(b);
+                    });
+                    hist.appendChild(list);
+                }
+                if (pop.isConnected) clampPop();
+            }
+            refreshResult(); renderHist();
             // Échap ferme d'abord le petit popover ; un clic ailleurs dans la fenêtre aussi
             pop.addEventListener("pointerdown", function (e) { if (sub && !sub.contains(e.target) && !e.target.closest(".scales-rand-row-btn")) closeSub(); });
             document.addEventListener("keydown", function esc(e) {
@@ -8709,11 +8759,12 @@
             moreBtn.classList.add("scales-more-btn");
             typeBtn.addEventListener("click", function () { openScalePicker(typeBtn, prefs, function (key) { prefs.type = key; update(); }); });
             // Mode hasard : le dé ouvre les options (familles, nombre de notes, toniques) et le tirage.
-            var randomOn = false;
+            // Le dernier tirage est mémorisé (prefs.rand.history) : le dé reste « allumé » tant que la gamme affichée est ce tirage.
+            function drawnNow() { var h = prefs.rand.history[0]; return !!h && h.key === prefs.type && h.root === prefs.root; }
             function applyRandomPick(pick) {
                 prefs.root = pick.root; prefs.type = pick.key;
                 if (scaleIsExtra(pick.key)) prefs.showAll = true;
-                randomOn = true;
+                scaleRandRecord(prefs.rand, pick);
                 update();
             }
             var diceBtn = chip(controls, "", "Gamme au hasard (options et tirage)", function () { openScaleRandom(diceBtn, prefs, applyRandomPick); });
@@ -8790,6 +8841,7 @@
                 typeBtn.title = curDef.label;
                 typeBtn.dataset.key = prefs.type;
                 moreBtn.classList.toggle("scales-chip-active", prefs.showAll);
+                diceBtn.classList.toggle("scales-chip-active", drawnNow());
                 degreesBtn.classList.toggle("scales-chip-active", prefs.labelMode === "degrees");
                 notesBtn.classList.toggle("scales-chip-active", prefs.labelMode === "notes");
                 var inst = SCALES_INSTRUMENTS.filter(function (i) { return i.key === prefs.instrument; })[0];
@@ -8806,11 +8858,16 @@
                 var def = SCALE_DEFS.filter(function (d) { return d.key === prefs.type; })[0];
                 var notes = def.semis.map(function (st) { return NOTE_NAMES_SHARP[(prefs.root + st) % 12]; });
                 summary.innerHTML = "";
+                var kindInfo = scaleKindInfo(def);
+                var kindChip = document.createElement("span");
+                kindChip.className = "scales-kind " + (kindInfo.arp ? "scales-kind-arp" : "scales-kind-scale");
+                kindChip.textContent = kindInfo.name + " · " + kindInfo.count + " notes";
+                summary.appendChild(kindChip);
                 var strong = document.createElement("strong");
                 strong.textContent = NOTE_NAMES_SHARP[prefs.root] + " " + def.label;
                 summary.appendChild(strong);
                 summary.appendChild(document.createTextNode(" · " + notes.join(" ")));
-                if (randomOn) { // re-tirage en un clic, avec les mêmes options
+                if (drawnNow()) { // re-tirage en un clic, avec les mêmes options
                     var again = document.createElement("button");
                     again.type = "button"; again.className = "scales-rand-again"; again.title = "Tirer une autre gamme"; again.setAttribute("aria-label", "Tirer une autre gamme");
                     again.innerHTML = SCALES_DICE_SVG;
