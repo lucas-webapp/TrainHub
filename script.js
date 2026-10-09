@@ -108,18 +108,30 @@
     // Surfaces translucides avec flou sur un fond « aurore » : tout le rendu est dans le bloc « Effet verre » de style.css,
     // activé par data-glass sur <html> (lu aussi par le script d'index.html avant le premier affichage). Réglages propres à
     // l'appareil : désactivé par défaut ; l'intensité du flou (léger / moyen / fort) est une option avancée.
-    var GLASS_KEY = "trainhub.glass.v1", GLASS_BLUR_KEY = "trainhub.glassBlur.v1";
+    var GLASS_KEY = "trainhub.glass.v1", GLASS_BLUR_KEY = "trainhub.glassBlur.v1", GLASS_BG_KEY = "trainhub.glassBg.v1";
     var GLASS_BLURS = ["light", "medium", "strong"];
+    // Couleur du fond (en verre) : « aurore » = le dégradé multicolore d'origine, les autres = une seule teinte.
+    var GLASS_BGS = [["aurora", "Aurore"], ["blue", "Bleu"], ["green", "Vert"], ["violet", "Violet"], ["rose", "Rose"], ["amber", "Ambre"], ["grey", "Gris"]];
     function glassOn() { try { return localStorage.getItem(GLASS_KEY) === "1"; } catch (e) { return false; } }
     function glassBlur() { try { var v = localStorage.getItem(GLASS_BLUR_KEY); return GLASS_BLURS.indexOf(v) !== -1 ? v : "medium"; } catch (e) { return "medium"; } }
+    function glassBg() { try { var v = localStorage.getItem(GLASS_BG_KEY); return GLASS_BGS.some(function (b) { return b[0] === v; }) ? v : "aurora"; } catch (e) { return "aurora"; } }
     function applyGlass() {
         var r = document.documentElement;
         if (glassOn()) r.setAttribute("data-glass", "1"); else r.removeAttribute("data-glass");
         r.setAttribute("data-glass-blur", glassBlur());
+        r.setAttribute("data-glass-bg", glassBg());
     }
     function setGlass(on) { try { localStorage.setItem(GLASS_KEY, on ? "1" : "0"); } catch (e) {} applyGlass(); }
     function setGlassBlur(v) { if (GLASS_BLURS.indexOf(v) === -1) return; try { localStorage.setItem(GLASS_BLUR_KEY, v); } catch (e) {} applyGlass(); }
+    function setGlassBg(v) { if (!GLASS_BGS.some(function (b) { return b[0] === v; })) return; try { localStorage.setItem(GLASS_BG_KEY, v); } catch (e) {} applyGlass(); }
     applyGlass();
+    // ---------- halo de couleur (par appareil) : diffus (défaut) / net / aucun — profils dans style.css (section « Halos de couleur ») ----------
+    var HALO_KEY = "trainhub.halo.v1";
+    var HALOS = [["diffuse", "Diffus"], ["net", "Net"], ["off", "Aucun"]];
+    function haloStyle() { try { var v = localStorage.getItem(HALO_KEY); return HALOS.some(function (h) { return h[0] === v; }) ? v : "diffuse"; } catch (e) { return "diffuse"; } }
+    function applyHalo() { document.documentElement.setAttribute("data-halo", haloStyle()); }
+    function setHaloStyle(v) { if (!HALOS.some(function (h) { return h[0] === v; })) return; try { localStorage.setItem(HALO_KEY, v); } catch (e) {} applyHalo(); }
+    applyHalo();
     // Couleur d'un TEXTE teinté par la couleur d'un chapitre : telle quelle en thème sombre, assombrie en thème clair
     // (les couleurs vives ou pastel des chapitres seraient illisibles sur fond blanc). --ink-mix vaut 100 % en sombre.
     function inkOf(c) { return "color-mix(in srgb, " + c + " var(--ink-mix, 100%), #000)"; }
@@ -9570,6 +9582,25 @@
                 });
                 return seg;
             }
+            // Rangée de pastilles de couleur (un seul appui, tout est visible) : [valeur, nom] ; la teinte vient du CSS (data-v).
+            function swatchControl(options, value, onChange) {
+                var row = document.createElement("div");
+                row.className = "settings-swatches";
+                row.setAttribute("role", "radiogroup");
+                options.forEach(function (opt) {
+                    var b = document.createElement("button");
+                    b.type = "button"; b.className = "settings-swatch"; b.dataset.v = String(opt[0]); b.title = opt[1];
+                    b.setAttribute("role", "radio"); b.setAttribute("aria-label", opt[1]);
+                    function paint(v) { var on = String(v) === b.dataset.v; b.classList.toggle("on", on); b.setAttribute("aria-checked", on ? "true" : "false"); }
+                    paint(value);
+                    b.addEventListener("click", function () {
+                        Array.prototype.forEach.call(row.children, function (x) { var on = x === b; x.classList.toggle("on", on); x.setAttribute("aria-checked", on ? "true" : "false"); });
+                        onChange(opt[0]);
+                    });
+                    row.appendChild(b);
+                });
+                return row;
+            }
             function switchControl(value, onChange) {
                 var b = document.createElement("button");
                 b.type = "button"; b.className = "settings-switch"; b.setAttribute("role", "switch");
@@ -9596,8 +9627,11 @@
             section("Affichage");
             card("Thème", "Réglage propre à cet appareil.");
             field("Apparence", segControl([["auto", "Auto"], ["dark", "Sombre"], ["light", "Clair"]], getTheme(), function (v) { setTheme(v); }), "Auto suit l'appareil");
+            card("Halos", "Lueur de couleur à gauche des dossiers et de l'exercice ouvert. Réglage propre à cet appareil.");
+            field("Style du halo", segControl(HALOS, haloStyle(), function (v) { setHaloStyle(v); }), "Diffus, net ou aucun");
             card("Effet verre", "Surfaces translucides et flou. Réglage propre à cet appareil.");
             field("Verre dépoli", switchControl(glassOn(), function (on) { setGlass(on); }), "Fond coloré, flou et reflets");
+            field("Couleur du fond", swatchControl(GLASS_BGS, glassBg(), function (v) { setGlassBg(v); }), "Sans effet si le verre est désactivé");
             card("Couleurs des chapitres", "Les chapitres existants prennent les nouvelles couleurs.");
             var schemeGrid = document.createElement("div");
             schemeGrid.className = "settings-schemes";

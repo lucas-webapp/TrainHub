@@ -677,7 +677,7 @@ button.result-group-title:hover { background: color-mix(in srgb, var(--group-col
     color: var(--text-muted);
 }
 
-.tree-list { display: flex; flex-direction: column; gap: 1px; }
+.tree-list { display: flex; flex-direction: column; gap: 2px; } /* les barres ne se touchent jamais */
 .tree-node { display: flex; flex-direction: column; }
 .tree-row {
     display: flex;
@@ -766,7 +766,8 @@ button.result-group-title:hover { background: color-mix(in srgb, var(--group-col
 .tree-children {
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    gap: 2px;
+    margin-top: 2px; /* petit espace entre un dossier et ses sous-dossiers */
     margin-left: 21px;
     padding-left: 10px;
     border-left: 1px solid var(--border);
@@ -3255,6 +3256,17 @@ button.settings-tab-active { color: var(--accent); background: color-mix(in srgb
 .settings-seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; }
 button.settings-seg-btn { height: 30px; padding: 0 12px; font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; background: transparent; border: 1px solid transparent; border-radius: 8px; color: var(--text-muted); }
 button.settings-seg-btn.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.settings-swatches { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+button.settings-swatch { width: 28px; height: 28px; min-width: 0; padding: 0; border-radius: 50%; border: 2px solid transparent; background: var(--sw, var(--card-bg)); box-shadow: inset 0 0 0 1px rgba(var(--ov), .3); }
+button.settings-swatch:hover { border-color: rgba(var(--ov), .45); }
+button.settings-swatch.on { border-color: var(--text-main); }
+button.settings-swatch[data-v="aurora"] { --sw: linear-gradient(135deg, hsl(150 90% 48%), hsl(215 95% 58%) 45%, hsl(270 90% 66%) 75%, hsl(335 90% 62%)); }
+button.settings-swatch[data-v="blue"] { --sw: linear-gradient(135deg, hsl(195 90% 52%), hsl(235 85% 56%)); }
+button.settings-swatch[data-v="green"] { --sw: linear-gradient(135deg, hsl(125 70% 46%), hsl(175 80% 38%)); }
+button.settings-swatch[data-v="violet"] { --sw: linear-gradient(135deg, hsl(255 85% 62%), hsl(295 75% 55%)); }
+button.settings-swatch[data-v="rose"] { --sw: linear-gradient(135deg, hsl(318 85% 60%), hsl(5 85% 62%)); }
+button.settings-swatch[data-v="amber"] { --sw: linear-gradient(135deg, hsl(14 90% 55%), hsl(48 95% 52%)); }
+button.settings-swatch[data-v="grey"] { --sw: linear-gradient(135deg, hsl(215 8% 62%), hsl(215 10% 30%)); }
 button.settings-switch { position: relative; flex: none; width: 46px; height: 27px; padding: 0; border-radius: 999px; background: var(--card-bg); border: 1px solid var(--border); }
 .settings-switch-knob { position: absolute; top: 2px; left: 2px; width: 21px; height: 21px; border-radius: 50%; background: var(--text-muted); transition: transform .16s ease, background .16s ease; }
 button.settings-switch.on { background: color-mix(in srgb, var(--accent) 28%, transparent); border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
@@ -3321,6 +3333,46 @@ button.settings-action { display: flex; align-items: center; justify-content: sp
 }
 
 /* ============================================================
+   Halos de couleur (tous les thèmes, avec ou sans l'effet verre) : dossiers, favoris/archivés, sous-dossier sélectionné,
+   cartes de sous-dossiers, exercice déplié. Seule la couleur change (--hc) ; la forme est identique partout.
+   Trois couches de box-shadow : bande intérieure douce (a3), voile proche du bord (a1), lueur large vers la gauche (a2) ; le trait
+   opaque est la bordure de 3 px. Deux profils (data-halo) : « diffus » (défaut) et « net ». --g-hs = hauteur retirée à la lueur pour
+   qu'elle reste surtout sur le côté gauche de la barre (proportionnelle à la densité).
+   Aucune dimension n'est modifiée : tout passe par box-shadow ; --g-edge / --g-contour / --glass-hi ne servent qu'au verre.
+   ============================================================ */
+:root {
+    /* « diffus » (défaut) : voile doux contre le bord, large lueur vers la gauche, bande intérieure très douce */
+    --g-o1: -6px; --g-b1: 12px; --g-s1: -4px; --g-a1: 46%;
+    --g-o2: 6px;  --g-b2: 24px; --g-k2: .85;  --g-a2: 60%;
+    --g-ix: 8px;  --g-ib: 12px; --g-is: -10px; --g-a3: 24%;
+}
+/* « net » : liseré lumineux serré puis lueur qui s'éteint vite ; « off » : aucun halo (Paramètres > Affichage) */
+html[data-halo="net"] {
+    --g-o1: -3px; --g-b1: 5px;  --g-s1: -2px; --g-a1: 70%;
+    --g-o2: 3px;  --g-b2: 18px; --g-k2: 1;    --g-a2: 55%;
+    --g-ix: 5px;  --g-ib: 7px;  --g-is: -7px; --g-a3: 34%;
+}
+html[data-halo="off"] { --g-a1: 0%; --g-a2: 0%; --g-a3: 0%; }
+:root :is(.tree-row-d0, :is(.tree-row-d1, .tree-row-d2).selected, .tree-row-fixed.virtual-favorites, .tree-row-fixed.virtual-archived, .folder-row, .exercise:not(.collapsed)) {
+    box-shadow: var(--g-contour, 0 0 0 0 transparent), var(--g-edge, 0 0 0 0 transparent), var(--glass-hi, 0 0 0 0 transparent),
+        inset var(--g-ix) 0 var(--g-ib) var(--g-is) color-mix(in srgb, var(--hc) var(--g-a3), transparent),
+        var(--g-o1) 0 var(--g-b1) var(--g-s1) color-mix(in srgb, var(--hc) var(--g-a1), transparent),
+        calc(-1 * var(--g-hs) * var(--g-k2) - var(--g-o2)) 0 var(--g-b2) calc(-1 * var(--g-hs) * var(--g-k2)) color-mix(in srgb, var(--hc) var(--g-a2), transparent);
+}
+.tree-row-d0 { --hc: var(--rc, var(--accent)); --g-hs: calc(10px * var(--density-scale, 1)); }
+.tree-row-d1.selected { --g-hs: calc(5px * var(--density-scale, 1)); }
+.tree-row-d2.selected { --g-hs: calc(3px * var(--density-scale, 1)); }
+:is(.tree-row-d1, .tree-row-d2).selected { --hc: var(--rc, var(--accent)); --g-contour: inset 2px 0 0 0 var(--hc); } /* contour 2 px sans toucher à la mise en page */
+.tree-row-fixed { --g-hs: calc(10px * var(--density-scale, 1)); }
+.tree-row-fixed.virtual-favorites { --hc: var(--c-gold); }
+.tree-row-fixed.virtual-archived { --hc: var(--c-grey); }
+/* la classe .virtual-* sert aussi aux puces de chapitre et teinte le conteneur du nœud (rectangle carré derrière la barre arrondie) */
+.tree-node:is(.virtual-favorites, .virtual-archived) { background: none; }
+/* contour de couleur à gauche des cartes de sous-dossiers et de l'exercice déplié (épaisseur 3 px, contenu inchangé : le padding gauche compense) */
+.folder-row { --hc: var(--chapter-accent); --g-hs: calc(10px * var(--density-scale, 1)); border-left: 3px solid var(--chapter-accent); padding-left: 10px; }
+.exercise:not(.collapsed) { --hc: var(--chapter-accent); --g-hs: calc(10px * var(--density-scale, 1)); border-color: var(--border); border-left: 3px solid var(--chapter-accent); padding-left: 8px; }
+
+/* ============================================================
    Effet verre (option, par appareil) — html[data-glass="1"]
    Tout est réglé ici : variables (surfaces translucides, bords clairs, accents), fond « aurore », flou sur les grandes
    surfaces (barre du haut, arborescence, fenêtres, menus ; jamais sur chaque ligne), contour de couleur + halo sur les
@@ -3328,7 +3380,7 @@ button.settings-action { display: flex; align-items: center; justify-content: sp
    Paramètres continue de s'appliquer par-dessus). Sans effet quand l'attribut est absent. L'intensité du flou vient de
    data-glass-blur (léger / moyen / fort).
    ============================================================ */
-html[data-glass="1"] { --glass-blur: 24px; --g-bar-radius: 8px; } /* arrondi des barres de dossier (le liseré + halo à gauche supporte mal un grand arrondi) */
+html[data-glass="1"] { --glass-blur: 24px; }
 html[data-glass="1"][data-glass-blur="light"] { --glass-blur: 12px; }
 html[data-glass="1"][data-glass-blur="strong"] { --glass-blur: 40px; }
 
@@ -3377,6 +3429,35 @@ html[data-glass="1"][data-theme="light"] {
     --glass-select: #f4f8fb;
 }
 
+/* Couleur du fond (Paramètres > Affichage) : « aurore » garde le dégradé multicolore ci-dessus ; les autres teintes le remplacent par
+   un dégradé d'une seule couleur (teintes gh1…gh4, saturation gs) sur un fond sombre / clair de la même teinte (saturation gbs). */
+html[data-glass="1"][data-glass-bg="blue"]   { --gh1: 195; --gh2: 215; --gh3: 232; --gh4: 250; --gs: 100%; --gbs: 44%; }
+html[data-glass="1"][data-glass-bg="green"]  { --gh1: 120; --gh2: 145; --gh3: 165; --gh4: 185; --gs: 100%; --gbs: 40%; }
+html[data-glass="1"][data-glass-bg="violet"] { --gh1: 250; --gh2: 266; --gh3: 282; --gh4: 300; --gs: 100%; --gbs: 40%; }
+html[data-glass="1"][data-glass-bg="rose"]   { --gh1: 315; --gh2: 332; --gh3: 348; --gh4: 8;   --gs: 100%; --gbs: 40%; }
+html[data-glass="1"][data-glass-bg="amber"]  { --gh1: 10;  --gh2: 26;  --gh3: 40;  --gh4: 54;  --gs: 100%; --gbs: 42%; }
+html[data-glass="1"][data-glass-bg="grey"]   { --gh1: 215; --gh2: 215; --gh3: 215; --gh4: 215; --gs: 0%;   --gbs: 6%; }
+html[data-glass="1"][data-glass-bg]:not([data-glass-bg="aurora"]):not([data-theme="light"]) {
+    --bg: hsl(var(--gh2) var(--gbs) 5.5%);
+    --g-ambient: linear-gradient(180deg, hsl(var(--gh2) var(--gbs) 5.5% / 0) 0, hsl(var(--gh2) var(--gbs) 5.5%) 640px) top / 100% 640px no-repeat,
+                 linear-gradient(115deg, hsl(var(--gh1) var(--gs) 48% / .26) 0, hsl(var(--gh2) var(--gs) 56% / .24) 36%, hsl(var(--gh3) var(--gs) 62% / .26) 66%, hsl(var(--gh4) var(--gs) 58% / .16) 100%) top / 100% 640px no-repeat,
+                 hsl(var(--gh2) var(--gbs) 5.5%);
+    --glass-bar: hsl(var(--gh2) var(--gbs) 6% / .5);
+    --glass-side: hsl(var(--gh2) var(--gbs) 3.5% / .26);
+    --glass-pop: hsl(var(--gh2) var(--gbs) 11% / .86);
+    --glass-select: hsl(var(--gh2) var(--gbs) 12%);
+}
+html[data-glass="1"][data-glass-bg]:not([data-glass-bg="aurora"])[data-theme="light"] {
+    --bg: hsl(var(--gh2) calc(var(--gbs) * .6) 95.5%);
+    --g-ambient: linear-gradient(180deg, hsl(var(--gh2) calc(var(--gbs) * .6) 95.5% / 0) 0, hsl(var(--gh2) calc(var(--gbs) * .6) 95.5%) 640px) top / 100% 640px no-repeat,
+                 linear-gradient(115deg, hsl(var(--gh1) var(--gs) 62% / .5) 0, hsl(var(--gh2) var(--gs) 68% / .46) 36%, hsl(var(--gh3) var(--gs) 72% / .46) 66%, hsl(var(--gh4) var(--gs) 74% / .34) 100%) top / 100% 640px no-repeat,
+                 hsl(var(--gh2) calc(var(--gbs) * .6) 95.5%);
+    --glass-bar: hsl(var(--gh2) 30% 99% / .58);
+    --glass-side: hsl(var(--gh2) 30% 38% / .07);
+    --glass-pop: hsl(var(--gh2) 30% 99% / .9);
+    --glass-select: hsl(var(--gh2) 30% 97%);
+}
+
 html[data-glass="1"] body { background: var(--g-ambient); background-attachment: fixed; }
 
 /* grandes surfaces : flou + teinte */
@@ -3396,85 +3477,28 @@ html[data-glass="1"] select, html[data-glass="1"] select option { background: va
 html[data-glass="1"] button { box-shadow: var(--glass-hi); }
 html[data-glass="1"] .tree-twisty { box-shadow: none; } /* bouton sans cadre : pas de reflet de bord (visible depuis que le chevron est plus grand) */
 html[data-glass="1"] button.btn-ghost, html[data-glass="1"] button.icon-btn.btn-ghost { box-shadow: none; }
-html[data-glass="1"] :is(.exercise, .folder-row, .gs-session-row, .gs-step-row, .st-tile, .st-ex, .gs-plan-row) { box-shadow: var(--glass-hi); }
+html[data-glass="1"] :is(.exercise.collapsed, .gs-session-row, .gs-step-row, .st-tile, .st-ex, .gs-plan-row) { box-shadow: var(--glass-hi); }
 
-/* ---- halos : une seule règle pour tous (dossiers, sélection, favoris/archivés, cartes de sous-dossiers, exercice déplié).
-   --hc = couleur du halo. Profil de gauche à droite : lueur qui s'éteint rapidement vers la gauche (--g-halo-out), puis un
-   liseré très lumineux et serré contre le bord (--g-halo-rim), puis le trait opaque (la bordure) et une bande intérieure
-   très étroite (--g-halo-in). --g-hs = hauteur retirée à la lueur (barres basses : valeur plus petite) pour qu'elle reste
-   sur le côté gauche et ne déborde pas sur les barres voisines. Tout est gaussien : aucune coupure nette. ---- */
-html[data-glass="1"] { --g-halo-in: 34%; --g-halo-rim: 70%; --g-halo-out: 55%; --g-hs: 10px; }
-html[data-glass="1"] :is(.tree-row-d0, :is(.tree-row-d1, .tree-row-d2).selected, .tree-row-fixed.virtual-favorites, .tree-row-fixed.virtual-archived, .folder-row, .exercise:not(.collapsed)) {
-    box-shadow: var(--glass-hi),
-        inset 5px 0 7px -7px color-mix(in srgb, var(--hc) var(--g-halo-in), transparent),
-        -3px 0 5px -2px color-mix(in srgb, var(--hc) var(--g-halo-rim), transparent),
-        calc(-1 * var(--g-hs) - 3px) 0 18px calc(-1 * var(--g-hs)) color-mix(in srgb, var(--hc) var(--g-halo-out), transparent);
-}
-/* Favoris / Archivés : la classe .virtual-* sert aussi aux puces de chapitre et teinte le conteneur du nœud (un rectangle carré
-   derrière la barre arrondie) ; la barre porte déjà sa propre teinte */
-html[data-glass="1"] .tree-node:is(.virtual-favorites, .virtual-archived) { background: none; }
-/* un peu de place à gauche du bandeau pour que la lueur ne soit pas coupée */
-html[data-glass="1"] .sidebar-tree { padding-left: 20px; }
-
-/* ---- dossiers : contour de couleur à gauche + halo (arborescence, cartes de sous-dossiers, favoris/archivés) ---- */
+/* ---- barres : seules les couleurs changent (aucune dimension : bordures fines dessinées en ombre interne) ---- */
+html[data-glass="1"] :is(.tree-row-d0, .tree-row-fixed) { --g-edge: inset 0 0 0 1px var(--border); }
 html[data-glass="1"] .tree-row-d0 {
     --tint: 5%;
-    --hc: var(--rc, var(--accent));
-    border: 1px solid var(--border);
-    border-radius: var(--g-bar-radius);
-    padding: calc(5px * var(--g-dens, 1)) 8px;
     background: linear-gradient(color-mix(in srgb, var(--rc, var(--accent)) var(--tint), transparent), color-mix(in srgb, var(--rc, var(--accent)) var(--tint), transparent)), var(--card-bg-2) !important;
 }
-/* Échelle de densité propre au verre : écarts plus marqués que le réglage général (0,65 / 1 / 1,5) car les rangées verre sont déjà plus basses */
-html[data-glass="1"] { --g-dens: 1; }
-html[data-glass="1"].density-compact { --g-dens: 0.5; }
-html[data-glass="1"].density-spacious { --g-dens: 2; }
-html[data-glass="1"] .tree-list { gap: calc(4px * var(--g-dens, 1)); }
-/* les barres ne se touchent jamais : un petit espace (1 / 2 / 4 px selon la densité) entre un dossier et ses sous-dossiers, et entre sous-dossiers */
-html[data-glass="1"] .tree-children { gap: calc(2px * var(--g-dens, 1)); margin-top: calc(2px * var(--g-dens, 1)); }
 html[data-glass="1"] .tree-row-d0:hover { --tint: 10%; }
-html[data-glass="1"] .tree-row-d0.selected {
-    --tint: 15%;
-    --g-halo-in: 26%; --g-halo-rim: 85%; --g-halo-out: 80%; /* sélection : moins de lumière sous le chevron, plus de lueur dans le fond */
-}
-/* sous-dossiers : discrets comme avant (tailles de police et poids inchangés) ; la sélection prend le contour et le halo */
-html[data-glass="1"] .tree-row-d1, html[data-glass="1"] .tree-row-d2 { border-left: 2px solid transparent; }
-html[data-glass="1"] .tree-row-d1 { padding: calc(4px * var(--g-dens, 1)) 8px; }
-html[data-glass="1"] .tree-row-d2 { padding: calc(2px * var(--g-dens, 1)) 8px; }
-html[data-glass="1"] :is(.tree-row-d1, .tree-row-d2).selected {
-    border-left-color: var(--rc, var(--accent));
-    --hc: var(--rc, var(--accent));
-    --g-halo-in: 24%; --g-halo-rim: 80%; --g-halo-out: 70%; --g-hs: 5px;
-}
-html[data-glass="1"] .tree-row-fixed { border-top: 1px solid var(--border); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); border-radius: var(--g-bar-radius); padding-top: calc(5px * var(--g-dens, 1)); padding-bottom: calc(5px * var(--g-dens, 1)); box-shadow: var(--glass-hi); }
-html[data-glass="1"] .tree-row-fixed.virtual-favorites { --hc: var(--c-gold); }
-html[data-glass="1"] .tree-row-fixed.virtual-archived { --hc: var(--c-grey); }
-html[data-glass="1"] .tree-row-fixed { margin-bottom: calc(4px * var(--g-dens, 1)); }
-html[data-glass="1"] .folder-row {
-    border-left: 3px solid var(--chapter-accent);
-    padding: calc(6px * var(--g-dens, 1)) 12px;
-    border-radius: var(--g-bar-radius);
-    --hc: var(--chapter-accent);
-}
-
-/* ---- exercices : lignes translucides plus basses ; l'exercice déplié a le contour + halo, pas ses notes ---- */
-html[data-glass="1"] .exercise { border-radius: 12px; padding: calc(4px * var(--g-dens, 1)) 10px; margin-bottom: calc(4px * var(--g-dens, 1)); }
+html[data-glass="1"] .tree-row-d0.selected { --tint: 15%; }
 html[data-glass="1"] .exercise:not(.collapsed) {
-    border-color: var(--border);
-    border-left: 3px solid var(--chapter-accent);
-    padding-left: 8px;
     background: linear-gradient(color-mix(in srgb, var(--chapter-accent) 6%, transparent), color-mix(in srgb, var(--chapter-accent) 6%, transparent)), var(--card-bg-2);
-    --hc: var(--chapter-accent);
 }
 html[data-glass="1"] :is(.notes-fixed-textarea, .exercise-fixed-view, .gs-run-fixed, .gs-run-note) { border-left: 1px solid var(--border); box-shadow: none; }
 
 /* repli sans flou : opaque si le navigateur ne sait pas flouter ou si l'appareil demande moins de transparence */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    html[data-glass="1"]:not([data-theme="light"]) { --glass-bar: #0d1520; --glass-pop: #121c2b; --card-bg: #101a28; --card-bg-2: #15202f; }
-    html[data-glass="1"][data-theme="light"] { --glass-bar: #f1f6f9; --glass-pop: #ffffff; --card-bg: #f4f8fb; --card-bg-2: #ffffff; }
+    html[data-glass="1"]:not([data-theme="light"]) { --glass-bar: #0d1520 !important; --glass-pop: #121c2b !important; --card-bg: #101a28; --card-bg-2: #15202f; }
+    html[data-glass="1"][data-theme="light"] { --glass-bar: #f1f6f9 !important; --glass-pop: #ffffff !important; --card-bg: #f4f8fb; --card-bg-2: #ffffff; }
 }
 @media (prefers-reduced-transparency: reduce) {
     html[data-glass="1"] :is(.top-bar, .sidebar-tree, .chapter-bar, .backups-panel, .ctx-menu, .toast, .tempo-pop, .scales-picker, .gs-preview, .app-dialog, .update-banner, .sel-bar) { -webkit-backdrop-filter: none; backdrop-filter: none; }
-    html[data-glass="1"]:not([data-theme="light"]) { --glass-bar: #0d1520; --glass-pop: #121c2b; --card-bg: #101a28; --card-bg-2: #15202f; }
-    html[data-glass="1"][data-theme="light"] { --glass-bar: #f1f6f9; --glass-pop: #ffffff; --card-bg: #f4f8fb; --card-bg-2: #ffffff; }
+    html[data-glass="1"]:not([data-theme="light"]) { --glass-bar: #0d1520 !important; --glass-pop: #121c2b !important; --card-bg: #101a28; --card-bg-2: #15202f; }
+    html[data-glass="1"][data-theme="light"] { --glass-bar: #f1f6f9 !important; --glass-pop: #ffffff !important; --card-bg: #f4f8fb; --card-bg-2: #ffffff; }
 }
