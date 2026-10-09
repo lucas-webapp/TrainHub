@@ -91,6 +91,153 @@
         } });
     }
 
+    // ---------- boîtes de dialogue de l'appli (remplacent prompt / confirm / alert du navigateur) ----------
+    // Règles communes : une seule boîte à la fois ; « Annuler », Échap (ou un clic à côté, sauf pendant une saisie) ne
+    // changent JAMAIS rien — seul un bouton d'action agit. Les boutons portent le nom de l'action (« Supprimer »,
+    // « Renommer »…), pas « OK ». Les actions destructrices sont en rouge et la boîte s'ouvre sur « Annuler ».
+    // spec : { title, message, items[], warnings[], note, danger, cancelLabel (null = pas de bouton Annuler), onCancel,
+    //          kind ("choice" = question à plusieurs réponses), cancelPrimary (le bouton Annuler est le choix sûr, mis en avant), cancelClass,
+    //          input: { value, placeholder, maxLength, mustChange },
+    //          buttons: [{ label, kind: "primary" | "danger" | "plain", left, cls, onClick(valeur) }] }
+    var dlgCurrent = null;
+    function dlgIsOpen() { return !!dlgCurrent; }
+    function dlgOpen(spec) {
+        if (dlgCurrent) dlgCurrent.dismiss();
+        var prevFocus = document.activeElement;
+        var overlay = document.createElement("div");
+        overlay.className = "app-dialog-overlay";
+        var box = document.createElement("div");
+        box.className = "app-dialog" + (spec.danger ? " app-dialog-danger" : "");
+        box.setAttribute("role", "dialog");
+        box.setAttribute("aria-modal", "true");
+        box.dataset.kind = spec.kind || (spec.input ? "prompt" : (spec.cancelLabel === null ? "alert" : "confirm")); // « choice » : question à plusieurs réponses
+        var title = document.createElement("div");
+        title.className = "app-dialog-title";
+        title.id = "app-dialog-title";
+        title.textContent = spec.title || "";
+        box.setAttribute("aria-labelledby", "app-dialog-title");
+        box.appendChild(title);
+        if (spec.message) { var msg = document.createElement("div"); msg.className = "app-dialog-msg"; msg.textContent = spec.message; box.appendChild(msg); }
+        if (spec.items && spec.items.length) {
+            var ul = document.createElement("ul"); ul.className = "app-dialog-items";
+            spec.items.forEach(function (t) { var li = document.createElement("li"); li.textContent = t; ul.appendChild(li); });
+            box.appendChild(ul);
+        }
+        (spec.warnings || []).forEach(function (t) { var w = document.createElement("div"); w.className = "app-dialog-warn"; w.textContent = "⚠ " + t; box.appendChild(w); });
+        if (spec.note) { var nt = document.createElement("div"); nt.className = "app-dialog-note"; nt.textContent = spec.note; box.appendChild(nt); }
+        var input = null, initial = "";
+        if (spec.input) {
+            input = document.createElement("input");
+            input.type = "text"; input.className = "app-dialog-input";
+            input.value = initial = spec.input.value || "";
+            if (spec.input.placeholder) input.placeholder = spec.input.placeholder;
+            input.maxLength = spec.input.maxLength || 80;
+            input.setAttribute("aria-label", spec.title || "");
+            input.autocomplete = "off"; input.spellcheck = false;
+            box.appendChild(input);
+        }
+        var actions = document.createElement("div");
+        actions.className = "app-dialog-actions";
+        box.appendChild(actions);
+        overlay.appendChild(box);
+
+        var closed = false, cancelBtn = null, primaryBtn = null, allBtns = [];
+        function value() { return input ? input.value.trim() : ""; }
+        function finish(fn, arg) { // ferme d'abord (une autre boîte peut s'ouvrir dans le rappel), puis agit
+            if (closed) return;
+            closed = true;
+            window.removeEventListener("keydown", onKey, true);
+            overlay.remove();
+            if (dlgCurrent === api) dlgCurrent = null;
+            try { if (prevFocus && prevFocus.focus && document.contains(prevFocus)) prevFocus.focus(); } catch (e) {}
+            if (fn) fn(arg);
+        }
+        function cancel() { finish(spec.onCancel); }
+        var api = { dismiss: cancel };
+        function canSubmit() { return !input || (value() && (!spec.input.mustChange || value() !== initial.trim())); }
+        function refresh() { if (primaryBtn && input) primaryBtn.disabled = !canSubmit(); }
+        function submit() { if (primaryBtn && !primaryBtn.disabled) primaryBtn.click(); }
+
+        if (spec.cancelLabel !== null) {
+            cancelBtn = document.createElement("button");
+            cancelBtn.type = "button"; cancelBtn.className = "app-dialog-cancel " + (spec.cancelPrimary ? "btn-accent" : "btn-ghost") + (spec.cancelClass ? " " + spec.cancelClass : "");
+            cancelBtn.textContent = spec.cancelLabel || "Annuler";
+            cancelBtn.addEventListener("click", cancel);
+        }
+        var left = (spec.buttons || []).filter(function (b) { return b.left; });
+        left.forEach(function (b) { var el = makeBtn(b); el.classList.add("app-dialog-left"); actions.appendChild(el); });
+        if (cancelBtn) actions.appendChild(cancelBtn);
+        (spec.buttons || []).filter(function (b) { return !b.left; }).forEach(function (b) { actions.appendChild(makeBtn(b)); });
+        function makeBtn(b) {
+            var el = document.createElement("button");
+            el.type = "button";
+            el.className = "app-dialog-ok" + (b.kind === "danger" ? " btn-danger" : b.kind === "plain" ? "" : " btn-accent") + (b.cls ? " " + b.cls : "");
+            el.textContent = b.label;
+            el.addEventListener("click", function () { finish(b.onClick, value()); });
+            if (!b.left) primaryBtn = el; // le dernier bouton d'action (à droite) est le bouton principal
+            allBtns.push(el);
+            return el;
+        }
+        if (actions.children.length > 3) box.classList.add("app-dialog-many");
+
+        function focusables() { return Array.prototype.filter.call(box.querySelectorAll("input, button"), function (e) { return !e.disabled; }); }
+        function onKey(e) {
+            if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); cancel(); return; }
+            if (e.key === "Tab") {
+                var f = focusables(); if (!f.length) return;
+                var i = f.indexOf(document.activeElement);
+                if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+                else if (!e.shiftKey && (i === -1 || i === f.length - 1)) { e.preventDefault(); f[0].focus(); }
+            } else if (e.key === "Enter" && input && (e.target === input || e.target === document.body) && !e.isComposing) { e.preventDefault(); submit(); }
+            e.stopPropagation(); // les raccourcis de l'appli (Ctrl+Z, Espace, Ctrl+F…) ne jouent pas derrière une boîte ouverte
+        }
+        window.addEventListener("keydown", onKey, true);
+        // Un clic à côté = Annuler, sauf quand on est en train de saisir quelque chose.
+        overlay.addEventListener("pointerdown", function (e) { if (e.target === overlay && !input) cancel(); });
+        overlay.addEventListener("mousedown", function (e) { if (e.target === overlay && input) { e.preventDefault(); input.focus(); } }); // un clic à côté pendant la saisie garde le curseur dans le champ
+        if (input) input.addEventListener("input", refresh);
+        document.body.appendChild(overlay);
+        dlgCurrent = api;
+        refresh();
+        if (input) { input.focus(); input.select(); }
+        else if ((spec.danger || spec.cancelPrimary) && cancelBtn) cancelBtn.focus();
+        else if (primaryBtn) primaryBtn.focus();
+        else if (cancelBtn) cancelBtn.focus();
+    }
+    // Confirmation : o = { title, message, items, warnings, note, confirmLabel, cancelLabel, danger }
+    function dlgConfirm(o, onYes, onNo) {
+        dlgOpen({ title: o.title, message: o.message, items: o.items, warnings: o.warnings, note: o.note, danger: o.danger, cancelLabel: o.cancelLabel || "Annuler", onCancel: onNo,
+            buttons: [{ label: o.confirmLabel || "Confirmer", kind: o.danger ? "danger" : "primary", onClick: function () { if (onYes) onYes(); } }] });
+    }
+    // Saisie d'un nom : o = { title, message, value, placeholder, confirmLabel, mustChange, maxLength, extra: { label, onClick } }
+    // onSubmit reçoit le texte (jamais vide). `extra` : action séparée à gauche (ex. supprimer), distincte de la saisie.
+    function dlgPrompt(o, onSubmit, onCancel) {
+        var btns = [{ label: o.confirmLabel || "Valider", kind: "primary", onClick: function (v) { if (onSubmit) onSubmit(v); } }];
+        if (o.extra) btns.unshift({ label: o.extra.label, kind: "danger", left: true, onClick: o.extra.onClick });
+        dlgOpen({ title: o.title, message: o.message, cancelLabel: o.cancelLabel || "Annuler", onCancel: onCancel,
+            input: { value: o.value, placeholder: o.placeholder, maxLength: o.maxLength, mustChange: !!o.mustChange }, buttons: btns });
+    }
+    // Information (un seul bouton) : o = { title, message, items, okLabel }
+    function dlgAlert(o, onClose) {
+        dlgOpen({ title: o.title, message: o.message, items: o.items, note: o.note, cancelLabel: null, onCancel: onClose,
+            buttons: [{ label: o.okLabel || "OK", kind: "primary", onClick: function () { if (onClose) onClose(); } }] });
+    }
+    // Plusieurs actions au choix (+ Annuler) : o = { title, message, note, buttons: [{ label, kind, onClick }] }
+    function dlgChoice(o, onCancel) {
+        dlgOpen({ kind: "choice", title: o.title, message: o.message, note: o.note, warnings: o.warnings, cancelLabel: o.cancelLabel || "Annuler", onCancel: onCancel, buttons: o.buttons });
+    }
+    function dlgFileUnavailable(name) {
+        dlgAlert({ title: "Fichier indisponible", message: "« " + name + " » est enregistré sur l'appareil où tu l'as ajouté, pas sur celui-ci." });
+    }
+    // Un élément du même nom existe déjà au même endroit : on prévient, sans bloquer. `label` = verbe de l'action en cours.
+    function confirmNameCollision(kind, name, label, onYes, onNo) {
+        dlgConfirm({ title: "Ce nom existe déjà", message: "Un " + kind + " « " + name + " » existe déjà ici.", confirmLabel: label || "Continuer" }, onYes, onNo);
+    }
+    // Si le nom est déjà pris : demande confirmation (action nommée par `label`) ; sinon agit tout de suite.
+    function ifNameFree(taken, kind, name, label, go, onNo) {
+        if (taken) confirmNameCollision(kind, name, label, go, onNo); else go();
+    }
+
     function makeFolder(name, color) {
         var f = { id: uid(), name: name, folders: [], exercises: [] };
         if (color) f.color = color;
@@ -855,6 +1002,7 @@
         }
         function typing() { var t = document.activeElement; return !!(t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)); }
         function onKey(e) {
+            if (dlgIsOpen()) return;
             if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeBox(); }
             else if (!typing() && e.key === "ArrowRight") { step(1); }
             else if (!typing() && e.key === "ArrowLeft") { step(-1); }
@@ -918,14 +1066,15 @@
                 rm.textContent = "✕";
                 rm.title = "Retirer cette image";
                 rm.addEventListener("click", function () {
-                    if (!window.confirm("Retirer cette image ?")) return;
-                    ex.images = ex.images.filter(function (m) { return m.id !== meta.id; });
-                    deleteFileBlob(meta.id);
-                    cloudDeleteImage(meta.id);
-                    delete imageUrlCache[meta.id];
-                    touchExercise(ex);
-                    save();
-                    render();
+                    dlgConfirm({ title: "Retirer cette image ?", message: "Elle sera supprimée de l'exercice.", confirmLabel: "Retirer", danger: true }, function () {
+                        ex.images = ex.images.filter(function (m) { return m.id !== meta.id; });
+                        deleteFileBlob(meta.id);
+                        cloudDeleteImage(meta.id);
+                        delete imageUrlCache[meta.id];
+                        touchExercise(ex);
+                        save();
+                        render();
+                    });
                 });
                 side.appendChild(rm);
             }
@@ -956,7 +1105,7 @@
             render();
             added.forEach(function (m) { cloudUploadImage(m); });
         }).catch(function () {
-            window.alert("Impossible d'enregistrer cette image sur cet appareil (stockage plein ou navigateur privé ?).");
+            dlgAlert({ title: "Image non enregistrée", message: "Stockage plein, ou navigation privée activée sur cet appareil." });
         });
     }
 
@@ -1185,9 +1334,6 @@
     function exerciseTitleTaken(siblingExercises, title, exclude) {
         var t = title.trim().toLowerCase();
         return siblingExercises.some(function (ex) { return ex !== exclude && ex.title.trim().toLowerCase() === t; });
-    }
-    function confirmNameCollision(kind, name) {
-        return window.confirm("Un " + kind + " nommé « " + name + " » existe déjà ici. Continuer quand même ?");
     }
 
     // ---------- déplacer / fusionner des dossiers ----------
@@ -1718,18 +1864,19 @@
     }
 
     // Suppression d'un exercice : si des sessions l'utilisent, on le dit (avec leurs noms) avant de confirmer.
-    function deleteExerciseGuarded(ex, folder, inst) {
+    function deleteExerciseGuarded(ex, folder, inst, after) {
         var u = exerciseUsage(ex.id);
-        var msg = "Supprimer « " + ex.title + " » ?";
-        if (u.sessions.length) msg += "\n\n⚠ " + exerciseUsageText(u) + "\nCes sessions afficheront « exercice supprimé » à sa place. Il reste récupérable dans la corbeille.";
-        if (!window.confirm(msg)) return false;
-        addToTrash("exercise", ex, { instrumentId: (inst || getActiveInstrument()).id, parentFolderId: folder.id });
-        var i = folder.exercises.indexOf(ex);
-        if (i !== -1) folder.exercises.splice(i, 1);
-        save();
-        render();
-        toastUndo("« " + ex.title + " » mis à la corbeille");
-        return true;
+        dlgConfirm({ title: "Supprimer « " + ex.title + " » ?", confirmLabel: "Supprimer", danger: true,
+            warnings: u.sessions.length ? [exerciseUsageText(u) + " Elles afficheront « exercice supprimé » à sa place."] : [],
+            note: "Récupérable dans la corbeille." }, function () {
+            addToTrash("exercise", ex, { instrumentId: (inst || getActiveInstrument()).id, parentFolderId: folder.id });
+            var i = folder.exercises.indexOf(ex);
+            if (i !== -1) folder.exercises.splice(i, 1);
+            save();
+            render();
+            if (after) after();
+            toastUndo("« " + ex.title + " » mis à la corbeille");
+        });
     }
 
     // Met une session à la corbeille avec son planning à venir (sans demander) ; renvoie le nombre de séances retirées du calendrier.
@@ -1750,35 +1897,36 @@
     function deleteSessionGuarded(session, after) {
         var today = calTodayKey();
         var future = state.settings.sessionPlan.filter(function (pe) { return pe.sessionId === session.id && pe.date >= today; }).sort(function (a, b) { return a.date < b.date ? -1 : 1; });
-        var msg = "Supprimer la session « " + session.name + " » ?";
-        if (future.length) msg += "\n\n⚠ Elle est prévue " + future.length + " fois au calendrier (prochaine : " + calLongDate(future[0].date) + ") : ces séances seront retirées du calendrier.";
-        if (gsDraftDirty(session.id)) msg += "\n⚠ Ses modifications non enregistrées seront perdues.";
-        msg += "\n\nLes séances déjà faites restent dans l'historique. La session reste récupérable dans la corbeille" + (future.length ? ", avec son planning." : ".");
-        if (!window.confirm(msg)) return false;
-        var nFuture = gsTrashSession(session);
-        save();
-        render();
-        if (after) after();
-        toastUndo("Session « " + session.name + " » mise à la corbeille" + (nFuture ? " (et " + nFuture + " séance" + (nFuture > 1 ? "s" : "") + " du calendrier)" : ""));
-        return true;
+        var warnings = [];
+        if (future.length) warnings.push("Prévue " + future.length + " fois au calendrier (prochaine : " + calLongDate(future[0].date) + ") : ces séances seront retirées du calendrier.");
+        if (gsDraftDirty(session.id)) warnings.push("Ses modifications non enregistrées seront perdues.");
+        dlgConfirm({ title: "Supprimer « " + session.name + " » ?", confirmLabel: "Supprimer", danger: true, warnings: warnings,
+            note: "Récupérable dans la corbeille" + (future.length ? ", avec son planning" : "") + ". Les séances déjà faites restent dans l'historique." }, function () {
+            var nFuture = gsTrashSession(session);
+            save();
+            render();
+            if (after) after();
+            toastUndo("Session « " + session.name + " » mise à la corbeille" + (nFuture ? " (et " + nFuture + " séance" + (nFuture > 1 ? "s" : "") + " du calendrier)" : ""));
+        });
     }
     function deleteSessionsGuarded(list) {
-        if (list.length === 1) return deleteSessionGuarded(list[0]);
+        if (list.length === 1) { deleteSessionGuarded(list[0]); return; }
         var today = calTodayKey(), ids = {}, dirty = 0;
         list.forEach(function (g) { ids[g.id] = true; if (gsDraftDirty(g.id)) dirty++; });
         var nPlan = state.settings.sessionPlan.filter(function (pe) { return ids[pe.sessionId] && pe.date >= today; }).length;
-        var msg = "Supprimer " + list.length + " sessions ?\n\n" + list.slice(0, 8).map(function (g) { return "• " + g.name; }).join("\n") + (list.length > 8 ? "\n… et " + (list.length - 8) + " autres" : "");
-        if (nPlan) msg += "\n\n⚠ " + nPlan + " séance" + (nPlan > 1 ? "s" : "") + " au calendrier seront retirées.";
-        if (dirty) msg += "\n⚠ " + dirty + " session" + (dirty > 1 ? "s ont" : " a") + " des modifications non enregistrées, perdues.";
-        msg += "\n\nLes séances déjà faites restent dans l'historique. Tout reste récupérable dans la corbeille" + (nPlan ? ", avec le planning." : ".");
-        if (state.settings.trash.length + list.length > TRASH_LIMIT) msg += "\n⚠ La corbeille garde au plus " + TRASH_LIMIT + " éléments : les plus anciens seront supprimés pour de bon.";
-        if (!window.confirm(msg)) return false;
-        list.forEach(gsTrashSession);
-        sessSel = {}; sessSelAnchor = null;
-        save();
-        render();
-        toastUndo(list.length + " sessions mises à la corbeille" + (nPlan ? " (et " + nPlan + " séance" + (nPlan > 1 ? "s" : "") + " du calendrier)" : ""));
-        return true;
+        var warnings = [];
+        if (nPlan) warnings.push(nPlan + " séance" + (nPlan > 1 ? "s" : "") + " au calendrier seront retirées.");
+        if (dirty) warnings.push(dirty + " session" + (dirty > 1 ? "s ont" : " a") + " des modifications non enregistrées, perdues.");
+        if (state.settings.trash.length + list.length > TRASH_LIMIT) warnings.push("La corbeille garde au plus " + TRASH_LIMIT + " éléments : les plus anciens seront supprimés pour de bon.");
+        dlgConfirm({ title: "Supprimer " + list.length + " sessions ?", confirmLabel: "Supprimer", danger: true, warnings: warnings,
+            items: list.slice(0, 8).map(function (g) { return g.name; }).concat(list.length > 8 ? ["… et " + (list.length - 8) + " autres"] : []),
+            note: "Récupérables dans la corbeille" + (nPlan ? ", avec leur planning" : "") + ". Les séances déjà faites restent dans l'historique." }, function () {
+            list.forEach(gsTrashSession);
+            sessSel = {}; sessSelAnchor = null;
+            save();
+            render();
+            toastUndo(list.length + " sessions mises à la corbeille" + (nPlan ? " (et " + nPlan + " séance" + (nPlan > 1 ? "s" : "") + " du calendrier)" : ""));
+        });
     }
 
     // Tableau qui contient un dossier (les chapitres de l'espace, ou les sous-dossiers de son parent).
@@ -1797,24 +1945,25 @@
         if (!parentArray) return false;
         if (dest.folders === parentArray) { showToast("« " + folder.name + " » est déjà dans « " + dest.name + " »"); return false; }
         if (folderDepth(inst, dest.id) + folderSubtreeDepth(folder) > MAX_FOLDER_DEPTH) {
-            window.alert("Impossible de déplacer ici : la profondeur maximale (" + MAX_FOLDER_DEPTH + " niveaux) serait dépassée.");
+            dlgAlert({ title: "Déplacement impossible", message: "Les dossiers vont jusqu'à " + MAX_FOLDER_DEPTH + " niveaux : ce déplacement les dépasserait." });
             return false;
         }
-        if (folderNameTaken(dest.folders, folder.name) && !confirmNameCollision("dossier", folder.name)) return false;
-        parentArray.splice(parentArray.indexOf(folder), 1);
-        dest.folders.push(folder);
-        var currentPath = getNavPath(inst);
-        if (currentPath.indexOf(folder.id) !== -1) setNavPath(inst, (findPathTo(inst, dest.id) || []).concat(folder.id));
-        treeExpanded[dest.id] = true;
-        save();
-        render();
-        toastUndo("« " + folder.name + " » rangé dans « " + dest.name + " »");
+        ifNameFree(folderNameTaken(dest.folders, folder.name), "dossier", folder.name, "Déplacer quand même", function () {
+            parentArray.splice(parentArray.indexOf(folder), 1);
+            dest.folders.push(folder);
+            var currentPath = getNavPath(inst);
+            if (currentPath.indexOf(folder.id) !== -1) setNavPath(inst, (findPathTo(inst, dest.id) || []).concat(folder.id));
+            treeExpanded[dest.id] = true;
+            save();
+            render();
+            toastUndo("« " + folder.name + " » rangé dans « " + dest.name + " »");
+        });
         return true;
     }
     // Copie d'un dossier placée ailleurs : le suffixe « (copie) » n'est gardé que si le nom est déjà pris là-bas.
     function copyFolderInto(inst, folder, dest) {
         if (folderDepth(inst, dest.id) + folderSubtreeDepth(folder) > MAX_FOLDER_DEPTH) {
-            window.alert("Impossible de copier ici : la profondeur maximale (" + MAX_FOLDER_DEPTH + " niveaux) serait dépassée.");
+            dlgAlert({ title: "Copie impossible", message: "Les dossiers vont jusqu'à " + MAX_FOLDER_DEPTH + " niveaux : cette copie les dépasserait." });
             return false;
         }
         var copy = duplicateFolderDeep(folder);
@@ -1983,22 +2132,23 @@
                     var maxChildDepth = folder.folders.reduce(function (m, f) { return Math.max(m, folderSubtreeDepth(f)); }, 0);
                     var destDepth = folderDepth(inst, dest.id);
                     if (maxChildDepth > 0 && destDepth + maxChildDepth > MAX_FOLDER_DEPTH) {
-                        window.alert("Impossible de fusionner ici : certains sous-dossiers dépasseraient la profondeur maximale (" + MAX_FOLDER_DEPTH + " niveaux).");
+                        dlgAlert({ title: "Fusion impossible", message: "Les dossiers vont jusqu'à " + MAX_FOLDER_DEPTH + " niveaux : cette fusion les dépasserait." });
                         return;
                     }
-                    if (!window.confirm("Fusionner « " + folder.name + " » dans « " + dest.name + " » ? Ses sous-dossiers et exercices seront déplacés dans « " + dest.name + " », et « " + folder.name + " » disparaîtra.")) return;
-                    dest.folders = dest.folders.concat(folder.folders);
-                    dest.exercises = dest.exercises.concat(folder.exercises);
-                    var parentArray2 = getParentArray();
-                    var pos2 = parentArray2.indexOf(folder);
-                    if (pos2 !== -1) parentArray2.splice(pos2, 1);
-                    var currentPath2 = getNavPath(inst);
-                    if (currentPath2.indexOf(folder.id) !== -1) {
-                        setNavPath(inst, findPathTo(inst, dest.id) || []);
-                    }
-                    save();
-                    render();
-                    toastUndo("« " + folder.name + " » fusionné dans « " + dest.name + " »");
+                    dlgConfirm({ title: "Fusionner « " + folder.name + " » dans « " + dest.name + " » ?", message: "Son contenu (sous-dossiers et exercices) passe dans « " + dest.name + " ». « " + folder.name + " » disparaît.", confirmLabel: "Fusionner" }, function () {
+                        dest.folders = dest.folders.concat(folder.folders);
+                        dest.exercises = dest.exercises.concat(folder.exercises);
+                        var parentArray2 = getParentArray();
+                        var pos2 = parentArray2.indexOf(folder);
+                        if (pos2 !== -1) parentArray2.splice(pos2, 1);
+                        var currentPath2 = getNavPath(inst);
+                        if (currentPath2.indexOf(folder.id) !== -1) {
+                            setNavPath(inst, findPathTo(inst, dest.id) || []);
+                        }
+                        save();
+                        render();
+                        toastUndo("« " + folder.name + " » fusionné dans « " + dest.name + " »");
+                    });
                 });
             }));
             menu.appendChild(menuButton("Supprimer", "ctx-danger", showDelete));
@@ -2016,16 +2166,17 @@
             function commit() {
                 var name = input.value.trim();
                 if (!name) return;
-                if (folderNameTaken(folder.folders, name) && !confirmNameCollision("dossier", name)) return;
-                var child = makeFolder(name);
-                folder.folders.push(child);
-                treeExpanded[folder.id] = true;
-                // On ouvre directement le nouveau dossier (chemin = chemin du parent + enfant).
-                var parentPath = findPathTo(inst, folder.id);
-                if (parentPath) { clearFilters(); setNavPath(inst, parentPath.concat(child.id)); }
-                save();
-                closeFolderMenu();
-                render();
+                ifNameFree(folderNameTaken(folder.folders, name), "dossier", name, "Créer quand même", function () {
+                    var child = makeFolder(name);
+                    folder.folders.push(child);
+                    treeExpanded[folder.id] = true;
+                    // On ouvre directement le nouveau dossier (chemin = chemin du parent + enfant).
+                    var parentPath = findPathTo(inst, folder.id);
+                    if (parentPath) { clearFilters(); setNavPath(inst, parentPath.concat(child.id)); }
+                    save();
+                    closeFolderMenu();
+                    render();
+                });
             }
             input.addEventListener("keydown", function (e) {
                 e.stopPropagation();
@@ -2051,9 +2202,13 @@
             function commit() {
                 var name = input.value.trim();
                 if (name && name !== folder.name) {
-                    if (folderNameTaken(getParentArray(), name, folder) && !confirmNameCollision("dossier", name)) return;
-                    folder.name = name;
-                    save();
+                    ifNameFree(folderNameTaken(getParentArray(), name, folder), "dossier", name, "Renommer quand même", function () {
+                        folder.name = name;
+                        save();
+                        closeFolderMenu();
+                        render();
+                    });
+                    return;
                 }
                 closeFolderMenu();
                 render();
@@ -2124,20 +2279,18 @@
     // Renommer un exercice : le nouveau nom apparaît partout (sessions, calendrier, statistiques), car tout
     // y fait référence par identifiant ; seul l'historique garde aussi le nom d'alors.
     function renameExercisePrompt(ex, folder, after) {
-        var n = window.prompt("Nouveau nom de l'exercice :", ex.title);
-        if (n === null) return false;
-        n = n.trim();
-        if (!n || n === ex.title) return false;
-        if (folder && exerciseTitleTaken(folder.exercises, n, ex) && !confirmNameCollision("exercice", n)) return false;
-        var old = ex.title;
-        ex.title = n;
-        touchExercise(ex);
-        save();
-        render();
-        if (after) after();
-        var u = exerciseUsage(ex.id);
-        toastUndo("« " + old + " » renommé en « " + n + " »" + (u.sessions.length ? " (à jour dans " + u.sessions.length + " session" + (u.sessions.length > 1 ? "s" : "") + ")" : ""));
-        return true;
+        dlgPrompt({ title: "Renommer l'exercice", value: ex.title, confirmLabel: "Renommer", mustChange: true }, function (n) {
+            ifNameFree(!!folder && exerciseTitleTaken(folder.exercises, n, ex), "exercice", n, "Renommer quand même", function () {
+                var old = ex.title;
+                ex.title = n;
+                touchExercise(ex);
+                save();
+                render();
+                if (after) after();
+                var u = exerciseUsage(ex.id);
+                toastUndo("« " + old + " » renommé en « " + n + " »" + (u.sessions.length ? " (à jour dans " + u.sessions.length + " session" + (u.sessions.length > 1 ? "s" : "") + ")" : ""));
+            });
+        });
     }
     // Ajoute un ou plusieurs exercices à une session enregistrée (et à son brouillon ouvert, pour que rien ne s'écrase).
     function gsAddExerciseToSession(session, exs) {
@@ -2160,12 +2313,12 @@
         var list = state.settings.guidedSessions.filter(function (g) { return g.instrumentId === inst.id && !g.archived && !g.ephemeral; })
             .sort(function (a, b) { return a.name.localeCompare(b.name, "fr", { sensitivity: "base" }); });
         var items = [{ label: "＋ Nouvelle session avec " + (exs.length > 1 ? "ces " + exs.length + " exercices" : "cet exercice"), open: function () {
-            var name = window.prompt("Nom de la nouvelle session :", first.title);
-            if (name === null || !name.trim()) return;
-            var sess = { id: uid(), name: name.trim(), steps: [], instrumentId: inst.id, tabIds: [], createdAt: Date.now() };
-            state.settings.guidedSessions.push(sess);
-            gsAddExerciseToSession(sess, exs);
-            exSelClear();
+            dlgPrompt({ title: "Nouvelle session", message: exs.length > 1 ? "Elle contiendra ces " + exs.length + " exercices." : "Elle contiendra « " + first.title + " ».", value: first.title, placeholder: "Nom de la session", confirmLabel: "Créer" }, function (name) {
+                var sess = { id: uid(), name: name, steps: [], instrumentId: inst.id, tabIds: [], createdAt: Date.now() };
+                state.settings.guidedSessions.push(sess);
+                gsAddExerciseToSession(sess, exs);
+                exSelClear();
+            });
         } }];
         list.forEach(function (g) {
             var n = g.steps.filter(function (st) { return exs.some(function (ex) { return ex.id === st.exerciseId; }); }).length;
@@ -2208,11 +2361,14 @@
         var moved = items.filter(function (it) { return it.folder !== dest; });
         if (!moved.length) { showToast("Déjà dans « " + dest.name + " »"); return false; }
         var coll = moved.filter(function (it) { return exerciseTitleTaken(dest.exercises, it.ex.title); }).length;
-        if (coll && !window.confirm(coll + " exercice" + (coll > 1 ? "s portent" : " porte") + " déjà le même nom dans « " + dest.name + " ». Continuer quand même ?")) return false;
-        moved.forEach(function (it) { it.folder.exercises.splice(it.folder.exercises.indexOf(it.ex), 1); dest.exercises.push(it.ex); });
-        exSel = {}; exSelAnchor = null;
-        save(); render();
-        toastUndo(moved.length + " exercice" + (moved.length > 1 ? "s" : "") + " déplacé" + (moved.length > 1 ? "s" : "") + " vers « " + dest.name + " »");
+        function go() {
+            moved.forEach(function (it) { it.folder.exercises.splice(it.folder.exercises.indexOf(it.ex), 1); dest.exercises.push(it.ex); });
+            exSel = {}; exSelAnchor = null;
+            save(); render();
+            toastUndo(moved.length + " exercice" + (moved.length > 1 ? "s" : "") + " déplacé" + (moved.length > 1 ? "s" : "") + " vers « " + dest.name + " »");
+        }
+        if (!coll) { go(); return true; }
+        dlgConfirm({ title: "Ce nom existe déjà", message: coll + " exercice" + (coll > 1 ? "s portent" : " porte") + " déjà le même nom dans « " + dest.name + " ».", confirmLabel: "Déplacer quand même" }, go);
         return true;
     }
     function exSelCopy(items, dest) {
@@ -2227,19 +2383,20 @@
     }
     function exSelDelete(items) {
         var u = exerciseUsage(items.map(function (it) { return it.ex.id; }));
-        var msg = "Supprimer " + items.length + " exercice" + (items.length > 1 ? "s" : "") + " ?\n\n" + items.slice(0, 8).map(function (it) { return "• " + it.ex.title; }).join("\n") + (items.length > 8 ? "\n… et " + (items.length - 8) + " autres" : "");
-        if (u.sessions.length) msg += "\n\n⚠ " + u.steps + " pas de " + u.sessions.length + " session" + (u.sessions.length > 1 ? "s" : "") + " les utilisent (" + u.sessions.slice(0, 4).map(function (g) { return "« " + g.name + " »"; }).join(", ") + (u.sessions.length > 4 ? "…" : "") + ") : ils afficheront « exercice supprimé ».";
-        if (state.settings.trash.length + items.length > TRASH_LIMIT) msg += "\n\n⚠ La corbeille garde au plus " + TRASH_LIMIT + " éléments : les plus anciens seront supprimés pour de bon.";
-        msg += "\n\nIls restent récupérables dans la corbeille.";
-        if (!window.confirm(msg)) return false;
-        items.forEach(function (it) {
-            addToTrash("exercise", it.ex, { instrumentId: it.inst.id, parentFolderId: it.folder.id });
-            it.folder.exercises.splice(it.folder.exercises.indexOf(it.ex), 1);
+        var warnings = [];
+        if (u.sessions.length) warnings.push(u.steps + " pas de " + u.sessions.length + " session" + (u.sessions.length > 1 ? "s" : "") + " les utilisent (" + u.sessions.slice(0, 4).map(function (g) { return "« " + g.name + " »"; }).join(", ") + (u.sessions.length > 4 ? "…" : "") + ") : ils afficheront « exercice supprimé ».");
+        if (state.settings.trash.length + items.length > TRASH_LIMIT) warnings.push("La corbeille garde au plus " + TRASH_LIMIT + " éléments : les plus anciens seront supprimés pour de bon.");
+        dlgConfirm({ title: "Supprimer " + items.length + " exercice" + (items.length > 1 ? "s" : "") + " ?", confirmLabel: "Supprimer", danger: true, warnings: warnings,
+            items: items.slice(0, 8).map(function (it) { return it.ex.title; }).concat(items.length > 8 ? ["… et " + (items.length - 8) + " autres"] : []),
+            note: "Récupérables dans la corbeille." }, function () {
+            items.forEach(function (it) {
+                addToTrash("exercise", it.ex, { instrumentId: it.inst.id, parentFolderId: it.folder.id });
+                it.folder.exercises.splice(it.folder.exercises.indexOf(it.ex), 1);
+            });
+            exSel = {}; exSelAnchor = null;
+            save(); render();
+            toastUndo(items.length + " exercice" + (items.length > 1 ? "s" : "") + " mis à la corbeille");
         });
-        exSel = {}; exSelAnchor = null;
-        save(); render();
-        toastUndo(items.length + " exercice" + (items.length > 1 ? "s" : "") + " mis à la corbeille");
-        return true;
     }
     // Favori / archivé : si tous l'ont déjà, on le retire à tous ; sinon on l'ajoute à tous.
     function exSelFlag(items, field, labelOn, labelOff) {
@@ -2489,18 +2646,19 @@
                 closeFolderMenu();
                 openFolderPickerModal("Déplacer « " + ex.title + " » vers…", [], function (dest) {
                     if (dest === folder) return;
-                    if (exerciseTitleTaken(dest.exercises, ex.title) && !confirmNameCollision("exercice", ex.title)) return;
-                    folder.exercises.splice(folder.exercises.indexOf(ex), 1);
-                    dest.exercises.push(ex);
-                    save();
-                    render();
-                    if (opts.after) opts.after();
-                    toastUndo("« " + ex.title + " » déplacé vers « " + dest.name + " »");
+                    ifNameFree(exerciseTitleTaken(dest.exercises, ex.title), "exercice", ex.title, "Déplacer quand même", function () {
+                        folder.exercises.splice(folder.exercises.indexOf(ex), 1);
+                        dest.exercises.push(ex);
+                        save();
+                        render();
+                        if (opts.after) opts.after();
+                        toastUndo("« " + ex.title + " » déplacé vers « " + dest.name + " »");
+                    });
                 });
             }));
             menu.appendChild(menuButton("Supprimer…", "ctx-danger", function () {
                 closeFolderMenu();
-                if (deleteExerciseGuarded(ex, folder, (findExerciseById(ex.id) || {}).inst) && opts.after) opts.after();
+                deleteExerciseGuarded(ex, folder, (findExerciseById(ex.id) || {}).inst, opts.after);
             }));
         }
 
@@ -2525,42 +2683,14 @@
     }
 
     // Petit dialogue centré à choix, sur le modèle des menus contextuels.
+    // Question à plusieurs réponses, dans la même boîte que les autres. La réponse « muted » est la neutre : c'est aussi celle
+    // d'Échap et d'un clic à côté. Les autres réponses sont des actions.
     function openChoiceMenu(heading, message, choices) {
         closeFolderMenu();
-        var backdrop = document.createElement("div");
-        backdrop.className = "ctx-backdrop";
-        function close() { closeFolderMenu(); }
-        backdrop.addEventListener("pointerdown", function (e) { e.preventDefault(); close(); });
-        var menu = document.createElement("div");
-        menu.className = "ctx-menu ctx-menu-dialog";
-        menu.setAttribute("role", "dialog");
-        if (closeActiveModal) { backdrop.classList.add("ctx-over-modal"); menu.classList.add("ctx-over-modal"); }
-        var h = document.createElement("div");
-        h.className = "ctx-menu-title ctx-menu-title-wrap";
-        h.textContent = heading;
-        menu.appendChild(h);
-        if (message) {
-            var m = document.createElement("div");
-            m.className = "ctx-menu-text";
-            m.textContent = message;
-            menu.appendChild(m);
-        }
-        choices.forEach(function (c) {
-            var b = document.createElement("button");
-            b.type = "button";
-            b.className = "ctx-item" + (c.muted ? " ctx-item-muted" : "");
-            b.textContent = c.text;
-            b.addEventListener("click", function () { close(); if (c.onClick) c.onClick(); });
-            menu.appendChild(b);
-        });
-        function onKey(e) { if (e.key === "Escape") close(); }
-        document.body.appendChild(backdrop);
-        document.body.appendChild(menu);
-        document.addEventListener("keydown", onKey, true);
-        openMenu = { backdrop: backdrop, menu: menu, onKey: onKey };
-        var w = menu.offsetWidth || 300, hh = menu.offsetHeight || 160;
-        menu.style.left = Math.max(8, (window.innerWidth - w) / 2) + "px";
-        menu.style.top = Math.max(8, (window.innerHeight - hh) / 3) + "px";
+        var neutral = choices.filter(function (c) { return c.muted; })[0];
+        var actions = choices.filter(function (c) { return !c.muted; });
+        dlgOpen({ kind: "choice", title: heading, message: message, cancelLabel: neutral ? neutral.text : "Annuler", onCancel: neutral ? neutral.onClick : null,
+            buttons: actions.map(function (c, i) { return { label: c.text, kind: i === actions.length - 1 ? "primary" : "plain", onClick: c.onClick }; }) });
     }
 
     // `needsApply(other)` : cet autre exercice serait-il réellement modifié ? (sinon on ne demande rien)
@@ -2616,12 +2746,13 @@
         }
         choice("Déplacer ici", "", function () {
             closeFolderMenu();
-            if (exerciseTitleTaken(destFolder.exercises, ex.title) && !confirmNameCollision("exercice", ex.title)) { render(); return; }
-            fromFolder.exercises.splice(fromFolder.exercises.indexOf(ex), 1);
-            destFolder.exercises.push(ex);
-            save();
-            render();
-            toastUndo("« " + ex.title + " » déplacé vers « " + destFolder.name + " »");
+            ifNameFree(exerciseTitleTaken(destFolder.exercises, ex.title), "exercice", ex.title, "Déplacer quand même", function () {
+                fromFolder.exercises.splice(fromFolder.exercises.indexOf(ex), 1);
+                destFolder.exercises.push(ex);
+                save();
+                render();
+                toastUndo("« " + ex.title + " » déplacé vers « " + destFolder.name + " »");
+            }, render);
         });
         choice("Copier ici", "", function () {
             closeFolderMenu();
@@ -3119,34 +3250,34 @@
     function renameInstrument(instrumentId) {
         var inst = state.instruments.filter(function (i) { return i.id === instrumentId; })[0];
         if (!inst) return;
-        var name = window.prompt("Renommer l'espace (laisser vide pour le supprimer) :", inst.name);
-        if (name === null) return;
-        name = name.trim();
-        if (!name) {
-            if (state.instruments.length <= 1) return;
+        function deleteIt() {
             var nEx = 0; (inst.categories || []).forEach(function (c) { nEx += folderExerciseIds(c).length; });
             var nSess = state.settings.guidedSessions.filter(function (gs) { return gs.instrumentId === instrumentId; }).length;
-            if (!window.confirm("Supprimer l'espace « " + inst.name + " » ?\n\n⚠ " + nEx + " exercice" + (nEx > 1 ? "s" : "") + " et " + nSess + " session" + (nSess > 1 ? "s" : "") + " (avec leur planning) seront mis à la corbeille, d'où tu pourras tout restaurer d'un coup.")) return;
-            addToTrash("instrument", inst, {
-                sessions: state.settings.guidedSessions.filter(function (gs) { return gs.instrumentId === instrumentId; }),
-                sessionFolders: state.settings.sessionFolders.filter(function (f) { return f.instrumentId === instrumentId; }),
-                plan: state.settings.sessionPlan.filter(function (pe) { return pe.instrumentId === instrumentId; })
+            dlgConfirm({ title: "Supprimer l'espace « " + inst.name + " » ?", confirmLabel: "Supprimer", danger: true,
+                warnings: [nEx + " exercice" + (nEx > 1 ? "s" : "") + " et " + nSess + " session" + (nSess > 1 ? "s" : "") + " (avec leur planning) partent avec lui."],
+                note: "Récupérable dans la corbeille." }, function () {
+                addToTrash("instrument", inst, {
+                    sessions: state.settings.guidedSessions.filter(function (gs) { return gs.instrumentId === instrumentId; }),
+                    sessionFolders: state.settings.sessionFolders.filter(function (f) { return f.instrumentId === instrumentId; }),
+                    plan: state.settings.sessionPlan.filter(function (pe) { return pe.instrumentId === instrumentId; })
+                });
+                state.instruments = state.instruments.filter(function (i) { return i.id !== instrumentId; });
+                state.settings.guidedSessions = state.settings.guidedSessions.filter(function (gs) { return gs.instrumentId !== instrumentId; });
+                state.settings.sessionFolders = state.settings.sessionFolders.filter(function (f) { return f.instrumentId !== instrumentId; });
+                state.settings.sessionPlan = state.settings.sessionPlan.filter(function (pe) { return pe.instrumentId !== instrumentId; });
+                delete navPaths[instrumentId];
+                if (state.activeInstrumentId === instrumentId) state.activeInstrumentId = state.instruments[0].id;
+                save();
+                render();
+                toastUndo("Espace « " + inst.name + " » mis à la corbeille");
             });
-            state.instruments = state.instruments.filter(function (i) { return i.id !== instrumentId; });
-            state.settings.guidedSessions = state.settings.guidedSessions.filter(function (gs) { return gs.instrumentId !== instrumentId; });
-            state.settings.sessionFolders = state.settings.sessionFolders.filter(function (f) { return f.instrumentId !== instrumentId; });
-            state.settings.sessionPlan = state.settings.sessionPlan.filter(function (pe) { return pe.instrumentId !== instrumentId; });
-            delete navPaths[instrumentId];
-            if (state.activeInstrumentId === instrumentId) state.activeInstrumentId = state.instruments[0].id;
+        }
+        dlgPrompt({ title: "Renommer l'espace", value: inst.name, confirmLabel: "Renommer", mustChange: true,
+            extra: state.instruments.length > 1 ? { label: "Supprimer l'espace…", onClick: deleteIt } : null }, function (name) {
+            inst.name = name;
             save();
             render();
-            toastUndo("Espace « " + inst.name + " » mis à la corbeille");
-            return;
-        } else {
-            inst.name = name;
-        }
-        save();
-        render();
+        });
     }
 
     // Construit une puce/ligne pour un chapitre VIRTUEL (Favoris, Archivés) : couleur fixe, pas de
@@ -3212,16 +3343,16 @@
         setupDragReorder($chapterBar, ".chapter-chip", function () { return getActiveInstrument().pinnedOrder; }, "x");
 
         var addBtn = iconButton("+", "Ajouter un grand chapitre", function () {
-            var name = window.prompt("Nom du nouveau chapitre (ex : Technique, Morceaux, Gammes...) :");
-            if (!name) return;
-            name = name.trim();
-            if (!name) return;
-            var chapter = makeFolder(name, currentPalette()[inst.categories.length % currentPalette().length]);
-            inst.categories.push(chapter);
-            clearFilters();
-            setNavPath(inst, [chapter.id]);
-            save();
-            render();
+            dlgPrompt({ title: "Nouveau chapitre", placeholder: "ex. Technique, Morceaux, Gammes", confirmLabel: "Créer" }, function (name) {
+                ifNameFree(folderNameTaken(inst.categories, name), "chapitre", name, "Créer quand même", function () {
+                    var chapter = makeFolder(name, currentPalette()[inst.categories.length % currentPalette().length]);
+                    inst.categories.push(chapter);
+                    clearFilters();
+                    setNavPath(inst, [chapter.id]);
+                    save();
+                    render();
+                });
+            });
         });
         $chapterBar.appendChild(addBtn);
     }
@@ -3309,13 +3440,14 @@
         function commitChapter() {
             var name = addInput.value.trim();
             if (!name) return;
-            if (folderNameTaken(inst.categories, name) && !confirmNameCollision("chapitre", name)) return;
-            var chapter = makeFolder(name, currentPalette()[inst.categories.length % currentPalette().length]);
-            inst.categories.push(chapter);
-            clearFilters();
-            setNavPath(inst, [chapter.id]);
-            save();
-            render();
+            ifNameFree(folderNameTaken(inst.categories, name), "chapitre", name, "Créer quand même", function () {
+                var chapter = makeFolder(name, currentPalette()[inst.categories.length % currentPalette().length]);
+                inst.categories.push(chapter);
+                clearFilters();
+                setNavPath(inst, [chapter.id]);
+                save();
+                render();
+            });
         }
         addBtn.addEventListener("click", commitChapter);
         addInput.addEventListener("keydown", function (e) { if (e.key === "Enter") commitChapter(); });
@@ -3805,10 +3937,11 @@
         function commit() {
             var name = input.value.trim();
             if (!name) return;
-            if (folderNameTaken(currentFolder.folders, name) && !confirmNameCollision("dossier", name)) return;
-            currentFolder.folders.push(makeFolder(name));
-            save();
-            render();
+            ifNameFree(folderNameTaken(currentFolder.folders, name), "dossier", name, "Créer quand même", function () {
+                currentFolder.folders.push(makeFolder(name));
+                save();
+                render();
+            });
         }
         btn.addEventListener("click", commit);
         input.addEventListener("keydown", function (e) { if (e.key === "Enter") commit(); });
@@ -3845,21 +3978,22 @@
         function commit() {
             var title = input.value.trim();
             if (!title) return;
-            if (exerciseTitleTaken(folder.exercises, title) && !confirmNameCollision("exercice", title)) return;
-            folder.exercises.push({
-                id: uid(),
-                title: title,
-                notes: "",
-                favorite: false,
-                archived: false,
-                links: [],
-                files: [],
-                collapsed: true,
-                updatedAt: Date.now()
+            ifNameFree(exerciseTitleTaken(folder.exercises, title), "exercice", title, "Créer quand même", function () {
+                folder.exercises.push({
+                    id: uid(),
+                    title: title,
+                    notes: "",
+                    favorite: false,
+                    archived: false,
+                    links: [],
+                    files: [],
+                    collapsed: true,
+                    updatedAt: Date.now()
+                });
+                input.value = "";
+                save();
+                render();
             });
-            input.value = "";
-            save();
-            render();
         }
         var btn = iconButton("+", "Ajouter l'exercice", commit);
         btn.className = "btn-accent icon-btn";
@@ -3927,13 +4061,11 @@
         title.addEventListener("change", function () {
             var newTitle = title.value.trim();
             if (!newTitle || newTitle === ex.title) { title.value = ex.title; return; }
-            if (exerciseTitleTaken(folder.exercises, newTitle, ex) && !confirmNameCollision("exercice", newTitle)) {
-                title.value = ex.title;
-                return;
-            }
-            ex.title = newTitle;
-            touchExercise(ex);
-            save();
+            ifNameFree(exerciseTitleTaken(folder.exercises, newTitle, ex), "exercice", newTitle, "Renommer quand même", function () {
+                ex.title = newTitle;
+                touchExercise(ex);
+                save();
+            }, function () { title.value = ex.title; }); // Annuler : on remet l'ancien nom, rien ne change
         });
         row.appendChild(title);
 
@@ -4532,7 +4664,7 @@
         if (isAudioFile(meta)) items.push({ label: "Lire dans TrainHub (vitesse réglable)", open: function () { toggleAudioPlayer(container, meta); } });
         items.push({ label: "Ouvrir dans un onglet du navigateur", open: function () {
             getFileBlob(meta.id).then(function (blob) {
-                if (!blob) { window.alert("Ce fichier n'est disponible que sur l'appareil où il a été ajouté (« " + meta.name + " »)."); return; }
+                if (!blob) { dlgFileUnavailable(meta.name); return; }
                 var url = URL.createObjectURL(playableBlob(blob, meta));
                 window.open(url, "_blank");
                 setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
@@ -4540,7 +4672,7 @@
         } });
         items.push({ label: "Ouvrir avec une autre application…", open: function () {
             getFileBlob(meta.id).then(function (blob) {
-                if (!blob) { window.alert("Ce fichier n'est disponible que sur l'appareil où il a été ajouté (« " + meta.name + " »)."); return; }
+                if (!blob) { dlgFileUnavailable(meta.name); return; }
                 var pb = playableBlob(blob, meta);
                 var file = null;
                 try { file = new File([pb], meta.name || "fichier", { type: pb.type }); } catch (e) {}
@@ -4574,7 +4706,7 @@
         if (existing) { if (existing._cleanup) existing._cleanup(); existing.remove(); }
         if (sameId) return;
         getFileBlob(meta.id).then(function (blob) {
-            if (!blob) { window.alert("Ce fichier n'est disponible que sur l'appareil où il a été ajouté (« " + meta.name + " »)."); return; }
+            if (!blob) { dlgFileUnavailable(meta.name); return; }
             var box = document.createElement("div");
             box.className = "audio-player";
             box.setAttribute("data-file", meta.id);
@@ -4671,7 +4803,7 @@
                 if (isAudioFile(meta)) { toggleAudioPlayer(list, meta); return; }
                 getFileBlob(meta.id).then(function (blob) {
                     if (!blob) {
-                        window.alert("Ce fichier n'est disponible que sur l'appareil où il a été ajouté (« " + meta.name + " »).");
+                        dlgFileUnavailable(meta.name);
                         return;
                     }
                     var url = URL.createObjectURL(playableBlob(blob, meta));
@@ -4731,12 +4863,13 @@
             removeBtn.textContent = "✕";
             removeBtn.title = "Retirer ce fichier";
             removeBtn.addEventListener("click", function () {
-                if (!window.confirm("Retirer « " + meta.name + " » ?")) return;
-                ex.files = ex.files.filter(function (f) { return f.id !== meta.id; });
-                deleteFileBlob(meta.id);
-                touchExercise(ex);
-                save();
-                render();
+                dlgConfirm({ title: "Retirer « " + meta.name + " » ?", message: "Le fichier sera supprimé de l'exercice.", confirmLabel: "Retirer", danger: true }, function () {
+                    ex.files = ex.files.filter(function (f) { return f.id !== meta.id; });
+                    deleteFileBlob(meta.id);
+                    touchExercise(ex);
+                    save();
+                    render();
+                });
             });
             chip.appendChild(removeBtn);
 
@@ -4779,7 +4912,7 @@
                 save();
                 render();
             }).catch(function () {
-                window.alert("Impossible d'enregistrer ce fichier sur cet appareil (stockage plein ou navigateur privé ?).");
+                dlgAlert({ title: "Fichier non enregistré", message: "Stockage plein, ou navigation privée activée sur cet appareil." });
             });
         });
         wrap.appendChild(fileInput);
@@ -4932,47 +5065,18 @@
     // seconde confirmation qui dit ce qui sera effacé.
     function askSyncConflict(remoteN, localN) {
         return new Promise(function (resolve) {
-            var backdrop = document.createElement("div");
-            backdrop.className = "ctx-backdrop";
-            var menu = document.createElement("div");
-            menu.className = "ctx-menu ctx-menu-dialog";
-            menu.setAttribute("role", "dialog");
             function plural(n) { return n + " exercice" + (n > 1 ? "s" : ""); }
-            function done(keepRemote) {
-                backdrop.remove(); menu.remove(); document.removeEventListener("keydown", onKey, true);
-                resolve(keepRemote);
-            }
-            function onKey(e) { if (e.key === "Escape") { e.preventDefault(); done(true); } }
-            function put(title, text, buttons) {
-                menu.innerHTML = "";
-                var h = document.createElement("div"); h.className = "ctx-menu-title ctx-menu-title-wrap"; h.textContent = title; menu.appendChild(h);
-                var t = document.createElement("div"); t.className = "ctx-menu-text"; t.textContent = text; menu.appendChild(t);
-                buttons.forEach(function (c) {
-                    var b = document.createElement("button"); b.type = "button";
-                    b.className = "ctx-item" + (c.muted ? " ctx-item-muted" : "") + (c.main ? " ctx-item-main" : "");
-                    b.textContent = c.text; b.addEventListener("click", c.run); menu.appendChild(b);
-                });
-            }
-            function step1() {
-                put("Données en ligne trouvées", "En ligne : " + plural(remoteN) + ". Sur cet appareil : " + plural(localN) + ".", [
-                    { text: "Garder les données en ligne (recommandé)", main: true, run: function () { done(true); } },
-                    { text: "Remplacer les données en ligne par celles de cet appareil…", muted: true, run: step2 }
-                ]);
-            }
+            function keep() { resolve(true); }
             function step2() {
-                put("Remplacer les données en ligne ?", "Les " + plural(remoteN) + " en ligne seront remplacés par les " + plural(localN) + " de cet appareil, sur tous tes appareils. Une sauvegarde de secours de la version en ligne est gardée sur cet appareil.", [
-                    { text: "Non, garder les données en ligne", main: true, run: function () { done(true); } },
-                    { text: "Oui, remplacer", muted: true, run: function () { done(false); } }
-                ]);
+                dlgOpen({ kind: "choice", title: "Remplacer les données en ligne ?", danger: true,
+                    message: "Les " + plural(remoteN) + " en ligne seront remplacés par les " + plural(localN) + " de cet appareil, sur tous tes appareils.",
+                    note: "Une sauvegarde de secours de la version en ligne est gardée.",
+                    cancelLabel: "Non, garder les données en ligne", cancelPrimary: true, onCancel: keep,
+                    buttons: [{ label: "Oui, remplacer", kind: "danger", left: true, onClick: function () { resolve(false); } }] });
             }
-            backdrop.addEventListener("pointerdown", function (e) { e.preventDefault(); done(true); });
-            step1();
-            document.body.appendChild(backdrop);
-            document.body.appendChild(menu);
-            document.addEventListener("keydown", onKey, true);
-            var w = menu.offsetWidth || 320, h2 = menu.offsetHeight || 180;
-            menu.style.left = Math.max(8, (window.innerWidth - w) / 2) + "px";
-            menu.style.top = Math.max(8, (window.innerHeight - h2) / 3) + "px";
+            dlgOpen({ kind: "choice", title: "Données en ligne trouvées", message: "En ligne : " + plural(remoteN) + ". Sur cet appareil : " + plural(localN) + ".",
+                cancelLabel: "Garder les données en ligne", cancelPrimary: true, onCancel: keep,
+                buttons: [{ label: "Remplacer par cet appareil…", kind: "plain", left: true, onClick: step2 }] });
         });
     }
 
@@ -5070,7 +5174,8 @@
         var provider = new firebase.auth.GoogleAuthProvider();
         auth.signInWithPopup(provider).catch(function (e) {
             console.error("Connexion impossible", e);
-            window.alert("Connexion impossible : " + (e && e.message ? e.message : "erreur inconnue"));
+            if (e && (e.code === "auth/popup-closed-by-user" || e.code === "auth/cancelled-popup-request")) return; // fenêtre Google fermée : l'utilisateur a annulé, rien à signaler
+            dlgAlert({ title: "Connexion impossible", message: e && e.message ? e.message : "Erreur inconnue. Réessaie dans un instant." });
         });
     });
 
@@ -5113,13 +5218,13 @@
     });
 
     document.getElementById("add-instrument-btn").addEventListener("click", function () {
-        var name = window.prompt("Nom du nouvel espace (instrument, groupe, projet…) :");
-        if (!name) return;
-        var inst = makeInstrument(name.trim(), currentPalette(), false);
-        state.instruments.push(inst);
-        state.activeInstrumentId = inst.id;
-        save();
-        render();
+        dlgPrompt({ title: "Nouvel espace", message: "Un instrument, un groupe, un projet…", placeholder: "Nom de l'espace", confirmLabel: "Créer" }, function (name) {
+            var inst = makeInstrument(name, currentPalette(), false);
+            state.instruments.push(inst);
+            state.activeInstrumentId = inst.id;
+            save();
+            render();
+        });
     });
 
     function downloadJson(obj, filename) {
@@ -5240,7 +5345,7 @@
                     });
                 });
             }, Promise.resolve()).then(function () {
-                if (!entries.length) { window.alert("Aucune image n'est disponible sur cet appareil."); return; }
+                if (!entries.length) { dlgAlert({ title: "Rien à exporter", message: "Aucune image n'est enregistrée sur cet appareil." }); return; }
                 downloadBlob(buildZip(entries), "trainhub-images-" + dateStr + ".zip");
                 done(missing, " (archive ZIP, dossier « images » à l'intérieur)");
             });
@@ -5270,7 +5375,7 @@
     }
     function reimportImages(files) {
         files = files.filter(function (f) { return /^image\//.test(f.type); });
-        if (!files.length) { window.alert("Aucune image dans la sélection."); return; }
+        if (!files.length) { dlgAlert({ title: "Aucune image", message: "La sélection ne contient aucune image." }); return; }
         var choices = allExerciseChoices();
         var matched = [], lost = [];
         files.forEach(function (file) {
@@ -5289,7 +5394,7 @@
                 render();
                 setTimeout(function () { all.forEach(function () {}); syncImagesToCloud(); }, 0);
                 showToast("Images réimportées : " + stats.added + " ajoutée" + (stats.added > 1 ? "s" : "") + ", " + stats.restored + " restaurée" + (stats.restored > 1 ? "s" : "") + ", " + stats.skipped + " déjà présente" + (stats.skipped > 1 ? "s" : "") + ".", 7000);
-            }).catch(function () { window.alert("Impossible d'enregistrer certaines images sur cet appareil."); });
+            }).catch(function () { dlgAlert({ title: "Images non enregistrées", message: "Certaines images n'ont pas pu être enregistrées : stockage plein, ou navigation privée activée." }); });
         }
         if (!lost.length) { finish(); return; }
         askLostImages(lost, choices, matched.length, function (assigned) { finish(assigned); });
@@ -5324,7 +5429,7 @@
         box.appendChild(h);
         var intro = document.createElement("div");
         intro.className = "gs-empty";
-        intro.textContent = (okCount ? okCount + " image" + (okCount > 1 ? "s" : "") + " retrouvée" + (okCount > 1 ? "s" : "") + " automatiquement. " : "") + lost.length + " n'ont pas trouvé leur exercice (nom changé, exercice supprimé, ou plusieurs exercices du même nom). Choisis l'exercice de chacune, ou ne l'importe pas.";
+        intro.textContent = (okCount ? okCount + " image" + (okCount > 1 ? "s" : "") + " rattachée" + (okCount > 1 ? "s" : "") + " automatiquement. " : "") + lost.length + " à rattacher à la main : choisis l'exercice de chacune, ou laisse « Ne pas importer ».";
         box.appendChild(intro);
         var list = document.createElement("div");
         list.className = "reimport-list";
@@ -5365,9 +5470,10 @@
         box.appendChild(list);
         var actions = document.createElement("div");
         actions.className = "reimport-actions";
-        function close() { urls.forEach(function (u) { URL.revokeObjectURL(u); }); overlay.remove(); }
+        function close() { urls.forEach(function (u) { URL.revokeObjectURL(u); }); overlay.remove(); window.removeEventListener("keydown", onKey, true); }
+        function onKey(e) { if (e.key === "Escape" && !dlgIsOpen()) { e.stopPropagation(); close(); } } // Échap = Annuler : rien n'est importé
         var cancel = document.createElement("button");
-        cancel.type = "button"; cancel.textContent = "Annuler";
+        cancel.type = "button"; cancel.className = "btn-ghost"; cancel.textContent = "Annuler";
         cancel.addEventListener("click", close);
         var ok = document.createElement("button");
         ok.type = "button"; ok.className = "btn-accent"; ok.textContent = "Importer";
@@ -5384,14 +5490,23 @@
         box.appendChild(actions);
         overlay.appendChild(box);
         document.body.appendChild(overlay);
+        window.addEventListener("keydown", onKey, true);
     }
 
     document.getElementById("export-btn").addEventListener("click", function () {
         var dateStr = new Date().toISOString().slice(0, 10);
         var images = collectExportImages();
-        var withImages = images.length > 0 && window.confirm("Exporter aussi les " + images.length + " image" + (images.length > 1 ? "s" : "") + " des exercices, dans un dossier « images » indépendant du fichier JSON ?\n\nOK = sauvegarde JSON + images\nAnnuler = sauvegarde JSON seulement");
-        downloadJson(exportState(), "trainhub-sauvegarde-" + dateStr + ".json");
-        if (withImages) exportImages(images, dateStr);
+        function run(withImages) {
+            downloadJson(exportState(), "trainhub-sauvegarde-" + dateStr + ".json");
+            if (withImages) exportImages(images, dateStr);
+        }
+        if (!images.length) { run(false); return; }
+        dlgChoice({ title: "Exporter une sauvegarde", message: "Tes exercices ont " + images.length + " image" + (images.length > 1 ? "s" : "") + ". Les ajouter à la sauvegarde ?",
+            note: "Les images sont exportées à part, dans un dossier « images ».",
+            buttons: [
+                { label: "Sans les images", kind: "plain", onClick: function () { run(false); } },
+                { label: "Avec les images", kind: "primary", onClick: function () { run(true); } }
+            ] });
     });
 
     // ---------- panneau des sauvegardes de secours ----------
@@ -5461,15 +5576,17 @@
             restoreBtn.className = "ctx-danger-solid";
             restoreBtn.textContent = "Restaurer";
             restoreBtn.addEventListener("click", function () {
-                if (!window.confirm("Remplacer les données actuelles par cette sauvegarde (" + entry.count + " exercice(s), " + when.textContent + ") ?")) return;
-                backupSnapshot("Avant restauration d'une sauvegarde de secours", state);
-                state = normalizeState(JSON.parse(entry.json));
-                if (!state.activeInstrumentId && state.instruments[0]) state.activeInstrumentId = state.instruments[0].id;
-                navPaths = {};
-                resetHistory();
-                save();
-                render();
-                closeBackupsPanel();
+                dlgConfirm({ title: "Restaurer cette sauvegarde ?", message: "Tes données actuelles seront remplacées par celles du " + when.textContent + " (" + entry.count + " exercice" + (entry.count > 1 ? "s" : "") + ").",
+                    note: "Un instantané de tes données actuelles est gardé avant.", confirmLabel: "Restaurer", danger: true }, function () {
+                    backupSnapshot("Avant restauration d'une sauvegarde de secours", state);
+                    state = normalizeState(JSON.parse(entry.json));
+                    if (!state.activeInstrumentId && state.instruments[0]) state.activeInstrumentId = state.instruments[0].id;
+                    navPaths = {};
+                    resetHistory();
+                    save();
+                    render();
+                    closeBackupsPanel();
+                });
             });
             actions.appendChild(restoreBtn);
             row.appendChild(actions);
@@ -5594,10 +5711,11 @@
                 purgeBtn.addEventListener("click", function () {
                     var ids = entry.type === "exercise" && entry.data ? [entry.data.id] : entry.type === "folder" && entry.data ? folderExerciseIds(entry.data) : [];
                     var u = ids.length ? exerciseUsage(ids) : { sessions: [] };
-                    var warnTxt = u.sessions.length ? "\n\n⚠ " + exerciseUsageText(u).replace(/^Utilisé/, ids.length > 1 ? "Ses exercices sont utilisés" : "Utilisé") + " Ces pas resteront « exercice supprimé » pour de bon." : "";
-                    if (!window.confirm("Supprimer définitivement cet élément ? Impossible à annuler." + warnTxt)) return;
-                    purgeFromTrash(entry.id);
-                    openTrashPanel();
+                    var warn = u.sessions.length ? [exerciseUsageText(u).replace(/^Utilisé/, ids.length > 1 ? "Ses exercices sont utilisés" : "Utilisé") + " Ces pas resteront « exercice supprimé » pour de bon."] : [];
+                    dlgConfirm({ title: "Supprimer définitivement ?", message: "Cet élément ne pourra plus être récupéré.", warnings: warn, confirmLabel: "Supprimer", danger: true }, function () {
+                        purgeFromTrash(entry.id);
+                        openTrashPanel();
+                    });
                 });
                 actions.appendChild(purgeBtn);
                 row.appendChild(actions);
@@ -5614,9 +5732,10 @@
                 emptyAllBtn.className = "ctx-danger-solid";
                 emptyAllBtn.textContent = "Vider la corbeille";
                 emptyAllBtn.addEventListener("click", function () {
-                    if (!window.confirm("Vider définitivement la corbeille ?")) return;
-                    emptyTrash();
-                    openTrashPanel();
+                    dlgConfirm({ title: "Vider la corbeille ?", message: "Les " + trash.length + " élément" + (trash.length > 1 ? "s" : "") + " seront supprimés définitivement.", confirmLabel: "Vider", danger: true }, function () {
+                        emptyTrash();
+                        openTrashPanel();
+                    });
                 });
                 emptyRow.appendChild(emptyAllBtn);
                 panel.appendChild(emptyRow);
@@ -5636,16 +5755,18 @@
             try {
                 var parsed = JSON.parse(reader.result);
                 if (!parsed || !Array.isArray(parsed.instruments)) throw new Error("format invalide");
-                if (!window.confirm("Remplacer les données actuelles par cette sauvegarde ?")) return;
-                backupSnapshot("Avant import d'un fichier JSON", state);
-                state = normalizeState(parsed);
-                if (!state.activeInstrumentId && state.instruments[0]) state.activeInstrumentId = state.instruments[0].id;
-                navPaths = {};
-                resetHistory();
-                persist();
-                render();
+                dlgConfirm({ title: "Importer cette sauvegarde ?", message: "Tes données actuelles seront remplacées par le contenu de « " + file.name + " ».",
+                    note: "Un instantané de tes données actuelles est gardé avant.", confirmLabel: "Importer", danger: true }, function () {
+                    backupSnapshot("Avant import d'un fichier JSON", state);
+                    state = normalizeState(parsed);
+                    if (!state.activeInstrumentId && state.instruments[0]) state.activeInstrumentId = state.instruments[0].id;
+                    navPaths = {};
+                    resetHistory();
+                    persist();
+                    render();
+                });
             } catch (e) {
-                window.alert("Fichier de sauvegarde invalide.");
+                dlgAlert({ title: "Fichier invalide", message: "Ce fichier n'est pas une sauvegarde TrainHub." });
             }
         };
         reader.readAsText(file);
@@ -7083,7 +7204,7 @@
         pop.style.top = Math.min(window.innerHeight - pop.offsetHeight - 8, r.bottom + 6) + "px";
         pop.style.left = Math.max(8, Math.min(window.innerWidth - pop.offsetWidth - 8, r.left)) + "px";
         function onDown(e) { if (!pop.contains(e.target)) close(); }
-        function onKey(e) { if (e.key === "Escape") close(); }
+        function onKey(e) { if (dlgIsOpen()) return; if (e.key === "Escape") close(); }
         var closed = false;
         function close() { if (closed) return; closed = true; document.removeEventListener("pointerdown", onDown, true); window.removeEventListener("keydown", onKey, true); pop.remove(); }
         setTimeout(function () { document.addEventListener("pointerdown", onDown, true); }, 0);
@@ -8493,7 +8614,7 @@
         if (current) current.scrollIntoView({ block: "center" });
         var closed = false;
         function onDown(e) { if (!pop.contains(e.target) && e.target !== anchor) close(); }
-        function onKey(e) { if (e.key === "Escape") { e.stopPropagation(); close(); } }
+        function onKey(e) { if (dlgIsOpen()) return; if (e.key === "Escape") { e.stopPropagation(); close(); } }
         function close() { if (closed) return; closed = true; document.removeEventListener("pointerdown", onDown, true); window.removeEventListener("keydown", onKey, true); pop.remove(); }
         setTimeout(function () { document.addEventListener("pointerdown", onDown, true); }, 0);
         window.addEventListener("keydown", onKey, true);
@@ -9782,11 +9903,11 @@
     // jsPDF (≈ 115 Ko compressés) n'est chargé qu'au premier export.
     function exportSessionPdf(session) {
         if (window.jspdf && window.jspdf.jsPDF) { exportSessionPdfNow(session); return; }
-        loadScriptOnce("jspdf.umd.min.js").then(function () { exportSessionPdfNow(session); }, function () { window.alert("Export PDF indisponible."); });
+        loadScriptOnce("jspdf.umd.min.js").then(function () { exportSessionPdfNow(session); }, function () { dlgAlert({ title: "Export PDF impossible", message: "Le module PDF n'a pas pu se charger. Vérifie ta connexion et réessaie." }); });
     }
     function exportSessionPdfNow(session) {
         var jsPDFcls = window.jspdf && window.jspdf.jsPDF;
-        if (!jsPDFcls) { window.alert("Export PDF indisponible."); return; }
+        if (!jsPDFcls) { dlgAlert({ title: "Export PDF impossible", message: "Le module PDF n'a pas pu se charger. Vérifie ta connexion et réessaie." }); return; }
         var pdf = new jsPDFcls({ unit: "mm", format: "a4", orientation: "portrait" });
         var marginLeft = 18, marginRight = 18, y = 20;
         var pageWidth = pdf.internal.pageSize.getWidth();
@@ -9887,7 +10008,7 @@
             chip.addEventListener("click", function () {
                 if (isAudioFile(meta)) { toggleAudioPlayer(container, meta); return; }
                 getFileBlob(meta.id).then(function (blob) {
-                    if (!blob) { window.alert("Ce fichier n'est disponible que sur l'appareil où il a été ajouté (« " + meta.name + " »)."); return; }
+                    if (!blob) { dlgFileUnavailable(meta.name); return; }
                     var url = URL.createObjectURL(playableBlob(blob, meta));
                     window.open(url, "_blank");
                     setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
@@ -9960,7 +10081,7 @@
         openUrlsInTabs(urls);
         if (pending.length) showToast("Fichier en cours de lecture, réessayez dans un instant : " + pending.join(", "));
         if (unavailable.length) {
-            window.alert("Ces fichiers ne sont disponibles que sur l'appareil où ils ont été ajoutés :\n" + unavailable.join("\n"));
+            dlgAlert({ title: "Fichiers indisponibles", message: "Ils sont enregistrés sur l'appareil où tu les as ajoutés, pas sur celui-ci :", items: unavailable });
         }
     }
 
@@ -10025,33 +10146,15 @@
         save();
         e.base = gsDraftSig(e);
     }
-    // Trois choix quand des modifications ne sont pas enregistrées : enregistrer, les annuler, ou continuer à modifier.
+    // Trois choix quand des modifications ne sont pas enregistrées : enregistrer, ne pas les enregistrer, ou annuler (= rester
+    // sur la session, rien ne change). « Annuler » ne jette jamais le travail : c'est « Ne pas enregistrer » qui le fait.
     function gsDraftPrompt(id, opts, onProceed) {
         var real = state.settings.guidedSessions.filter(function (g) { return g.id === id; })[0];
-        openModal("gs-leave-panel", function (panel, close) {
-            var title = document.createElement("div");
-            title.className = "backups-title";
-            title.textContent = opts.title || "Enregistrer les modifications ?";
-            panel.appendChild(title);
-            var msg = document.createElement("div");
-            msg.className = "gs-sync-intro";
-            msg.textContent = "« " + (gsDrafts[id] ? gsDrafts[id].draft.name : real ? real.name : "") + " » a des modifications non enregistrées.";
-            panel.appendChild(msg);
-            var actions = document.createElement("div");
-            actions.className = "gs-sync-actions gs-leave-actions";
-            var stay = document.createElement("button"); stay.type = "button"; stay.className = "btn-ghost gs-leave-stay"; stay.textContent = "Continuer à modifier";
-            stay.addEventListener("click", close);
-            actions.appendChild(stay);
-            if (opts.discard !== false) {
-                var disc = document.createElement("button"); disc.type = "button"; disc.className = "btn-ghost gs-leave-discard"; disc.textContent = "Annuler les modifications";
-                disc.addEventListener("click", function () { delete gsDrafts[id]; close(); onProceed(); });
-                actions.appendChild(disc);
-            }
-            var yes = document.createElement("button"); yes.type = "button"; yes.className = "btn-accent gs-leave-save"; yes.textContent = opts.saveLabel || "Enregistrer";
-            yes.addEventListener("click", function () { gsCommitDraft(id); close(); onProceed(); });
-            actions.appendChild(yes);
-            panel.appendChild(actions);
-        });
+        var buttons = [];
+        if (opts.discard !== false) buttons.push({ label: "Ne pas enregistrer", kind: "plain", cls: "gs-leave-discard", onClick: function () { delete gsDrafts[id]; onProceed(); } });
+        buttons.push({ label: opts.saveLabel || "Enregistrer", kind: "primary", cls: "gs-leave-save", onClick: function () { gsCommitDraft(id); onProceed(); } });
+        dlgOpen({ kind: "choice", title: opts.title || "Enregistrer les modifications ?", message: "« " + (gsDrafts[id] ? gsDrafts[id].draft.name : real ? real.name : "") + " » a des modifications non enregistrées.",
+            cancelLabel: "Annuler", cancelClass: "gs-leave-stay", buttons: buttons });
     }
     window.addEventListener("beforeunload", function (e) {
         if (gsAnyDraftDirty()) { e.preventDefault(); e.returnValue = ""; return ""; }
@@ -10181,16 +10284,16 @@
     function gsRenameSession(session, after) {
         if (!session) return false;
         if (session.ephemeral) return gsKeepEphemeral(session, after); // lui donner un nom = la garder
-        var n = window.prompt("Nouveau nom de la session :", session.name);
-        if (n === null || !n.trim() || n.trim() === session.name) return false;
-        var old = session.name;
-        var de = gsDrafts[session.id], clean = de ? !gsDraftDirty(session.id) : true;
-        session.name = n.trim();
-        if (de) { if (de.draft.name === old) de.draft.name = session.name; if (clean) de.base = gsDraftSig(de); }
-        save();
-        render();
-        if (after) after();
-        showToast("Session renommée : « " + session.name + " »");
+        dlgPrompt({ title: "Renommer la session", value: session.name, confirmLabel: "Renommer", mustChange: true }, function (n) {
+            var old = session.name;
+            var de = gsDrafts[session.id], clean = de ? !gsDraftDirty(session.id) : true;
+            session.name = n;
+            if (de) { if (de.draft.name === old) de.draft.name = session.name; if (clean) de.base = gsDraftSig(de); }
+            save();
+            render();
+            if (after) after();
+            showToast("Session renommée : « " + session.name + " »");
+        });
         return true;
     }
     // Nom à afficher pour une séance enregistrée : celui d'aujourd'hui si la session existe encore, sinon celui
@@ -10940,12 +11043,12 @@
         addTabBtn.textContent = "+ Onglet";
         addTabBtn.title = "Nouvel onglet (ex. Sessions 1 heure, Favorites…)";
         addTabBtn.addEventListener("click", function () {
-            var n = window.prompt("Nom du nouvel onglet (ex. Sessions 1 heure, Favorites) :", "");
-            if (n === null || !n.trim()) return;
-            var t = { id: uid(), name: n.trim(), instrumentId: activeInstId, collapsed: false };
-            state.settings.sessionFolders.push(t);
-            gsActiveTab = t.id; gsSaveView();
-            save(); render();
+            dlgPrompt({ title: "Nouvel onglet", message: "Pour classer tes sessions.", placeholder: "ex. Sessions 1 heure, Favorites", confirmLabel: "Créer" }, function (n) {
+                var t = { id: uid(), name: n, instrumentId: activeInstId, collapsed: false };
+                state.settings.sessionFolders.push(t);
+                gsActiveTab = t.id; gsSaveView();
+                save(); render();
+            });
         });
 
         // Sessions prévues dans les 30 prochains jours, groupées par jour.
@@ -11009,9 +11112,9 @@
         function renameTab(id) {
             var t = tabs.filter(function (x) { return x.id === id; })[0];
             if (!t) return;
-            var n = window.prompt("Nom de l'onglet :", t.name);
-            if (n === null || !n.trim()) return;
-            t.name = n.trim(); save(); render();
+            dlgPrompt({ title: "Renommer l'onglet", value: t.name, confirmLabel: "Renommer", mustChange: true }, function (n) {
+                t.name = n; save(); render();
+            });
         }
         tabBtn("upcoming", "À venir", calUpcoming(30).length, null); // à gauche de « Tout »
         bar.lastChild.classList.add("gs-tab-upcoming");
@@ -11093,11 +11196,12 @@
             tAct.className = "gs-session-actions";
             tAct.appendChild(iconButton("✎", "Renommer l'onglet", function () { renameTab(activeTab.id); }));
             tAct.appendChild(iconButton("✕", "Supprimer l'onglet (les sessions sont conservées dans « Tout »)", function () {
-                if (!window.confirm("Supprimer l'onglet « " + activeTab.name + " » ? Ses sessions sont conservées.")) return;
-                sessions.forEach(function (gs) { gs.tabIds = gs.tabIds.filter(function (id) { return id !== activeTab.id; }); });
-                state.settings.sessionFolders.splice(state.settings.sessionFolders.indexOf(activeTab), 1);
-                gsActiveTab = "all"; gsSaveView();
-                save(); render();
+                dlgConfirm({ title: "Supprimer l'onglet « " + activeTab.name + " » ?", message: "Ses sessions restent dans « Tout ».", confirmLabel: "Supprimer", danger: true }, function () {
+                    sessions.forEach(function (gs) { gs.tabIds = gs.tabIds.filter(function (id) { return id !== activeTab.id; }); });
+                    state.settings.sessionFolders.splice(state.settings.sessionFolders.indexOf(activeTab), 1);
+                    gsActiveTab = "all"; gsSaveView();
+                    save(); render();
+                });
             }));
             tools.appendChild(tAct);
         }
@@ -11505,11 +11609,13 @@
                             titleEdit.addEventListener("change", function () {
                                 var v = titleEdit.value.trim();
                                 if (!v) { titleEdit.value = found.ex.title; return; }
-                                if (v !== found.ex.title && exerciseTitleTaken(found.folder.exercises, v, found.ex) && !confirmNameCollision("exercice", v)) { titleEdit.value = found.ex.title; return; }
-                                found.ex.title = v;
-                                touchExercise(found.ex);
-                                save();
-                                renderSteps();
+                                if (v === found.ex.title) return;
+                                ifNameFree(exerciseTitleTaken(found.folder.exercises, v, found.ex), "exercice", v, "Renommer quand même", function () {
+                                    found.ex.title = v;
+                                    touchExercise(found.ex);
+                                    save();
+                                    renderSteps();
+                                }, function () { titleEdit.value = found.ex.title; }); // Annuler : on remet l'ancien nom
                             });
                             details.appendChild(titleEdit);
                             var exEditor = renderExerciseDetails(found.ex);
@@ -12073,44 +12179,24 @@
         if (!rec) { gsLiveClear(); return; }
         var session = snap.kind === "session" ? gsFindSession(snap.sessionId) : null;
         var canResume = snap.kind === "free" || (snap.kind === "session" && session && session.steps.length > 0);
-        openModal("gs-live-panel", function (panel, close) {
-            var title = document.createElement("div");
-            title.className = "backups-title";
-            title.textContent = snap.kind === "record" ? "Séance non enregistrée" : "Séance interrompue";
-            panel.appendChild(title);
-            var intro = document.createElement("div");
-            intro.className = "gs-sync-intro gs-live-intro";
-            intro.textContent = "« " + rec.name + " » · " + gsFmtDur(rec.totalSec) + " de pratique · " + gsFmtDate(snap.savedAt || rec.endedAt || Date.now());
-            panel.appendChild(intro);
-            var actions = document.createElement("div");
-            actions.className = "gs-live-actions";
-            if (canResume) {
-                var resume = document.createElement("button"); resume.type = "button"; resume.className = "btn-accent gs-live-resume"; resume.textContent = "Reprendre";
-                resume.addEventListener("click", function () {
-                    close();
-                    if (snap.kind === "free") freeResume(snap); else gsLiveResumeSession(snap, session);
-                });
-                actions.appendChild(resume);
-            }
-            var saveBtn = document.createElement("button"); saveBtn.type = "button"; saveBtn.className = (canResume ? "btn-ghost" : "btn-accent") + " gs-live-save"; saveBtn.textContent = "Enregistrer dans les statistiques";
-            saveBtn.addEventListener("click", function () {
-                close();
+        var buttons = [
+            { label: "Abandonner…", kind: "danger", left: true, cls: "gs-live-drop", onClick: function () {
+                dlgConfirm({ title: "Abandonner cette séance ?", message: "Elle sera supprimée sans être enregistrée.", confirmLabel: "Abandonner", danger: true }, gsLiveClear, gsLiveCheck);
+            } },
+            { label: "Enregistrer", kind: canResume ? "plain" : "primary", cls: "gs-live-save", onClick: function () {
                 openRunRecordEditor(rec, {
                     title: "Enregistrer cette séance ?", extraSteps: extra,
                     onSave: function (out) { logAdd(out); save(); gsLiveClear(); showToast("Séance enregistrée dans l'historique"); },
                     onCancel: function () { gsLiveClear(); }
                 });
-            });
-            actions.appendChild(saveBtn);
-            var drop = document.createElement("button"); drop.type = "button"; drop.className = "btn-ghost gs-live-drop"; drop.textContent = "Abandonner";
-            var armed = false;
-            drop.addEventListener("click", function () {
-                if (!armed) { armed = true; drop.textContent = "Confirmer l'abandon"; drop.classList.add("gs-live-drop-armed"); return; }
-                gsLiveClear(); close();
-            });
-            actions.appendChild(drop);
-            panel.appendChild(actions);
-        });
+            } }
+        ];
+        if (canResume) buttons.push({ label: "Reprendre", kind: "primary", cls: "gs-live-resume", onClick: function () {
+            if (snap.kind === "free") freeResume(snap); else gsLiveResumeSession(snap, session);
+        } });
+        dlgOpen({ kind: "choice", title: snap.kind === "record" ? "Séance non enregistrée" : "Séance interrompue",
+            message: "« " + rec.name + " » · " + gsFmtDur(rec.totalSec) + " de pratique · " + gsFmtDate(snap.savedAt || rec.endedAt || Date.now()),
+            note: "Plus tard : tu pourras la retrouver au prochain lancement.", cancelLabel: "Plus tard", cancelClass: "gs-live-later", buttons: buttons });
     }
     window.addEventListener("pagehide", gsLiveSave);
     window.addEventListener("beforeunload", gsLiveSave);
@@ -13615,17 +13701,13 @@
                     var nm = document.createElement("span"); nm.className = "gs-sync-name"; nm.textContent = logRecName(e);
                     if (logRecOldName(e)) nm.title = "Nom au moment de la séance : « " + logRecOldName(e) + " »";
                     var du = document.createElement("span"); du.className = "gs-sync-dur"; du.textContent = gsFmtDate(e.date) + " · " + gsFmtDur(e.totalSec);
-                    // Une séance supprimée du journal ne se rattrape plus par « Annuler » : confirmation en deux clics.
                     var del = iconButton("✕", "Supprimer cette entrée", function () {
-                        if (!del.dataset.armed) {
-                            del.dataset.armed = "1"; del.textContent = "Supprimer ?"; del.classList.add("gs-del-armed"); del.title = "Cliquer encore pour confirmer";
-                            setTimeout(function () { if (del.isConnected) { delete del.dataset.armed; del.textContent = "✕"; del.classList.remove("gs-del-armed"); del.title = "Supprimer cette entrée"; } }, 3000);
-                            return;
-                        }
-                        var removed = cloneJson(e);
-                        logRemove(e.id);
-                        save(); fill();
-                        showToast("Séance du " + gsFmtDate(e.date) + " supprimée de l'historique", 8000, { label: "Annuler", run: function () { logAdd(removed); save(); fill(); showToast("Séance remise dans l'historique"); } });
+                        dlgConfirm({ title: "Supprimer cette séance ?", message: logRecName(e) + " · " + gsFmtDate(e.date) + " · " + gsFmtDur(e.totalSec), confirmLabel: "Supprimer", danger: true }, function () {
+                            var removed = cloneJson(e);
+                            logRemove(e.id);
+                            save(); fill();
+                            showToast("Séance du " + gsFmtDate(e.date) + " supprimée de l'historique", 8000, { label: "Annuler", run: function () { logAdd(removed); save(); fill(); showToast("Séance remise dans l'historique"); } });
+                        });
                     });
                     var edit = iconButton("✎", "Modifier cette séance (durées, tempo)", function () { editLoggedRecord(e, function () { openSessionHistory(); }); });
                     head.appendChild(nm); head.appendChild(du); head.appendChild(edit); head.appendChild(del);
@@ -14508,7 +14590,7 @@
         stopBtn.textContent = "Arrêter la session";
         stopBtn.title = "Arrêter la session";
         stopBtn.addEventListener("click", function () {
-            if (window.confirm("Arrêter la session en cours ?")) gsEndRun();
+            dlgConfirm({ title: "Arrêter la session ?", message: "Tu pourras ensuite l'enregistrer dans l'historique.", confirmLabel: "Arrêter la session", cancelLabel: "Continuer" }, gsEndRun);
         });
         pauseStopRow.appendChild(stopBtn);
         content.appendChild(pauseStopRow);
@@ -14926,8 +15008,8 @@
     if ($freeBtn) $freeBtn.addEventListener("click", function () {
         if (!freeRun) { freeStart(); return; }
         // Entraînement libre en cours : un nouveau clic propose de l'arrêter (récapitulatif ensuite).
-        openChoiceMenu("Arrêter l'entraînement libre ?", "", [
-            { text: "Arrêter et voir le récapitulatif", onClick: freeStop },
+        openChoiceMenu("Arrêter l'entraînement libre ?", "Le récapitulatif s'ouvre ensuite.", [
+            { text: "Arrêter", onClick: freeStop },
             { text: "Continuer", muted: true }
         ]);
     });
