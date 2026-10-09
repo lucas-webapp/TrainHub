@@ -3168,3 +3168,18 @@ button.metro-mini-btn.metro-progressive-toggle.metro-progressive-active { backgr
 .scales-rand-again { margin-left: 8px; width: 30px; height: 28px; padding: 0; vertical-align: middle; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-muted); cursor: pointer; }
 .scales-rand-again:hover { color: var(--accent); border-color: var(--accent); }
 .scales-rand-again .icon { width: 16px; height: 16px; }
+
+/* Nature de la gamme affichée (gamme / pentatonique / arpège) et historique des tirages du dé */
+.scales-kind { display: inline-block; margin-right: 8px; padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: var(--fs-xs); font-weight: 700; color: var(--text-dim); vertical-align: middle; white-space: nowrap; }
+.scales-kind-arp { border-color: color-mix(in srgb, var(--status-a-revoir) 70%, transparent); background: color-mix(in srgb, var(--status-a-revoir) 14%, transparent); color: var(--status-a-revoir); }
+.scales-rand-hist { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--border); padding-top: 8px; }
+.scales-rand-hist[hidden] { display: none; }
+.scales-rand-hist-head { display: flex; align-items: center; justify-content: space-between; font-size: var(--fs-2xs); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
+.scales-rand-hist-head button { background: none; border: none; padding: 0; color: var(--text-muted); font: inherit; text-transform: none; letter-spacing: 0; font-size: var(--fs-xs); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.scales-rand-hist-head button:hover { color: var(--accent); }
+.scales-rand-hist-list { display: flex; flex-direction: column; max-height: 150px; overflow-y: auto; }
+.scales-rand-hist-item { display: flex; align-items: baseline; gap: 8px; width: 100%; box-sizing: border-box; padding: 5px 6px; background: transparent; border: none; border-radius: var(--radius-sm); color: var(--text-main); font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer; }
+.scales-rand-hist-item:hover { background: rgba(255,255,255,.06); }
+.scales-rand-hist-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scales-rand-hist-kind { flex: 0 0 auto; color: var(--text-muted); font-size: var(--fs-xs); white-space: nowrap; }
+@media (max-width: 719px) { .scales-rand-pop { overflow-y: auto; max-height: calc(100vh - 16px); } }
