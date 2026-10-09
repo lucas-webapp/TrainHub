@@ -8353,32 +8353,39 @@
         return SCALE_MENU.some(function (g) { return g.extra && g.keys.indexOf(key) !== -1; });
     }
     var ROOT_MENU_NAMES = ["C", "C♯ / D♭", "D", "D♯ / E♭", "E", "F", "F♯ / G♭", "G", "G♯ / A♭", "A", "A♯ / B♭", "B"];
-    // Mode « hasard » : tirer au sort la gamme à travailler. Familles = les groupes de SCALE_MENU (même ordre) ;
-    // « nombre de notes » (3 = triades, 4 = tétrades, 7 = gammes complètes…) et toniques se filtrent à part.
-    var SCALE_RAND_FAMILIES = [["simples", "Gammes simples"], ["modes", "Modes"], ["triades", "Triades"], ["tetrades", "Tétrades"], ["extensions", "Extensions"],
-        ["melodique", "Modes du mineur mélodique"], ["harmonique", "Modes du mineur harmonique"], ["complexes", "Gammes complexes"], ["exotiques", "Gammes exotiques"]];
-    var SCALE_RAND_DEFAULT_ON = ["simples", "modes", "triades", "tetrades"];
-    var SCALE_RAND_COUNTS = [3, 4, 5, 6, 7, 8]; // 8 = « 8 et plus »
+    // Mode « hasard » : tirer au sort la gamme à travailler. Le nombre de notes découle de la famille cochée
+    // (triades = 3, tétrades = 4, pentatoniques = 5, gammes complètes = 7…) ; les toniques se filtrent à part.
+    var SCALE_RAND_FAMILIES = [
+        ["simples", "Gammes simples", ["major", "aeolian", "harmonicMinor", "melodicMinor"]],
+        ["penta", "Pentatoniques et blues", ["majorPenta", "minorPenta", "blues", "bluesMajor"]],
+        ["modes", "Modes", SCALE_MENU[1].keys],
+        ["melodique", "Modes du mineur mélodique", SCALE_MENU[5].keys],
+        ["harmonique", "Modes du mineur harmonique", SCALE_MENU[6].keys],
+        ["complexes", "Gammes complexes", SCALE_MENU[7].keys.filter(function (k) { return k !== "bluesMajor"; })],
+        ["exotiques", "Gammes exotiques", SCALE_MENU[8].keys],
+        ["triades", "Triades", SCALE_MENU[2].keys],
+        ["tetrades", "Tétrades", SCALE_MENU[3].keys],
+        ["extensions", "Extensions", SCALE_MENU[4].keys]];
+    var SCALE_RAND_DEFAULT_ON = ["simples", "penta", "modes", "triades", "tetrades"];
     var SCALE_RAND_NATURALS = [0, 2, 4, 5, 7, 9, 11];
-    function scaleRandCountKey(n) { return n >= 8 ? 8 : n; }
     function normalizeScaleRand(r) {
         r = r && typeof r === "object" ? r : {};
-        var fam = {}, counts = {}, roots = [];
-        SCALE_RAND_FAMILIES.forEach(function (f) { fam[f[0]] = r.families && typeof r.families[f[0]] === "boolean" ? r.families[f[0]] : SCALE_RAND_DEFAULT_ON.indexOf(f[0]) !== -1; });
-        SCALE_RAND_COUNTS.forEach(function (n) { counts[n] = r.counts && typeof r.counts[n] === "boolean" ? r.counts[n] : true; });
+        var fam = {}, roots = [], rf = r.families || {};
+        SCALE_RAND_FAMILIES.forEach(function (f) {
+            var id = f[0];
+            // « penta » est née de « simples » (qui les contenait) : on reprend le choix d'avant
+            fam[id] = typeof rf[id] === "boolean" ? rf[id] : id === "penta" && typeof rf.simples === "boolean" ? rf.simples : SCALE_RAND_DEFAULT_ON.indexOf(id) !== -1;
+        });
         for (var i = 0; i < 12; i++) roots.push(Array.isArray(r.roots) && typeof r.roots[i] === "boolean" ? r.roots[i] : true);
-        return { families: fam, counts: counts, roots: roots, avoid: r.avoid !== false,
+        return { families: fam, roots: roots, avoid: r.avoid !== false,
             recent: Array.isArray(r.recent) ? r.recent.filter(function (k) { return typeof k === "string"; }).slice(-8) : [] };
     }
-    // Gammes candidates selon les familles et le nombre de notes cochés.
+    // Gammes candidates selon les familles cochées.
     function scaleRandKeys(rand) {
         var keys = [];
-        SCALE_RAND_FAMILIES.forEach(function (f, i) {
-            if (!rand.families[f[0]] || !SCALE_MENU[i]) return;
-            SCALE_MENU[i].keys.forEach(function (k) {
-                var d = SCALE_DEFS.filter(function (x) { return x.key === k; })[0];
-                if (d && rand.counts[scaleRandCountKey(d.semis.length)]) keys.push(k);
-            });
+        SCALE_RAND_FAMILIES.forEach(function (f) {
+            if (!rand.families[f[0]]) return;
+            f[2].forEach(function (k) { if (keys.indexOf(k) === -1 && SCALE_DEFS.some(function (x) { return x.key === k; })) keys.push(k); });
         });
         return keys;
     }
@@ -8479,13 +8486,12 @@
     // Fenêtre du mode « hasard » : trois boutons de résumé (Familles · Nombre de notes · Toniques) qui ouvrent chacun un
     // petit popover rangé avec ses cases à cocher ; dessous : « éviter les répétitions », le résultat et « Tirer ».
     var SCALE_RAND_GROUPS = [
-        { title: "Gammes", ids: ["simples", "modes", "melodique", "harmonique", "complexes", "exotiques"] },
+        { title: "Gammes", ids: ["simples", "penta", "modes", "melodique", "harmonique", "complexes", "exotiques"] },
         { title: "Arpèges", ids: ["triades", "tetrades", "extensions"] }
     ];
-    var SCALE_RAND_HINTS = { simples: "majeure, mineures, pentatoniques, blues", modes: "dorien, phrygien, lydien, mixolydien, locrien",
-        triades: "majeure, mineure, dim., aug., sus", tetrades: "maj7, 7, m7, m7♭5, dim7, 6…", extensions: "9, 7sus4, 7♯5, 7♭5…",
-        melodique: "lydien dominant, altéré…", harmonique: "phrygien dominant…", complexes: "tons, diminuées, bebop, chromatique", exotiques: "hongroise, japonaises, persane…" };
-    var SCALE_RAND_COUNT_HINTS = { 3: "triades", 4: "tétrades", 5: "penta", 6: "hexa", 7: "complètes", 8: "plus" };
+    var SCALE_RAND_HINTS = { simples: "majeure, mineures", penta: "pentatoniques, blues", modes: "dorien, lydien, mixolydien…",
+        triades: "majeure, mineure, dim., aug.", tetrades: "maj7, 7, m7, m7♭5, dim7…", extensions: "9, 7sus4, 7♯5, 7♭5…",
+        melodique: "lydien dominant, altéré…", harmonique: "phrygien dominant…", complexes: "tons, diminuées, bebop…", exotiques: "hongroise, japonaises…" };
     function openScaleRandom(anchor, prefs, onPick) {
         openGsPopover(anchor, function (pop, close) {
             pop.classList.add("scales-rand-pop");
@@ -8495,8 +8501,6 @@
             function summaries() {
                 var fo = SCALE_RAND_FAMILIES.filter(function (f) { return rand.families[f[0]]; });
                 vals.fam.textContent = fo.length === SCALE_RAND_FAMILIES.length ? "Toutes" : !fo.length ? "Aucune" : fo.length <= 2 ? fo.map(function (f) { return f[1].replace("Modes du mineur ", "Modes "); }).join(", ") : fo.length + " sur " + SCALE_RAND_FAMILIES.length;
-                var co = SCALE_RAND_COUNTS.filter(function (n) { return rand.counts[n]; });
-                vals.cnt.textContent = co.length === SCALE_RAND_COUNTS.length ? "Toutes" : !co.length ? "Aucune" : co.map(function (n) { return n === 8 ? "8+" : String(n); }).join(" · ");
                 var ro = [];
                 rand.roots.forEach(function (on, pc) { if (on) ro.push(pc); });
                 var nat = ro.length === SCALE_RAND_NATURALS.length && ro.every(function (pc) { return SCALE_RAND_NATURALS.indexOf(pc) !== -1; });
@@ -8572,18 +8576,6 @@
                             var gh = document.createElement("div"); gh.className = "scales-rand-group"; gh.textContent = g.title; box.appendChild(gh);
                             g.ids.forEach(function (id) { var o = opt(famLabel(id), SCALE_RAND_HINTS[id], function () { return rand.families[id]; }, function () { rand.families[id] = !rand.families[id]; }, "scales-rand-opt-row"); items.push(o); box.appendChild(o); });
                         });
-                    },
-                    sync: function () { items.forEach(function (o) { o.paint(); }); }
-                });
-            });
-            // --- Nombre de notes : six cases en grille
-            menuRow("cnt", "Nombre de notes", function (btn) {
-                var items = [];
-                openSub(btn, "Nombre de notes", [["Tout", function () { SCALE_RAND_COUNTS.forEach(function (n) { rand.counts[n] = true; }); }], ["Aucune", function () { SCALE_RAND_COUNTS.forEach(function (n) { rand.counts[n] = false; }); }]], {
-                    fill: function (box) {
-                        var grid = document.createElement("div"); grid.className = "scales-rand-grid3";
-                        SCALE_RAND_COUNTS.forEach(function (n) { var o = opt(n === 8 ? "8 et +" : String(n), SCALE_RAND_COUNT_HINTS[n], function () { return rand.counts[n]; }, function () { rand.counts[n] = !rand.counts[n]; }, "scales-rand-opt-tile"); items.push(o); grid.appendChild(o); });
-                        box.appendChild(grid);
                     },
                     sync: function () { items.forEach(function (o) { o.paint(); }); }
                 });

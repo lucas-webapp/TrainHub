@@ -3155,10 +3155,6 @@ button.metro-mini-btn.metro-progressive-toggle.metro-progressive-active { backgr
 .scales-rand-hint { color: var(--text-muted); font-size: var(--fs-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .scales-rand-opt-row { width: 100%; }
 .scales-rand-opt-row .scales-rand-hint { margin-left: auto; max-width: 150px; }
-.scales-rand-grid3 { display: grid; grid-template-columns: repeat(3, minmax(88px, 1fr)); gap: 6px; }
-.scales-rand-opt-tile { flex-wrap: wrap; row-gap: 0; border-color: var(--border); padding: 6px 8px; }
-.scales-rand-opt-tile .scales-rand-hint { flex: 1 0 100%; padding-left: 26px; margin-top: -2px; }
-.scales-rand-opt-tile.scales-rand-opt-on { border-color: var(--accent); }
 .scales-rand-keys { display: grid; grid-template-columns: repeat(14, minmax(0, 22px)); grid-template-rows: auto auto; gap: 6px 0; }
 .scales-rand-key { justify-content: center; border-color: var(--border); padding: 5px 0; height: 32px; }
 .scales-rand-key .scales-rand-box { display: none; }
