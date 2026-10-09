@@ -415,7 +415,8 @@ button.session-btn-highlight:hover { background: color-mix(in srgb, var(--c-sage
     background: var(--card-bg-2);
     border: 1px solid var(--border);
     border-radius: 10px;
-    padding: calc(8px * var(--density-scale, 1)) 10px;
+    padding: calc(6px * var(--density-scale, 1)) 10px; /* cadre un peu moins haut (était 8 px) : on gagne 2 × 2 px par barre… */
+    margin-bottom: calc(3px * var(--density-scale, 1)); /* …et quelques pixels d'écart entre les barres : elles ne se touchent plus */
 }
 /* L'exercice déplié se distingue de ceux repliés en dessous (même fond sinon, facile à confondre) :
    liseré + fond légèrement teintés de la couleur du chapitre courant. */
