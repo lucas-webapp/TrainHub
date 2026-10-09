@@ -3103,3 +3103,46 @@ button.metro-mini-btn.metro-progressive-toggle:hover:not(.metro-progressive-acti
 button.metro-mini-btn.metro-prog-return.metro-progressive-active,
 button.metro-mini-btn.metro-progressive-toggle.metro-progressive-active { background: color-mix(in srgb, var(--accent) 16%, transparent); }
 @media (hover: none) { button.metro-mini-btn:hover:not(.metro-progressive-active) { border-color: var(--border); color: var(--text-main); } }
+
+/* Tempo progressif : un vrai tableau, compact — cadre arrondi, lignes et colonnes séparées, cases sans cadre propre */
+.metro-prog-grid { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: rgba(255,255,255,.025); }
+.metro-prog-side .metro-prog-grid table.metro-prog-table { border-collapse: collapse; margin: 0; width: 100%; }
+.metro-prog-grid table.metro-prog-table th, .metro-prog-grid table.metro-prog-table td { border: 1px solid var(--border); padding: 0; text-align: center; vertical-align: middle; }
+.metro-prog-grid table.metro-prog-table tr > :first-child { border-left: 0; }
+.metro-prog-grid table.metro-prog-table tr > :last-child { border-right: 0; }
+.metro-prog-grid table.metro-prog-table thead tr:first-child > * { border-top: 0; }
+.metro-prog-grid table.metro-prog-table tfoot tr:last-child > * { border-bottom: 0; }
+.metro-prog-grid table.metro-prog-table th { height: 26px; padding: 0 8px; background: rgba(255,255,255,.04); font-size: var(--fs-2xs); }
+.metro-prog-side .metro-prog-grid table.metro-prog-table td:last-child, .metro-prog-side .metro-prog-grid table.metro-prog-table th:last-child { width: 32px; }
+.metro-prog-grid .num-stepper { border: 0; border-radius: 0; background: transparent; width: 100%; justify-content: space-between; gap: 0; }
+.metro-prog-grid .num-stepper:focus-within { box-shadow: inset 0 0 0 1px var(--accent); }
+.metro-prog-grid .num-stepper > input.num-in, .metro-prog-grid input.metro-prog-input { height: 28px; width: auto; flex: 1 1 auto; min-width: 0; font-size: var(--fs-sm); border-radius: 0; }
+.metro-prog-grid table.metro-prog-table input { width: auto; }
+.metro-prog-grid button.num-stepper-btn { width: 22px; min-width: 22px; }
+.metro-prog-grid button.metro-prog-del { width: 100%; height: 28px; border: 0; border-radius: 0; background: transparent; }
+.metro-prog-grid button.metro-mini-btn { min-height: 0; width: 100%; border: 0; border-radius: 0; background: transparent; }
+.metro-prog-grid button.metro-mini-btn:hover { background: rgba(255,255,255,.07); }
+.metro-prog-grid button.metro-mini-btn.metro-prog-return { height: 26px; }
+.metro-prog-grid button.metro-mini-btn.metro-prog-add, .metro-prog-grid button.metro-mini-btn.metro-prog-presets { height: 24px; font-size: var(--fs-base); }
+.metro-prog-grid tfoot td { padding: 0; }
+
+/* Gammes : mode hasard (dé) */
+.scales-chip.scales-dice-btn { padding: 0 9px; }
+.scales-chip.scales-dice-btn .icon { width: 18px; height: 18px; }
+.scales-rand-pop { width: min(380px, calc(100vw - 24px)); max-height: calc(100vh - 24px); overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; box-sizing: border-box; }
+.scales-rand-block { display: flex; flex-direction: column; gap: 5px; }
+.scales-rand-title { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--fs-2xs); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
+.scales-rand-links { display: inline-flex; gap: 10px; text-transform: none; letter-spacing: 0; font-weight: 600; }
+.scales-rand-links button { background: none; border: none; padding: 0; color: var(--text-muted); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.scales-rand-links button:hover { color: var(--accent); }
+.scales-rand-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.scales-rand-chips .scales-chip { height: 28px; min-height: 0; padding: 0 9px; font-size: var(--fs-xs); }
+.scales-rand-avoid { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); cursor: pointer; }
+.scales-rand-avoid input { width: 18px; height: 18px; accent-color: var(--accent); }
+.scales-rand-result { min-height: 1.3em; text-align: center; font-weight: 800; color: var(--accent); }
+.scales-rand-count { text-align: center; font-size: var(--fs-xs); color: var(--text-muted); margin-top: -6px; }
+.scales-rand-go { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; width: 100%; font-weight: 800; }
+.scales-rand-go .icon { width: 18px; height: 18px; }
+.scales-rand-again { margin-left: 8px; width: 30px; height: 28px; padding: 0; vertical-align: middle; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-muted); cursor: pointer; }
+.scales-rand-again:hover { color: var(--accent); border-color: var(--accent); }
+.scales-rand-again .icon { width: 16px; height: 16px; }
