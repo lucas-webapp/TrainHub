@@ -3394,6 +3394,7 @@ html[data-glass="1"] :is(.backups-panel, .ctx-menu, .toast, .tempo-pop, .scales-
 html[data-glass="1"] textarea { background: var(--glass-inp); box-shadow: inset 0 1px 3px rgba(0, 0, 0, .12); }
 html[data-glass="1"] select, html[data-glass="1"] select option { background: var(--glass-select); }
 html[data-glass="1"] button { box-shadow: var(--glass-hi); }
+html[data-glass="1"] .tree-twisty { box-shadow: none; } /* bouton sans cadre : pas de reflet de bord (visible depuis que le chevron est plus grand) */
 html[data-glass="1"] button.btn-ghost, html[data-glass="1"] button.icon-btn.btn-ghost { box-shadow: none; }
 html[data-glass="1"] :is(.exercise, .folder-row, .gs-session-row, .gs-step-row, .st-tile, .st-ex, .gs-plan-row) { box-shadow: var(--glass-hi); }
 
