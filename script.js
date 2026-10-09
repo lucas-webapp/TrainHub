@@ -8476,78 +8476,165 @@
         window.addEventListener("keydown", onKey, true);
     }
 
-    // Fenêtre du mode « hasard » : familles, nombre de notes, toniques, éviter les répétitions, puis « Tirer ».
+    // Fenêtre du mode « hasard » : trois boutons de résumé (Familles · Nombre de notes · Toniques) qui ouvrent chacun un
+    // petit popover rangé avec ses cases à cocher ; dessous : « éviter les répétitions », le résultat et « Tirer ».
+    var SCALE_RAND_GROUPS = [
+        { title: "Gammes", ids: ["simples", "modes", "melodique", "harmonique", "complexes", "exotiques"] },
+        { title: "Arpèges", ids: ["triades", "tetrades", "extensions"] }
+    ];
+    var SCALE_RAND_HINTS = { simples: "majeure, mineures, pentatoniques, blues", modes: "dorien, phrygien, lydien, mixolydien, locrien",
+        triades: "majeure, mineure, dim., aug., sus", tetrades: "maj7, 7, m7, m7♭5, dim7, 6…", extensions: "9, 7sus4, 7♯5, 7♭5…",
+        melodique: "lydien dominant, altéré…", harmonique: "phrygien dominant…", complexes: "tons, diminuées, bebop, chromatique", exotiques: "hongroise, japonaises, persane…" };
+    var SCALE_RAND_COUNT_HINTS = { 3: "triades", 4: "tétrades", 5: "penta", 6: "hexa", 7: "complètes", 8: "plus" };
     function openScaleRandom(anchor, prefs, onPick) {
         openGsPopover(anchor, function (pop, close) {
             pop.classList.add("scales-rand-pop");
-            var rand = prefs.rand;
+            var rand = prefs.rand, sub = null, subBtn = null, vals = {};
             function persist() { saveScalesPrefs(prefs); }
-            function block(titleText, linksSpec) {
-                var wrap = document.createElement("div"); wrap.className = "scales-rand-block";
-                var h = document.createElement("div"); h.className = "scales-rand-title";
-                var t = document.createElement("span"); t.textContent = titleText; h.appendChild(t);
-                var links = document.createElement("span"); links.className = "scales-rand-links";
-                (linksSpec || []).forEach(function (l) { var b = document.createElement("button"); b.type = "button"; b.textContent = l[0]; b.addEventListener("click", l[1]); links.appendChild(b); });
-                h.appendChild(links); wrap.appendChild(h);
-                var chips = document.createElement("div"); chips.className = "scales-rand-chips"; wrap.appendChild(chips);
-                pop.appendChild(wrap);
-                return chips;
+            function famLabel(id) { return SCALE_RAND_FAMILIES.filter(function (f) { return f[0] === id; })[0][1]; }
+            function summaries() {
+                var fo = SCALE_RAND_FAMILIES.filter(function (f) { return rand.families[f[0]]; });
+                vals.fam.textContent = fo.length === SCALE_RAND_FAMILIES.length ? "Toutes" : !fo.length ? "Aucune" : fo.length <= 2 ? fo.map(function (f) { return f[1].replace("Modes du mineur ", "Modes "); }).join(", ") : fo.length + " sur " + SCALE_RAND_FAMILIES.length;
+                var co = SCALE_RAND_COUNTS.filter(function (n) { return rand.counts[n]; });
+                vals.cnt.textContent = co.length === SCALE_RAND_COUNTS.length ? "Toutes" : !co.length ? "Aucune" : co.map(function (n) { return n === 8 ? "8+" : String(n); }).join(" · ");
+                var ro = [];
+                rand.roots.forEach(function (on, pc) { if (on) ro.push(pc); });
+                var nat = ro.length === SCALE_RAND_NATURALS.length && ro.every(function (pc) { return SCALE_RAND_NATURALS.indexOf(pc) !== -1; });
+                vals.root.textContent = ro.length === 12 ? "Toutes" : !ro.length ? "Aucune" : nat ? "Naturelles" : ro.length <= 3 ? ro.map(function (pc) { return NOTE_NAMES_SHARP[pc]; }).join(" ") : ro.length + " sur 12";
+                var nk = scaleRandKeys(rand).length;
+                count.textContent = nk && ro.length ? nk + " gamme" + (nk > 1 ? "s" : "") + " × " + ro.length + " tonique" + (ro.length > 1 ? "s" : "") : "Aucune gamme ne correspond : élargis les choix.";
             }
-            function toggleChip(container, text, titleText, isOn, flip) {
-                var b = document.createElement("button"); b.type = "button"; b.className = "scales-chip"; b.textContent = text;
-                if (titleText) b.title = titleText;
-                b.setAttribute("aria-pressed", isOn() ? "true" : "false");
-                b.classList.toggle("scales-chip-active", isOn());
-                b.addEventListener("click", function () { flip(); persist(); b.classList.toggle("scales-chip-active", isOn()); b.setAttribute("aria-pressed", isOn() ? "true" : "false"); refreshCount(); });
-                container.appendChild(b);
+            function clampPop() {
+                var r = pop.getBoundingClientRect();
+                if (r.bottom > window.innerHeight - 8) pop.style.top = Math.max(8, window.innerHeight - r.height - 8) + "px";
+            }
+            function closeSub() {
+                if (sub) { sub.remove(); sub = null; }
+                if (subBtn) { subBtn.classList.remove("scales-rand-row-on"); subBtn = null; }
+                pop.classList.remove("scales-rand-pop-sub");
+            }
+            // Grand écran : le popover s'ouvre à côté de la fenêtre. Petit écran (ou pas de place à côté) : il remplace son contenu, avec « ‹ » pour revenir.
+            function placeSub() {
+                if (!sub) return;
+                function drill() { sub.classList.add("scales-rand-sub-over"); pop.classList.add("scales-rand-pop-sub"); clampPop(); }
+                if (window.innerWidth < 720) { drill(); return; }
+                sub.style.top = "0px";
+                var r = sub.getBoundingClientRect();
+                if (r.right > window.innerWidth - 8) { sub.style.left = "auto"; sub.style.right = "calc(100% + 8px)"; r = sub.getBoundingClientRect(); }
+                if (r.left < 8) { sub.style.left = ""; sub.style.right = ""; drill(); return; }
+                if (r.bottom > window.innerHeight - 8) sub.style.top = -Math.min(r.top - 8, r.bottom - (window.innerHeight - 8)) + "px";
+            }
+            function openSub(btn, title, links, build) {
+                if (sub && subBtn === btn) { closeSub(); return; }
+                closeSub();
+                sub = document.createElement("div"); sub.className = "scales-rand-sub";
+                var h = document.createElement("div"); h.className = "scales-rand-sub-head";
+                var back = document.createElement("button"); back.type = "button"; back.className = "scales-rand-back"; back.textContent = "‹"; back.setAttribute("aria-label", "Retour"); back.addEventListener("click", closeSub);
+                var t = document.createElement("span"); t.className = "scales-rand-sub-title"; t.textContent = title;
+                h.appendChild(back); h.appendChild(t);
+                var lk = document.createElement("span"); lk.className = "scales-rand-links";
+                links.forEach(function (l) { var b2 = document.createElement("button"); b2.type = "button"; b2.textContent = l[0]; b2.addEventListener("click", function () { l[1](); persist(); build.sync(); summaries(); }); lk.appendChild(b2); });
+                h.appendChild(lk); sub.appendChild(h);
+                build.fill(sub);
+                pop.appendChild(sub); subBtn = btn; btn.classList.add("scales-rand-row-on");
+                placeSub();
+            }
+            // Case à cocher en bouton : carré qui se remplit quand c'est coché.
+            function opt(label, hint, isOn, flip, extraClass) {
+                var b = document.createElement("button"); b.type = "button"; b.className = "scales-rand-opt" + (extraClass ? " " + extraClass : "");
+                var box = document.createElement("span"); box.className = "scales-rand-box"; box.textContent = "✓";
+                var nm = document.createElement("span"); nm.className = "scales-rand-name"; nm.textContent = label;
+                b.appendChild(box); b.appendChild(nm);
+                if (hint) { var hh = document.createElement("span"); hh.className = "scales-rand-hint"; hh.textContent = hint; b.appendChild(hh); }
+                function paint() { var on = isOn(); b.classList.toggle("scales-rand-opt-on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); }
+                b.addEventListener("click", function () { flip(); persist(); paint(); summaries(); });
+                b.paint = paint; paint();
                 return b;
             }
-            var famChips, cntChips, rootChips, famBtns = [], cntBtns = [], rootBtns = [];
-            function syncAll() {
-                famBtns.forEach(function (x) { var on = rand.families[x.k]; x.b.classList.toggle("scales-chip-active", on); x.b.setAttribute("aria-pressed", on ? "true" : "false"); });
-                cntBtns.forEach(function (x) { var on = rand.counts[x.k]; x.b.classList.toggle("scales-chip-active", on); x.b.setAttribute("aria-pressed", on ? "true" : "false"); });
-                rootBtns.forEach(function (x) { x.b.classList.toggle("scales-chip-active", rand.roots[x.k]); x.b.setAttribute("aria-pressed", rand.roots[x.k] ? "true" : "false"); });
-                refreshCount();
+            function menuRow(key, label, onOpen) {
+                var b = document.createElement("button"); b.type = "button"; b.className = "scales-rand-row-btn";
+                var l = document.createElement("span"); l.className = "scales-rand-row-label"; l.textContent = label;
+                var v = document.createElement("span"); v.className = "scales-rand-row-val";
+                var c = document.createElement("span"); c.className = "scales-rand-row-chev"; c.textContent = "›";
+                b.appendChild(l); b.appendChild(v); b.appendChild(c);
+                b.addEventListener("click", function () { onOpen(b); });
+                vals[key] = v;
+                pop.appendChild(b);
             }
-            famChips = block("Familles", [["Tout", function () { SCALE_RAND_FAMILIES.forEach(function (f) { rand.families[f[0]] = true; }); persist(); syncAll(); }],
-                                           ["Aucune", function () { SCALE_RAND_FAMILIES.forEach(function (f) { rand.families[f[0]] = false; }); persist(); syncAll(); }]]);
-            SCALE_RAND_FAMILIES.forEach(function (f, i) {
-                var b = toggleChip(famChips, f[1], SCALE_MENU[i] ? SCALE_MENU[i].label : "", function () { return rand.families[f[0]]; }, function () { rand.families[f[0]] = !rand.families[f[0]]; });
-                famBtns.push({ k: f[0], b: b });
+            var count = document.createElement("div"); count.className = "scales-rand-count";
+
+            // --- Familles : liste rangée en deux groupes (Gammes / Arpèges), une ligne par famille
+            menuRow("fam", "Familles", function (btn) {
+                var items = [];
+                openSub(btn, "Familles", [["Tout", function () { SCALE_RAND_FAMILIES.forEach(function (f) { rand.families[f[0]] = true; }); }], ["Aucune", function () { SCALE_RAND_FAMILIES.forEach(function (f) { rand.families[f[0]] = false; }); }]], {
+                    fill: function (box) {
+                        SCALE_RAND_GROUPS.forEach(function (g) {
+                            var gh = document.createElement("div"); gh.className = "scales-rand-group"; gh.textContent = g.title; box.appendChild(gh);
+                            g.ids.forEach(function (id) { var o = opt(famLabel(id), SCALE_RAND_HINTS[id], function () { return rand.families[id]; }, function () { rand.families[id] = !rand.families[id]; }, "scales-rand-opt-row"); items.push(o); box.appendChild(o); });
+                        });
+                    },
+                    sync: function () { items.forEach(function (o) { o.paint(); }); }
+                });
             });
-            cntChips = block("Nombre de notes", [["Tout", function () { SCALE_RAND_COUNTS.forEach(function (n) { rand.counts[n] = true; }); persist(); syncAll(); }]]);
-            SCALE_RAND_COUNTS.forEach(function (n) {
-                var b = toggleChip(cntChips, n === 8 ? "8 et +" : String(n), n === 3 ? "Triades" : n === 4 ? "Tétrades" : n === 5 ? "Pentatoniques" : n === 7 ? "Gammes complètes à 7 notes" : "", function () { return rand.counts[n]; }, function () { rand.counts[n] = !rand.counts[n]; });
-                cntBtns.push({ k: n, b: b });
+            // --- Nombre de notes : six cases en grille
+            menuRow("cnt", "Nombre de notes", function (btn) {
+                var items = [];
+                openSub(btn, "Nombre de notes", [["Tout", function () { SCALE_RAND_COUNTS.forEach(function (n) { rand.counts[n] = true; }); }], ["Aucune", function () { SCALE_RAND_COUNTS.forEach(function (n) { rand.counts[n] = false; }); }]], {
+                    fill: function (box) {
+                        var grid = document.createElement("div"); grid.className = "scales-rand-grid3";
+                        SCALE_RAND_COUNTS.forEach(function (n) { var o = opt(n === 8 ? "8 et +" : String(n), SCALE_RAND_COUNT_HINTS[n], function () { return rand.counts[n]; }, function () { rand.counts[n] = !rand.counts[n]; }, "scales-rand-opt-tile"); items.push(o); grid.appendChild(o); });
+                        box.appendChild(grid);
+                    },
+                    sync: function () { items.forEach(function (o) { o.paint(); }); }
+                });
             });
-            rootChips = block("Toniques", [["Toutes", function () { rand.roots = rand.roots.map(function () { return true; }); persist(); syncAll(); }],
-                                            ["Naturelles", function () { rand.roots = rand.roots.map(function (_, pc) { return SCALE_RAND_NATURALS.indexOf(pc) !== -1; }); persist(); syncAll(); }]]);
-            NOTE_NAMES_SHARP.forEach(function (name, pc) {
-                var b = toggleChip(rootChips, name, "", function () { return rand.roots[pc]; }, function () { rand.roots[pc] = !rand.roots[pc]; });
-                rootBtns.push({ k: pc, b: b });
+            // --- Toniques : disposition de clavier (naturelles en bas, dièses entre elles)
+            menuRow("root", "Toniques", function (btn) {
+                var items = [];
+                openSub(btn, "Toniques", [["Toutes", function () { rand.roots = rand.roots.map(function () { return true; }); }], ["Naturelles", function () { rand.roots = rand.roots.map(function (_, pc) { return SCALE_RAND_NATURALS.indexOf(pc) !== -1; }); }], ["Aucune", function () { rand.roots = rand.roots.map(function () { return false; }); }]], {
+                    fill: function (box) {
+                        var kb = document.createElement("div"); kb.className = "scales-rand-keys";
+                        // colonne de départ (sur 14) de chaque touche : naturelles sur deux colonnes, dièses à cheval entre deux naturelles
+                        var layout = [[1, 1, 0], [3, 1, 2], [5, 1, 4], [6, 1, 5], [8, 1, 7], [10, 1, 9], [12, 1, 11]]; // [col, ligne, pc] naturelles (ligne du bas)
+                        var sharps = [[2, 0, 1], [4, 0, 3], [8, 0, 6], [10, 0, 8], [12, 0, 10]];
+                        function key(col, row, pc) {
+                            var o = opt(NOTE_NAMES_SHARP[pc], "", function () { return rand.roots[pc]; }, function () { rand.roots[pc] = !rand.roots[pc]; }, "scales-rand-key");
+                            o.style.gridColumn = col + " / span 2"; o.style.gridRow = String(row + 1);
+                            items.push(o); kb.appendChild(o);
+                        }
+                        sharps.forEach(function (k) { key(k[0] + 0, k[1], k[2]); });
+                        // naturelles : C D E F G A B, chacune sur deux colonnes, bout à bout
+                        [[1, 0], [3, 2], [5, 4], [7, 5], [9, 7], [11, 9], [13, 11]].forEach(function (k) { key(k[0], 1, k[1]); });
+                        box.appendChild(kb);
+                    },
+                    sync: function () { items.forEach(function (o) { o.paint(); }); }
+                });
             });
+
             var avoid = document.createElement("label"); avoid.className = "scales-rand-avoid";
             var cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = rand.avoid;
             cb.addEventListener("change", function () { rand.avoid = cb.checked; persist(); });
             avoid.appendChild(cb); avoid.appendChild(document.createTextNode("Éviter les dernières gammes tirées"));
             pop.appendChild(avoid);
             var result = document.createElement("div"); result.className = "scales-rand-result"; pop.appendChild(result);
-            var count = document.createElement("div"); count.className = "scales-rand-count"; pop.appendChild(count);
-            function refreshCount() {
-                var nk = scaleRandKeys(rand).length, nr = rand.roots.filter(Boolean).length;
-                count.textContent = nk && nr ? nk + " gamme" + (nk > 1 ? "s" : "") + " × " + nr + " tonique" + (nr > 1 ? "s" : "") : "Aucune gamme ne correspond : élargis les choix.";
-            }
+            pop.appendChild(count);
             var go = document.createElement("button"); go.type = "button"; go.className = "btn-accent scales-rand-go";
             go.innerHTML = SCALES_DICE_SVG; go.appendChild(document.createTextNode(" Tirer au hasard"));
             go.addEventListener("click", function () {
                 var pick = scaleRandomPick(rand, prefs.root);
-                if (!pick) { result.textContent = ""; refreshCount(); return; }
+                if (!pick) { result.textContent = ""; summaries(); return; }
                 var d = SCALE_DEFS.filter(function (x) { return x.key === pick.key; })[0];
                 result.textContent = NOTE_NAMES_SHARP[pick.root] + " " + d.label + " · " + d.semis.length + " notes";
                 onPick(pick);
             });
             pop.appendChild(go);
-            refreshCount();
+            // Échap ferme d'abord le petit popover ; un clic ailleurs dans la fenêtre aussi
+            pop.addEventListener("pointerdown", function (e) { if (sub && !sub.contains(e.target) && !e.target.closest(".scales-rand-row-btn")) closeSub(); });
+            document.addEventListener("keydown", function esc(e) {
+                if (!pop.isConnected) { document.removeEventListener("keydown", esc, true); return; }
+                if (e.key === "Escape" && sub) { e.stopImmediatePropagation(); closeSub(); }
+            }, true);
+            summaries();
         });
     }
     var SCALES_DICE_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="4"/><circle cx="8.5" cy="8.5" r="1.1" fill="currentColor"/><circle cx="15.5" cy="8.5" r="1.1" fill="currentColor"/><circle cx="12" cy="12" r="1.1" fill="currentColor"/><circle cx="8.5" cy="15.5" r="1.1" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1.1" fill="currentColor"/></svg>';

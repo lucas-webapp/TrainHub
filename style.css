@@ -3129,18 +3129,44 @@ button.metro-mini-btn.metro-progressive-toggle.metro-progressive-active { backgr
 /* Gammes : mode hasard (dé) */
 .scales-chip.scales-dice-btn { padding: 0 9px; }
 .scales-chip.scales-dice-btn .icon { width: 18px; height: 18px; }
-.scales-rand-pop { width: min(380px, calc(100vw - 24px)); max-height: calc(100vh - 24px); overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; box-sizing: border-box; }
-.scales-rand-block { display: flex; flex-direction: column; gap: 5px; }
-.scales-rand-title { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--fs-2xs); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
-.scales-rand-links { display: inline-flex; gap: 10px; text-transform: none; letter-spacing: 0; font-weight: 600; }
+.scales-rand-pop { position: fixed; width: min(290px, calc(100vw - 24px)); padding: 10px; display: flex; flex-direction: column; gap: 8px; box-sizing: border-box; overflow: visible; }
+.scales-rand-row-btn { display: flex; align-items: center; gap: 8px; width: 100%; padding: 0 10px; height: 38px; box-sizing: border-box; background: var(--card-bg-2); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-main); font: inherit; font-size: var(--fs-sm); cursor: pointer; text-align: left; }
+.scales-rand-row-btn:hover, .scales-rand-row-btn.scales-rand-row-on { border-color: var(--accent); }
+.scales-rand-row-label { font-weight: 700; flex: 0 0 auto; }
+.scales-rand-row-val { flex: 1 1 auto; min-width: 0; text-align: right; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.scales-rand-row-chev { flex: 0 0 auto; color: var(--text-muted); font-size: 18px; line-height: 1; }
+.scales-rand-sub { position: absolute; left: calc(100% + 8px); top: 0; width: max-content; max-width: min(360px, calc(100vw - 24px)); box-sizing: border-box; padding: 10px; background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 10px 30px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 6px; z-index: 2; }
+.scales-rand-pop.scales-rand-pop-sub { overflow-y: auto; }
+.scales-rand-pop.scales-rand-pop-sub > :not(.scales-rand-sub) { display: none; }
+.scales-rand-sub.scales-rand-sub-over { position: static; width: auto; max-width: none; padding: 0; background: none; border: none; box-shadow: none; }
+.scales-rand-sub-over .scales-rand-hint { display: none; }
+.scales-rand-sub-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+.scales-rand-back { width: 26px; height: 26px; padding: 0; font-size: 18px; line-height: 1; background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-muted); cursor: pointer; }
+.scales-rand-sub-title { font-size: var(--fs-sm); font-weight: 800; flex: 1 1 auto; }
+.scales-rand-links { display: inline-flex; gap: 10px; font-size: var(--fs-xs); font-weight: 600; }
 .scales-rand-links button { background: none; border: none; padding: 0; color: var(--text-muted); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .scales-rand-links button:hover { color: var(--accent); }
-.scales-rand-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-.scales-rand-chips .scales-chip { height: 28px; min-height: 0; padding: 0 9px; font-size: var(--fs-xs); }
+.scales-rand-group { margin-top: 4px; font-size: var(--fs-2xs); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
+.scales-rand-opt { display: flex; align-items: center; justify-content: flex-start; gap: 8px; box-sizing: border-box; background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--text-main); font: inherit; font-size: var(--fs-sm); cursor: pointer; text-align: left; padding: 4px 6px; }
+.scales-rand-opt:hover { background: rgba(255,255,255,.05); }
+.scales-rand-box { flex: 0 0 auto; width: 18px; height: 18px; box-sizing: border-box; border: 1.5px solid var(--text-muted); border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 900; color: transparent; }
+.scales-rand-opt-on .scales-rand-box { background: var(--accent); border-color: var(--accent); color: #04210f; }
+.scales-rand-name { font-weight: 600; white-space: nowrap; }
+.scales-rand-hint { color: var(--text-muted); font-size: var(--fs-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.scales-rand-opt-row { width: 100%; }
+.scales-rand-opt-row .scales-rand-hint { margin-left: auto; max-width: 150px; }
+.scales-rand-grid3 { display: grid; grid-template-columns: repeat(3, minmax(88px, 1fr)); gap: 6px; }
+.scales-rand-opt-tile { flex-wrap: wrap; row-gap: 0; border-color: var(--border); padding: 6px 8px; }
+.scales-rand-opt-tile .scales-rand-hint { flex: 1 0 100%; padding-left: 26px; margin-top: -2px; }
+.scales-rand-opt-tile.scales-rand-opt-on { border-color: var(--accent); }
+.scales-rand-keys { display: grid; grid-template-columns: repeat(14, minmax(0, 22px)); grid-template-rows: auto auto; gap: 6px 0; }
+.scales-rand-key { justify-content: center; border-color: var(--border); padding: 5px 0; height: 32px; }
+.scales-rand-key .scales-rand-box { display: none; }
+.scales-rand-key.scales-rand-opt-on { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); color: var(--accent); }
 .scales-rand-avoid { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); cursor: pointer; }
 .scales-rand-avoid input { width: 18px; height: 18px; accent-color: var(--accent); }
 .scales-rand-result { min-height: 1.3em; text-align: center; font-weight: 800; color: var(--accent); }
-.scales-rand-count { text-align: center; font-size: var(--fs-xs); color: var(--text-muted); margin-top: -6px; }
+.scales-rand-count { text-align: center; font-size: var(--fs-xs); color: var(--text-muted); margin-top: -4px; }
 .scales-rand-go { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; width: 100%; font-weight: 800; }
 .scales-rand-go .icon { width: 18px; height: 18px; }
 .scales-rand-again { margin-left: 8px; width: 30px; height: 28px; padding: 0; vertical-align: middle; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-muted); cursor: pointer; }
