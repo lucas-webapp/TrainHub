@@ -729,21 +729,23 @@ button.result-group-title:hover { background: color-mix(in srgb, var(--group-col
 .tree-row-d2.selected .tree-label { color: var(--chapter-ink); }
 
 .tree-twisty {
-    width: 18px;
-    height: 18px;
+    width: 24px;
+    height: 24px;
     flex: none;
     padding: 0;
-    margin: 0;
+    /* marges verticales négatives : la zone cliquable grandit sans rendre les lignes plus hautes ;
+       marge droite : le texte du dossier est un peu décalé vers la droite du chevron */
+    margin: -4px 4px -4px 0;
     background: transparent;
     border: none;
     color: var(--text-muted);
-    border-radius: 5px;
+    border-radius: 6px;
 }
 .tree-twisty:hover { background: rgba(var(--ov), .08); color: var(--text-main); }
 .tree-twisty-empty { visibility: hidden; pointer-events: none; }
 .tree-twisty .icon {
-    width: 11px;
-    height: 11px;
+    width: 15px;
+    height: 15px;
     transition: transform .12s ease;
 }
 .tree-twisty.expanded .icon { transform: rotate(90deg); }
