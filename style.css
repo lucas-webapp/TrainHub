@@ -3399,14 +3399,20 @@ html[data-glass="1"] button.btn-ghost, html[data-glass="1"] button.icon-btn.btn-
 html[data-glass="1"] :is(.exercise, .folder-row, .gs-session-row, .gs-step-row, .st-tile, .st-ex, .gs-plan-row) { box-shadow: var(--glass-hi); }
 
 /* ---- halos : une seule règle pour tous (dossiers, sélection, favoris/archivés, cartes de sous-dossiers, exercice déplié).
-   --hc = couleur du halo ; --g-halo-in = bande lumineuse étroite à l'intérieur du bord gauche ;
-   --g-halo-out = lueur douce qui se diffuse vers la gauche dans le fond. ---- */
-html[data-glass="1"] { --g-halo-in: 34%; --g-halo-out: 72%; }
+   --hc = couleur du halo. Profil de gauche à droite : lueur qui s'éteint rapidement vers la gauche (--g-halo-out), puis un
+   liseré très lumineux et serré contre le bord (--g-halo-rim), puis le trait opaque (la bordure) et une bande intérieure
+   très étroite (--g-halo-in). --g-hs = hauteur retirée à la lueur (barres basses : valeur plus petite) pour qu'elle reste
+   sur le côté gauche et ne déborde pas sur les barres voisines. Tout est gaussien : aucune coupure nette. ---- */
+html[data-glass="1"] { --g-halo-in: 34%; --g-halo-rim: 70%; --g-halo-out: 55%; --g-hs: 10px; }
 html[data-glass="1"] :is(.tree-row-d0, :is(.tree-row-d1, .tree-row-d2).selected, .tree-row-fixed.virtual-favorites, .tree-row-fixed.virtual-archived, .folder-row, .exercise:not(.collapsed)) {
     box-shadow: var(--glass-hi),
-        inset 7px 0 9px -9px color-mix(in srgb, var(--hc) var(--g-halo-in), transparent),
-        -10px 0 26px -10px color-mix(in srgb, var(--hc) var(--g-halo-out), transparent);
+        inset 5px 0 7px -7px color-mix(in srgb, var(--hc) var(--g-halo-in), transparent),
+        -3px 0 5px -2px color-mix(in srgb, var(--hc) var(--g-halo-rim), transparent),
+        calc(-1 * var(--g-hs) - 3px) 0 18px calc(-1 * var(--g-hs)) color-mix(in srgb, var(--hc) var(--g-halo-out), transparent);
 }
+/* Favoris / Archivés : la classe .virtual-* sert aussi aux puces de chapitre et teinte le conteneur du nœud (un rectangle carré
+   derrière la barre arrondie) ; la barre porte déjà sa propre teinte */
+html[data-glass="1"] .tree-node:is(.virtual-favorites, .virtual-archived) { background: none; }
 /* un peu de place à gauche du bandeau pour que la lueur ne soit pas coupée */
 html[data-glass="1"] .sidebar-tree { padding-left: 20px; }
 
@@ -3424,10 +3430,12 @@ html[data-glass="1"] { --g-dens: 1; }
 html[data-glass="1"].density-compact { --g-dens: 0.5; }
 html[data-glass="1"].density-spacious { --g-dens: 2; }
 html[data-glass="1"] .tree-list { gap: calc(4px * var(--g-dens, 1)); }
+/* les barres ne se touchent jamais : un petit espace (1 / 2 / 4 px selon la densité) entre un dossier et ses sous-dossiers, et entre sous-dossiers */
+html[data-glass="1"] .tree-children { gap: calc(2px * var(--g-dens, 1)); margin-top: calc(2px * var(--g-dens, 1)); }
 html[data-glass="1"] .tree-row-d0:hover { --tint: 10%; }
 html[data-glass="1"] .tree-row-d0.selected {
     --tint: 15%;
-    --g-halo-in: 30%; --g-halo-out: 92%; /* sélection : moins de lumière sous le chevron, un peu plus de lueur dans le fond */
+    --g-halo-in: 26%; --g-halo-rim: 85%; --g-halo-out: 80%; /* sélection : moins de lumière sous le chevron, plus de lueur dans le fond */
 }
 /* sous-dossiers : discrets comme avant (tailles de police et poids inchangés) ; la sélection prend le contour et le halo */
 html[data-glass="1"] .tree-row-d1, html[data-glass="1"] .tree-row-d2 { border-left: 2px solid transparent; }
@@ -3436,7 +3444,7 @@ html[data-glass="1"] .tree-row-d2 { padding: calc(2px * var(--g-dens, 1)) 8px; }
 html[data-glass="1"] :is(.tree-row-d1, .tree-row-d2).selected {
     border-left-color: var(--rc, var(--accent));
     --hc: var(--rc, var(--accent));
-    --g-halo-in: 28%; --g-halo-out: 80%;
+    --g-halo-in: 24%; --g-halo-rim: 80%; --g-halo-out: 70%; --g-hs: 5px;
 }
 html[data-glass="1"] .tree-row-fixed { border-top: 1px solid var(--border); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); border-radius: var(--g-bar-radius); padding-top: calc(5px * var(--g-dens, 1)); padding-bottom: calc(5px * var(--g-dens, 1)); box-shadow: var(--glass-hi); }
 html[data-glass="1"] .tree-row-fixed.virtual-favorites { --hc: var(--c-gold); }
