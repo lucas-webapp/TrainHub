@@ -11835,6 +11835,12 @@
             title.className = "backups-title";
             title.textContent = opts.title || "Enregistrer cette session ?";
             panel.appendChild(title);
+            var nameIn = null; // entraînement libre : on peut lui donner un nom (« Session libre » par défaut)
+            if (record.free) {
+                nameIn = document.createElement("input"); nameIn.type = "text"; nameIn.className = "gs-name-input gs-rec-title-in"; nameIn.maxLength = 60;
+                nameIn.placeholder = "Session libre"; nameIn.value = record.name || "Session libre"; nameIn.setAttribute("aria-label", "Nom de la séance");
+                panel.appendChild(nameIn);
+            }
             var sum = document.createElement("div");
             sum.className = "gs-sync-intro gs-rec-sum";
             panel.appendChild(sum);
@@ -11847,7 +11853,7 @@
             function bpmOf(it) { var n = parseInt(it.bi.value, 10); return n >= 30 && n <= 300 ? n : null; }
             function refresh() {
                 var n = items.filter(function (it) { return !it.removed && numVal(it.mi) * 60 + numVal(it.si) > 0; }).length;
-                sum.textContent = "« " + record.name + " » · " + gsFmtDur(totalSec()) + " · " + n + " exercice" + (n > 1 ? "s" : "");
+                sum.textContent = (nameIn ? "" : "« " + record.name + " » · ") + gsFmtDur(totalSec()) + " · " + n + " exercice" + (n > 1 ? "s" : "");
                 var blocked = items.some(function (it) { return it.ask && !it.answered && !it.removed; });
                 yes.disabled = blocked || totalSec() <= 0;
                 yes.title = blocked ? "Confirme le tempo des exercices arrêtés avant leur seuil" : "";
@@ -11906,6 +11912,7 @@
                     out.steps.push(st);
                 });
                 out.totalSec = out.steps.reduce(function (a, x) { return a + x.actualSec; }, 0);
+                if (nameIn) out.name = nameIn.value.trim() || "Session libre";
                 close();
                 opts.onSave(out);
             });
@@ -12045,9 +12052,11 @@
     // ---------- entraînement libre : un chrono qui suit l'exercice affiché à l'écran principal ----------
     // Hors session : le décompte démarre quand un exercice déplié reste visible plus de 10 s, se met en pause dès
     // qu'on change d'exercice (puis repart 10 s après), et reste grisé tant qu'aucun exercice n'est affiché.
-    // « Arrêter » ouvre le récapitulatif modifiable (comme une session), puis la séance « Session libre » entre
-    // dans l'historique et les statistiques.
-    var FREE_START_DELAY_MS = 10000, FREE_MIN_RECORD_MS = 60000, FREE_MIN_VISIBLE_PX = 80;
+    // En arrière-plan (autre appli, écran verrouillé) le temps continue de compter sur l'exercice laissé à l'écran ;
+    // sans aucune activité (ni geste sur l'appli, ni métronome qui joue) pendant 15 min, le chrono se met en pause seul
+    // et repart au premier geste. « Arrêter » ouvre le récapitulatif modifiable (comme une session, avec un nom
+    // modifiable), puis la séance entre dans l'historique et les statistiques.
+    var FREE_START_DELAY_MS = 10000, FREE_MIN_RECORD_MS = 60000, FREE_MIN_VISIBLE_PX = 80, FREE_IDLE_MS = 15 * 60000, FREE_FOREGROUND_GAP_MS = 2000;
     var freeRun = null, freeTimer = null, freeBarEl = null, freeRecapEl = null;
     function freeStepId(exId) { return "free:" + exId; }
     // Exercice déplié le plus visible dans la zone principale (sous la barre du haut) ; null si aucun.
@@ -12070,31 +12079,72 @@
             spent: cloneJson(fr.spent), bpm: cloneJson(fr.bpm), totalMs: fr.totalMs, steps: steps };
     }
     function freeBeat(step, isBeat) {
-        if (!freeRun || !freeRun.counting || !freeRun.cur) return;
-        var id = freeStepId(freeRun.cur), bpm = state.settings.metronome.bpm;
-        var t = freeRun.bpm[id] || (freeRun.bpm[id] = { first: bpm, max: bpm, end: bpm, playedMs: 0 });
+        var fr = freeRun;
+        if (!fr) return;
+        var now = Date.now();
+        fr.active = now; // un métronome qui joue vaut activité
+        if (!fr.cur || fr.manual || fr.auto || now < fr.countFrom) return;
+        var id = freeStepId(fr.cur), bpm = state.settings.metronome.bpm;
+        var t = fr.bpm[id] || (fr.bpm[id] = { first: bpm, max: bpm, end: bpm, playedMs: 0 });
         if (bpm > t.max) t.max = bpm;
         t.end = bpm;
         if (isBeat) t.playedMs += 60000 / bpm;
     }
+    // Passage régulier (et à chaque retour au premier plan) : on crédite le temps écoulé depuis le dernier passage à l'exercice
+    // qui était affiché, puis on regarde quel exercice l'est maintenant. Au premier plan un trou de plus de 2 s (veille, page
+    // gelée) ne compte pas ; en arrière-plan le temps écoulé compte en entier, dans la limite de 15 min sans activité.
     function freeTick() {
-        if (!freeRun) return;
-        var now = Date.now(), dt = Math.min(2000, Math.max(0, now - freeRun.last)), cur = freeVisibleExercise();
-        freeRun.last = now;
-        if (cur !== freeRun.cur) { freeRun.cur = cur; freeRun.seen = now; freeRun.counting = false; } // changement d'exercice : pause automatique
-        if (!cur) freeRun.counting = false;
-        else if (!freeRun.manual && !freeRun.counting && now - freeRun.seen >= FREE_START_DELAY_MS) freeRun.counting = true;
-        if (freeRun.counting && cur && !freeRun.manual) {
-            var id = freeStepId(cur);
-            freeRun.spent[id] = (freeRun.spent[id] || 0) + dt;
-            freeRun.lastAt[id] = now;
-            freeRun.totalMs += dt;
+        var fr = freeRun;
+        if (!fr) return;
+        var now = Date.now(), hid = document.hidden;
+        var from = (hid || fr.wasHidden) ? fr.last : Math.max(fr.last, now - FREE_FOREGROUND_GAP_MS);
+        fr.last = now; fr.wasHidden = hid;
+        if (metroPlaying) fr.active = now;
+        if (fr.cur && !fr.manual && !fr.auto) {
+            var idleAt = fr.active + FREE_IDLE_MS, begin = Math.max(from, fr.countFrom), end = Math.min(now, idleAt);
+            if (end > begin) {
+                var id = freeStepId(fr.cur);
+                fr.spent[id] = (fr.spent[id] || 0) + (end - begin);
+                fr.lastAt[id] = end;
+                fr.totalMs += end - begin;
+            }
+            if (now >= idleAt) { fr.auto = true; showToast("Pause automatique : 15 min sans activité.", 6000); gsLiveSave(); }
         }
+        if (!hid) { // au premier plan : l'exercice affiché a peut-être changé (en arrière-plan on garde celui laissé à l'écran)
+            var cur = freeVisibleExercise();
+            if (cur !== fr.cur) { fr.cur = cur; fr.countFrom = now + FREE_START_DELAY_MS; }
+        }
+        fr.counting = !!fr.cur && !fr.manual && !fr.auto && now >= fr.countFrom;
+        freeRefreshBar();
+    }
+    // Un geste sur l'appli : l'horloge d'inactivité repart ; après une pause automatique, le décompte reprend (avec l'attente
+    // habituelle de 10 s). Les boutons de la barre du chrono gèrent leur propre clic.
+    function freeActivity(e) {
+        var fr = freeRun;
+        if (!fr) return;
+        if (e && e.target && e.target.closest && e.target.closest("#free-bar")) return;
+        var now = Date.now();
+        if (now - fr.last > 1500) freeTick(); // page restée gelée : créditer d'abord le temps écoulé avec l'ancienne horloge d'inactivité
+        fr.active = now;
+        if (fr.auto) { fr.auto = false; fr.countFrom = fr.cur ? now + FREE_START_DELAY_MS : 0; freeRefreshBar(); }
+    }
+    var FREE_ACTIVITY_EVENTS = ["pointerdown", "keydown", "wheel", "touchstart", "scroll"];
+    document.addEventListener("visibilitychange", function () { if (freeRun) freeTick(); });
+    // Pause / reprise à la main (bouton ou double Espace). Une pause automatique se reprend de la même façon, sans attente.
+    function freeTogglePause() {
+        var fr = freeRun;
+        if (!fr) return;
+        freeTick(); // crédite le temps jusqu'à maintenant avec l'état d'avant
+        var now = Date.now();
+        fr.active = now;
+        if (fr.manual || fr.auto) { fr.manual = false; fr.auto = false; fr.countFrom = fr.cur ? now : 0; }
+        else fr.manual = true;
+        fr.counting = !!fr.cur && !fr.manual && !fr.auto && now >= fr.countFrom;
         freeRefreshBar();
     }
     function freeStatus() { // "run" | "wait" | "paused" | "idle"
         if (!freeRun) return "idle";
-        if (freeRun.manual) return "paused";
+        if (freeRun.manual || freeRun.auto) return "paused";
         if (!freeRun.cur) return "idle";
         return freeRun.counting ? "run" : "wait";
     }
@@ -12105,15 +12155,16 @@
         var st = freeStatus(), f = freeRun.cur ? findExerciseById(freeRun.cur) : null;
         freeBarEl.className = "free-bar free-bar-" + st;
         freeBarEl.querySelector(".free-time").textContent = gsFormatTotal(freeRun.totalMs);
-        var left = Math.max(1, Math.ceil((FREE_START_DELAY_MS - (Date.now() - freeRun.seen)) / 1000));
-        var full = st === "run" ? (f ? f.ex.title : "") : st === "wait" ? "Départ dans " + left + " s" : st === "paused" ? "En pause" : "Aucun exercice affiché";
+        var left = Math.max(1, Math.ceil((freeRun.countFrom - Date.now()) / 1000));
+        var full = st === "run" ? (f ? f.ex.title : "") : st === "wait" ? "Départ dans " + left + " s" : st === "paused" ? (freeRun.auto ? "Pause automatique (15 min sans activité)" : "En pause") : "Aucun exercice affiché";
         freeBarEl.querySelector(".free-what").textContent = st === "wait" ? left + " s" : ""; // le détail est dans l'info-bulle : peu de texte dans la barre
         freeBarEl.title = "Entraînement libre — " + full;
         var pb = freeBarEl.querySelector(".free-pause");
-        pb.innerHTML = freeRun.manual ? METRO_PLAY_ICON_SVG : FREE_PAUSE_SVG;
-        var pbTxt = freeRun.manual ? "Reprendre le décompte" : "Mettre en pause";
-        pb.title = pbTxt; pb.setAttribute("aria-label", pbTxt);
-        pb.disabled = !freeRun.manual && st === "idle";
+        var stopped = freeRun.manual || freeRun.auto;
+        pb.innerHTML = stopped ? METRO_PLAY_ICON_SVG : FREE_PAUSE_SVG;
+        var pbTxt = stopped ? "Reprendre le décompte" : "Mettre en pause";
+        pb.title = pbTxt + " (double Espace)"; pb.setAttribute("aria-label", pbTxt);
+        pb.disabled = !stopped && st === "idle";
         freeRecapRefresh();
     }
     // Récapitulatif en direct (grands écrans seulement) : un repère par exercice libre déjà pratiqué, nom puis durée.
@@ -12132,7 +12183,7 @@
                 chip.appendChild(nm); chip.appendChild(du); freeRecapEl.appendChild(chip);
             });
         }
-        var curId = freeRun.cur && freeRun.counting && !freeRun.manual ? freeStepId(freeRun.cur) : null;
+        var curId = freeRun.cur && freeRun.counting && !freeRun.manual && !freeRun.auto ? freeStepId(freeRun.cur) : null;
         Array.prototype.forEach.call(freeRecapEl.children, function (chip) {
             var id = chip.getAttribute("data-id"), f = findExerciseById(id.slice(5)), title = f ? f.ex.title : "(exercice supprimé)";
             var nm = chip.firstChild, du = chip.lastChild, t = gsFormatTotal(freeRun.spent[id] || 0);
@@ -12150,13 +12201,7 @@
         var wh = document.createElement("span"); wh.className = "free-what";
         function sep() { var x = document.createElement("span"); x.className = "free-sep"; x.setAttribute("aria-hidden", "true"); return x; }
         var pb = document.createElement("button"); pb.type = "button"; pb.className = "btn-ghost free-pause";
-        pb.addEventListener("click", function () {
-            if (!freeRun) return;
-            freeRun.manual = !freeRun.manual;
-            if (!freeRun.manual && freeRun.cur) freeRun.counting = true; // relancé à la main : pas d'attente de 10 s
-            if (freeRun.manual) freeRun.counting = false;
-            freeRefreshBar();
-        });
+        pb.addEventListener("click", freeTogglePause);
         var sp = document.createElement("button"); sp.type = "button"; sp.className = "btn-ghost free-stop"; sp.innerHTML = FREE_STOP_SVG;
         sp.title = "Arrêter l'entraînement libre"; sp.setAttribute("aria-label", "Arrêter l'entraînement libre");
         sp.addEventListener("click", freeStop);
@@ -12184,11 +12229,13 @@
         freeShowBar();
         if (freeTimer) clearInterval(freeTimer);
         freeTimer = setInterval(freeTick, 500);
+        FREE_ACTIVITY_EVENTS.forEach(function (n) { window.addEventListener(n, freeActivity, { capture: true, passive: true }); });
         freeTick();
     }
     function freeDetach() {
         if (freeTimer) { clearInterval(freeTimer); freeTimer = null; }
         metroBeatListeners = metroBeatListeners.filter(function (fn) { return fn !== freeBeat; });
+        FREE_ACTIVITY_EVENTS.forEach(function (n) { window.removeEventListener(n, freeActivity, { capture: true }); });
         freeRun = null;
         freeHideBar();
     }
@@ -12203,14 +12250,14 @@
         if (freeRun) { freeLeaveSessionsView(); return; }
         if (gsRunSession) { showToast("Termine d'abord la session en cours.", 3500); return; }
         var now = Date.now();
-        freeAttach({ startedAt: now, instrumentId: state.activeInstrumentId, spent: {}, lastAt: {}, bpm: {}, totalMs: 0, cur: null, seen: now, counting: false, manual: false, last: now });
+        freeAttach({ startedAt: now, instrumentId: state.activeInstrumentId, spent: {}, lastAt: {}, bpm: {}, totalMs: 0, cur: null, countFrom: 0, counting: false, manual: false, auto: false, active: now, wasHidden: false, last: now });
         freeLeaveSessionsView();
         gsLiveSave();
         showToast("Ouvre un exercice : le décompte démarre après 10 s.", 4500);
     }
     function freeResume(snap) {
         var now = Date.now();
-        freeAttach({ startedAt: snap.startedAt || now, instrumentId: snap.instrumentId, spent: cloneJson(snap.spent || {}), lastAt: {}, bpm: cloneJson(snap.bpm || {}), totalMs: snap.totalMs || 0, cur: null, seen: now, counting: false, manual: false, last: now });
+        freeAttach({ startedAt: snap.startedAt || now, instrumentId: snap.instrumentId, spent: cloneJson(snap.spent || {}), lastAt: {}, bpm: cloneJson(snap.bpm || {}), totalMs: snap.totalMs || 0, cur: null, countFrom: 0, counting: false, manual: false, auto: false, active: now, wasHidden: false, last: now });
         freeLeaveSessionsView();
         gsLiveSave();
     }
@@ -14728,6 +14775,11 @@
     function transportSpaceTap() {
         var sessionOn = transportSessionPresent();
         var metroOn = !!metroPanelApi;
+        if (freeRun && !sessionOn) { // entraînement libre : un seul Espace garde son rôle (métronome s'il est ouvert), un double Espace = pause / reprise du chrono
+            if (spaceTapTimer) { clearTimeout(spaceTapTimer); spaceTapTimer = null; freeTogglePause(); return; }
+            spaceTapTimer = setTimeout(function () { spaceTapTimer = null; if (metroPanelApi) transportToggleMetro(); }, SPACE_DOUBLE_MS);
+            return;
+        }
         if (!sessionOn && !metroOn) return;
         if (!(sessionOn && metroOn)) {
             if (sessionOn) transportToggleSession(); else transportToggleMetro();
@@ -14767,7 +14819,7 @@
 
     document.addEventListener("keydown", function (e) {
         if (!isSpaceKeyEvent(e) || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.isComposing) return;
-        if (!transportSessionPresent() && !metroPanelApi) return;
+        if (!transportSessionPresent() && !metroPanelApi && !freeRun) return;
         if (spaceKeyBelongsToTarget(e.target) || spaceKeyBlockedByOverlay()) return;
         // preventDefault : sinon un bouton qui a le focus (Pause, +, Suivant…) serait aussi "cliqué" par
         // l'Espace, et la page défilerait.
