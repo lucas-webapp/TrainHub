@@ -3337,23 +3337,20 @@ button.settings-action { display: flex; align-items: center; justify-content: sp
    cartes de sous-dossiers, exercice déplié. Seule la couleur change (--hc) ; la forme est identique partout.
    LISERÉ (trait de couleur opaque, à gauche) : dossiers principaux + favoris + archivés 1,5 px (ombre interne : net sur tous les
    écrans) ; sous-dossiers (barre latérale : ombre interne ; cartes de la vue principale : bordure) 1 px ; exercice déplié 1 px
-   (bordure). HALO : lueur douce d'environ 13 px à gauche du liseré, portée par un petit élément transparent (::before) posé sur
-   le bord gauche : elle ne suit pas la barre sur sa longueur, quelle que soit sa largeur. Deux profils (data-halo) : « diffus »
-   (défaut) et « net » ; « off » = aucun halo. --g-edge / --glass-hi ne servent qu'au verre.
+   (bordure). HALO : dégradé de 13 px posé juste à gauche de la barre (::before), qui s'éteint vers la gauche. Verticalement il
+   suit le bord gauche puis la moitié de l'arrondi des angles (il s'arrête à 35 % du rayon --g-r, soit environ 45° de l'arc) et
+   s'estompe sur quelques pixels (--g-fade) pour accompagner le liseré sans le dépasser. Il ne suit pas la barre sur sa longueur.
+   Trois profils (data-halo) : « diffus » (défaut), « net » (plus court, plus intense), « off » (aucun).
+   --g-edge / --glass-hi ne servent qu'au verre.
    ============================================================ */
 :root {
-    /* « diffus » (défaut) : lueur proche + lueur large (≈ 13 px) */
-    --g-n-o: -1px; --g-n-b: 6px;  --g-n-s: 0px; --g-n-a: 60%;
-    --g-f-o: -4px; --g-f-b: 28px; --g-f-s: 0px; --g-f-a: 55%;
-    --g-vi: -2px; /* le trait lumineux dépasse de 2 px en haut et en bas : la lueur est pleine jusqu'au début des arrondis des angles */
-    --g-ix: 6px;  --g-ib: 9px;  --g-is: -8px; --g-a3: 22%;
+    --g-gw: 13px;   /* largeur du halo */
+    --g-gp: 40%;    /* intensité au contact du liseré */
+    --g-fade: 6px;  /* fondu vertical aux deux bouts */
+    --g-ix: 6px;  --g-ib: 9px;  --g-is: -8px; --g-a3: 22%;  /* bande intérieure très douce (ombre interne) */
 }
-html[data-halo="net"] {
-    --g-n-o: -1px; --g-n-b: 3px;  --g-n-s: 0px; --g-n-a: 80%;
-    --g-f-o: -1px; --g-f-b: 7px;  --g-f-s: 0px; --g-f-a: 48%;
-    --g-ix: 5px;  --g-ib: 7px;  --g-is: -7px; --g-a3: 30%;
-}
-html[data-halo="off"] { --g-n-a: 0%; --g-f-a: 0%; --g-a3: 0%; }
+html[data-halo="net"] { --g-gw: 7px; --g-gp: 58%; --g-a3: 30%; }
+html[data-halo="off"] { --g-gp: 0%; --g-a3: 0%; }
 :root :is(.tree-row-d0, :is(.tree-row-d1, .tree-row-d2).selected, .tree-row-fixed.virtual-favorites, .tree-row-fixed.virtual-archived, .folder-row, .exercise:not(.collapsed)) {
     position: relative;
     box-shadow: var(--g-contour, 0 0 0 0 transparent), var(--g-edge, 0 0 0 0 transparent), var(--glass-hi, 0 0 0 0 transparent),
@@ -3361,20 +3358,31 @@ html[data-halo="off"] { --g-n-a: 0%; --g-f-a: 0%; --g-a3: 0%; }
 }
 :root :is(.tree-row-d0, :is(.tree-row-d1, .tree-row-d2).selected, .tree-row-fixed.virtual-favorites, .tree-row-fixed.virtual-archived, .folder-row, .exercise:not(.collapsed))::before {
     content: ""; position: absolute; pointer-events: none;
-    left: var(--g-bl, 0px); width: 8px; top: var(--g-vi, 0px); bottom: var(--g-vi, 0px); border-radius: 2px;
-    clip-path: inset(-30px 100% -30px -40px); /* la lueur n'existe qu'à gauche du bord de la barre : rien à l'intérieur (sinon le petit élément laisserait un « trou » visible) */ /* barre basse : 14 % de marge ; grande carte : 10 px seulement */
-    box-shadow: var(--g-n-o) 0 var(--g-n-b) var(--g-n-s) color-mix(in srgb, var(--hc) var(--g-n-a), transparent),
-                var(--g-f-o) 0 var(--g-f-b) var(--g-f-s) color-mix(in srgb, var(--hc) var(--g-f-a), transparent);
+    left: calc(var(--g-bl, 0px) - var(--g-gw)); width: var(--g-gw); top: calc(var(--g-r, 8px) * .35 - var(--g-bt, 0px)); bottom: calc(var(--g-r, 8px) * .35 - var(--g-bt, 0px));
+    background: linear-gradient(to left,
+        color-mix(in srgb, var(--hc) var(--g-gp), transparent) 0%,
+        color-mix(in srgb, var(--hc) calc(var(--g-gp) * .82), transparent) 8%,
+        color-mix(in srgb, var(--hc) calc(var(--g-gp) * .66), transparent) 15%,
+        color-mix(in srgb, var(--hc) calc(var(--g-gp) * .52), transparent) 23%,
+        color-mix(in srgb, var(--hc) calc(var(--g-gp) * .40), transparent) 31%,
+        color-mix(in srgb, var(--hc) calc(var(--g-gp) * .31), transparent) 38%,
+        color-mix(in srgb, var(--hc) calc(var(--g-gp) * .21), transparent) 50%,
+        color-mix(in srgb, var(--hc) calc(var(--g-gp) * .14), transparent) 62%,
+        color-mix(in srgb, var(--hc) calc(var(--g-gp) * .08), transparent) 77%,
+        color-mix(in srgb, var(--hc) calc(var(--g-gp) * .035), transparent) 92%,
+        transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--g-fade), #000 calc(100% - var(--g-fade)), transparent 100%);
+    mask-image: linear-gradient(to bottom, transparent 0, #000 var(--g-fade), #000 calc(100% - var(--g-fade)), transparent 100%);
 }
-.tree-row-d0 { --hc: var(--rc, var(--accent)); padding-left: 11px; --g-contour: inset 1.5px 0 0 0 var(--hc); } /* 11 px = ancienne bordure de 3 px + marge de 8 px : le texte ne bouge pas */
-:is(.tree-row-d1, .tree-row-d2).selected { --hc: var(--rc, var(--accent)); --g-contour: inset 1px 0 0 0 var(--hc); } /* contour de 1 px sans toucher à la mise en page */
+.tree-row-d0 { --hc: var(--rc, var(--accent)); --g-r: 8px; padding-left: 11px; --g-contour: inset 1.5px 0 0 0 var(--hc); } /* 11 px = ancienne bordure de 3 px + marge de 8 px : le texte ne bouge pas */
+:is(.tree-row-d1, .tree-row-d2).selected { --hc: var(--rc, var(--accent)); --g-r: 6px; --g-contour: inset 1px 0 0 0 var(--hc); } /* contour de 1 px sans toucher à la mise en page */
 .tree-row-fixed.virtual-favorites { --hc: var(--c-gold); --g-contour: inset 1.5px 0 0 0 var(--hc); }
 .tree-row-fixed.virtual-archived { --hc: var(--c-grey); --g-contour: inset 1.5px 0 0 0 var(--hc); }
 /* la classe .virtual-* sert aussi aux puces de chapitre et teinte le conteneur du nœud (rectangle carré derrière la barre arrondie) */
 .tree-node:is(.virtual-favorites, .virtual-archived) { background: none; }
 /* cartes de sous-dossiers et exercice déplié : le liseré de 1 px est la bordure gauche d'origine, colorée */
-.folder-row { --hc: var(--chapter-accent); --g-bl: -1px; border-left-color: var(--chapter-accent); }
-.exercise:not(.collapsed) { --hc: var(--chapter-accent); --g-bl: -1px; border-color: var(--border); border-left-color: var(--chapter-accent); }
+.folder-row { --hc: var(--chapter-accent); --g-r: 8px; --g-bl: -1px; --g-bt: 1px; /* --g-bt : le halo se positionne depuis l'intérieur de la bordure de 1 px */ border-left-color: var(--chapter-accent); }
+.exercise:not(.collapsed) { --hc: var(--chapter-accent); --g-r: 10px; --g-bl: -1px; --g-bt: 1px; border-color: var(--border); border-left-color: var(--chapter-accent); }
 
 /* ============================================================
    Effet verre (option, par appareil) — html[data-glass="1"]
