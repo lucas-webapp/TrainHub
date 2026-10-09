@@ -75,6 +75,39 @@
         save();
         render();
     }
+    // ---------- thème (sombre / clair / auto) ----------
+    // Réglage propre à l'appareil (un téléphone peut être clair, l'ordinateur sombre), lu aussi par un petit script dans
+    // index.html avant le premier affichage pour éviter un flash. Toutes les couleurs passent par des variables CSS
+    // (voir « Thème » dans style.css) : changer de thème = changer data-theme sur <html>.
+    var THEME_KEY = "trainhub.theme.v1";
+    var THEMES = ["dark", "light", "auto"];
+    var THEME_BAR = { dark: "#0a0a0a", light: "#f1f4f1" };
+    function getTheme() { try { var v = localStorage.getItem(THEME_KEY); return THEMES.indexOf(v) !== -1 ? v : "dark"; } catch (e) { return "dark"; } }
+    function resolvedTheme() {
+        var t = getTheme();
+        if (t === "auto") return window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        return t;
+    }
+    function applyTheme() {
+        var r = resolvedTheme();
+        document.documentElement.setAttribute("data-theme", r);
+        var m = document.querySelector('meta[name="theme-color"]');
+        if (m) m.setAttribute("content", THEME_BAR[r]);
+    }
+    function setTheme(t) {
+        if (THEMES.indexOf(t) === -1) return;
+        try { localStorage.setItem(THEME_KEY, t); } catch (e) {}
+        applyTheme();
+    }
+    try { // « Auto » suit le réglage de l'appareil en direct (soleil qui se couche, mode sombre programmé…)
+        var themeMq = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)");
+        if (themeMq) { var themeOnChange = function () { if (getTheme() === "auto") applyTheme(); }; if (themeMq.addEventListener) themeMq.addEventListener("change", themeOnChange); else if (themeMq.addListener) themeMq.addListener(themeOnChange); }
+    } catch (e) {}
+    applyTheme();
+    // Couleur d'un TEXTE teinté par la couleur d'un chapitre : telle quelle en thème sombre, assombrie en thème clair
+    // (les couleurs vives ou pastel des chapitres seraient illisibles sur fond blanc). --ink-mix vaut 100 % en sombre.
+    function inkOf(c) { return "color-mix(in srgb, " + c + " var(--ink-mix, 100%), #000)"; }
+
     var MAX_FOLDER_DEPTH = 5;
     // Chapitres virtuels : n'existent dans aucun tableau `categories`, juste des valeurs spéciales
     // de navigation reconnues par render()/renderMain(). Regroupent respectivement les exercices
@@ -363,6 +396,22 @@
         if (DENSITIES.indexOf(a.density) === -1) a.density = "comfortable";
     }
 
+    // Réglages fins (pas du tempo, durée par défaut, chrono libre) : synchronisés comme le reste des réglages, avec des
+    // valeurs sûres par défaut. Les choix proposés dans les Paramètres sont exactement ces listes.
+    var PREF_TEMPO_STEPS = [2, 5, 10];
+    var PREF_DEFAULT_MINUTES = [2, 3, 5, 10, 15, 20, 30];
+    var PREF_FREE_START_SEC = [0, 5, 10, 15, 30];
+    var PREF_FREE_IDLE_MIN = [5, 10, 15, 30, 60];
+    function normalizePrefs(s) {
+        if (!s.settings.prefs || typeof s.settings.prefs !== "object") s.settings.prefs = {};
+        var p = s.settings.prefs;
+        if (PREF_TEMPO_STEPS.indexOf(p.tempoStep) === -1) p.tempoStep = 10;
+        if (PREF_DEFAULT_MINUTES.indexOf(p.defaultMinutes) === -1) p.defaultMinutes = 5;
+        if (PREF_FREE_START_SEC.indexOf(p.freeStartSec) === -1) p.freeStartSec = 10;
+        if (PREF_FREE_IDLE_MIN.indexOf(p.freeIdleMin) === -1) p.freeIdleMin = 15;
+    }
+    function prefs() { return (state && state.settings && state.settings.prefs) || { tempoStep: 10, defaultMinutes: 5, freeStartSec: 10, freeIdleMin: 15 }; }
+
     // Une session guidée = un enchaînement d'exercices avec un temps alloué à chacun. Les pas
     // référencent l'exercice par son id (unique dans toute l'appli, voir uid()) plutôt que de
     // dupliquer son contenu : si l'exercice est supprimé depuis, le pas devient "introuvable"
@@ -438,6 +487,7 @@
         normalizeStatsRules(s);
         normalizeTrash(s);
         normalizeAppearanceSettings(s);
+        normalizePrefs(s);
         if (!Array.isArray(s.instruments)) s.instruments = [];
         // Une fois : les espaces autres que « Basse » n'ont plus de dossiers pré-remplis. On ne retire que
         // les chapitres au nom d'origine encore VIDES (ni exercice ni sous-dossier) : rien de ce que
@@ -3364,7 +3414,7 @@
             var label = document.createElement("span");
             label.className = "chapter-chip-label";
             label.textContent = item.name;
-            if (isActive && !isVirtual) label.style.color = item.color;
+            if (isActive && !isVirtual) label.style.color = inkOf(item.color);
             chip.appendChild(label);
 
             if (!isVirtual) {
@@ -7418,7 +7468,7 @@
             // panneau (voir plus loin), bien plus gros que ces réglages fins.
             var transportRow = document.createElement("div");
             transportRow.className = "metro-transport-row";
-            var bpmDown10 = iconButton("−10", "Ralentir de 10", function () { setBpm(m.bpm - 10); });
+            var bpmDown10 = iconButton("−10", "Ralentir de 10", function () { setBpm(m.bpm - prefs().tempoStep); });
             bpmDown10.classList.add("metro-bpm-btn", "metro-bpm-step10");
             var bpmDown = iconButton("−", "Ralentir", function () { setBpm(m.bpm - 1); });
             bpmDown.classList.add("metro-bpm-btn");
@@ -7456,7 +7506,7 @@
 
             var bpmUp = iconButton("+", "Accélérer", function () { setBpm(m.bpm + 1); });
             bpmUp.classList.add("metro-bpm-btn");
-            var bpmUp10 = iconButton("+10", "Accélérer de 10", function () { setBpm(m.bpm + 10); });
+            var bpmUp10 = iconButton("+10", "Accélérer de 10", function () { setBpm(m.bpm + prefs().tempoStep); });
             bpmUp10.classList.add("metro-bpm-btn", "metro-bpm-step10");
             // Quatre boutons en quarts de couronne autour du cadran : − et + en haut, −10 et +10 en bas.
             bpmDown.classList.add("metro-q", "metro-q-tl");
@@ -7464,9 +7514,20 @@
             bpmDown10.classList.add("metro-q", "metro-q-bl");
             bpmUp10.classList.add("metro-q", "metro-q-br");
             // Texte des boutons en deux parties (signe / nombre) pour pouvoir le styler ; le texte reste « −10 », « +1 »…
-            [[bpmDown, "−", ""], [bpmUp, "+", ""], [bpmDown10, "−", "10"], [bpmUp10, "+", "10"]].forEach(function (d) {
+            [[bpmDown, "−", ""], [bpmUp, "+", ""], [bpmDown10, "−", String(prefs().tempoStep)], [bpmUp10, "+", String(prefs().tempoStep)]].forEach(function (d) {
                 d[0].innerHTML = '<span class="q-sign' + (d[2] ? "" : " q-sign-big") + '">' + d[1] + "</span>" + (d[2] ? '<span class="q-num">' + d[2] + "</span>" : "");
             });
+            // Les deux gros boutons suivent le pas choisi dans les Paramètres (2, 5 ou 10 BPM), même si la fenêtre est déjà ouverte.
+            function paintStepBtns() {
+                var n = prefs().tempoStep;
+                [[bpmDown10, "Ralentir de "], [bpmUp10, "Accélérer de "]].forEach(function (d) {
+                    d[0].title = d[1] + n;
+                    var q = d[0].querySelector(".q-num"); if (q) q.textContent = String(n);
+                });
+            }
+            paintStepBtns();
+            function onPrefsChange() { if (!panel.isConnected) { document.removeEventListener("trainhub-prefs", onPrefsChange); return; } paintStepBtns(); }
+            document.addEventListener("trainhub-prefs", onPrefsChange);
             transportRow.classList.add("metro-transport-quad");
             transportRow.appendChild(dial);
             transportRow.appendChild(bpmDown);
@@ -9410,9 +9471,11 @@
             var ICONS = {
                 "Affichage": '<circle cx="13.5" cy="6.5" r="1.2"/><circle cx="17.5" cy="10.5" r="1.2"/><circle cx="8.5" cy="7.5" r="1.2"/><circle cx="6.5" cy="12.5" r="1.2"/><path d="M12 3a9 9 0 1 0 0 18c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.4-.3-.3-.5-.7-.5-1.2 0-1.1.9-2 2-2h2.3A3.7 3.7 0 0 0 21 10.8C21 6.5 17 3 12 3z"/>',
                 "Métronome": '<path d="M8.5 21 10.6 4.5h2.8L15.5 21z"/><path d="M12 15 16.5 6"/><path d="M9.5 21h5"/>',
+                "Sessions": '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
                 "Vidéos": '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10 9.5v5l4.5-2.5z"/>',
                 "Images": '<rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="m21 16-5-5-9 9"/>',
-                "Données": '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>'
+                "Données": '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
+                "Avancé": '<path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/>'
             };
             var pages = {}, cur = null, curCard = null;
             function section(name) { // une page (= un onglet)
@@ -9457,6 +9520,20 @@
                 select.addEventListener("change", function () { onChange(select.value); });
                 return select;
             }
+            // Liste déroulante suivie d'un bouton « écouter » (choix d'un son).
+            function soundPicker(options, value, onChange, onPlay) {
+                var sel = selectControl(options, value, function (v) { onChange(v); });
+                var wrap = document.createElement("div");
+                wrap.className = "settings-sound";
+                var play = document.createElement("button");
+                play.type = "button"; play.className = "btn-ghost settings-sound-play"; play.title = "Écouter ce son"; play.setAttribute("aria-label", "Écouter ce son");
+                play.innerHTML = METRO_PLAY_ICON_SVG;
+                play.addEventListener("click", function () { onPlay(sel.value); });
+                wrap.appendChild(sel); wrap.appendChild(play);
+                return wrap;
+            }
+            // Enregistre un réglage fin (state.settings.prefs) et prévient les écrans déjà ouverts.
+            function setPref(key, value) { state.settings.prefs[key] = value; save(); document.dispatchEvent(new Event("trainhub-prefs")); }
             // Choix rapide à plusieurs boutons accolés (un seul appui, tout est visible) : pour 2 à 4 options courtes.
             function segControl(options, value, onChange) {
                 var seg = document.createElement("div");
@@ -9500,6 +9577,8 @@
 
             // ===== Affichage =====
             section("Affichage");
+            card("Thème", "Réglage propre à cet appareil.");
+            field("Apparence", segControl([["auto", "Auto"], ["dark", "Sombre"], ["light", "Clair"]], getTheme(), function (v) { setTheme(v); }), "Auto suit l'appareil");
             card("Couleurs des chapitres", "Les chapitres existants prennent les nouvelles couleurs.");
             var schemeGrid = document.createElement("div");
             schemeGrid.className = "settings-schemes";
@@ -9553,17 +9632,20 @@
             field("Position", selectControl([["center", "Centre"], ["top", "Haut"], ["bottom", "Bas"], ["corner", "Coin (bas à droite)"]], a.metronomePosition, function (v) { a.metronomePosition = v; save(); }));
             field("Taille", segControl([["small", "Petite"], ["medium", "Moyenne"], ["large", "Grande"]], a.metronomeSize, function (v) { a.metronomeSize = v; save(); }));
             card("Son");
-            var soundSel = selectControl(METRO_SOUNDS.map(function (k) { return [k, METRO_SOUND_LABELS[k]]; }), state.settings.metronome.sound, function (v) {
+            field("Son du clic", soundPicker(METRO_SOUNDS.map(function (k) { return [k, METRO_SOUND_LABELS[k]]; }), state.settings.metronome.sound, function (v) {
                 state.settings.metronome.sound = v; save(); metroPreviewSound(v);
-            });
-            var soundWrap = document.createElement("div");
-            soundWrap.className = "settings-sound";
-            var soundPlay = document.createElement("button");
-            soundPlay.type = "button"; soundPlay.className = "btn-ghost settings-sound-play"; soundPlay.title = "Écouter ce son"; soundPlay.setAttribute("aria-label", "Écouter ce son");
-            soundPlay.innerHTML = METRO_PLAY_ICON_SVG;
-            soundPlay.addEventListener("click", function () { metroPreviewSound(soundSel.value); });
-            soundWrap.appendChild(soundSel); soundWrap.appendChild(soundPlay);
-            field("Son du clic", soundWrap);
+            }, function (v) { metroPreviewSound(v); }));
+            card("Cadran");
+            field("Pas des gros boutons", segControl(PREF_TEMPO_STEPS.map(function (n) { return [String(n), "±" + n]; }), String(prefs().tempoStep), function (v) { setPref("tempoStep", parseInt(v, 10)); }), "En BPM, de part et d'autre du cadran (les petits boutons font ±1)");
+
+            // ===== Sessions =====
+            section("Sessions");
+            card("Nouvel exercice");
+            field("Durée par défaut", selectControl(PREF_DEFAULT_MINUTES.map(function (n) { return [String(n), n + " min"]; }), String(prefs().defaultMinutes), function (v) { setPref("defaultMinutes", parseInt(v, 10)); }), "Exercice jamais minuté");
+            card("Alerte de fin d'exercice", "Cloche et carillon de l'enchaînement. Réglage propre à cet appareil.");
+            field("Son", soundPicker(ALERT_SOUNDS.map(function (k) { return [k, ALERT_SOUND_LABELS[k]]; }), getAlertSound(), function (v) {
+                setAlertSound(v); playAlert("go", v);
+            }, function (v) { playAlert("go", v); }));
 
             // ===== Vidéos =====
             section("Vidéos");
@@ -9603,7 +9685,17 @@
             actionRow("Réimporter des images…", "Rattache des images exportées à leurs exercices", function () { reFile.click(); }, "settings-reimport-btn");
             curCard.appendChild(reFile);
 
-            var TAB_ORDER = ["Affichage", "Métronome", "Vidéos", "Images", "Données"];
+            // ===== Avancé : réglages fins, hors de la page d'accueil des paramètres =====
+            section("Avancé");
+            card("Chrono libre", "Hors session, le chrono suit l'exercice affiché.");
+            field("Départ du décompte", selectControl(PREF_FREE_START_SEC.map(function (n) { return [String(n), n ? n + " s" : "Immédiat"]; }), String(prefs().freeStartSec), function (v) { setPref("freeStartSec", parseInt(v, 10)); }), "Attente avant de compter");
+            field("Pause automatique", selectControl(PREF_FREE_IDLE_MIN.map(function (n) { return [String(n), n >= 60 ? "1 h" : n + " min"]; }), String(prefs().freeIdleMin), function (v) { setPref("freeIdleMin", parseInt(v, 10)); }), "Sans geste ni métronome");
+            card("Écran", "Réglage propre à cet appareil.");
+            var awakeSwitch = switchControl(keepAwakeOn() && wakeLockSupported(), function (on) { setKeepAwake(on); });
+            if (!wakeLockSupported()) { awakeSwitch.disabled = true; awakeSwitch.title = "Non pris en charge par ce navigateur"; }
+            field("Garder l'écran allumé", awakeSwitch, wakeLockSupported() ? "En session ou en chrono libre" : "Non pris en charge par ce navigateur");
+
+            var TAB_ORDER = ["Affichage", "Métronome", "Sessions", "Vidéos", "Images", "Données", "Avancé"];
             function showTab(name) {
                 settingsTab = name;
                 TAB_ORDER.forEach(function (n) { pages[n].hidden = n !== name; });
@@ -9651,55 +9743,79 @@
     var gsBellKeyDone = null;
     function gsBellOn() { try { return localStorage.getItem(GS_BELL_KEY) === "1"; } catch (e) { return false; } }
     function setGsBell(on) { try { localStorage.setItem(GS_BELL_KEY, on ? "1" : "0"); } catch (e) {} }
-    function playEndBeep() { // trois « bip » nets
+    // ---- son de l'alerte (cloche de fin d'exercice, carillons de l'enchaînement automatique) ----
+    // Plusieurs timbres doux au choix (réglage propre à l'appareil, voir Paramètres). Chacun joue les mêmes petites mélodies :
+    // « warn » (10 s avant la fin), « go » (on passe au suivant), « end » (dernier exercice terminé), « bell » (temps écoulé).
+    var ALERT_SOUNDS = ["chime", "bowl", "marimba", "harp", "drops", "beeps"];
+    var ALERT_SOUND_LABELS = { chime: "Carillon", bowl: "Bol chantant", marimba: "Marimba", harp: "Harpe", drops: "Gouttes", beeps: "Bips nets" };
+    var ALERT_KEY = "trainhub.alertSound.v1";
+    var ALERT_VOICES = { // parts : [multiple de la fréquence, volume] ; stretch : étire/resserre le rythme de la mélodie ; octave : transposition
+        chime:   { parts: [[1, 0.16], [2, 0.04]], type: "sine", attack: 0.05, decay: 1.6, stretch: 1, octave: 1 },
+        bowl:    { parts: [[1, 0.17], [2.76, 0.06], [5.4, 0.02]], type: "sine", attack: 0.14, decay: 3.2, stretch: 1.5, octave: 0.5 },
+        marimba: { parts: [[1, 0.26], [4, 0.05]], type: "sine", attack: 0.006, decay: 0.6, stretch: 0.6, octave: 1 },
+        harp:    { parts: [[1, 0.2], [2, 0.07], [3, 0.03]], type: "triangle", attack: 0.008, decay: 1.5, stretch: 0.6, octave: 1 },
+        drops:   { parts: [[1, 0.22]], type: "sine", attack: 0.008, decay: 0.5, stretch: 0.55, octave: 1, glide: 1.7 }
+    };
+    var ALERT_TUNES = {
+        warn: [[659.25, 0], [523.25, 0.45]],
+        go: [[523.25, 0], [783.99, 0.25]],
+        end: [[523.25, 0], [392, 0.4]],
+        bell: [[783.99, 0], [783.99, 0.7], [783.99, 1.4]]
+    };
+    function getAlertSound() { try { var v = localStorage.getItem(ALERT_KEY); return ALERT_SOUNDS.indexOf(v) !== -1 ? v : "chime"; } catch (e) { return "chime"; } }
+    function setAlertSound(v) { try { localStorage.setItem(ALERT_KEY, v); } catch (e) {} }
+    function playBeeps(offsets) { // bips nets (le son d'origine de la cloche)
         try {
             var ctx = ensureMetroAudio(), t0 = ctx.currentTime + 0.03;
-            [0, 0.28, 0.56].forEach(function (off) {
+            offsets.forEach(function (off) {
                 var osc = ctx.createOscillator(), g = ctx.createGain();
                 osc.type = "sine"; osc.frequency.value = 988;
                 g.gain.setValueAtTime(0.0001, t0 + off);
-                g.gain.linearRampToValueAtTime(0.35, t0 + off + 0.01);
+                g.gain.linearRampToValueAtTime(0.3, t0 + off + 0.01);
                 g.gain.exponentialRampToValueAtTime(0.0001, t0 + off + 0.2);
                 osc.connect(g); g.connect(ctx.destination);
                 osc.start(t0 + off); osc.stop(t0 + off + 0.22);
             });
         } catch (e) {}
     }
-    function playEndBeepShort() { try { var ctx = ensureMetroAudio(), o = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime + 0.02; o.type = "sine"; o.frequency.value = 988; g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.25, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15); o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t + 0.17); } catch (e) {} }
+    function playAlert(kind, sound) {
+        sound = sound || getAlertSound();
+        if (sound === "beeps") { playBeeps(kind === "warn" ? [0] : kind === "go" ? [0, 0.2] : kind === "end" ? [0, 0.28, 0.56] : kind === "bell" ? [0, 0.28, 0.56] : [0]); return; }
+        var voice = ALERT_VOICES[sound] || ALERT_VOICES.chime;
+        try {
+            var ctx = ensureMetroAudio();
+            var out = ctx.createGain();
+            out.gain.value = 0.5;
+            out.connect(ctx.destination);
+            var tune = ALERT_TUNES[kind] || ALERT_TUNES.go;
+            var t0 = ctx.currentTime + 0.05;
+            tune.forEach(function (n) {
+                var f0 = n[0] * voice.octave, t = t0 + n[1] * voice.stretch;
+                voice.parts.forEach(function (h) {
+                    var osc = ctx.createOscillator(), g = ctx.createGain();
+                    osc.type = voice.type;
+                    if (voice.glide) { osc.frequency.setValueAtTime(f0 * h[0] * voice.glide, t); osc.frequency.exponentialRampToValueAtTime(f0 * h[0], t + 0.09); }
+                    else osc.frequency.value = f0 * h[0];
+                    g.gain.setValueAtTime(0.0001, t);
+                    g.gain.linearRampToValueAtTime(h[1], t + voice.attack);
+                    g.gain.exponentialRampToValueAtTime(0.0001, t + voice.decay);
+                    osc.connect(g); g.connect(out);
+                    osc.start(t); osc.stop(t + voice.decay + 0.1);
+                });
+            });
+        } catch (e) {}
+    }
     function gsBellTick(remaining, step, session) {
         if (!gsBellOn() || gsAutoAdvanceOn() || gsRunPaused || gsRunSession !== session || session.steps[gsRunStepIndex] !== step) return;
         var key = step.id + ":" + gsRunStepIndex;
         if (remaining > 0) { if (gsBellKeyDone === key) gsBellKeyDone = null; return; } // +1 min : la cloche se réarme
         if (gsBellKeyDone === key) return;
         gsBellKeyDone = key;
-        playEndBeep();
+        playAlert("bell");
     }
     function gsAutoAdvanceOn() { try { return localStorage.getItem(GS_AUTO_KEY) === "1"; } catch (e) { return false; } }
     function setGsAutoAdvance(on) { try { localStorage.setItem(GS_AUTO_KEY, on ? "1" : "0"); } catch (e) {} }
-    // Carillon : notes sinusoïdales à attaque lente et longue résonance, volume modeste (pas stressant).
-    function playSoftChime(kind) {
-        try {
-            var ctx = ensureMetroAudio();
-            var out = ctx.createGain();
-            out.gain.value = 0.5;
-            out.connect(ctx.destination);
-            var notes = kind === "warn" ? [[659.25, 0], [523.25, 0.45]] : kind === "go" ? [[523.25, 0], [783.99, 0.25]] : [[523.25, 0], [392, 0.4]];
-            var t0 = ctx.currentTime + 0.05;
-            notes.forEach(function (n) {
-                [[1, 0.16], [2, 0.04]].forEach(function (h) {
-                    var osc = ctx.createOscillator(), g = ctx.createGain();
-                    osc.type = "sine";
-                    osc.frequency.value = n[0] * h[0];
-                    var t = t0 + n[1];
-                    g.gain.setValueAtTime(0.0001, t);
-                    g.gain.linearRampToValueAtTime(h[1], t + 0.05);
-                    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.6);
-                    osc.connect(g); g.connect(out);
-                    osc.start(t); osc.stop(t + 1.7);
-                });
-            });
-        } catch (e) {}
-    }
+    function playSoftChime(kind) { playAlert(kind); }
 
     var gsRefreshRunUi = null; // remet à jour bouton Pause/Reprendre + chrono de l'écran de guidage affiché (raccourci Espace)
     var gsLinksChecked = {}; // clé "link:<id>"/"file:<id>" -> coché ou non, le temps de l'écran
@@ -9710,7 +9826,7 @@
     var gsFileBlobCache = {};    // id de pièce jointe -> Blob déjà lu (false = absent de cet appareil)
 
     // Durée proposée pour un exercice ajouté à une session : la dernière durée réglée pour lui (ex.lastMinutes),
-    // sinon celle d'un pas existant (n'importe quelle session), sinon celle d'un exercice du même nom, sinon 5.
+    // sinon celle d'un pas existant (n'importe quelle session), sinon celle d'un exercice du même nom, sinon la durée par défaut des Paramètres (5 min au départ).
     function gsDefaultMinutes(ex) {
         if (ex.lastMinutes > 0) return ex.lastMinutes;
         var found = 0;
@@ -9725,7 +9841,7 @@
                 if (o && o.ex !== ex && st.minutes > 0 && (o.ex.title || "").replace(/ \(copie\)$/, "").trim().toLowerCase() === title) found = st.minutes;
             });
         });
-        return found || 5;
+        return found || prefs().defaultMinutes;
     }
     var gsSyncTimers = {};
     function gsRememberMinutes(step) {
@@ -10096,7 +10212,7 @@
         badge.className = "gs-theme-badge";
         badge.textContent = pathNames[0];
         badge.title = pathNames.join(" › ");
-        badge.style.color = color;
+        badge.style.color = inkOf(color);
         badge.style.background = "color-mix(in srgb, " + color + " 16%, transparent)";
         return badge;
     }
@@ -12333,6 +12449,36 @@
     window.addEventListener("beforeunload", gsLiveSave);
     document.addEventListener("visibilitychange", function () { if (document.hidden) gsLiveSave(); });
 
+    // ---------- écran toujours allumé (Wake Lock) ----------
+    // Option avancée, propre à l'appareil : pendant une session guidée ou un entraînement libre, l'écran ne se met pas en veille
+    // (on joue, les mains sur l'instrument, sans toucher l'écran). Le verrou est relâché dès qu'on quitte la session, quand l'appli
+    // passe en arrière-plan (le navigateur le retire de lui-même) et pendant la pause automatique du chrono libre ; il est repris
+    // au retour. Sans prise en charge par le navigateur, le réglage est grisé.
+    var KEEP_AWAKE_KEY = "trainhub.keepAwake.v1";
+    var wakeLockSentinel = null, wakeLockPending = false, wakeLockRetryAt = 0;
+    function wakeLockSupported() { return !!(navigator.wakeLock && navigator.wakeLock.request); }
+    function keepAwakeOn() { try { return localStorage.getItem(KEEP_AWAKE_KEY) === "1"; } catch (e) { return false; } }
+    function setKeepAwake(on) { try { localStorage.setItem(KEEP_AWAKE_KEY, on ? "1" : "0"); } catch (e) {} wakeLockSync(); }
+    function wakeLockWanted() { return keepAwakeOn() && !document.hidden && !!(gsRunSession || (freeRun && !freeRun.auto)); }
+    function wakeLockSync() {
+        var want = wakeLockWanted();
+        if (want && !wakeLockSentinel && !wakeLockPending && wakeLockSupported() && Date.now() >= wakeLockRetryAt) {
+            wakeLockPending = true;
+            navigator.wakeLock.request("screen").then(function (sent) {
+                wakeLockPending = false;
+                wakeLockSentinel = sent;
+                sent.addEventListener("release", function () { if (wakeLockSentinel === sent) wakeLockSentinel = null; });
+                if (!wakeLockWanted()) { wakeLockSentinel = null; sent.release().catch(function () {}); }
+            }, function () { wakeLockPending = false; wakeLockRetryAt = Date.now() + 30000; }); // refusé (économie d'énergie…) : on réessaie plus tard
+        } else if (!want && wakeLockSentinel) {
+            var old = wakeLockSentinel;
+            wakeLockSentinel = null;
+            old.release().catch(function () {});
+        }
+    }
+    document.addEventListener("visibilitychange", wakeLockSync);
+    setInterval(wakeLockSync, 5000);
+
     // ---------- entraînement libre : un chrono qui suit l'exercice affiché à l'écran principal ----------
     // Hors session : le décompte démarre quand un exercice déplié reste visible plus de 10 s, se met en pause dès
     // qu'on change d'exercice (puis repart 10 s après), et reste grisé tant qu'aucun exercice n'est affiché.
@@ -12340,7 +12486,11 @@
     // sans aucune activité (ni geste sur l'appli, ni métronome qui joue) pendant 15 min, le chrono se met en pause seul
     // et repart au premier geste. « Arrêter » ouvre le récapitulatif modifiable (comme une session, avec un nom
     // modifiable), puis la séance entre dans l'historique et les statistiques.
-    var FREE_START_DELAY_MS = 10000, FREE_MIN_RECORD_MS = 60000, FREE_MIN_VISIBLE_PX = 80, FREE_IDLE_MS = 15 * 60000, FREE_FOREGROUND_GAP_MS = 2000;
+    var FREE_MIN_RECORD_MS = 60000, FREE_MIN_VISIBLE_PX = 80, FREE_FOREGROUND_GAP_MS = 2000;
+    // Délai avant le décompte (10 s par défaut) et inactivité avant la pause automatique (15 min par défaut) : réglables (Paramètres > Avancé).
+    function freeStartDelayMs() { return prefs().freeStartSec * 1000; }
+    function freeIdleMs() { return prefs().freeIdleMin * 60000; }
+    function freeIdleText() { var m = prefs().freeIdleMin; return m >= 60 ? "1 h" : m + " min"; }
     var freeRun = null, freeTimer = null, freeBarEl = null, freeRecapEl = null;
     function freeStepId(exId) { return "free:" + exId; }
     // Exercice déplié le plus visible dans la zone principale (sous la barre du haut) ; null si aucun.
@@ -12385,18 +12535,18 @@
         fr.last = now; fr.wasHidden = hid;
         if (metroPlaying) fr.active = now;
         if (fr.cur && !fr.manual && !fr.auto) {
-            var idleAt = fr.active + FREE_IDLE_MS, begin = Math.max(from, fr.countFrom), end = Math.min(now, idleAt);
+            var idleAt = fr.active + freeIdleMs(), begin = Math.max(from, fr.countFrom), end = Math.min(now, idleAt);
             if (end > begin) {
                 var id = freeStepId(fr.cur);
                 fr.spent[id] = (fr.spent[id] || 0) + (end - begin);
                 fr.lastAt[id] = end;
                 fr.totalMs += end - begin;
             }
-            if (now >= idleAt) { fr.auto = true; showToast("Pause automatique : 15 min sans activité.", 6000); gsLiveSave(); }
+            if (now >= idleAt) { fr.auto = true; showToast("Pause automatique : " + freeIdleText() + " sans activité.", 6000); gsLiveSave(); }
         }
         if (!hid) { // au premier plan : l'exercice affiché a peut-être changé (en arrière-plan on garde celui laissé à l'écran)
             var cur = freeVisibleExercise();
-            if (cur !== fr.cur) { fr.cur = cur; fr.countFrom = now + FREE_START_DELAY_MS; }
+            if (cur !== fr.cur) { fr.cur = cur; fr.countFrom = now + freeStartDelayMs(); }
         }
         fr.counting = !!fr.cur && !fr.manual && !fr.auto && now >= fr.countFrom;
         freeRefreshBar();
@@ -12410,7 +12560,7 @@
         var now = Date.now();
         if (now - fr.last > 1500) freeTick(); // page restée gelée : créditer d'abord le temps écoulé avec l'ancienne horloge d'inactivité
         fr.active = now;
-        if (fr.auto) { fr.auto = false; fr.countFrom = fr.cur ? now + FREE_START_DELAY_MS : 0; freeRefreshBar(); }
+        if (fr.auto) { fr.auto = false; fr.countFrom = fr.cur ? now + freeStartDelayMs() : 0; freeRefreshBar(); }
     }
     var FREE_ACTIVITY_EVENTS = ["pointerdown", "keydown", "wheel", "touchstart", "scroll"];
     document.addEventListener("visibilitychange", function () { if (freeRun) freeTick(); });
@@ -12440,7 +12590,7 @@
         freeBarEl.className = "free-bar free-bar-" + st;
         freeBarEl.querySelector(".free-time").textContent = gsFormatTotal(freeRun.totalMs);
         var left = Math.max(1, Math.ceil((freeRun.countFrom - Date.now()) / 1000));
-        var full = st === "run" ? (f ? f.ex.title : "") : st === "wait" ? "Départ dans " + left + " s" : st === "paused" ? (freeRun.auto ? "Pause automatique (15 min sans activité)" : "En pause") : "Aucun exercice affiché";
+        var full = st === "run" ? (f ? f.ex.title : "") : st === "wait" ? "Départ dans " + left + " s" : st === "paused" ? (freeRun.auto ? "Pause automatique (" + freeIdleText() + " sans activité)" : "En pause") : "Aucun exercice affiché";
         freeBarEl.querySelector(".free-what").textContent = st === "wait" ? left + " s" : ""; // le détail est dans l'info-bulle : peu de texte dans la barre
         freeBarEl.title = "Entraînement libre — " + full;
         var pb = freeBarEl.querySelector(".free-pause");
@@ -12536,7 +12686,7 @@
         freeAttach({ startedAt: now, instrumentId: state.activeInstrumentId, spent: {}, lastAt: {}, bpm: {}, totalMs: 0, cur: null, countFrom: 0, counting: false, manual: false, auto: false, active: now, wasHidden: false, last: now });
         freeLeaveSessionsView();
         gsLiveSave();
-        showToast("Ouvre un exercice : le décompte démarre après 10 s.", 4500);
+        showToast(prefs().freeStartSec ? "Ouvre un exercice : le décompte démarre après " + prefs().freeStartSec + " s." : "Ouvre un exercice : le décompte démarre aussitôt.", 4500);
     }
     function freeResume(snap) {
         var now = Date.now();
@@ -14778,7 +14928,7 @@
         refreshBellBtn();
         bellBtn.addEventListener("click", function () {
             setGsBell(!gsBellOn());
-            if (gsBellOn()) { ensureMetroAudio(true); playEndBeepShort(); } // essai audible, et réveille l'audio pendant ce clic
+            if (gsBellOn()) { ensureMetroAudio(true); playAlert("go"); } // essai audible, et réveille l'audio pendant ce clic
             gsBellKeyDone = null;
             refreshBellBtn();
         });
