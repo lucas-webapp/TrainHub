@@ -3343,13 +3343,13 @@ button.settings-action { display: flex; align-items: center; justify-content: sp
    ============================================================ */
 :root {
     /* « diffus » (défaut) : lueur proche + lueur large, discrètes */
-    --g-n-o: -2px; --g-n-b: 6px;  --g-n-s: 1px; --g-n-a: 70%;
-    --g-f-o: -6px; --g-f-b: 15px; --g-f-s: 1px; --g-f-a: 40%;
+    --g-n-o: -1px; --g-n-b: 4px;  --g-n-s: 0px; --g-n-a: 70%;
+    --g-f-o: -1px; --g-f-b: 9px;  --g-f-s: 0px; --g-f-a: 40%;
     --g-ix: 6px;  --g-ib: 9px;  --g-is: -8px; --g-a3: 22%;
 }
 html[data-halo="net"] {
     --g-n-o: -1px; --g-n-b: 3px;  --g-n-s: 0px; --g-n-a: 80%;
-    --g-f-o: -4px; --g-f-b: 9px;  --g-f-s: 0px; --g-f-a: 48%;
+    --g-f-o: -2px; --g-f-b: 6px;  --g-f-s: 0px; --g-f-a: 48%;
     --g-ix: 5px;  --g-ib: 7px;  --g-is: -7px; --g-a3: 30%;
 }
 html[data-halo="off"] { --g-n-a: 0%; --g-f-a: 0%; --g-a3: 0%; }
@@ -3360,7 +3360,7 @@ html[data-halo="off"] { --g-n-a: 0%; --g-f-a: 0%; --g-a3: 0%; }
 }
 :root :is(.tree-row-d0, :is(.tree-row-d1, .tree-row-d2).selected, .tree-row-fixed.virtual-favorites, .tree-row-fixed.virtual-archived, .folder-row, .exercise:not(.collapsed))::before {
     content: ""; position: absolute; pointer-events: none;
-    left: var(--g-bl, -3px); width: var(--g-bw, 3px); top: 16%; bottom: 16%; border-radius: 2px;
+    left: var(--g-bl, -3px); width: var(--g-bw, 3px); top: min(14%, 10px); bottom: min(14%, 10px); border-radius: 2px; /* barre basse : 14 % de marge ; grande carte : 10 px seulement, la lueur couvre presque tout le côté */
     box-shadow: var(--g-n-o) 0 var(--g-n-b) var(--g-n-s) color-mix(in srgb, var(--hc) var(--g-n-a), transparent),
                 var(--g-f-o) 0 var(--g-f-b) var(--g-f-s) color-mix(in srgb, var(--hc) var(--g-f-a), transparent);
 }
