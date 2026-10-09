@@ -3337,16 +3337,15 @@ button.settings-action { display: flex; align-items: center; justify-content: sp
    cartes de sous-dossiers, exercice déplié. Seule la couleur change (--hc) ; la forme est identique partout.
    LISERÉ (trait de couleur opaque, à gauche) : dossiers principaux + favoris + archivés 1,5 px (ombre interne : net sur tous les
    écrans) ; sous-dossiers (barre latérale : ombre interne ; cartes de la vue principale : bordure) 1 px ; exercice déplié 1 px
-   (bordure). HALO : dégradé de 13 px posé juste à gauche de la barre (::before), qui s'éteint vers la gauche. Verticalement il
-   suit le bord gauche puis la moitié de l'arrondi des angles (il s'arrête à 35 % du rayon --g-r, soit environ 45° de l'arc) et
-   s'estompe sur quelques pixels (--g-fade) pour accompagner le liseré sans le dépasser. Il ne suit pas la barre sur sa longueur.
-   Trois profils (data-halo) : « diffus » (défaut), « net » (plus court, plus intense), « off » (aucun).
-   --g-edge / --glass-hi ne servent qu'au verre.
+   (bordure). HALO : lueur douce de 13 px (--g-gw) qui épouse le liseré, portée par un seul élément transparent (::before) : une
+   bande droite le long du bord gauche + un quart d'anneau autour de chaque angle arrondi (rayon --g-r de la barre), de même profil
+   d'intensité. Le halo s'estompe progressivement dans l'arrondi (masque horizontal) et s'éteint à la fin de l'arc, comme le liseré.
+   Il ne suit pas la barre sur sa longueur. Trois profils (data-halo) : « diffus » (défaut), « net » (plus court, plus intense),
+   « off » (aucun). --g-edge / --glass-hi ne servent qu'au verre.
    ============================================================ */
 :root {
     --g-gw: 13px;   /* largeur du halo */
     --g-gp: 40%;    /* intensité au contact du liseré */
-    --g-fade: 6px;  /* fondu vertical aux deux bouts */
     --g-ix: 6px;  --g-ib: 9px;  --g-is: -8px; --g-a3: 22%;  /* bande intérieure très douce (ombre interne) */
 }
 html[data-halo="net"] { --g-gw: 7px; --g-gp: 58%; --g-a3: 30%; }
@@ -3355,24 +3354,29 @@ html[data-halo="off"] { --g-gp: 0%; --g-a3: 0%; }
     position: relative;
     box-shadow: var(--g-contour, 0 0 0 0 transparent), var(--g-edge, 0 0 0 0 transparent), var(--glass-hi, 0 0 0 0 transparent),
         inset var(--g-ix) 0 var(--g-ib) var(--g-is) color-mix(in srgb, var(--hc) var(--g-a3), transparent);
+    /* couleurs du halo (même couleur --hc, intensité décroissante avec la distance au liseré) */
+        --g-c0: color-mix(in srgb, var(--hc) calc(var(--g-gp) * 1), transparent);
+        --g-c1: color-mix(in srgb, var(--hc) calc(var(--g-gp) * 0.82), transparent);
+        --g-c2: color-mix(in srgb, var(--hc) calc(var(--g-gp) * 0.66), transparent);
+        --g-c3: color-mix(in srgb, var(--hc) calc(var(--g-gp) * 0.52), transparent);
+        --g-c4: color-mix(in srgb, var(--hc) calc(var(--g-gp) * 0.4), transparent);
+        --g-c5: color-mix(in srgb, var(--hc) calc(var(--g-gp) * 0.31), transparent);
+        --g-c6: color-mix(in srgb, var(--hc) calc(var(--g-gp) * 0.21), transparent);
+        --g-c7: color-mix(in srgb, var(--hc) calc(var(--g-gp) * 0.14), transparent);
+        --g-c8: color-mix(in srgb, var(--hc) calc(var(--g-gp) * 0.08), transparent);
+        --g-c9: color-mix(in srgb, var(--hc) calc(var(--g-gp) * 0.035), transparent);
 }
 :root :is(.tree-row-d0, :is(.tree-row-d1, .tree-row-d2).selected, .tree-row-fixed.virtual-favorites, .tree-row-fixed.virtual-archived, .folder-row, .exercise:not(.collapsed))::before {
     content: ""; position: absolute; pointer-events: none;
-    left: calc(var(--g-bl, 0px) - var(--g-gw)); width: var(--g-gw); top: calc(var(--g-r, 8px) * .35 - var(--g-bt, 0px)); bottom: calc(var(--g-r, 8px) * .35 - var(--g-bt, 0px));
-    background: linear-gradient(to left,
-        color-mix(in srgb, var(--hc) var(--g-gp), transparent) 0%,
-        color-mix(in srgb, var(--hc) calc(var(--g-gp) * .82), transparent) 8%,
-        color-mix(in srgb, var(--hc) calc(var(--g-gp) * .66), transparent) 15%,
-        color-mix(in srgb, var(--hc) calc(var(--g-gp) * .52), transparent) 23%,
-        color-mix(in srgb, var(--hc) calc(var(--g-gp) * .40), transparent) 31%,
-        color-mix(in srgb, var(--hc) calc(var(--g-gp) * .31), transparent) 38%,
-        color-mix(in srgb, var(--hc) calc(var(--g-gp) * .21), transparent) 50%,
-        color-mix(in srgb, var(--hc) calc(var(--g-gp) * .14), transparent) 62%,
-        color-mix(in srgb, var(--hc) calc(var(--g-gp) * .08), transparent) 77%,
-        color-mix(in srgb, var(--hc) calc(var(--g-gp) * .035), transparent) 92%,
-        transparent 100%);
-    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--g-fade), #000 calc(100% - var(--g-fade)), transparent 100%);
-    mask-image: linear-gradient(to bottom, transparent 0, #000 var(--g-fade), #000 calc(100% - var(--g-fade)), transparent 100%);
+    /* boîte : colonne à gauche de la barre, dépassant de --g-gw en haut et en bas pour contenir les deux angles */
+    left: calc(var(--g-bl, 0px) - var(--g-gw)); width: calc(var(--g-gw) + var(--g-r, 8px));
+    top: calc(-1 * var(--g-gw) - var(--g-bt, 0px)); bottom: calc(-1 * var(--g-gw) - var(--g-bt, 0px));
+    background:
+        radial-gradient(circle at 100% 100%, transparent calc(var(--g-r) - .5px), var(--g-c0) calc(var(--g-r) + var(--g-gw) * 0 + .5px), var(--g-c1) calc(var(--g-r) + var(--g-gw) * 0.08 + .5px), var(--g-c2) calc(var(--g-r) + var(--g-gw) * 0.15 + .5px), var(--g-c3) calc(var(--g-r) + var(--g-gw) * 0.23 + .5px), var(--g-c4) calc(var(--g-r) + var(--g-gw) * 0.31 + .5px), var(--g-c5) calc(var(--g-r) + var(--g-gw) * 0.38 + .5px), var(--g-c6) calc(var(--g-r) + var(--g-gw) * 0.5 + .5px), var(--g-c7) calc(var(--g-r) + var(--g-gw) * 0.62 + .5px), var(--g-c8) calc(var(--g-r) + var(--g-gw) * 0.77 + .5px), var(--g-c9) calc(var(--g-r) + var(--g-gw) * 0.92 + .5px), transparent calc(var(--g-r) + var(--g-gw))) 0 0 / 100% calc(var(--g-gw) + var(--g-r, 8px)) no-repeat,
+        radial-gradient(circle at 100% 0%, transparent calc(var(--g-r) - .5px), var(--g-c0) calc(var(--g-r) + var(--g-gw) * 0 + .5px), var(--g-c1) calc(var(--g-r) + var(--g-gw) * 0.08 + .5px), var(--g-c2) calc(var(--g-r) + var(--g-gw) * 0.15 + .5px), var(--g-c3) calc(var(--g-r) + var(--g-gw) * 0.23 + .5px), var(--g-c4) calc(var(--g-r) + var(--g-gw) * 0.31 + .5px), var(--g-c5) calc(var(--g-r) + var(--g-gw) * 0.38 + .5px), var(--g-c6) calc(var(--g-r) + var(--g-gw) * 0.5 + .5px), var(--g-c7) calc(var(--g-r) + var(--g-gw) * 0.62 + .5px), var(--g-c8) calc(var(--g-r) + var(--g-gw) * 0.77 + .5px), var(--g-c9) calc(var(--g-r) + var(--g-gw) * 0.92 + .5px), transparent calc(var(--g-r) + var(--g-gw))) 0 100% / 100% calc(var(--g-gw) + var(--g-r, 8px)) no-repeat,
+        linear-gradient(to left, var(--g-c0) calc(var(--g-gw) * 0), var(--g-c1) calc(var(--g-gw) * 0.08), var(--g-c2) calc(var(--g-gw) * 0.15), var(--g-c3) calc(var(--g-gw) * 0.23), var(--g-c4) calc(var(--g-gw) * 0.31), var(--g-c5) calc(var(--g-gw) * 0.38), var(--g-c6) calc(var(--g-gw) * 0.5), var(--g-c7) calc(var(--g-gw) * 0.62), var(--g-c8) calc(var(--g-gw) * 0.77), var(--g-c9) calc(var(--g-gw) * 0.92), transparent var(--g-gw)) 0 calc(var(--g-gw) + var(--g-r, 8px)) / var(--g-gw) calc(100% - 2 * (var(--g-gw) + var(--g-r, 8px))) no-repeat;
+    -webkit-mask-image: linear-gradient(to right, #000 var(--g-gw), transparent calc(var(--g-gw) + var(--g-r, 8px)));
+    mask-image: linear-gradient(to right, #000 var(--g-gw), transparent calc(var(--g-gw) + var(--g-r, 8px)));
 }
 .tree-row-d0 { --hc: var(--rc, var(--accent)); --g-r: 8px; padding-left: 11px; --g-contour: inset 1.5px 0 0 0 var(--hc); } /* 11 px = ancienne bordure de 3 px + marge de 8 px : le texte ne bouge pas */
 :is(.tree-row-d1, .tree-row-d2).selected { --hc: var(--rc, var(--accent)); --g-r: 6px; --g-contour: inset 1px 0 0 0 var(--hc); } /* contour de 1 px sans toucher à la mise en page */
