@@ -104,6 +104,22 @@
         if (themeMq) { var themeOnChange = function () { if (getTheme() === "auto") applyTheme(); }; if (themeMq.addEventListener) themeMq.addEventListener("change", themeOnChange); else if (themeMq.addListener) themeMq.addListener(themeOnChange); }
     } catch (e) {}
     applyTheme();
+    // ---------- effet verre (option, par appareil) ----------
+    // Surfaces translucides avec flou sur un fond « aurore » : tout le rendu est dans le bloc « Effet verre » de style.css,
+    // activé par data-glass sur <html> (lu aussi par le script d'index.html avant le premier affichage). Réglages propres à
+    // l'appareil : désactivé par défaut ; l'intensité du flou (léger / moyen / fort) est une option avancée.
+    var GLASS_KEY = "trainhub.glass.v1", GLASS_BLUR_KEY = "trainhub.glassBlur.v1";
+    var GLASS_BLURS = ["light", "medium", "strong"];
+    function glassOn() { try { return localStorage.getItem(GLASS_KEY) === "1"; } catch (e) { return false; } }
+    function glassBlur() { try { var v = localStorage.getItem(GLASS_BLUR_KEY); return GLASS_BLURS.indexOf(v) !== -1 ? v : "medium"; } catch (e) { return "medium"; } }
+    function applyGlass() {
+        var r = document.documentElement;
+        if (glassOn()) r.setAttribute("data-glass", "1"); else r.removeAttribute("data-glass");
+        r.setAttribute("data-glass-blur", glassBlur());
+    }
+    function setGlass(on) { try { localStorage.setItem(GLASS_KEY, on ? "1" : "0"); } catch (e) {} applyGlass(); }
+    function setGlassBlur(v) { if (GLASS_BLURS.indexOf(v) === -1) return; try { localStorage.setItem(GLASS_BLUR_KEY, v); } catch (e) {} applyGlass(); }
+    applyGlass();
     // Couleur d'un TEXTE teinté par la couleur d'un chapitre : telle quelle en thème sombre, assombrie en thème clair
     // (les couleurs vives ou pastel des chapitres seraient illisibles sur fond blanc). --ink-mix vaut 100 % en sombre.
     function inkOf(c) { return "color-mix(in srgb, " + c + " var(--ink-mix, 100%), #000)"; }
@@ -3584,6 +3600,7 @@
         // différenciés par la taille/le poids et l'imbrication) pour que la couleur reste un
         // repère de chapitre, pas un habillage répété à chaque niveau. La sélection, elle, reste
         // visible à tous les niveaux via la couleur du chapitre courant (--chapter-accent).
+        row.style.setProperty("--rc", rootColor);
         if (depth === 0) {
             row.style.borderLeft = "3px solid " + rootColor;
             row.style.background = "color-mix(in srgb, " + rootColor + " " + (isSelected ? "16%" : "5%") + ", transparent)";
@@ -9579,6 +9596,8 @@
             section("Affichage");
             card("Thème", "Réglage propre à cet appareil.");
             field("Apparence", segControl([["auto", "Auto"], ["dark", "Sombre"], ["light", "Clair"]], getTheme(), function (v) { setTheme(v); }), "Auto suit l'appareil");
+            card("Effet verre", "Surfaces translucides et flou. Réglage propre à cet appareil.");
+            field("Verre dépoli", switchControl(glassOn(), function (on) { setGlass(on); }), "Fond coloré, flou et reflets");
             card("Couleurs des chapitres", "Les chapitres existants prennent les nouvelles couleurs.");
             var schemeGrid = document.createElement("div");
             schemeGrid.className = "settings-schemes";
@@ -9690,6 +9709,8 @@
             card("Chrono libre", "Hors session, le chrono suit l'exercice affiché.");
             field("Départ du décompte", selectControl(PREF_FREE_START_SEC.map(function (n) { return [String(n), n ? n + " s" : "Immédiat"]; }), String(prefs().freeStartSec), function (v) { setPref("freeStartSec", parseInt(v, 10)); }), "Attente avant de compter");
             field("Pause automatique", selectControl(PREF_FREE_IDLE_MIN.map(function (n) { return [String(n), n >= 60 ? "1 h" : n + " min"]; }), String(prefs().freeIdleMin), function (v) { setPref("freeIdleMin", parseInt(v, 10)); }), "Sans geste ni métronome");
+            card("Effet verre", "Le flou demande de la puissance graphique : le réduire si l'affichage saccade. Réglage propre à cet appareil.");
+            field("Intensité du flou", segControl([["light", "Léger"], ["medium", "Moyen"], ["strong", "Fort"]], glassBlur(), function (v) { setGlassBlur(v); }), "Sans effet si le verre est désactivé");
             card("Écran", "Réglage propre à cet appareil.");
             var awakeSwitch = switchControl(keepAwakeOn() && wakeLockSupported(), function (on) { setKeepAwake(on); });
             if (!wakeLockSupported()) { awakeSwitch.disabled = true; awakeSwitch.title = "Non pris en charge par ce navigateur"; }

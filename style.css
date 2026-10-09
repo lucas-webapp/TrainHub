@@ -3317,3 +3317,140 @@ button.settings-action { display: flex; align-items: center; justify-content: sp
     --st-data-dim: color-mix(in srgb, var(--text-main) 34%, var(--card-bg-2));
     --st-hi: var(--accent);
 }
+
+/* ============================================================
+   Effet verre (option, par appareil) — html[data-glass="1"]
+   Tout est réglé ici : variables (surfaces translucides, bords clairs, accents), fond « aurore », flou sur les grandes
+   surfaces (barre du haut, arborescence, fenêtres, menus ; jamais sur chaque ligne), contour de couleur + halo sur les
+   noms de dossier et le bord gauche de l'exercice déplié (jamais sur les notes), cadres plus compacts (la densité des
+   Paramètres continue de s'appliquer par-dessus). Sans effet quand l'attribut est absent. L'intensité du flou vient de
+   data-glass-blur (léger / moyen / fort).
+   ============================================================ */
+html[data-glass="1"] { --glass-blur: 24px; }
+html[data-glass="1"][data-glass-blur="light"] { --glass-blur: 12px; }
+html[data-glass="1"][data-glass-blur="strong"] { --glass-blur: 40px; }
+
+html[data-glass="1"]:not([data-theme="light"]) {
+    --bg: #070b12;
+    --card-bg: rgba(255, 255, 255, .055);
+    --card-bg-2: rgba(255, 255, 255, .07);
+    --border: rgba(255, 255, 255, .13);
+    --text-main: #f1f7fb; --text-dim: #cdd9e4; --text-muted: #9fb2c4;
+    --btn-text: #f1f7fb;
+    --btn-neutral-1: rgba(255, 255, 255, .17); --btn-neutral-2: rgba(255, 255, 255, .06);
+    --btn-neutral-border: rgba(255, 255, 255, .2); --btn-neutral-border-hover: rgba(255, 255, 255, .34);
+    --btn-green-1: rgba(95, 227, 176, .34); --btn-green-2: rgba(95, 227, 176, .12); --btn-green-border: rgba(95, 227, 176, .5); --btn-green-border-hover: rgba(95, 227, 176, .78);
+    --btn-red-1: rgba(255, 107, 107, .32); --btn-red-2: rgba(255, 107, 107, .12); --btn-red-border: rgba(255, 107, 107, .5); --btn-red-border-hover: rgba(255, 107, 107, .78);
+    --accent: #5fe3b0; --accent-hover: #46cf9b;
+    --g-ambient: linear-gradient(180deg, rgba(7, 11, 18, 0) 0, #070b12 640px) top / 100% 640px no-repeat,
+                 linear-gradient(115deg, rgba(0, 230, 150, .26) 0, rgba(40, 140, 255, .24) 36%, rgba(150, 90, 255, .26) 66%, rgba(255, 60, 150, .14) 100%) top / 100% 640px no-repeat,
+                 #070b12;
+    --glass-bar: rgba(8, 13, 22, .5);
+    --glass-side: rgba(5, 9, 15, .26);
+    --glass-pop: rgba(16, 26, 42, .84);
+    --glass-hi: inset 0 1px 0 rgba(255, 255, 255, .22);
+    --glass-inp: rgba(0, 0, 0, .22);
+    --glass-select: #141e2c;
+}
+html[data-glass="1"][data-theme="light"] {
+    --bg: #eef3f6;
+    --card-bg: rgba(255, 255, 255, .5);
+    --card-bg-2: rgba(255, 255, 255, .64);
+    --border: rgba(105, 130, 160, .3);
+    --text-main: #0e1c26; --text-dim: #33485a; --text-muted: #566c80;
+    --btn-text: #0e1c26;
+    --btn-neutral-1: rgba(255, 255, 255, .96); --btn-neutral-2: rgba(255, 255, 255, .62);
+    --btn-neutral-border: rgba(105, 130, 160, .4); --btn-neutral-border-hover: rgba(75, 105, 140, .6);
+    --btn-green-1: rgba(11, 138, 99, .22); --btn-green-2: rgba(11, 138, 99, .1); --btn-green-border: rgba(11, 138, 99, .5); --btn-green-border-hover: rgba(11, 138, 99, .78);
+    --btn-red-1: rgba(198, 40, 40, .2); --btn-red-2: rgba(198, 40, 40, .09); --btn-red-border: rgba(198, 40, 40, .5); --btn-red-border-hover: rgba(198, 40, 40, .78);
+    --accent: #0b8a63; --accent-hover: #08704f;
+    --g-ambient: linear-gradient(180deg, rgba(238, 243, 246, 0) 0, #eef3f6 640px) top / 100% 640px no-repeat,
+                 linear-gradient(115deg, rgba(60, 225, 160, .5) 0, rgba(90, 160, 255, .46) 36%, rgba(175, 130, 255, .46) 66%, rgba(255, 130, 190, .34) 100%) top / 100% 640px no-repeat,
+                 #eef3f6;
+    --glass-bar: rgba(255, 255, 255, .58);
+    --glass-side: rgba(70, 100, 135, .07);
+    --glass-pop: rgba(255, 255, 255, .9);
+    --glass-hi: inset 0 1px 0 #fff;
+    --glass-inp: rgba(255, 255, 255, .6);
+    --glass-select: #f4f8fb;
+}
+
+html[data-glass="1"] body { background: var(--g-ambient); background-attachment: fixed; }
+
+/* grandes surfaces : flou + teinte */
+html[data-glass="1"] :is(.top-bar, .sidebar-tree, .chapter-bar, .backups-panel, .ctx-menu, .toast, .tempo-pop, .scales-picker, .gs-preview, .app-dialog, .update-banner, .sel-bar) {
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+    backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+}
+html[data-glass="1"] .top-bar { background: var(--glass-bar); }
+html[data-glass="1"] .chapter-bar { background: var(--glass-bar); }
+/* l'arborescence est un peu plus sombre que le reste : le coin éclairé par le fond ne gêne plus la lecture des dossiers */
+html[data-glass="1"] .sidebar-tree { background: linear-gradient(var(--glass-side), var(--glass-side)), var(--card-bg); }
+html[data-glass="1"] :is(.backups-panel, .ctx-menu, .toast, .tempo-pop, .scales-picker, .gs-preview, .app-dialog, .update-banner, .sel-bar) { background: var(--glass-pop); box-shadow: var(--glass-hi), 0 24px 50px -24px rgba(0, 0, 0, .65); }
+
+/* champs : creux légers, liste déroulante opaque (une liste translucide devient illisible) */
+html[data-glass="1"] textarea { background: var(--glass-inp); box-shadow: inset 0 1px 3px rgba(0, 0, 0, .12); }
+html[data-glass="1"] select, html[data-glass="1"] select option { background: var(--glass-select); }
+html[data-glass="1"] button { box-shadow: var(--glass-hi); }
+html[data-glass="1"] button.btn-ghost, html[data-glass="1"] button.icon-btn.btn-ghost { box-shadow: none; }
+html[data-glass="1"] :is(.exercise, .folder-row, .gs-session-row, .gs-step-row, .st-tile, .st-ex, .gs-plan-row) { box-shadow: var(--glass-hi); }
+
+/* ---- dossiers : contour de couleur à gauche + halo (arborescence, cartes de sous-dossiers, favoris/archivés) ---- */
+html[data-glass="1"] .tree-row-d0 {
+    --tint: 5%;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: calc(5px * var(--g-dens, 1)) 8px;
+    background: linear-gradient(color-mix(in srgb, var(--rc, var(--accent)) var(--tint), transparent), color-mix(in srgb, var(--rc, var(--accent)) var(--tint), transparent)), var(--card-bg-2) !important;
+    box-shadow: var(--glass-hi), inset 14px 0 16px -16px color-mix(in srgb, var(--rc, var(--accent)) 55%, transparent), -3px 0 12px -8px color-mix(in srgb, var(--rc, var(--accent)) 42%, transparent);
+}
+/* Échelle de densité propre au verre : écarts plus marqués que le réglage général (0,65 / 1 / 1,5) car les rangées verre sont déjà plus basses */
+html[data-glass="1"] { --g-dens: 1; }
+html[data-glass="1"].density-compact { --g-dens: 0.5; }
+html[data-glass="1"].density-spacious { --g-dens: 2; }
+html[data-glass="1"] .tree-list { gap: calc(4px * var(--g-dens, 1)); }
+html[data-glass="1"] .tree-row-d0:hover { --tint: 10%; }
+html[data-glass="1"] .tree-row-d0.selected {
+    --tint: 17%;
+    box-shadow: var(--glass-hi), inset 22px 0 22px -16px color-mix(in srgb, var(--rc, var(--accent)) 85%, transparent), -5px 0 18px -6px color-mix(in srgb, var(--rc, var(--accent)) 75%, transparent);
+}
+/* sous-dossiers : discrets comme avant (tailles de police et poids inchangés) ; la sélection prend le contour et le halo */
+html[data-glass="1"] .tree-row-d1, html[data-glass="1"] .tree-row-d2 { border-left: 2px solid transparent; }
+html[data-glass="1"] .tree-row-d1 { padding: calc(4px * var(--g-dens, 1)) 8px; }
+html[data-glass="1"] .tree-row-d2 { padding: calc(2px * var(--g-dens, 1)) 8px; }
+html[data-glass="1"] :is(.tree-row-d1, .tree-row-d2).selected {
+    border-left-color: var(--rc, var(--accent));
+    box-shadow: inset 12px 0 16px -14px color-mix(in srgb, var(--rc, var(--accent)) 60%, transparent), -3px 0 10px -7px color-mix(in srgb, var(--rc, var(--accent)) 45%, transparent);
+}
+html[data-glass="1"] .tree-row-fixed { border-top: 1px solid var(--border); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); border-radius: 12px; padding-top: calc(5px * var(--g-dens, 1)); padding-bottom: calc(5px * var(--g-dens, 1)); box-shadow: var(--glass-hi); }
+html[data-glass="1"] .tree-row-fixed.virtual-favorites { box-shadow: var(--glass-hi), inset 12px 0 14px -14px color-mix(in srgb, var(--c-gold) 50%, transparent), -3px 0 10px -8px color-mix(in srgb, var(--c-gold) 40%, transparent); }
+html[data-glass="1"] .tree-row-fixed.virtual-archived { box-shadow: var(--glass-hi), inset 12px 0 14px -14px color-mix(in srgb, var(--c-grey) 50%, transparent), -3px 0 10px -8px color-mix(in srgb, var(--c-grey) 40%, transparent); }
+html[data-glass="1"] .tree-row-fixed { margin-bottom: calc(4px * var(--g-dens, 1)); }
+html[data-glass="1"] .folder-row {
+    border-left: 3px solid var(--chapter-accent);
+    padding: calc(6px * var(--g-dens, 1)) 12px;
+    border-radius: 12px;
+    box-shadow: var(--glass-hi), inset 14px 0 16px -14px color-mix(in srgb, var(--chapter-accent) 60%, transparent), -4px 0 12px -8px color-mix(in srgb, var(--chapter-accent) 50%, transparent);
+}
+
+/* ---- exercices : lignes translucides plus basses ; l'exercice déplié a le contour + halo, pas ses notes ---- */
+html[data-glass="1"] .exercise { border-radius: 12px; padding: calc(4px * var(--g-dens, 1)) 10px; margin-bottom: calc(4px * var(--g-dens, 1)); }
+html[data-glass="1"] .exercise:not(.collapsed) {
+    border-color: var(--border);
+    border-left: 3px solid var(--chapter-accent);
+    padding-left: 8px;
+    background: linear-gradient(color-mix(in srgb, var(--chapter-accent) 6%, transparent), color-mix(in srgb, var(--chapter-accent) 6%, transparent)), var(--card-bg-2);
+    box-shadow: var(--glass-hi), inset 18px 0 20px -18px color-mix(in srgb, var(--chapter-accent) 60%, transparent), -4px 0 16px -8px color-mix(in srgb, var(--chapter-accent) 55%, transparent), 0 16px 30px -22px color-mix(in srgb, var(--chapter-accent) 45%, transparent);
+}
+html[data-glass="1"] :is(.notes-fixed-textarea, .exercise-fixed-view, .gs-run-fixed, .gs-run-note) { border-left: 1px solid var(--border); box-shadow: none; }
+
+/* repli sans flou : opaque si le navigateur ne sait pas flouter ou si l'appareil demande moins de transparence */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    html[data-glass="1"]:not([data-theme="light"]) { --glass-bar: #0d1520; --glass-pop: #121c2b; --card-bg: #101a28; --card-bg-2: #15202f; }
+    html[data-glass="1"][data-theme="light"] { --glass-bar: #f1f6f9; --glass-pop: #ffffff; --card-bg: #f4f8fb; --card-bg-2: #ffffff; }
+}
+@media (prefers-reduced-transparency: reduce) {
+    html[data-glass="1"] :is(.top-bar, .sidebar-tree, .chapter-bar, .backups-panel, .ctx-menu, .toast, .tempo-pop, .scales-picker, .gs-preview, .app-dialog, .update-banner, .sel-bar) { -webkit-backdrop-filter: none; backdrop-filter: none; }
+    html[data-glass="1"]:not([data-theme="light"]) { --glass-bar: #0d1520; --glass-pop: #121c2b; --card-bg: #101a28; --card-bg-2: #15202f; }
+    html[data-glass="1"][data-theme="light"] { --glass-bar: #f1f6f9; --glass-pop: #ffffff; --card-bg: #f4f8fb; --card-bg-2: #ffffff; }
+}
