@@ -97,9 +97,9 @@ body {
 /* Empêche le fond de la page de défiler sous une fenêtre flottante (métronome, aides…) sur mobile
    : sans ça, le panneau reste fixe mais le corps de page en dessous continue à répondre au doigt. */
 html.modal-open, html.modal-open body { overflow: hidden; height: 100%; }
-html.density-compact { --density-scale: 0.65; }
-html.density-comfortable { --density-scale: 1; }
-html.density-spacious { --density-scale: 1.5; }
+html.density-compact { --density-scale: 0.65; --ex-gap: 1px; }
+html.density-comfortable { --density-scale: 1; --ex-gap: 2px; }
+html.density-spacious { --density-scale: 1.5; --ex-gap: 3px; }
 
 .icon {
     width: 15px;
@@ -416,7 +416,7 @@ button.session-btn-highlight:hover { background: color-mix(in srgb, var(--c-sage
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: calc(6px * var(--density-scale, 1)) 10px; /* cadre un peu moins haut (était 8 px) : on gagne 2 × 2 px par barre… */
-    margin-bottom: calc(3px * var(--density-scale, 1)); /* …et quelques pixels d'écart entre les barres : elles ne se touchent plus */
+    margin-bottom: var(--ex-gap, 2px); /* …et un petit écart entre les barres : elles ne se touchent plus (1 px serré / 2 px confortable / 3 px aéré) */
 }
 /* L'exercice déplié se distingue de ceux repliés en dessous (même fond sinon, facile à confondre) :
    liseré + fond légèrement teintés de la couleur du chapitre courant. */
