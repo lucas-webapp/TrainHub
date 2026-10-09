@@ -699,12 +699,12 @@ button.result-group-title:hover { background: color-mix(in srgb, var(--group-col
 
 /* Ligne fixe "Favoris" au-dessus de l'arborescence : couleur or fixe, pas de glisser (elle n'est
    pas dans `.tree-list`, voir renderSidebarTree), pas de crayon/clic droit (rien à renommer). */
-.tree-row-fixed { border-left: 3px solid transparent; }
+.tree-row-fixed { border-left: 0; padding-left: 11px; } /* le liseré de couleur est une ombre interne (voir « Halos de couleur ») */
 .tree-row-fixed .tree-label { font-weight: 700; }
-.tree-row-fixed.virtual-favorites { border-left-color: var(--c-gold); background: color-mix(in srgb, var(--c-gold) 6%, transparent); }
+.tree-row-fixed.virtual-favorites { background: color-mix(in srgb, var(--c-gold) 6%, transparent); }
 .tree-row-fixed.virtual-favorites.selected { background: color-mix(in srgb, var(--c-gold) 16%, transparent); }
 .tree-row-fixed.virtual-favorites .tree-label, .tree-row-fixed.virtual-favorites .tree-fixed-icon { color: var(--c-gold); }
-.tree-row-fixed.virtual-archived { border-left-color: var(--c-grey); background: color-mix(in srgb, var(--c-grey) 5%, transparent); }
+.tree-row-fixed.virtual-archived { background: color-mix(in srgb, var(--c-grey) 5%, transparent); }
 .tree-row-fixed.virtual-archived.selected { background: color-mix(in srgb, var(--c-grey) 14%, transparent); }
 .tree-row-fixed.virtual-archived .tree-label, .tree-row-fixed.virtual-archived .tree-fixed-icon { color: var(--c-grey); }
 .tree-fixed-icon { width: 18px; height: 18px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
@@ -3335,21 +3335,21 @@ button.settings-action { display: flex; align-items: center; justify-content: sp
 /* ============================================================
    Halos de couleur (tous les thèmes, avec ou sans l'effet verre) : dossiers, favoris/archivés, sous-dossier sélectionné,
    cartes de sous-dossiers, exercice déplié. Seule la couleur change (--hc) ; la forme est identique partout.
-   Le trait opaque est la bordure gauche de 3 px (2 px, en ombre interne, pour un sous-dossier sélectionné). La lueur vient d'un
-   petit liseré (::before) posé sur ce trait, sans hauteur ni largeur de mise en page : elle reste donc sur le côté gauche,
-   s'éteint vite et ne suit pas la barre sur sa longueur, quelle que soit la largeur de la barre. Une bande intérieure très
-   douce (ombre interne) l'accompagne. Deux profils (data-halo) : « diffus » (défaut) et « net » ; « off » = aucun halo.
-   --g-edge / --g-contour / --glass-hi ne servent qu'au verre et au contour des sous-dossiers.
+   LISERÉ (trait de couleur opaque, à gauche) : dossiers principaux + favoris + archivés 1,5 px (ombre interne : net sur tous les
+   écrans) ; sous-dossiers (barre latérale : ombre interne ; cartes de la vue principale : bordure) 1 px ; exercice déplié 1 px
+   (bordure). HALO : lueur douce d'environ 10 px à gauche du liseré, portée par un petit élément transparent (::before) posé sur
+   le bord gauche : elle ne suit pas la barre sur sa longueur, quelle que soit sa largeur. Deux profils (data-halo) : « diffus »
+   (défaut) et « net » ; « off » = aucun halo. --g-edge / --glass-hi ne servent qu'au verre.
    ============================================================ */
 :root {
-    /* « diffus » (défaut) : lueur proche + lueur large, discrètes */
-    --g-n-o: -1px; --g-n-b: 4px;  --g-n-s: 0px; --g-n-a: 70%;
-    --g-f-o: -1px; --g-f-b: 9px;  --g-f-s: 0px; --g-f-a: 40%;
+    /* « diffus » (défaut) : lueur proche + lueur large, discrètes (≈ 10 px) */
+    --g-n-o: -1px; --g-n-b: 5px;  --g-n-s: 0px; --g-n-a: 45%;
+    --g-f-o: -3px; --g-f-b: 16px; --g-f-s: 0px; --g-f-a: 34%;
     --g-ix: 6px;  --g-ib: 9px;  --g-is: -8px; --g-a3: 22%;
 }
 html[data-halo="net"] {
     --g-n-o: -1px; --g-n-b: 3px;  --g-n-s: 0px; --g-n-a: 80%;
-    --g-f-o: -2px; --g-f-b: 6px;  --g-f-s: 0px; --g-f-a: 48%;
+    --g-f-o: -1px; --g-f-b: 7px;  --g-f-s: 0px; --g-f-a: 48%;
     --g-ix: 5px;  --g-ib: 7px;  --g-is: -7px; --g-a3: 30%;
 }
 html[data-halo="off"] { --g-n-a: 0%; --g-f-a: 0%; --g-a3: 0%; }
@@ -3360,19 +3360,20 @@ html[data-halo="off"] { --g-n-a: 0%; --g-f-a: 0%; --g-a3: 0%; }
 }
 :root :is(.tree-row-d0, :is(.tree-row-d1, .tree-row-d2).selected, .tree-row-fixed.virtual-favorites, .tree-row-fixed.virtual-archived, .folder-row, .exercise:not(.collapsed))::before {
     content: ""; position: absolute; pointer-events: none;
-    left: var(--g-bl, -3px); width: var(--g-bw, 3px); top: min(14%, 10px); bottom: min(14%, 10px); border-radius: 2px; /* barre basse : 14 % de marge ; grande carte : 10 px seulement, la lueur couvre presque tout le côté */
+    left: var(--g-bl, 0px); width: 8px; top: min(14%, 10px); bottom: min(14%, 10px); border-radius: 2px;
+    clip-path: inset(-30px 100% -30px -40px); /* la lueur n'existe qu'à gauche du bord de la barre : rien à l'intérieur (sinon le petit élément laisserait un « trou » visible) */ /* barre basse : 14 % de marge ; grande carte : 10 px seulement */
     box-shadow: var(--g-n-o) 0 var(--g-n-b) var(--g-n-s) color-mix(in srgb, var(--hc) var(--g-n-a), transparent),
                 var(--g-f-o) 0 var(--g-f-b) var(--g-f-s) color-mix(in srgb, var(--hc) var(--g-f-a), transparent);
 }
-.tree-row-d0 { --hc: var(--rc, var(--accent)); }
-:is(.tree-row-d1, .tree-row-d2).selected { --hc: var(--rc, var(--accent)); --g-contour: inset 2px 0 0 0 var(--hc); --g-bl: 0px; --g-bw: 2px; } /* contour 2 px sans toucher à la mise en page */
-.tree-row-fixed.virtual-favorites { --hc: var(--c-gold); }
-.tree-row-fixed.virtual-archived { --hc: var(--c-grey); }
+.tree-row-d0 { --hc: var(--rc, var(--accent)); padding-left: 11px; --g-contour: inset 1.5px 0 0 0 var(--hc); } /* 11 px = ancienne bordure de 3 px + marge de 8 px : le texte ne bouge pas */
+:is(.tree-row-d1, .tree-row-d2).selected { --hc: var(--rc, var(--accent)); --g-contour: inset 1px 0 0 0 var(--hc); } /* contour de 1 px sans toucher à la mise en page */
+.tree-row-fixed.virtual-favorites { --hc: var(--c-gold); --g-contour: inset 1.5px 0 0 0 var(--hc); }
+.tree-row-fixed.virtual-archived { --hc: var(--c-grey); --g-contour: inset 1.5px 0 0 0 var(--hc); }
 /* la classe .virtual-* sert aussi aux puces de chapitre et teinte le conteneur du nœud (rectangle carré derrière la barre arrondie) */
 .tree-node:is(.virtual-favorites, .virtual-archived) { background: none; }
-/* contour de couleur à gauche des cartes de sous-dossiers et de l'exercice déplié (épaisseur 3 px, contenu inchangé : le padding gauche compense) */
-.folder-row { --hc: var(--chapter-accent); border-left: 3px solid var(--chapter-accent); padding-left: 10px; }
-.exercise:not(.collapsed) { --hc: var(--chapter-accent); border-color: var(--border); border-left: 3px solid var(--chapter-accent); padding-left: 8px; }
+/* cartes de sous-dossiers et exercice déplié : le liseré de 1 px est la bordure gauche d'origine, colorée */
+.folder-row { --hc: var(--chapter-accent); --g-bl: -1px; border-left-color: var(--chapter-accent); }
+.exercise:not(.collapsed) { --hc: var(--chapter-accent); --g-bl: -1px; border-color: var(--border); border-left-color: var(--chapter-accent); }
 
 /* ============================================================
    Effet verre (option, par appareil) — html[data-glass="1"]

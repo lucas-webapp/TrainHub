@@ -3614,7 +3614,7 @@
         // visible à tous les niveaux via la couleur du chapitre courant (--chapter-accent).
         row.style.setProperty("--rc", rootColor);
         if (depth === 0) {
-            row.style.borderLeft = "3px solid " + rootColor;
+            // le liseré de couleur est dessiné par le CSS (--rc, ombre interne de 1,5 px : net à toutes les densités d'écran)
             row.style.background = "color-mix(in srgb, " + rootColor + " " + (isSelected ? "16%" : "5%") + ", transparent)";
         } else if (isSelected) {
             row.style.background = "color-mix(in srgb, " + rootColor + " 14%, transparent)";
