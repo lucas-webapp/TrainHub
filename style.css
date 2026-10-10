@@ -3562,9 +3562,37 @@ button.audio-ctl-icon .icon { width: 17px; height: 17px; }
 .audio-ctl-val { flex: none; width: 44px; text-align: right; font-size: var(--fs-xs); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-muted); }
 .audio-player-rate-txt { cursor: pointer; }
 .audio-player-rate-txt:hover { color: var(--accent); }
-.audio-player-error { font-size: var(--fs-xs); color: var(--c-red-text); }
-.audio-error-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-.audio-error-actions button { height: 30px; padding: 0 10px; font-size: var(--fs-xs); border: 1px solid var(--border); }
+/* Message d'erreur court (le détail est au survol et en petit dessous), jamais plus haut que nécessaire */
+.audio-player-error { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: var(--fs-xs); }
+.audio-player-error[hidden] { display: none; }
+.audio-error-text { flex: 1 1 150px; color: var(--c-red-text); }
+.audio-error-actions { flex: none; display: flex; flex-wrap: wrap; gap: 6px; }
+.audio-error-actions button { height: 26px; padding: 0 8px; font-size: var(--fs-xs); border: 1px solid var(--border); }
+iframe.audio-drive-frame { flex: 1 1 100%; width: 100%; height: 70px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card-bg); }
+button.audio-btn[hidden] { display: none; }
+/* Liste de lecture : un onglet par morceau, côte à côte (défilement horizontal au besoin) */
+.audio-tabs { display: flex; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: thin; padding-bottom: 2px; }
+.audio-tabs[hidden] { display: none; }
+.audio-tab { flex: 0 1 auto; min-width: 72px; max-width: 160px; height: 28px; box-sizing: border-box; display: inline-flex; align-items: center; gap: 2px; padding: 0 3px 0 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: rgba(var(--ov), .04); color: var(--text-muted); font-size: var(--fs-xs); font-weight: 600; cursor: pointer; user-select: none; -webkit-user-select: none; }
+.audio-tab:hover { color: var(--text-main); border-color: var(--text-muted); }
+.audio-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.audio-tab.active { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.audio-tab.preview .audio-tab-label { font-style: italic; }
+.audio-tab.playing .audio-tab-label::before { content: "▶ "; font-size: .8em; }
+.audio-tab.unavailable .audio-tab-label { text-decoration: line-through; opacity: .7; }
+.audio-tab-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.audio-tab-x { flex: none; width: 20px; height: 20px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: none; border-radius: 4px; background: transparent; color: inherit; font-size: 10px; opacity: .65; }
+button.audio-tab-x:hover { opacity: 1; background: rgba(var(--ov), .12); }
+/* Lecteur vide (ouvert par le bouton de la barre, sans morceau) */
+.audio-empty-hint { font-size: var(--fs-xs); color: var(--text-muted); }
+.audio-player:not(.audio-empty) .audio-empty-hint { display: none; }
+.audio-player.audio-empty > :is(.audio-time, .audio-transport, .audio-ctl, .audio-player-error, .audio-tabs) { display: none; }
+/* Fenêtre large : mêmes commandes, disposées en lignes (jamais une pile haute écrasée en minuscule) */
+.audio-player-float.audio-wide { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.audio-player-float.audio-wide > .audio-top, .audio-player-float.audio-wide > .audio-tabs, .audio-player-float.audio-wide > .audio-player-error, .audio-player-float.audio-wide > .audio-empty-hint { flex: 1 1 100%; }
+.audio-player-float.audio-wide > .audio-transport { flex: none; }
+.audio-player-float.audio-wide > .audio-time { flex: 1 1 200px; }
+.audio-player-float.audio-wide > .audio-ctl { flex: 1 1 40%; }
 /* Jauges (position, volume, vitesse) : même rendu que celles de la session guidée, couleur de l'application */
 .audio-player input[type=range] {
     -webkit-appearance: none; appearance: none;
@@ -3585,6 +3613,8 @@ button.audio-ctl-icon .icon { width: 17px; height: 17px; }
 .audio-dock[hidden] { display: none; }
 .audio-player-dock { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
 .audio-player-dock .audio-top { display: contents; }
+.audio-player-dock .audio-tabs { order: 0; flex: 1 1 100%; }
+.audio-player-dock .audio-empty-hint { order: 3; flex: 1 1 200px; }
 .audio-player-dock .audio-title { order: 1; flex: 0 1 190px; min-width: 100px; cursor: default; }
 .audio-player-dock .audio-transport { order: 2; flex: none; }
 .audio-player-dock .audio-time { order: 3; flex: 1 1 250px; min-width: 190px; }
