@@ -15,6 +15,7 @@ Ouvrir `index.html` dans un navigateur, ou héberger le dossier statique (aucune
 - Filtre « À revoir » (tree-wide) pour retrouver rapidement les exercices marqués comme intéressants à retravailler plus tard.
 - Date de dernière modification par exercice, masquée par défaut — activable via le bouton horloge de la barre du haut.
 - Sauvegarde locale automatique (`localStorage`) + synchro cloud optionnelle (connexion Google / Firebase), export/import JSON en secours.
+- Fichiers joints (audio, PDF) et images envoyés dans le compte (Firestore, offre gratuite, sans Firebase Storage) : un fichier est coupé en morceaux de 800 Ko, 30 Mo au plus par fichier, téléchargé à la demande puis gardé sur l'appareil. Paramètres › Données › « Espace de stockage » : total utilisé sur la limite gratuite de 1 Go, détail (exercices, journal, images, audio, PDF, corbeille), fichiers les plus lourds, taille du document principal (1 Mio au plus) et plafond réglable pour TrainHub (le projet Firebase est partagé avec d'autres applis).
 
 ## Ce qui n'est pas inclus (volontairement)
 

@@ -326,27 +326,35 @@
     function dlgChoice(o, onCancel) {
         dlgOpen({ kind: "choice", title: o.title, message: o.message, note: o.note, warnings: o.warnings, cancelLabel: o.cancelLabel || "Annuler", onCancel: onCancel, buttons: o.buttons });
     }
-    // Un fichier joint n'a pas son contenu ici : le contenu reste dans le stockage de l'appli (ou du navigateur) où il a été ajouté.
-    // L'appli installée dans le Dock, un onglet de navigateur, un autre navigateur, un autre ordinateur ou le téléphone ont
-    // chacun le leur ; seuls les noms se synchronisent. Avec `meta`, on propose de retrouver le fichier sur cet ordinateur (relié
-    // au même exercice, rien d'autre ne change) ; `onFound` relance alors ce que l'on voulait faire.
-    var FILE_UNAVAILABLE_TEXT = "Les fichiers joints restent là où ils ont été ajoutés : l'appli du Dock, un onglet du navigateur, un autre navigateur, un autre ordinateur ou le téléphone gardent chacun les leurs (seuls les noms sont synchronisés).";
+    // Un fichier joint n'a pas son contenu sur cet appareil. Les fichiers sont gardés dans le compte (Firestore, voir « fichiers joints
+    // dans le cloud ») et téléchargés à la demande ; ne manquent que ceux qui n'ont pas pu partir (hors connexion, plafond atteint,
+    // plus de 30 Mo) et qui restent sur l'appareil où ils ont été ajoutés. `onFound` relance ce que l'on voulait faire.
+    function fileUnavailableMessage(meta) {
+        if (meta && meta.cloud) {
+            var why = cloudFileIssue[meta.id];
+            if (why === "signin") return "Il est dans votre compte TrainHub : connectez-vous (bouton Google) pour le télécharger.";
+            if (why === "missing") return "Il a disparu du cloud (envoi interrompu ou supprimé). Choisissez-le à nouveau : il sera renvoyé.";
+            return "Téléchargement impossible pour le moment (connexion ?).";
+        }
+        if (meta && meta.size > CLOUD_FILE_MAX_BYTES) return "Il fait plus de " + fmtStorage(CLOUD_FILE_MAX_BYTES) + " : trop gros pour le cloud, il reste sur l'appareil où il a été ajouté.";
+        return "Il n'a pas été envoyé dans votre compte (hors connexion, plafond de stockage atteint…) : il n'existe que sur l'appareil où il a été ajouté. Ouvrez TrainHub, connecté, sur cet appareil pour qu'il parte.";
+    }
     function dlgFileUnavailable(name, meta, onFound) {
-        var msg = "« " + name + " » n'est pas enregistré dans cette appli. " + FILE_UNAVAILABLE_TEXT;
+        var msg = "« " + name + " » n'est pas disponible ici. " + fileUnavailableMessage(meta);
         if (!meta) { dlgAlert({ title: "Fichier indisponible", message: msg }); return; }
-        folderStatus().then(function (fs) {
-            if (fs.connected && !fs.granted) {
-                dlgConfirm({ title: "Accès au dossier à autoriser", message: "Les fichiers sont rangés dans le dossier « " + fs.name + " ». Le navigateur demande d'autoriser son accès à chaque nouvelle session.", confirmLabel: "Autoriser l'accès", cancelLabel: "Plus tard" }, function () {
-                    folderPermission(fs.handle, "read", true).then(function (st) { if (st === "granted" && onFound) onFound(); });
-                });
-            } else if (fs.connected) {
-                dlgConfirm({ title: "Fichier absent du dossier", message: "« " + name + " » n'est pas dans le dossier « " + fs.name + " » (nom attendu : « " + (meta.disk || meta.name) + " »). Remettez-le dans ce dossier, ou retrouvez-le : il y sera copié.", confirmLabel: "Retrouver le fichier…", cancelLabel: "Plus tard" }, function () { relinkFile(meta, onFound); });
-            } else {
-                dlgConfirm({ title: "Fichier indisponible ici", message: msg + " Vous pouvez le retrouver sur cet ordinateur : il sera relié à l'exercice, sans rien changer d'autre.", confirmLabel: "Retrouver le fichier…", cancelLabel: "Plus tard" }, function () { relinkFile(meta, onFound); });
-            }
-        });
+        var why = meta.cloud ? cloudFileIssue[meta.id] : "";
+        if (meta.cloud && why === "signin") {
+            dlgConfirm({ title: "Fichier dans votre compte", message: msg, confirmLabel: "Se connecter", cancelLabel: "Plus tard" }, function () { var b = document.getElementById("google-signin-btn"); if (b) b.click(); });
+        } else if (meta.cloud && why !== "missing") {
+            dlgConfirm({ title: "Téléchargement impossible", message: msg, confirmLabel: "Réessayer", cancelLabel: "Plus tard" }, function () {
+                getFileBlob(meta.id, meta).then(function (b) { if (b) { if (onFound) onFound(); } else dlgFileUnavailable(name, meta, onFound); });
+            });
+        } else {
+            dlgConfirm({ title: "Fichier indisponible ici", message: msg + (meta.size > CLOUD_FILE_MAX_BYTES ? "" : " Vous pouvez aussi le choisir à nouveau sur cet ordinateur : il sera relié à l'exercice et envoyé dans votre compte."), confirmLabel: "Retrouver le fichier…", cancelLabel: "Plus tard" }, function () { relinkFile(meta, onFound); });
+        }
     }
     function relinkFile(meta, onFound) {
+        meta = findFileMeta(meta.id) || meta; // la pièce jointe elle-même, pas une copie (lecteur audio)
         var input = document.createElement("input");
         input.type = "file";
         var ext = fileExt(meta.name);
@@ -360,16 +368,11 @@
             if (!f) return;
             var mime = mimeForFile(meta.name, f.type || meta.type);
             var blob = mime && f.type !== mime ? new Blob([f], { type: mime }) : f;
-            // Dossier relié : le fichier y est rangé sous le nom attendu ; sinon il va dans le stockage de l'appli.
-            var viaFolder = folderSupported() ? folderGetHandle().then(function (h) {
-                if (!h) return null;
-                return folderPermission(h, "readwrite", true).then(function (st) {
-                    if (st !== "granted") return null;
-                    var want = meta.disk || diskNameFor(meta, f);
-                    return folderPutFile(h, new File([blob], want, { type: mime || f.type })).then(function (n) { meta.disk = n; save(); return true; });
-                });
-            }).catch(function () { return null; }) : Promise.resolve(null);
-            viaFolder.then(function (done) { return done ? null : storeFileBlob(meta.id, blob); }).then(function () {
+            storeFileBlob(meta.id, blob).then(function () {
+                // Le fichier choisi fait foi : il repart dans le cloud, rattaché à cet exercice.
+                meta.cloud = false; delete meta.chunks; delete meta.cid; meta.size = blob.size;
+                save();
+                cloudFilesSoon();
                 showToast("Fichier retrouvé : « " + meta.name + " »", 4000);
                 if (onFound) onFound();
             }, function () {
@@ -479,6 +482,7 @@
     var PREF_DEFAULT_MINUTES = [2, 3, 5, 10, 15, 20, 30];
     var PREF_FREE_START_SEC = [0, 5, 10, 15, 30];
     var PREF_FREE_IDLE_MIN = [5, 10, 15, 30, 60];
+    var PREF_CLOUD_BUDGET_MB = [250, 500, 800, 1000]; // espace que TrainHub s'autorise dans Firestore (limite gratuite : 1 Gio, partagée avec les autres applis du projet)
     function normalizePrefs(s) {
         if (!s.settings.prefs || typeof s.settings.prefs !== "object") s.settings.prefs = {};
         var p = s.settings.prefs;
@@ -486,8 +490,9 @@
         if (PREF_DEFAULT_MINUTES.indexOf(p.defaultMinutes) === -1) p.defaultMinutes = 5;
         if (PREF_FREE_START_SEC.indexOf(p.freeStartSec) === -1) p.freeStartSec = 10;
         if (PREF_FREE_IDLE_MIN.indexOf(p.freeIdleMin) === -1) p.freeIdleMin = 15;
+        if (PREF_CLOUD_BUDGET_MB.indexOf(p.cloudBudgetMB) === -1) p.cloudBudgetMB = 800;
     }
-    function prefs() { return (state && state.settings && state.settings.prefs) || { tempoStep: 10, defaultMinutes: 5, freeStartSec: 10, freeIdleMin: 15 }; }
+    function prefs() { return (state && state.settings && state.settings.prefs) || { tempoStep: 10, defaultMinutes: 5, freeStartSec: 10, freeIdleMin: 15, cloudBudgetMB: 800 }; }
 
     // Une session guidée = un enchaînement d'exercices avec un temps alloué à chacun. Les pas
     // référencent l'exercice par son id (unique dans toute l'appli, voir uid()) plutôt que de
@@ -869,6 +874,7 @@
         });
         persist();
         render();
+        cloudFilesSoon(); // une version restaurée peut ignorer qu'un fichier est déjà parti dans le cloud
         historyListeners.forEach(function (fn) { try { fn(); } catch (e) {} });
     }
 
@@ -910,7 +916,8 @@
         });
     }
 
-    // `meta` (pièce jointe, pas les images) : à défaut du stockage de l'appli, on cherche le fichier dans le dossier relié.
+    // Avec `meta` (pièce jointe, pas les images) : à défaut du stockage de cet appareil, on télécharge le fichier depuis le cloud
+    // s'il y a été envoyé (puis il reste en cache ici). La pièce jointe « vivante » de l'état fait foi sur la copie reçue.
     function getFileBlob(id, meta) {
         var local = openFilesDb().then(function (db) {
             return new Promise(function (resolve, reject) {
@@ -920,8 +927,9 @@
                 req.onerror = function () { reject(req.error); };
             });
         });
-        if (!meta || !folderSupported()) return local;
-        return local.then(function (b) { return b || folderBlobFor(meta); }, function () { return folderBlobFor(meta); });
+        if (!meta) return local;
+        function viaCloud() { var live = findFileMeta(id) || meta; return live.cloud ? cloudFetchFile(live) : null; }
+        return local.then(function (b) { return b || viaCloud(); }, viaCloud);
     }
 
     function deleteFileBlob(id) {
@@ -935,154 +943,218 @@
         }).catch(function () {});
     }
 
-    // ---------- dossier de fichiers (Chrome / Edge sur ordinateur) ----------
-    // Au lieu de garder les pièces jointes (audio, PDF…) dans le stockage de chaque appli ou navigateur — qui n'est partagé ni entre
-    // l'appli du Dock, un onglet Chrome et un autre ordinateur —, on peut les ranger dans UN dossier choisi (Bureau, Documents, un
-    // dossier synchronisé par iCloud / Dropbox…). L'appli y copie les fichiers ajoutés, et les relit de là où qu'elle tourne, pourvu
-    // que le dossier y soit relié : on retrouve un fichier par son nom (champ `disk` de la pièce jointe, synchronisé avec les noms).
-    // Le navigateur redemande l'autorisation d'accès à chaque nouvelle session (un clic). Indisponible sur Safari, iPhone et Firefox :
-    // les fichiers restent alors dans l'appli, comme avant. Les IMAGES ne sont pas concernées (elles restent réduites et synchronisées).
-    // Jamais de suppression dans ce dossier : retirer une pièce jointe n'efface rien sur l'ordinateur.
-    var FOLDER_DB_NAME = "trainhub-folder"; // base à part : on ne touche pas à la version de la base des fichiers (d'autres fenêtres peuvent l'avoir ouverte)
-    var folderDbPromise = null, folderHandleCache;
-    function folderSupported() { return typeof window.showDirectoryPicker === "function" && typeof FileSystemDirectoryHandle !== "undefined"; }
-    function openFolderDb() {
-        if (folderDbPromise) return folderDbPromise;
-        folderDbPromise = new Promise(function (resolve, reject) {
-            if (!("indexedDB" in window)) { reject(new Error("IndexedDB indisponible")); return; }
-            var req = indexedDB.open(FOLDER_DB_NAME, 1);
-            req.onupgradeneeded = function () { if (!req.result.objectStoreNames.contains("handles")) req.result.createObjectStore("handles"); };
-            req.onsuccess = function () { resolve(req.result); };
-            req.onerror = function () { reject(req.error); };
-        });
-        return folderDbPromise;
+    // ---------- fichiers joints dans le cloud (Firestore) ----------
+    // Comme les images, les fichiers (audio, PDF…) suivent le compte : ajoutés sur un appareil, ils sont disponibles sur tous les autres.
+    // Firestore refuse les documents de plus de 1 Mio : un fichier est coupé en morceaux de 800 Kio, chacun dans un document
+    // users/<uid>/apps/trainhub-file-<id>-<n>, en octets bruts (pas de base64 : pas de +33 %). Firebase Storage, payant, n'est pas utilisé.
+    // meta.cloud = true et meta.chunks = n une fois TOUS les morceaux envoyés ; meta.cid = identifiant des morceaux quand un exercice
+    // dupliqué partage le fichier de l'original (pas d'envoi en double). Le fichier est aussi gardé sur l'appareil : un seul
+    // téléchargement par appareil. L'espace gratuit (1 Gio pour TOUT le projet Firebase, partagé avec les autres applis) est compté
+    // (cloudUsage) et plafonné (réglage « Plafond de TrainHub ») : au-delà, ou au-dessus de 30 Mo par fichier, le fichier reste sur
+    // l'appareil où il a été ajouté, et on le dit.
+    var FILE_CHUNK_BYTES = 800 * 1024;
+    var CLOUD_FILE_MAX_BYTES = 30 * 1024 * 1024;
+    var FIRESTORE_FREE_BYTES = 1024 * 1024 * 1024;     // limite gratuite (offre Spark) : 1 Gio de données stockées
+    var FIRESTORE_DOC_MAX_BYTES = 1024 * 1024;         // un document Firestore : 1 Mio au plus
+    var CLOUD_DOC_OVERHEAD = 300;                      // nom, champs et index d'un document : estimation
+    var cloudFileIssue = {};                           // id de pièce jointe -> "signin" | "network" | "missing" (dernier échec de téléchargement)
+    var cloudFetching = {};                            // id -> téléchargement en cours
+    var authSettledResolve, authSettled = new Promise(function (r) { authSettledResolve = r; });
+    // Un clic juste après l'ouverture de l'appli attend (8 s au plus) que Firebase sache si l'on est connecté.
+    function waitForAuth() { return Promise.race([authSettled, new Promise(function (r) { setTimeout(r, 8000); })]); }
+
+    function fmtStorage(b) {
+        function n(x, d) { return x.toFixed(d).replace(".", ","); }
+        if (b < 1024) return b + " o";
+        if (b < 1024 * 1024) return Math.round(b / 1024) + " Ko";
+        if (b < 1024 * 1024 * 1024) return n(b / (1024 * 1024), b < 10 * 1024 * 1024 ? 1 : 0) + " Mo";
+        return n(b / (1024 * 1024 * 1024), 2) + " Go";
     }
-    function folderGetHandle() {
-        if (!folderSupported()) return Promise.resolve(null);
-        if (folderHandleCache !== undefined) return Promise.resolve(folderHandleCache);
-        return openFolderDb().then(function (db) {
-            return new Promise(function (resolve) {
-                var req = db.transaction("handles", "readonly").objectStore("handles").get("root");
-                req.onsuccess = function () { resolve(req.result || null); };
-                req.onerror = function () { resolve(null); };
-            });
-        }).catch(function () { return null; }).then(function (h) { folderHandleCache = h; return h; });
-    }
-    function folderSetHandle(h) {
-        folderHandleCache = h || null;
-        return openFolderDb().then(function (db) {
-            return new Promise(function (resolve, reject) {
-                var tx = db.transaction("handles", "readwrite");
-                if (h) tx.objectStore("handles").put(h, "root"); else tx.objectStore("handles").delete("root");
-                tx.oncomplete = function () { resolve(); };
-                tx.onerror = function () { reject(tx.error); };
-            });
-        });
-    }
-    // État de l'autorisation (« granted » / « prompt » / « denied ») ; ask = la demander (nécessite un geste de l'utilisateur récent).
-    function folderPermission(h, mode, ask) {
-        return Promise.resolve(h.queryPermission ? h.queryPermission({ mode: mode }) : "granted").then(function (st) {
-            if (st === "granted" || !ask || !h.requestPermission) return st;
-            return h.requestPermission({ mode: mode });
-        }).catch(function () { return "denied"; });
-    }
-    // Le fichier du dossier correspondant à cette pièce jointe (son nom sur le disque, sinon son nom affiché), ou null.
-    function folderBlobFor(meta, h) {
-        function withHandle(handle) {
-            if (!handle) return null;
-            return folderPermission(handle, "read", true).then(function (st) {
-                if (st !== "granted") return null;
-                var names = [meta.disk, meta.name].filter(function (n, i, a) { return n && a.indexOf(n) === i; });
-                return names.reduce(function (p, n) {
-                    return p.then(function (found) {
-                        if (found) return found;
-                        return handle.getFileHandle(n).then(function (fh) { return fh.getFile(); }).catch(function () { return null; });
-                    });
-                }, Promise.resolve(null));
-            });
-        }
-        return h ? withHandle(h) : folderGetHandle().then(withHandle);
-    }
-    // Nom libre dans le dossier : le même nom avec la même taille = le même fichier (on ne le recopie pas) ; sinon « nom (2).ext »…
-    function folderPutFile(h, file) {
-        var name0 = file.name || "fichier", m = /^(.*?)(\.[A-Za-z0-9]+)?$/.exec(name0), stem = m[1], ext = m[2] || "";
-        function attempt(i) {
-            var n = i === 1 ? name0 : stem + " (" + i + ")" + ext;
-            return h.getFileHandle(n).then(function (fh) {
-                return fh.getFile().then(function (ex) { return ex.size === file.size ? n : attempt(i + 1); });
-            }, function (err) {
-                if (!err || err.name !== "NotFoundError") throw err;
-                return h.getFileHandle(n, { create: true }).then(function (fh) {
-                    return fh.createWritable().then(function (w) { return w.write(file).then(function () { return w.close(); }); });
-                }).then(function () { return n; });
-            });
-        }
-        return attempt(1);
-    }
-    function folderSafeName(n) { return String(n || "fichier").replace(/[\\/:*?"<>|]/g, "_"); }
-    function extForMime(mime) {
-        var keys = Object.keys(FILE_MIME_BY_EXT);
-        for (var i = 0; i < keys.length; i++) if (FILE_MIME_BY_EXT[keys[i]] === mime) return keys[i];
-        return "";
-    }
-    // Nom à donner sur le disque à une pièce jointe (son nom affiché, avec une extension).
-    function diskNameFor(meta, blob) {
-        var n = folderSafeName(meta.name);
-        if (!fileExt(n)) { var e = extForMime(mimeForFile(meta.name, (blob && blob.type) || meta.type)); if (e) n += "." + e; }
-        return n;
-    }
-    // Enregistre un fichier ajouté : dans le dossier s'il est relié et autorisé (renvoie { id, disk }), sinon dans l'appli (comme avant).
-    var lastAttachFallback = false;
-    function storeAttachment(file) {
-        var id = uid();
-        var mime = mimeForFile(file.name, file.type);
-        var toStore = mime && file.type !== mime ? new Blob([file], { type: mime }) : file;
-        function toIdb() { return storeFileBlob(id, toStore).then(function () { return { id: id, mime: mime }; }); }
-        lastAttachFallback = false;
-        if (!folderSupported()) return toIdb();
-        return folderGetHandle().then(function (h) {
-            if (!h) return toIdb();
-            return folderPermission(h, "readwrite", true).then(function (st) {
-                if (st !== "granted") { lastAttachFallback = true; return toIdb(); }
-                return folderPutFile(h, new File([file], folderSafeName(file.name), { type: mime || file.type })).then(function (name) { return { id: id, disk: name, mime: mime }; }, function () { lastAttachFallback = true; return toIdb(); });
-            });
-        }).catch(function () { return toIdb(); });
-    }
-    // Rapport sur le dossier pour les messages : { connected, granted, name }
-    function folderStatus() {
-        return folderGetHandle().then(function (h) {
-            if (!h) return { connected: false };
-            return folderPermission(h, "read", false).then(function (st) { return { connected: true, granted: st === "granted", name: h.name || "dossier", handle: h }; });
-        });
-    }
-    // Copie dans le dossier les fichiers déjà ajoutés (restés dans l'appli) : à faire une fois après avoir choisi le dossier.
-    function folderMigrateFiles(h) {
-        var jobs = [];
-        state.instruments.forEach(function (inst) {
-            collectExercises(inst, function (ex) { return (ex.files || []).length > 0; }).forEach(function (f) {
-                (f.ex.files || []).forEach(function (meta) { if (!meta.disk) jobs.push({ ex: f.ex, meta: meta }); });
+    function cloudBudgetBytes() { return (prefs().cloudBudgetMB || 800) * 1024 * 1024; }
+    function cloudSignedIn() { return !!(db && currentUser); }
+    function cloudId(meta) { return meta.cid || meta.id; }
+    function cloudFileDoc(cid, i) { return db.collection("users").doc(currentUser.uid).collection("apps").doc("trainhub-file-" + cid + "-" + i); }
+    function cloudChunkCount(size) { return Math.max(1, Math.ceil(size / FILE_CHUNK_BYTES)); }
+    function cloudFileCost(size) { return size + cloudChunkCount(size) * CLOUD_DOC_OVERHEAD; }
+
+    // Toutes les pièces jointes et images connues (exercices + corbeille) : { meta, kind: "file" | "image", trash, ex }.
+    function allAttachmentMetas() {
+        var out = [];
+        (state.instruments || []).forEach(function (inst) {
+            collectExercises(inst, function (ex) { return (ex.files && ex.files.length) || (ex.images && ex.images.length); }).forEach(function (f) {
+                (f.ex.files || []).forEach(function (m) { out.push({ meta: m, kind: "file", trash: false, ex: f.ex }); });
+                (f.ex.images || []).forEach(function (m) { out.push({ meta: m, kind: "image", trash: false, ex: f.ex }); });
             });
         });
-        var copied = 0, missing = 0, failed = 0;
-        return folderPermission(h, "readwrite", true).then(function (st) {
-            if (st !== "granted") return { copied: 0, missing: 0, failed: jobs.length, denied: true };
-            return jobs.reduce(function (p, j) {
-                return p.then(function () {
-                    return getFileBlob(j.meta.id).then(function (blob) {
-                        if (!blob) { missing++; return; }
-                        var name = diskNameFor(j.meta, blob);
-                        return folderPutFile(h, new File([blob], name, { type: blob.type || j.meta.type })).then(function (n) { j.meta.disk = n; touchExercise(j.ex); copied++; });
-                    }).catch(function () { failed++; });
+        ((state.settings && state.settings.trash) || []).forEach(function (e) {
+            var a = attachmentsOf(e);
+            a.files.forEach(function (m) { out.push({ meta: m, kind: "file", trash: true }); });
+            a.images.forEach(function (m) { out.push({ meta: m, kind: "image", trash: true }); });
+        });
+        return out;
+    }
+    function findFileMeta(id) {
+        var all = allAttachmentMetas();
+        for (var i = 0; i < all.length; i++) if (all[i].kind === "file" && all[i].meta.id === id) return all[i].meta;
+        return null;
+    }
+
+    // Téléchargement : tous les morceaux (4 à la fois), recollés, puis gardés sur l'appareil. null + cloudFileIssue[id] en cas d'échec.
+    function cloudFetchFile(meta) {
+        if (!meta || !meta.cloud || !meta.chunks) return Promise.resolve(null);
+        if (cloudFetching[meta.id]) return cloudFetching[meta.id];
+        var p = waitForAuth().then(function () {
+            if (!cloudSignedIn()) { cloudFileIssue[meta.id] = db ? "signin" : "network"; return null; }
+            var cid = cloudId(meta), n = meta.chunks, parts = new Array(n), failed = "", next = 0;
+            if (meta.size > 1.5 * 1024 * 1024) showToast("Téléchargement de « " + meta.name + " » depuis votre compte…", 3500);
+            function worker() {
+                if (failed || next >= n) return Promise.resolve();
+                var i = next++;
+                return cloudFileDoc(cid, i).get().then(function (snap) {
+                    if (!snap.exists) { failed = "missing"; return; }
+                    parts[i] = snap.data().bytes.toUint8Array();
+                }).then(worker);
+            }
+            var ws = [];
+            for (var k = 0; k < 4; k++) ws.push(worker().catch(function () { failed = failed || "network"; }));
+            return Promise.all(ws).then(function () {
+                if (failed) { cloudFileIssue[meta.id] = failed; return null; }
+                var blob = new Blob(parts, { type: meta.type || "" });
+                if (meta.size && blob.size !== meta.size) { cloudFileIssue[meta.id] = "missing"; return null; }
+                delete cloudFileIssue[meta.id];
+                storeFileBlob(meta.id, blob).catch(function () {});
+                return blob;
+            });
+        }).catch(function () { cloudFileIssue[meta.id] = "network"; return null; }).then(function (r) { delete cloudFetching[meta.id]; return r; });
+        cloudFetching[meta.id] = p;
+        return p;
+    }
+    function blobToBytes(blob) {
+        if (blob.arrayBuffer) return blob.arrayBuffer().then(function (b) { return new Uint8Array(b); });
+        return new Promise(function (resolve, reject) {
+            var r = new FileReader();
+            r.onload = function () { resolve(new Uint8Array(r.result)); };
+            r.onerror = function () { reject(r.error); };
+            r.readAsArrayBuffer(blob);
+        });
+    }
+    // Envoi : "ok" | "nolocal" (le contenu n'est pas sur cet appareil) | "fail". L'indicateur meta.cloud n'est posé qu'à la fin.
+    function cloudUploadFile(meta) {
+        if (!cloudSignedIn()) return Promise.resolve("fail");
+        return getFileBlob(meta.id).then(function (blob) {
+            if (!blob) return "nolocal";
+            var n = cloudChunkCount(blob.size), cid = cloudId(meta), i = 0;
+            function sendChunk(j) {
+                return blobToBytes(blob.slice(j * FILE_CHUNK_BYTES, (j + 1) * FILE_CHUNK_BYTES)).then(function (u8) {
+                    return cloudFileDoc(cid, j).set({ i: j, n: n, bytes: firebase.firestore.Blob.fromUint8Array(u8), updatedAt: Date.now() });
                 });
-            }, Promise.resolve()).then(function () { if (copied) { save(); render(); } return { copied: copied, missing: missing, failed: failed, total: jobs.length }; });
+            }
+            function nextBatch() {
+                if (i >= n) return Promise.resolve();
+                var batch = [];
+                for (var k = 0; k < 3 && i < n; k++) batch.push(sendChunk(i++));
+                return Promise.all(batch).then(nextBatch);
+            }
+            return nextBatch().then(function () {
+                var live = findFileMeta(meta.id);
+                if (!live) { cloudDeleteChunks(cid, n); return "ok"; } // retiré pendant l'envoi
+                live.cloud = true; live.chunks = n; live.size = blob.size;
+                persist();
+                return "ok";
+            });
+        }).catch(function (e) { console.warn("Envoi du fichier vers le cloud impossible", e); return "fail"; });
+    }
+    function cloudDeleteChunks(cid, n) {
+        if (!cloudSignedIn()) return;
+        var batch = db.batch();
+        for (var i = 0; i < n; i++) batch.delete(cloudFileDoc(cid, i));
+        batch.commit().catch(function () {});
+    }
+    // Les morceaux ne sont effacés que si plus aucune pièce jointe (exercice dupliqué, corbeille) ne s'en sert.
+    function cloudDeleteFile(meta) {
+        if (!meta || !meta.cloud || !meta.chunks) return;
+        var cid = cloudId(meta);
+        var inUse = allAttachmentMetas().some(function (it) { return it.kind === "file" && it.meta.cloud && cloudId(it.meta) === cid; });
+        if (!inUse) cloudDeleteChunks(cid, meta.chunks);
+    }
+
+    // Espace occupé dans Firestore, d'après ce que l'appli en sait (estimation : l'exact est dans la console Firebase).
+    function utf8Size(str) { try { return new Blob([str]).size; } catch (e) { return str.length; } }
+    function cloudUsage() {
+        var u = { main: 0, log: 0, images: { n: 0, bytes: 0 }, audio: { n: 0, bytes: 0 }, other: { n: 0, bytes: 0 }, trash: { n: 0, bytes: 0 }, pending: 0, tooBig: 0, biggest: [], total: 0 };
+        var seen = {};
+        allAttachmentMetas().forEach(function (it) {
+            var m = it.meta, size = m.size || 0, bytes;
+            if (!m.cloud) {
+                if (it.kind === "file" && !it.trash && !seen["p" + m.id]) { seen["p" + m.id] = 1; u.pending++; if (size > CLOUD_FILE_MAX_BYTES) u.tooBig++; }
+                return;
+            }
+            if (it.kind === "image") bytes = Math.ceil(size / 3) * 4 + CLOUD_DOC_OVERHEAD; // base64
+            else { var cid = cloudId(m); if (seen[cid]) return; seen[cid] = 1; bytes = cloudFileCost(size); }
+            var bucket = it.trash ? u.trash : it.kind === "image" ? u.images : isAudioFile(m) ? u.audio : u.other;
+            bucket.n++; bucket.bytes += bytes;
+            if (it.kind === "file") u.biggest.push({ name: m.name || "?", bytes: bytes, trash: it.trash, exercise: it.ex ? it.ex.title : "" });
+        });
+        u.biggest.sort(function (a, b) { return b.bytes - a.bytes; });
+        u.biggest = u.biggest.slice(0, 5);
+        u.main = utf8Size(JSON.stringify(cloudState()));
+        Object.keys(logMonths).forEach(function (mo) { u.log += utf8Size(JSON.stringify(logMonths[mo])); });
+        u.total = u.main + u.log + u.images.bytes + u.audio.bytes + u.other.bytes + u.trash.bytes;
+        return u;
+    }
+
+    // Envoi des fichiers pas encore dans le cloud, un par un, dans la limite du plafond choisi. Appelé après un ajout, après la connexion
+    // et depuis les Paramètres. Les messages ne reviennent qu'une fois par situation : on ne harcèle pas.
+    var cloudFilesBusy = false, cloudFilesAgain = false, cloudNoticed = {};
+    function cloudFilesSoon() { setTimeout(syncFilesToCloud, 400); }
+    function syncFilesToCloud() {
+        if (!cloudSignedIn()) return Promise.resolve();
+        if (cloudFilesBusy) { cloudFilesAgain = true; return Promise.resolve(); }
+        var seenId = {};
+        var todo = allAttachmentMetas().filter(function (it) {
+            if (it.kind !== "file" || it.trash || it.meta.cloud || seenId[it.meta.id]) return false;
+            seenId[it.meta.id] = true;
+            return true;
+        }).map(function (it) { return it.meta; });
+        if (!todo.length) return Promise.resolve();
+        cloudFilesBusy = true;
+        var r = { sent: [], big: 0, budget: 0, fail: 0 };
+        var used = cloudUsage().total, budget = cloudBudgetBytes();
+        return todo.reduce(function (p, meta) {
+            return p.then(function () {
+                var size = meta.size || 0;
+                if (size > CLOUD_FILE_MAX_BYTES) { r.big++; return; }
+                var cost = cloudFileCost(size);
+                if (used + cost > budget) { r.budget++; return; }
+                return cloudUploadFile(meta).then(function (res) {
+                    if (res === "ok") { r.sent.push(meta.name); used += cost; }
+                    else if (res === "fail") r.fail++;
+                });
+            });
+        }, Promise.resolve()).catch(function (e) { console.warn("Envoi des fichiers interrompu", e); }).then(function () {
+            cloudFilesBusy = false;
+            if (r.sent.length) showToast(r.sent.length === 1 ? "« " + r.sent[0] + " » est dans votre compte : disponible sur tous vos appareils." : r.sent.length + " fichiers envoyés dans votre compte.", 4500);
+            if (r.big && !cloudNoticed.big) { cloudNoticed.big = true; showToast(r.big + " fichier" + (r.big > 1 ? "s dépassent" : " dépasse") + " " + fmtStorage(CLOUD_FILE_MAX_BYTES) + " : " + (r.big > 1 ? "gardés" : "gardé") + " sur cet appareil seulement.", 7000); }
+            if (r.budget && cloudNoticed.budget !== r.budget) { cloudNoticed.budget = r.budget; showToast("Plafond de stockage atteint (" + fmtStorage(used) + " sur " + fmtStorage(budget) + ") : " + r.budget + " fichier" + (r.budget > 1 ? "s" : "") + " pas envoyé" + (r.budget > 1 ? "s" : "") + ". Voir Paramètres › Données.", 8000); }
+            if (r.fail && !cloudNoticed.fail) { cloudNoticed.fail = true; showToast("Envoi impossible pour " + r.fail + " fichier" + (r.fail > 1 ? "s" : "") + " (connexion ?) : nouvel essai à la prochaine ouverture.", 6000); }
+            if (!r.budget) cloudWarnLevels(); // le message de plafond dit déjà l'essentiel
+            document.dispatchEvent(new Event("trainhub-cloud-files"));
+            if (cloudFilesAgain) { cloudFilesAgain = false; cloudFilesSoon(); }
         });
     }
-    function folderCountLocalFiles() {
-        var n = 0;
-        state.instruments.forEach(function (inst) {
-            collectExercises(inst, function (ex) { return (ex.files || []).length > 0; }).forEach(function (f) { (f.ex.files || []).forEach(function (m) { if (!m.disk) n++; }); });
-        });
-        return n;
+    // Prévient (une fois par session) quand l'espace approche du plafond, ou le document principal de sa limite de 1 Mio.
+    function cloudWarnLevels() {
+        try {
+            var u = cloudUsage(), budget = cloudBudgetBytes();
+            if (u.total >= budget * 0.8 && !cloudNoticed.level) {
+                cloudNoticed.level = true;
+                showToast("Stockage à " + Math.round(u.total / budget * 100) + " % du plafond (" + fmtStorage(u.total) + " sur " + fmtStorage(budget) + "). Détail dans Paramètres › Données.", 7000);
+            }
+            if (u.main >= FIRESTORE_DOC_MAX_BYTES * 0.85 && !cloudNoticed.main) {
+                cloudNoticed.main = true;
+                showToast("Le document principal approche la limite de Firestore (" + fmtStorage(u.main) + " sur " + fmtStorage(FIRESTORE_DOC_MAX_BYTES) + ") : au-delà, la synchro échoue. Videz la corbeille ou allégez les notes.", 9000);
+            }
+        } catch (e) {}
     }
 
     // ---------- images des exercices ----------
@@ -1544,27 +1616,22 @@
     // portée. Les fichiers joints d'un exercice mis à la corbeille restent en IndexedDB tant qu'il
     // n'est pas purgé (évincé par la limite ou supprimé définitivement) — sinon les rouvrir après
     // restauration échouerait.
-    function filesOf(entry) {
-        if (entry.type === "exercise") return (entry.data.files || []).concat(entry.data.images || []);
-        if (entry.type === "folder") {
-            var files = [];
-            function walk(f) {
-                (f.exercises || []).forEach(function (ex) { files = files.concat(ex.files || [], ex.images || []); });
-                (f.folders || []).forEach(walk);
-            }
-            walk(entry.data);
-            return files;
-        }
-        if (entry.type === "instrument") {
-            var all = [];
-            (entry.data.categories || []).forEach(function (c) { all = all.concat(filesOf({ type: "folder", data: c })); });
-            return all;
-        }
-        return [];
+    function attachmentsOf(entry) {
+        var files = [], images = [];
+        function addEx(ex) { files = files.concat(ex.files || []); images = images.concat(ex.images || []); }
+        function walk(f) { (f.exercises || []).forEach(addEx); (f.folders || []).forEach(walk); }
+        if (entry.type === "exercise") addEx(entry.data);
+        else if (entry.type === "folder") walk(entry.data);
+        else if (entry.type === "instrument") (entry.data.categories || []).forEach(walk);
+        return { files: files, images: images };
     }
 
+    // L'entrée est déjà sortie de la corbeille quand on la purge (purgeFromTrash, emptyTrash, addToTrash) : les fichiers qu'une copie
+    // dupliquée utilise encore sont ainsi gardés dans le cloud. Les morceaux envoyés dans le cloud sont libérés avec le reste.
     function purgeTrashEntry(entry) {
-        filesOf(entry).forEach(function (f) { deleteFileBlob(f.id); });
+        var a = attachmentsOf(entry);
+        a.files.forEach(function (f) { deleteFileBlob(f.id); cloudDeleteFile(f); });
+        a.images.forEach(function (f) { deleteFileBlob(f.id); cloudDeleteImage(f.id); });
     }
 
     function addToTrash(type, data, extra) {
@@ -1618,15 +1685,16 @@
     function purgeFromTrash(entryId) {
         var entry = state.settings.trash.filter(function (e) { return e.id === entryId; })[0];
         if (!entry) return;
-        purgeTrashEntry(entry);
         removeFromTrash(entryId);
+        purgeTrashEntry(entry);
         save();
         render();
     }
 
     function emptyTrash() {
-        state.settings.trash.forEach(purgeTrashEntry);
+        var gone = state.settings.trash;
         state.settings.trash = [];
+        gone.forEach(purgeTrashEntry);
         save();
         render();
     }
@@ -2099,12 +2167,13 @@
         return (links || []).map(function (l) { return { id: uid(), label: l.label, url: l.url }; });
     }
 
-    function cloneFilesForDuplicate(files) {
+    // `shareCloud` (pièces jointes, pas les images) : un fichier déjà dans le cloud y reste unique, la copie utilise les mêmes morceaux.
+    function cloneFilesForDuplicate(files, shareCloud) {
         return (files || []).map(function (f) {
             var newId = uid();
             getFileBlob(f.id).then(function (blob) { if (blob) storeFileBlob(newId, blob); });
             var copy = { id: newId, name: f.name, type: f.type, size: f.size };
-            if (f.disk) copy.disk = f.disk; // le fichier du dossier est partagé par la copie
+            if (shareCloud && f.cloud && f.chunks) { copy.cloud = true; copy.chunks = f.chunks; copy.cid = f.cid || f.id; }
             return copy;
         });
     }
@@ -2118,7 +2187,7 @@
             favorite: false,
             archived: false,
             links: cloneLinksForDuplicate(ex.links),
-            files: cloneFilesForDuplicate(ex.files),
+            files: cloneFilesForDuplicate(ex.files, true),
             images: cloneFilesForDuplicate(ex.images),
             metronome: ex.metronome ? JSON.parse(JSON.stringify(ex.metronome)) : null,
             notesArchive: (ex.notesArchive || []).map(function (e) { return { d: e.d, t: e.t }; }),
@@ -5061,54 +5130,25 @@
         return null;
     }
     var ADD_FILE_ACCEPT = ".pdf,application/pdf,audio/*,video/mp4,image/*,.mp3,.m4a,.aac,.wav,.ogg,.opus,.flac,.aif,.aiff,.mp4,.m4v,.mov,.weba,.webm";
-    // Le fichier choisi devient une pièce jointe de l'exercice (stockée dans l'appli) ; `link` : le lien inutilisable qu'il remplace.
+    // Le fichier choisi devient une pièce jointe de l'exercice (gardée sur l'appareil, puis envoyée dans le compte) ; `link` : le lien inutilisable qu'il remplace.
     function attachFileToExercise(ex, file, displayName) {
-        return storeAttachment(file).then(function (r) {
-            var meta = { id: r.id, name: displayName || file.name, type: r.mime || file.type, size: file.size, addedAt: Date.now() };
-            if (r.disk) meta.disk = r.disk;
+        var id = uid(), mime = mimeForFile(file.name, file.type);
+        var toStore = mime && file.type !== mime ? new Blob([file], { type: mime }) : file;
+        return storeFileBlob(id, toStore).then(function () {
+            var meta = { id: id, name: displayName || file.name, type: mime || file.type, size: file.size, addedAt: Date.now() };
             ex.files = ex.files || [];
             ex.files.push(meta);
+            cloudFilesSoon(); // envoi dans le compte, en arrière-plan
             return meta;
         });
     }
     function localFileLinkHelp(link, info, ex) {
         ex = ex || (link && findExerciseOfLink(link));
-        // Dossier relié : si le fichier désigné y est (même nom), on le rattache tout de suite, sans rien demander.
-        if (ex && info.name && folderSupported()) {
-            folderGetHandle().then(function (h) {
-                if (!h) return null;
-                return folderPermission(h, "read", true).then(function (st) {
-                    if (st !== "granted") return null;
-                    return h.getFileHandle(info.name).then(function (fh) { return fh.getFile(); }).catch(function () { return null; });
-                });
-            }).catch(function () { return null; }).then(function (file) {
-                if (!file) { localFileLinkHelpAsk(link, info, ex); return; }
-                var mime = mimeForFile(file.name, file.type);
-                var label = link && link.label && !/^https?:|^file:/i.test(link.label) ? link.label : "";
-                var ext = fileExt(file.name);
-                var shown = label ? (ext && fileExt(label) !== ext ? label + "." + ext : label) : file.name;
-                var meta = { id: uid(), name: shown, type: mime || file.type, size: file.size, addedAt: Date.now(), disk: info.name };
-                ex.files = ex.files || [];
-                ex.files.push(meta);
-                if (link) {
-                    ex.links = (ex.links || []).filter(function (l) { return l.id !== link.id; });
-                    if (ex.pinnedLinkId === link.id) ex.pinnedLinkId = null;
-                }
-                imagesOpenInList[ex.id] = true;
-                touchExercise(ex); save(); render();
-                showToast("Fichier trouvé dans le dossier et ajouté à l'exercice : « " + meta.name + " »", 4500);
-                if (isAudioFile(meta)) openAudioWindow(meta);
-            });
-            return;
-        }
-        localFileLinkHelpAsk(link, info, ex);
-    }
-    function localFileLinkHelpAsk(link, info, ex) {
         if (!ex) { dlgAlert({ title: "Fichier de votre ordinateur", message: "Ce lien désigne un fichier de cet ordinateur (« " + info.path + " »). Un navigateur ne peut pas l'ouvrir à partir de son chemin : ajoutez plutôt le fichier à l'exercice avec le bouton trombone." }); return; }
         dlgConfirm({
             title: "Fichier de votre ordinateur",
             message: "Ce lien désigne un fichier de cet ordinateur (« " + info.path + " »). Pour des raisons de sécurité, un navigateur ou une appli web ne peut pas ouvrir un fichier à partir de son chemin : il faut le choisir vous-même. " +
-                "Cherchez « " + (info.name || "le fichier") + " » : il sera ajouté à l'exercice en pièce jointe" + (link ? ", à la place de ce lien" : "") + " (audio : lecture dans le lecteur).",
+                "Cherchez « " + (info.name || "le fichier") + " » : il sera ajouté à l'exercice en pièce jointe" + (link ? ", à la place de ce lien" : "") + " (audio : lecture dans le lecteur) et envoyé dans votre compte, donc disponible sur tous vos appareils.",
             confirmLabel: "Choisir le fichier…"
         }, function () {
             var input = document.createElement("input");
@@ -5247,7 +5287,7 @@
 
     // -- les morceaux --
     function audioFileTrack(meta) {
-        return { id: meta.id, kind: "file", name: meta.name, meta: { id: meta.id, name: meta.name, type: meta.type || "", size: meta.size || 0, disk: meta.disk || "" }, pinned: false, pos: 0, rate: null };
+        return { id: meta.id, kind: "file", name: meta.name, meta: { id: meta.id, name: meta.name, type: meta.type || "", size: meta.size || 0 }, pinned: false, pos: 0, rate: null };
     }
     function audioLinkTrack(link) {
         return { id: "url:" + link.url, kind: "link", name: link.label || link.url, originalUrl: link.url, url: audioUrlFor(link.url), pinned: false, pos: 0, rate: null };
@@ -5413,7 +5453,7 @@
             try { audio.load(); } catch (e) {}
             getFileBlob(t.meta.id, t.meta).then(function (blob) {
                 if (token !== ctl.loadToken || audioCtl !== ctl) return; // un autre morceau a été choisi entre-temps
-                if (!blob) { t.unavailable = true; folderStatus().then(function (fs) { t.folder = fs; audioRefresh(ctl); }); return; }
+                if (!blob) { t.unavailable = true; audioRefresh(ctl); return; }
                 ctl.objUrl = URL.createObjectURL(playableBlob(blob, t.meta));
                 start(ctl.objUrl);
                 audioRefresh(ctl);
@@ -5737,20 +5777,23 @@
             try { host = new URL(t.url || t.originalUrl).hostname; } catch (e) {}
             var detail = (code ? "Erreur " + code + " (" + (ERR_TEXT[code] || "inconnue") + ")" : "") + (host ? (code ? " · " : "") + host : "");
             if (unavailable) {
-                var fs = t.folder || { connected: false };
+                var live = findFileMeta(t.meta.id) || t.meta;
+                var why = live.cloud ? (cloudFileIssue[t.meta.id] || "network") : "";
                 function reload() { t.unavailable = false; audioSelect(ctl.tracks.indexOf(t), { play: true }); }
-                if (fs.connected && !fs.granted) {
-                    txt.textContent = "Accès au dossier « " + fs.name + " » à autoriser.";
-                    txt.title = "Le navigateur demande d'autoriser l'accès au dossier à chaque nouvelle session.";
-                    act("Autoriser l'accès", function () { folderPermission(fs.handle, "read", true).then(function (st) { if (st === "granted") reload(); }); });
-                } else if (fs.connected) {
-                    txt.textContent = "Fichier absent du dossier « " + fs.name + " ».";
-                    txt.title = "Nom attendu : « " + (t.meta.disk || t.meta.name) + " ». Remettez le fichier dans ce dossier, ou retrouvez-le.";
-                    act("Retrouver le fichier…", function () { relinkFile(t.meta, reload); });
+                txt.title = fileUnavailableMessage(live);
+                if (why === "signin") {
+                    txt.textContent = "Fichier dans votre compte : connexion requise.";
+                    act("Se connecter", function () { var b = document.getElementById("google-signin-btn"); if (b) b.click(); });
+                    act("Réessayer", reload);
+                } else if (why === "network") {
+                    txt.textContent = "Téléchargement impossible (connexion ?).";
+                    act("Réessayer", reload);
+                } else if (why === "missing") {
+                    txt.textContent = "Fichier absent du cloud.";
+                    act("Retrouver le fichier…", function () { relinkFile(live, reload); });
                 } else {
-                    txt.textContent = "Fichier absent de cette appli.";
-                    txt.title = FILE_UNAVAILABLE_TEXT;
-                    act("Retrouver le fichier…", function () { relinkFile(t.meta, reload); });
+                    txt.textContent = "Fichier absent de cet appareil.";
+                    act("Retrouver le fichier…", function () { relinkFile(live, reload); });
                 }
             } else if (t.kind === "link") {
                 txt.textContent = "Lien illisible dans l'appli" + (detail ? " (" + detail.replace(/^Erreur/, "erreur") + ")" : "") + ".";
@@ -5976,6 +6019,7 @@
                 dlgConfirm({ title: "Retirer « " + meta.name + " » ?", message: "Le fichier sera supprimé de l'exercice.", confirmLabel: "Retirer", danger: true }, function () {
                     ex.files = ex.files.filter(function (f) { return f.id !== meta.id; });
                     deleteFileBlob(meta.id);
+                    cloudDeleteFile(meta);
                     touchExercise(ex);
                     save();
                     render();
@@ -5995,7 +6039,7 @@
         fileInput.className = "add-file-input";
         fileInput.accept = ADD_FILE_ACCEPT;
         fileInput.multiple = true;
-        var fileBtn = svgIconButton(FILE_ICON_SVG, "Ajouter un fichier (PDF, MP3…) ou une image — reste sur cet appareil", function () { fileInput.click(); });
+        var fileBtn = svgIconButton(FILE_ICON_SVG, "Ajouter un fichier (PDF, MP3…) ou une image — envoyé dans votre compte", function () { fileInput.click(); });
         fileBtn.classList.add("btn-ghost");
         fileInput.addEventListener("change", function () {
             var all = Array.prototype.slice.call(fileInput.files || []);
@@ -6006,11 +6050,7 @@
             if (imgs.length) addImagesToExercise(ex, imgs);
             if (!files.length) { fileInput.value = ""; return; }
             ex.files = ex.files || [];
-            var fellBack = false;
-            Promise.all(files.map(function (file) {
-                return attachFileToExercise(ex, file).then(function () { if (lastAttachFallback) fellBack = true; });
-            })).then(function () {
-                if (fellBack) showToast("Accès au dossier non autorisé : le fichier est gardé dans l'appli (Paramètres › Données pour le copier dans le dossier).", 7000);
+            Promise.all(files.map(function (file) { return attachFileToExercise(ex, file); })).then(function () {
                 imagesOpenInList[ex.id] = true; // la section « Images et fichiers » s'ouvre pour montrer le nouveau fichier
                 fileInput.value = "";
                 // Un seul fichier ajouté : saisie du nom aussitôt (comme pour un lien).
@@ -6189,6 +6229,7 @@
 
     function onAuthChanged(user) {
         currentUser = user;
+        authSettledResolve();
         updateAuthUI(user);
         if (unsubscribeSnapshot) {
             unsubscribeSnapshot();
@@ -6234,6 +6275,8 @@
             setSyncStatus("synced");
             attachSnapshotListener();
             syncImagesToCloud();
+            syncFilesToCloud();
+            cloudWarnLevels();
             logSyncFromCloud(remoteLogRev);
             render();
         }).catch(function (e) {
@@ -6264,6 +6307,7 @@
     function initFirebase() {
         if (typeof firebase === "undefined" || typeof FIREBASE_CONFIG === "undefined") {
             console.warn("Firebase indisponible : mode local uniquement.");
+            authSettledResolve();
             return;
         }
         try {
@@ -6273,6 +6317,7 @@
             auth.onAuthStateChanged(onAuthChanged);
         } catch (e) {
             console.error("Initialisation Firebase impossible", e);
+            authSettledResolve();
         }
     }
 
@@ -6307,7 +6352,7 @@
         loadScriptOnce(base + "firebase-app-compat.js")
             .then(function () { return Promise.all([loadScriptOnce(base + "firebase-auth-compat.js"), loadScriptOnce(base + "firebase-firestore-compat.js"), loadScriptOnce("firebase-config.js")]); })
             .then(initFirebase)
-            .catch(function (e) { console.warn("Firebase indisponible : mode local uniquement.", e); });
+            .catch(function (e) { console.warn("Firebase indisponible : mode local uniquement.", e); authSettledResolve(); });
     }
     (window.requestIdleCallback || function (f) { setTimeout(f, 60); })(loadFirebaseThenInit, { timeout: 1500 });
 
@@ -10727,6 +10772,86 @@
 
             // ===== Données =====
             section("Données");
+            // Espace occupé dans le compte (Firestore, offre gratuite) : total, détail, plafond de TrainHub, fichiers les plus lourds.
+            card("Espace de stockage", "Tout est gardé dans votre compte, sans abonnement : exercices, sessions, images, audio et PDF.");
+            var storeBox = document.createElement("div");
+            storeBox.className = "settings-storage";
+            curCard.appendChild(storeBox);
+            function pctText(x) { return x > 0 && x < 0.001 ? "< 0,1" : (x * 100).toFixed(x < 0.1 ? 1 : 0).replace(".", ","); }
+            function paintStorage() {
+                if (storeBox.__painted && !storeBox.isConnected) { document.removeEventListener("trainhub-cloud-files", paintStorage); return; }
+                storeBox.__painted = true;
+                var u = cloudUsage(), budget = cloudBudgetBytes(), share = u.total / FIRESTORE_FREE_BYTES;
+                function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+                storeBox.textContent = "";
+                storeBox.appendChild(el("div", "settings-storage-sum", fmtStorage(u.total) + " sur " + fmtStorage(FIRESTORE_FREE_BYTES) + " gratuits (" + pctText(share) + " %)"));
+                var bar = el("div", "settings-storage-bar" + (u.total >= budget ? " over" : u.total >= budget * 0.8 ? " warn" : ""));
+                var fill = el("div", "settings-storage-fill");
+                fill.style.width = Math.max(0.6, Math.min(100, share * 100)) + "%";
+                var tick = el("div", "settings-storage-tick");
+                tick.style.left = Math.min(100, budget / FIRESTORE_FREE_BYTES * 100) + "%";
+                tick.title = "Plafond de TrainHub : " + fmtStorage(budget);
+                bar.appendChild(fill); bar.appendChild(tick);
+                storeBox.appendChild(bar);
+                storeBox.appendChild(el("div", "settings-field-hint", "Trait : plafond de TrainHub (" + fmtStorage(budget) + "). Au-delà, les nouveaux fichiers restent sur l'appareil où ils sont ajoutés."));
+                var rows = el("div", "settings-storage-rows");
+                function row(name, bytes, count, cls) {
+                    var r = el("div", "settings-storage-row" + (cls ? " " + cls : ""));
+                    r.appendChild(el("span", "settings-storage-name", name + (count != null ? " (" + count + ")" : "")));
+                    r.appendChild(el("span", "settings-storage-size", fmtStorage(bytes)));
+                    rows.appendChild(r);
+                    return r;
+                }
+                var mainShare = u.main / FIRESTORE_DOC_MAX_BYTES;
+                var mainRow = row("Exercices, sessions, réglages", u.main, null, mainShare >= 0.85 ? "bad" : mainShare >= 0.7 ? "warn" : "");
+                mainRow.title = "Document principal : " + fmtStorage(u.main) + " sur " + fmtStorage(FIRESTORE_DOC_MAX_BYTES) + " au plus (limite de Firestore par document)";
+                row("Journal des séances", u.log);
+                row("Images", u.images.bytes, u.images.n);
+                row("Audio", u.audio.bytes, u.audio.n);
+                row("PDF et autres fichiers", u.other.bytes, u.other.n);
+                if (u.trash.n) row("Corbeille (fichiers et images)", u.trash.bytes, u.trash.n);
+                storeBox.appendChild(rows);
+                storeBox.appendChild(el("div", "settings-field-hint" + (mainShare >= 0.7 ? " settings-storage-alert" : ""),
+                    "Document principal : " + fmtStorage(u.main) + " sur " + fmtStorage(FIRESTORE_DOC_MAX_BYTES) + " au plus" + (mainShare >= 0.85 ? " — presque plein : au-delà, la synchro échoue (videz la corbeille, allégez les notes)." : mainShare >= 0.7 ? " — à surveiller." : ".")));
+                if (u.biggest.length) {
+                    storeBox.appendChild(el("div", "settings-storage-sub", "Fichiers les plus lourds"));
+                    var big = el("div", "settings-storage-rows");
+                    u.biggest.forEach(function (b) {
+                        var r = el("div", "settings-storage-row");
+                        var nm = el("span", "settings-storage-name", b.name + (b.trash ? " · corbeille" : b.exercise ? " · " + b.exercise : ""));
+                        nm.title = nm.textContent;
+                        r.appendChild(nm);
+                        r.appendChild(el("span", "settings-storage-size", fmtStorage(b.bytes)));
+                        big.appendChild(r);
+                    });
+                    storeBox.appendChild(big);
+                }
+                var dev = el("div", "settings-storage-row settings-storage-device");
+                dev.appendChild(el("span", "settings-storage-name", "Sur cet appareil (ce navigateur)"));
+                var devSize = el("span", "settings-storage-size", "…");
+                dev.appendChild(devSize);
+                storeBox.appendChild(dev);
+                if (navigator.storage && navigator.storage.estimate) {
+                    navigator.storage.estimate().then(function (e) { devSize.textContent = e && e.usage != null ? fmtStorage(e.usage) : "—"; }, function () { devSize.textContent = "—"; });
+                } else devSize.textContent = "—";
+                if (u.pending) {
+                    storeBox.appendChild(el("div", "settings-field-hint settings-storage-alert", u.pending + " fichier" + (u.pending > 1 ? "s" : "") + " pas encore dans le cloud" + (u.tooBig ? " (dont " + u.tooBig + " de plus de " + fmtStorage(CLOUD_FILE_MAX_BYTES) + ", jamais envoyé" + (u.tooBig > 1 ? "s" : "") + ")" : "") + (cloudSignedIn() ? "." : " — connectez-vous pour les envoyer.")));
+                    if (cloudSignedIn()) {
+                        var keep = curCard; curCard = storeBox;
+                        actionRow("Envoyer maintenant", "Reprend l'envoi, dans la limite du plafond", function () { cloudNoticed = {}; syncFilesToCloud().then(paintStorage); });
+                        curCard = keep;
+                    }
+                }
+                storeBox.appendChild(el("div", "settings-field-hint", "Limite gratuite de Firestore (sans abonnement) : 1 Go de données stockées et 10 Go de téléchargement par mois, avec environ 20 000 écritures et 50 000 lectures par jour. Ce projet Firebase est partagé avec d'autres applis (HarmoHub, TabHub) : leur espace s'ajoute à celui de TrainHub. Chiffres estimés d'après vos données ; le total exact est dans la console Firebase (Firestore › Utilisation)."));
+            }
+            document.addEventListener("trainhub-cloud-files", paintStorage);
+            paintStorage();
+            field("Plafond de TrainHub", selectControl(PREF_CLOUD_BUDGET_MB.map(function (n) { return [String(n), n >= 1000 ? "1 Go (limite complète)" : n + " Mo" + (n === 800 ? " (conseillé)" : "")]; }), String(prefs().cloudBudgetMB), function (v) {
+                setPref("cloudBudgetMB", parseInt(v, 10));
+                cloudNoticed = {};
+                paintStorage();
+                syncFilesToCloud();
+            }), "Réserve de la place aux autres applis du projet. Les nouveaux fichiers ne partent plus au-delà");
             card("Sauvegarde");
             actionRow("Sauvegardes de secours", "Revenir à une version précédente de tes données", openBackupsPanel);
             actionRow("Exporter", "Télécharger tout dans un fichier JSON", function () { var t = document.getElementById("export-btn"); if (t) t.click(); });
@@ -10742,45 +10867,6 @@
             actionRow("Réimporter des images…", "Rattache des images exportées à leurs exercices", function () { reFile.click(); }, "settings-reimport-btn");
             curCard.appendChild(reFile);
 
-            // Dossier de fichiers (Chrome / Edge) : tous les fichiers audio et PDF dans un seul dossier de l'ordinateur.
-            card("Fichiers audio et PDF", "Images : toujours réduites et synchronisées dans le cloud, rien ne change pour elles. Audio et PDF : par défaut gardés dans cette appli seulement ; avec un dossier, ils sont rangés dans un seul endroit de l'ordinateur, partagé par l'appli du Dock, Chrome et les autres.");
-            var folderHolder = document.createElement("div");
-            folderHolder.className = "settings-folder-rows";
-            curCard.appendChild(folderHolder);
-            function paintFolderCard() {
-                function build(fn) { var keep = curCard; curCard = folderHolder; folderHolder.textContent = ""; try { fn(); } finally { curCard = keep; } }
-                if (!folderSupported()) {
-                    build(function () {
-                        var n = document.createElement("div"); n.className = "settings-field-hint";
-                        n.textContent = "Le choix d'un dossier n'est disponible que dans Chrome et Edge sur ordinateur (pas Safari, iPhone ni Firefox). Ici, les fichiers restent dans l'appli ; seuls leurs noms sont synchronisés.";
-                        folderHolder.appendChild(n);
-                    });
-                    return;
-                }
-                folderStatus().then(function (fs) {
-                    build(function () {
-                        var txt = document.createElement("span"); txt.className = "settings-folder-name";
-                        txt.textContent = fs.connected ? "« " + fs.name + " » · " + (fs.granted ? "autorisé" : "à autoriser") : "Aucun (fichiers gardés dans l'appli)";
-                        field("Dossier", txt, "Choisissez un sous-dossier (ex. Documents › TrainHub) : Chrome n'autorise pas le Bureau, Documents ou Téléchargements eux-mêmes");
-                        actionRow(fs.connected ? "Choisir un autre dossier…" : "Choisir le dossier…", "Un dossier sur le Bureau, dans Documents, iCloud Drive, Dropbox…", function () {
-                            window.showDirectoryPicker({ id: "trainhub-files", mode: "readwrite", startIn: "documents" }).then(function (h) {
-                                return folderPermission(h, "readwrite", true).then(function () { return folderSetHandle(h); }).then(function () { showToast("Dossier relié : « " + h.name + " »", 4000); paintFolderCard(); });
-                            }).catch(function (e) { if (e && e.name !== "AbortError") dlgAlert({ title: "Dossier non relié", message: String((e && e.message) || e) }); });
-                        });
-                        if (fs.connected && !fs.granted) actionRow("Autoriser l'accès", "Le navigateur le redemande à chaque nouvelle session (un clic)", function () { folderPermission(fs.handle, "readwrite", true).then(paintFolderCard); });
-                        var nLocal = fs.connected ? folderCountLocalFiles() : 0;
-                        if (fs.connected && nLocal) actionRow("Copier dans le dossier les " + nLocal + " fichier" + (nLocal > 1 ? "s" : "") + " de l'appli", "Pour les retrouver partout où ce dossier est relié (les originaux restent dans l'appli)", function () {
-                            folderMigrateFiles(fs.handle).then(function (r) {
-                                if (r.denied) showToast("Accès au dossier refusé : rien n'a été copié.", 5000);
-                                else showToast(r.copied + " fichier" + (r.copied > 1 ? "s" : "") + " copié" + (r.copied > 1 ? "s" : "") + " dans le dossier" + (r.missing ? " · " + r.missing + " introuvable" + (r.missing > 1 ? "s" : "") + " dans l'appli" : "") + (r.failed ? " · " + r.failed + " en échec" : "") + ".", 6000);
-                                paintFolderCard();
-                            });
-                        });
-                        if (fs.connected) actionRow("Ne plus utiliser de dossier", "Les fichiers déjà rangés dans le dossier y restent (rien n'est supprimé)", function () { folderSetHandle(null).then(paintFolderCard); });
-                    });
-                });
-            }
-            paintFolderCard();
 
             // ===== Avancé : réglages fins, hors de la page d'accueil des paramètres =====
             section("Avancé");
@@ -11436,7 +11522,7 @@
         }
         if (pending.length) showToast("Fichier en cours de lecture, réessayez dans un instant : " + pending.join(", "));
         if (unavailable.length) {
-            dlgAlert({ title: "Fichiers indisponibles", message: "Ils sont enregistrés sur l'appareil où tu les as ajoutés, pas sur celui-ci :", items: unavailable });
+            dlgAlert({ title: "Fichiers indisponibles", message: "Introuvables ici (pas encore envoyés dans ton compte, ou connexion absente) :", items: unavailable });
         }
     }
 
@@ -16211,7 +16297,7 @@
             // Pièces jointes lues dès l'affichage : le clic sur "Ouvrir" n'a alors plus rien
             // d'asynchrone à attendre (voir gsOpenItems).
             items.forEach(function (item) {
-                if (item.type !== "file" || item.meta.id in gsFileBlobCache) return;
+                if (item.type !== "file" || isAudioFile(item.meta) || item.meta.id in gsFileBlobCache) return;
                 getFileBlob(item.meta.id, item.meta).then(function (b) { gsFileBlobCache[item.meta.id] = b || false; }, function () { gsFileBlobCache[item.meta.id] = false; });
             });
 

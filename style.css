@@ -3289,6 +3289,23 @@ button.settings-scheme.on { border-color: var(--accent); background: color-mix(i
 .settings-hues[hidden], .settings-hues-label[hidden] { display: none; }
 button.settings-hue { width: 28px; height: 28px; padding: 0; border-radius: 50%; border: 1px solid rgba(var(--ov), .18); }
 button.settings-hue.on { box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--text-main); }
+.settings-storage { display: flex; flex-direction: column; gap: 8px; padding: 4px 0 10px; }
+.settings-storage-sum { font-size: var(--fs-md); font-weight: 700; color: var(--text-main); font-variant-numeric: tabular-nums; }
+.settings-storage-bar { position: relative; height: 9px; border-radius: 999px; background: rgba(var(--ov), .10); }
+.settings-storage-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; background: var(--accent); }
+.settings-storage-bar.warn .settings-storage-fill { background: #f0a030; }
+.settings-storage-bar.over .settings-storage-fill { background: #e5484d; }
+.settings-storage-tick { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--text-main); opacity: .7; }
+.settings-storage-rows { display: flex; flex-direction: column; }
+.settings-storage-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 5px 0; font-size: var(--fs-sm); border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent); font-variant-numeric: tabular-nums; }
+.settings-storage-rows > .settings-storage-row:first-child { border-top: none; }
+.settings-storage-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
+.settings-storage-size { flex: none; font-weight: 600; color: var(--text-main); }
+.settings-storage-row.warn .settings-storage-size { color: #f0a030; }
+.settings-storage-row.bad .settings-storage-size { color: #e5484d; }
+.settings-storage-sub { margin-top: 4px; font-size: var(--fs-2xs); font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); }
+.settings-storage-device { border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+.settings-storage-alert { color: #f0a030; }
 button.settings-action { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; height: auto; padding: 12px 2px 12px 0; text-align: left; background: transparent; border: none; border-top: 1px solid color-mix(in srgb, var(--border) 75%, transparent); border-radius: 0; }
 .settings-card-title + button.settings-action, .settings-card-note + button.settings-action { border-top: none; }
 .settings-action-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
