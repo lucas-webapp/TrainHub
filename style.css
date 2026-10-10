@@ -455,6 +455,7 @@ button.session-btn-highlight:hover { background: color-mix(in srgb, var(--c-sage
     cursor: grab;
     touch-action: none;
     padding: 4px 2px;
+    margin-right: -7px; /* titre plus proche de la poignée (le point d'appui reste de la même taille) */
 }
 .exercise-drag-handle:hover { color: var(--text-main); }
 .exercise.dragging { opacity: .5; }
@@ -735,8 +736,8 @@ button.result-group-title:hover { background: color-mix(in srgb, var(--group-col
     flex: none;
     padding: 0;
     /* marges verticales négatives : la zone cliquable grandit sans rendre les lignes plus hautes ;
-       marge droite : le texte du dossier est un peu décalé vers la droite du chevron */
-    margin: -4px 4px -4px 0;
+       marge droite négative : le texte du dossier reste proche du chevron */
+    margin: -4px -3px -4px 0;
     background: transparent;
     border: none;
     color: var(--text-muted);
@@ -1201,7 +1202,13 @@ button.metro-mini-btn:hover { border-color: var(--accent); color: var(--accent);
 button.metro-mini-btn.metro-progressive-active { color: var(--accent); border-color: var(--accent); }
 
 /* -- formules rythmiques courantes + "…" (formules moins courantes / réglage libre) -- */
-.metro-formulas-row { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.metro-formulas-row { display: flex; justify-content: center; gap: 6px; flex-wrap: nowrap; margin-top: 10px; }
+.metro-formulas-row > button.metro-mini-btn { flex: 0 1 auto; min-width: 0; min-height: 36px; height: 36px; }
+button.metro-mini-btn.metro-formula-btn { padding: 0 10px; font-size: var(--fs-xs); }
+/* Signature rythmique : chiffres empilés (2 sur 4), sans barre de fraction */
+button.metro-mini-btn.metro-formula-btn:not(.metro-formula-none) { min-width: 32px; padding: 0 6px; }
+.metro-sig { position: relative; display: inline-flex; flex-direction: column; align-items: center; line-height: .92; font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.metro-sig-slash { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 button.metro-mini-btn.metro-mini-btn-icon { width: 38px; padding: 0; }
 button.metro-mini-btn.metro-mini-btn-icon .icon { width: 20px; height: 20px; }
 
@@ -1950,8 +1957,9 @@ button.tempo-chip-empty { color: var(--text-muted); border-style: dashed; backgr
 
 /* Téléphone : formules rythmiques sur une seule ligne */
 @media (max-width: 480px) {
-    .metro-formulas-row { gap: 5px; flex-wrap: nowrap; }
-    button.metro-mini-btn.metro-formula-btn { padding: 0 8px; min-width: 0; font-size: var(--fs-xs); }
+    .metro-formulas-row { gap: 5px; }
+    button.metro-mini-btn.metro-formula-btn { padding: 0 8px; }
+    button.metro-mini-btn.metro-formula-btn:not(.metro-formula-none) { padding: 0 5px; }
     button.metro-mini-btn.metro-mini-btn-icon { width: 34px; }
 }
 
@@ -2347,7 +2355,7 @@ button.exercise-image-quick .icon, .exercise-note-mark .icon { width: 18px; heig
 .metro-transport-quad .metro-dial > button.metro-dial-tap {
     left: 50%; right: auto; width: 92px; margin-left: -46px; bottom: 0; height: 28px;
     padding: 0 0 7px; border: none; border-radius: 9px 9px 0 0;
-    clip-path: circle(60px at 50% -38px);
+    clip-path: circle(calc(var(--D) / 2 - 2px) at 50% calc(var(--tap-h) + 2px - var(--D) / 2)); /* suit l'intérieur du cadran (D varie selon l'écran) : plus d'écart sous le bouton */
     background: rgba(var(--ov), .1); font-size: 11px; line-height: 1;
     display: flex; align-items: center; justify-content: center; box-shadow: none;
 }

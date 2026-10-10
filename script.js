@@ -7642,6 +7642,7 @@
                 { label: "2/4", beats: 2 },
                 { label: "3/4", beats: 3 },
                 { label: "4/4", beats: 4 },
+                { label: "5/4", beats: 5 },
                 { label: "6/8", beats: 6 }
             ];
             var formulaBtns = [];
@@ -7649,7 +7650,14 @@
                 var btn = document.createElement("button");
                 btn.type = "button";
                 btn.className = "metro-mini-btn metro-formula-btn";
-                btn.textContent = f.label;
+                if (f.noAccent) { btn.textContent = f.label; btn.classList.add("metro-formula-none"); }
+                else {
+                    // Écrite comme en solfège : numérateur au-dessus du dénominateur (le « / » reste dans
+                    // le texte pour les lecteurs d'écran, mais n'est pas dessiné).
+                    var sig = f.label.split("/");
+                    btn.innerHTML = '<span class="metro-sig"><span>' + sig[0] + '</span><span class="metro-sig-slash">/</span><span>' + sig[1] + '</span></span>';
+                }
+                btn.setAttribute("aria-label", f.label === "None" ? "Aucun temps accentué" : "Formule " + f.label);
                 btn.title = f.label === "None" ? "Aucun temps accentué" : "Formule " + f.label;
                 btn.addEventListener("click", function () {
                     m.beatsPerMeasure = f.beats;
