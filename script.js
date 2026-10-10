@@ -4783,7 +4783,7 @@
     // application (feuille de partage du système quand le navigateur la propose, sinon enregistrement du fichier).
     function openFileMenu(x, y, meta, container) {
         var items = [];
-        if (isAudioFile(meta)) items.push({ label: "Lire dans TrainHub (vitesse réglable)", open: function () { toggleAudioPlayer(container, meta); } });
+        if (isAudioFile(meta)) items.push({ label: "Lire dans TrainHub (fenêtre de lecture)", open: function () { openAudioWindow(meta); } });
         items.push({ label: "Ouvrir dans un onglet du navigateur", open: function () {
             getFileBlob(meta.id).then(function (blob) {
                 if (!blob) { dlgFileUnavailable(meta.name); return; }
@@ -4821,78 +4821,229 @@
         setTimeout(function () { a.remove(); URL.revokeObjectURL(url); }, 4000);
     }
 
-    // Lecteur intégré sous la liste de puces : un seul à la fois, avec la vitesse de lecture (utile pour travailler un morceau).
-    // keepIfPlaying : « ouvrir » (et non « basculer ») — si ce fichier est déjà dans le lecteur, on ne le ferme pas.
-    function toggleAudioPlayer(container, meta, keepIfPlaying) {
-        var existing = container.querySelector(".audio-player");
-        var sameId = existing && existing.getAttribute("data-file") === meta.id;
-        if (sameId && keepIfPlaying) return;
-        if (existing) { if (existing._cleanup) existing._cleanup(); existing.remove(); }
-        if (sameId) return;
+    // ---- fenêtre de lecture audio ----
+    // Vraie fenêtre flottante (comme le métronome ou l'accordeur : déplaçable, redimensionnable, taille et place
+    // retenues), mais NON modale : on peut continuer à naviguer et à régler le métronome pendant qu'elle joue.
+    // Une seule à la fois : un autre fichier remplace le morceau. Fermer la fenêtre arrête la lecture.
+    var AUDIO_ICONS = {
+        restart: '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 5v14" fill="none"/><path d="M19 5.5v13L9 12Z"/></svg>',
+        pause: '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4.2" height="14" rx="1.2"/><rect x="13.8" y="5" width="4.2" height="14" rx="1.2"/></svg>',
+        loop: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/></svg>',
+        muted: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v4h4l5 4V6L8 10Z"/><path d="M17 9.5l5 5"/><path d="M22 9.5l-5 5"/></svg>'
+    };
+    var AUDIO_VOL_KEY = "trainhub.audioVol", AUDIO_RATE_KEY = "trainhub.audioRate", AUDIO_LOOP_KEY = "trainhub.audioLoop";
+    var AUDIO_SKIP_S = 5;
+    var audioWin = null; // fenêtre ouverte : { meta, load(meta, blob), raise(), close() }
+    function audioClock(t) {
+        if (!isFinite(t) || t < 0) t = 0;
+        var m = Math.floor(t / 60), sec = Math.floor(t % 60);
+        return m + ":" + (sec < 10 ? "0" : "") + sec;
+    }
+    // Ouvre la fenêtre sur ce fichier (ou, si elle est déjà ouverte, la ramène devant : même morceau → on le relance
+    // s'il était en pause, autre morceau → il remplace le précédent).
+    function openAudioWindow(meta) {
         getFileBlob(meta.id).then(function (blob) {
             if (!blob) { dlgFileUnavailable(meta.name); return; }
+            if (audioWin) { audioWin.load(meta, blob); audioWin.raise(); return; }
+            buildAudioWindow(meta, blob);
+        });
+    }
+    function buildAudioWindow(meta0, blob0) {
+        function lsGet(k, d) { try { var v = parseFloat(localStorage.getItem(k)); return isNaN(v) ? d : v; } catch (e) { return d; } }
+        function lsSet(k, v) { try { localStorage.setItem(k, String(v)); } catch (e) {} }
+        openModal("audio-panel", function (panel, close) {
+            var audio = document.createElement("audio");
+            audio.preload = "auto";
+            try { audio.preservesPitch = true; audio.webkitPreservesPitch = true; audio.mozPreservesPitch = true; } catch (e) {} // plus lent ≠ plus grave
+            var objUrl = null, rafId = null, seeking = false;
+
             var box = document.createElement("div");
             box.className = "audio-player";
-            box.setAttribute("data-file", meta.id);
-            var name = document.createElement("div");
-            name.className = "audio-player-name";
-            name.textContent = meta.name;
-            var audio = document.createElement("audio");
-            audio.controls = true;
-            audio.preload = "auto";
-            var url = URL.createObjectURL(playableBlob(blob, meta));
-            audio.src = url;
-            function lsGet(k, d) { try { var v = parseFloat(localStorage.getItem(k)); return isNaN(v) ? d : v; } catch (e) { return d; } }
-            function lsSet(k, v) { try { localStorage.setItem(k, String(v)); } catch (e) {} }
-            // Volume : barre réglable, retenue pour les prochains fichiers.
-            var volWrap = document.createElement("label");
-            volWrap.className = "audio-player-ctl";
-            var volIcon = document.createElement("span"); volIcon.innerHTML = METRO_VOLUME_ICON_SVG; volIcon.className = "audio-player-ctl-icon";
+            box.appendChild(audio); // pas de contrôles natifs (display:none) : tout passe par les boutons ci-dessous
+            panel.appendChild(box);
+
+            // -- en-tête : nom du morceau (poignée de déplacement) + fermer --
+            var head = document.createElement("div");
+            head.className = "audio-head";
+            var title = document.createElement("div");
+            title.className = "backups-title audio-title";
+            var closeBtn = document.createElement("button");
+            closeBtn.type = "button";
+            closeBtn.className = "audio-player-close";
+            closeBtn.textContent = "✕";
+            closeBtn.title = "Fermer le lecteur (arrête la lecture)";
+            closeBtn.setAttribute("aria-label", "Fermer le lecteur");
+            closeBtn.addEventListener("click", close);
+            head.appendChild(title); head.appendChild(closeBtn);
+            box.appendChild(head);
+
+            // -- temps écoulé · jauge (cliquable / glissable) · durée --
+            var timeRow = document.createElement("div");
+            timeRow.className = "audio-time";
+            var curEl = document.createElement("span"); curEl.className = "audio-clock"; curEl.textContent = "0:00";
+            var seek = document.createElement("input");
+            seek.type = "range"; seek.min = "0"; seek.max = "1000"; seek.step = "1"; seek.value = "0";
+            seek.className = "audio-seek";
+            seek.title = "Position dans le morceau";
+            seek.setAttribute("aria-label", "Position dans le morceau");
+            var durEl = document.createElement("span"); durEl.className = "audio-clock audio-clock-total"; durEl.textContent = "0:00";
+            timeRow.appendChild(curEl); timeRow.appendChild(seek); timeRow.appendChild(durEl);
+            box.appendChild(timeRow);
+            function paintSeek() {
+                var d = audio.duration, t = audio.currentTime;
+                var frac = isFinite(d) && d > 0 ? Math.min(1, t / d) : 0;
+                if (!seeking) seek.value = String(Math.round(frac * 1000));
+                seek.style.setProperty("--p", (Number(seek.value) / 10) + "%");
+                curEl.textContent = audioClock(seeking ? (seek.value / 1000) * (isFinite(d) ? d : 0) : t);
+                durEl.textContent = isFinite(d) ? audioClock(d) : "0:00";
+            }
+            seek.addEventListener("pointerdown", function () { seeking = true; });
+            seek.addEventListener("input", function () {
+                var d = audio.duration;
+                if (isFinite(d) && d > 0) audio.currentTime = (seek.value / 1000) * d;
+                paintSeek();
+            });
+            function endSeek() { if (!seeking) return; seeking = false; paintSeek(); }
+            seek.addEventListener("change", endSeek);
+            window.addEventListener("pointerup", endSeek);
+
+            // -- boutons : recommencer · −5 s · lecture/pause · +5 s · stop · boucle --
+            var bar = document.createElement("div");
+            bar.className = "audio-transport";
+            function tbtn(cls, html, label, onClick) {
+                var b = document.createElement("button");
+                b.type = "button"; b.className = "audio-btn " + cls; b.innerHTML = html;
+                b.title = label; b.setAttribute("aria-label", label);
+                b.addEventListener("click", onClick);
+                bar.appendChild(b);
+                return b;
+            }
+            function playFrom(t) { if (t != null) { try { audio.currentTime = t; } catch (e) {} } var pr = audio.play(); if (pr && pr.catch) pr.catch(function () {}); }
+            tbtn("audio-restart", AUDIO_ICONS.restart, "Recommencer depuis le début", function () { playFrom(0); });
+            tbtn("audio-skip", "−" + AUDIO_SKIP_S + " s", "Reculer de " + AUDIO_SKIP_S + " secondes", function () { audio.currentTime = Math.max(0, audio.currentTime - AUDIO_SKIP_S); paintSeek(); });
+            var playBtn = tbtn("audio-play", METRO_PLAY_ICON_SVG, "Lecture", function () { if (audio.paused) playFrom(null); else audio.pause(); });
+            tbtn("audio-skip", "+" + AUDIO_SKIP_S + " s", "Avancer de " + AUDIO_SKIP_S + " secondes", function () { var d = audio.duration; audio.currentTime = isFinite(d) ? Math.min(d, audio.currentTime + AUDIO_SKIP_S) : audio.currentTime + AUDIO_SKIP_S; paintSeek(); });
+            tbtn("audio-stop", METRO_STOP_ICON_SVG, "Stop (arrêter et revenir au début)", function () { audio.pause(); try { audio.currentTime = 0; } catch (e) {} paintSeek(); });
+            var loopBtn = tbtn("audio-loop", AUDIO_ICONS.loop, "Répéter le morceau", function () {
+                audio.loop = !audio.loop; lsSet(AUDIO_LOOP_KEY, audio.loop ? 1 : 0); paintLoop();
+            });
+            function paintLoop() { loopBtn.classList.toggle("on", audio.loop); loopBtn.setAttribute("aria-pressed", audio.loop ? "true" : "false"); }
+            audio.loop = lsGet(AUDIO_LOOP_KEY, 0) === 1;
+            paintLoop();
+            box.appendChild(bar);
+            function paintPlay() {
+                var playing = !audio.paused && !audio.ended;
+                playBtn.innerHTML = playing ? AUDIO_ICONS.pause : METRO_PLAY_ICON_SVG;
+                playBtn.title = playing ? "Pause" : "Lecture";
+                playBtn.setAttribute("aria-label", playBtn.title);
+                playBtn.classList.toggle("on", playing);
+            }
+
+            // -- réglages : volume (retenu) · vitesse (retenue) --
+            function ctlRow(iconHtml, iconTitle, onIcon, slider, valueEl) {
+                var row = document.createElement("div");
+                row.className = "audio-ctl";
+                var ib = document.createElement("button");
+                ib.type = "button"; ib.className = "audio-ctl-icon"; ib.innerHTML = iconHtml; ib.title = iconTitle; ib.setAttribute("aria-label", iconTitle);
+                ib.addEventListener("click", onIcon);
+                row.appendChild(ib); row.appendChild(slider); row.appendChild(valueEl);
+                box.appendChild(row);
+                return ib;
+            }
             var vol = document.createElement("input");
-            vol.type = "range"; vol.min = "0"; vol.max = "100"; vol.step = "1";
-            vol.className = "audio-player-vol";
-            vol.title = "Volume";
-            vol.value = String(Math.round(lsGet("trainhub.audioVol", 1) * 100));
-            audio.volume = vol.value / 100;
-            vol.addEventListener("input", function () { audio.volume = vol.value / 100; lsSet("trainhub.audioVol", vol.value / 100); });
-            volWrap.appendChild(volIcon); volWrap.appendChild(vol);
-            // Vitesse : barre de 50 % à 125 % (pour travailler un passage plus lentement), retenue elle aussi.
-            var rateWrap = document.createElement("label");
-            rateWrap.className = "audio-player-ctl";
-            var rateIcon = document.createElement("span"); rateIcon.innerHTML = METRO_CHRONO_ICON_SVG; rateIcon.className = "audio-player-ctl-icon";
+            vol.type = "range"; vol.min = "0"; vol.max = "100"; vol.step = "1"; vol.className = "audio-player-vol";
+            vol.title = "Volume"; vol.setAttribute("aria-label", "Volume");
+            vol.value = String(Math.round(lsGet(AUDIO_VOL_KEY, 1) * 100));
+            var volTxt = document.createElement("span"); volTxt.className = "audio-ctl-val";
+            var volBtn = ctlRow(METRO_VOLUME_ICON_SVG, "Couper / rétablir le son", function () { audio.muted = !audio.muted; paintVol(); }, vol, volTxt);
+            function paintVol() {
+                audio.volume = vol.value / 100;
+                volTxt.textContent = audio.muted ? "muet" : vol.value + " %";
+                volBtn.innerHTML = audio.muted || Number(vol.value) === 0 ? AUDIO_ICONS.muted : METRO_VOLUME_ICON_SVG;
+                vol.style.setProperty("--p", vol.value + "%");
+            }
+            vol.addEventListener("input", function () { audio.muted = false; lsSet(AUDIO_VOL_KEY, vol.value / 100); paintVol(); });
+            paintVol();
+
             var rate = document.createElement("input");
-            rate.type = "range"; rate.min = "50"; rate.max = "125"; rate.step = "5";
-            rate.className = "audio-player-rate";
-            rate.title = "Vitesse de lecture";
-            rate.value = String(Math.round(lsGet("trainhub.audioRate", 1) * 100));
-            var rateTxt = document.createElement("span"); rateTxt.className = "audio-player-rate-txt";
-            function applyRate() { audio.playbackRate = rate.value / 100; rateTxt.textContent = rate.value + " %"; }
-            rate.addEventListener("input", function () { applyRate(); lsSet("trainhub.audioRate", rate.value / 100); });
-            rateTxt.title = "Double clic : vitesse normale";
-            rateTxt.addEventListener("dblclick", function () { rate.value = "100"; applyRate(); lsSet("trainhub.audioRate", 1); });
+            rate.type = "range"; rate.min = "25"; rate.max = "150"; rate.step = "5"; rate.className = "audio-player-rate";
+            rate.title = "Vitesse de lecture"; rate.setAttribute("aria-label", "Vitesse de lecture");
+            rate.value = String(Math.round(lsGet(AUDIO_RATE_KEY, 1) * 100));
+            var rateTxt = document.createElement("span"); rateTxt.className = "audio-ctl-val audio-player-rate-txt";
+            function applyRate() {
+                audio.playbackRate = rate.value / 100;
+                rateTxt.textContent = rate.value + " %";
+                rate.style.setProperty("--p", ((rate.value - rate.min) / (rate.max - rate.min) * 100) + "%");
+            }
+            function resetRate() { rate.value = "100"; applyRate(); lsSet(AUDIO_RATE_KEY, 1); }
+            rate.addEventListener("input", function () { applyRate(); lsSet(AUDIO_RATE_KEY, rate.value / 100); });
+            rateTxt.title = "Clic : vitesse normale (100 %)";
+            rateTxt.addEventListener("click", resetRate);
+            ctlRow(METRO_CHRONO_ICON_SVG, "Vitesse normale (100 %)", resetRate, rate, rateTxt);
             applyRate();
-            rateWrap.appendChild(rateIcon); rateWrap.appendChild(rate); rateWrap.appendChild(rateTxt);
-            var close = document.createElement("button");
-            close.type = "button";
-            close.className = "audio-player-close";
-            close.textContent = "✕";
-            close.title = "Fermer le lecteur";
+
             var msg = document.createElement("div");
             msg.className = "audio-player-error";
             msg.hidden = true;
-            function cleanup() { try { audio.pause(); } catch (e) {} URL.revokeObjectURL(url); }
-            box._cleanup = cleanup;
-            close.addEventListener("click", function () { cleanup(); box.remove(); });
+            box.appendChild(msg);
+
+            // -- le morceau --
             audio.addEventListener("error", function () {
                 msg.hidden = false;
-                msg.textContent = "Ce navigateur ne sait pas lire ce format (." + (fileExt(meta.name) || "?") + "). Convertis le fichier en MP3 ou M4A, ou ouvre-le dans une autre application.";
+                msg.textContent = "Ce navigateur ne sait pas lire ce format (." + (fileExt(win.meta.name) || "?") + "). Convertis le fichier en MP3 ou M4A, ou ouvre-le dans une autre application.";
             });
-            box.appendChild(name); box.appendChild(audio); box.appendChild(volWrap); box.appendChild(rateWrap); box.appendChild(close); box.appendChild(msg);
-            container.appendChild(box);
-            audio.addEventListener("loadedmetadata", function () { applyRate(); });
-            var p = audio.play();
-            if (p && p.catch) p.catch(function () {});
-        });
+            ["play", "pause", "ended"].forEach(function (ev) { audio.addEventListener(ev, function () { paintPlay(); if (ev === "play") tick(); else paintSeek(); }); });
+            ["loadedmetadata", "durationchange", "timeupdate", "seeked"].forEach(function (ev) { audio.addEventListener(ev, paintSeek); });
+            audio.addEventListener("loadedmetadata", applyRate); // certains navigateurs remettent la vitesse à 1 au chargement
+            // Jauge fluide pendant la lecture (l'événement timeupdate ne tombe que ~4 fois par seconde).
+            function tick() {
+                if (rafId) return;
+                rafId = requestAnimationFrame(function step() {
+                    rafId = null;
+                    if (!panel.isConnected) return;
+                    paintSeek();
+                    if (!audio.paused && !audio.ended) rafId = requestAnimationFrame(step);
+                });
+            }
+            var win = {
+                meta: null,
+                load: function (meta, blob) {
+                    if (win.meta && win.meta.id === meta.id && audio.src) { if (audio.paused) playFrom(null); return; }
+                    win.meta = meta;
+                    msg.hidden = true;
+                    if (objUrl) URL.revokeObjectURL(objUrl);
+                    objUrl = URL.createObjectURL(playableBlob(blob, meta));
+                    audio.src = objUrl;
+                    title.textContent = meta.name;
+                    title.title = meta.name + " — faire glisser pour déplacer la fenêtre";
+                    seek.value = "0";
+                    paintSeek(); applyRate();
+                    playFrom(null);
+                },
+                raise: function () { if (panel.parentNode) panel.parentNode.appendChild(panel); },
+                close: close
+            };
+            audioWin = win;
+            win.load(meta0, blob0);
+
+            // Espace : lecture/pause quand le focus est dans la fenêtre (le raccourci général Espace, lui, la laisse tranquille).
+            panel.addEventListener("keydown", function (e) {
+                if (e.key !== " " && e.code !== "Space") return;
+                var t = e.target && e.target.tagName;
+                if (t === "BUTTON") return; // un bouton se déclenche déjà tout seul à l'Espace
+                e.preventDefault();
+                if (audio.paused) playFrom(null); else audio.pause();
+            });
+            return function onClose() {
+                window.removeEventListener("pointerup", endSeek);
+                if (rafId) cancelAnimationFrame(rafId);
+                try { audio.pause(); } catch (e) {}
+                audio.removeAttribute("src");
+                try { audio.load(); } catch (e) {}
+                if (objUrl) URL.revokeObjectURL(objUrl);
+                if (audioWin === win) audioWin = null;
+            };
+        }, { floating: true, fitContent: true, noGrow: true });
     }
 
     function fileKindIcon(mimeOrName) {
@@ -4924,7 +5075,7 @@
             function fileCaption() { return meta.name + (meta.size ? " · " + humanFileSize(meta.size) : ""); }
             openBtn.textContent = fileCaption();
             openBtn.addEventListener("click", function () {
-                if (isAudioFile(meta)) { toggleAudioPlayer(list, meta); return; }
+                if (isAudioFile(meta)) { openAudioWindow(meta); return; }
                 getFileBlob(meta.id).then(function (blob) {
                     if (!blob) {
                         dlgFileUnavailable(meta.name);
@@ -6062,7 +6213,8 @@
     var PANEL_BASE_MIN_SIZE = {
         "aides-panel": { w: 300, h: 320 },
         "scales-panel": { w: 320, h: 200 },
-        "folder-picker-panel": { w: 280, h: 280 }
+        "folder-picker-panel": { w: 280, h: 280 },
+        "audio-panel": { w: 190, h: 100 }
     };
     function basePanelMinSize(kind) {
         return PANEL_BASE_MIN_SIZE[kind] || { w: 280, h: 180 };
@@ -6184,7 +6336,7 @@
     // Taille "naturelle" (zoom 100 %) d'une fenêtre à contenu ajustable : largeur par défaut de la
     // feuille de style, élargie si besoin pour que le pavé rythmique tienne sur une ligne, et
     // hauteur du contenu — le tout borné à l'écran.
-    function autoSizeFitPanel(panel, inner) {
+    function autoSizeFitPanel(panel, inner, noGrow) {
         inner.style.zoom = "";
         panel.style.width = "";
         panel.style.height = "";
@@ -6197,7 +6349,7 @@
             padNeeded += padGap * (pad.children.length - 1) + (panel.offsetWidth - pad.clientWidth);
             w = Math.max(w, Math.ceil(padNeeded));
         }
-        var grow = panelGrowFactor();
+        var grow = noGrow ? 1 : panelGrowFactor(); // noGrow : petite fenêtre qui garde sa taille d'origine même sur grand écran (lecteur audio)
         w = Math.min(Math.round(w * grow), window.innerWidth - 16);
         panel.style.width = w + "px";
         var h = Math.min(Math.round(panel.offsetHeight * grow), window.innerHeight - 16);
@@ -6248,16 +6400,19 @@
     // de déplacement/redimensionnement à la main. Réservé au métronome pendant une session guidée.
     function openModal(extraClass, build, opts) {
         var docked = !!(opts && opts.dock);
+        // `opts.floating` : fenêtre flottante NON modale (lecteur audio) — ni fond qui capte les clics, ni blocage du
+        // défilement, ni fermeture par Échap ou par l'ouverture d'un autre outil ; déplaçable et redimensionnable.
+        var floating = !!(opts && opts.floating) && !docked;
         closeFolderMenu();
-        if (!docked) {
+        if (!docked && !floating) {
             if (closeActiveModal) closeActiveModal();
             lockBodyScroll();
         }
         var fitContent = !!(opts && opts.fitContent);
-        var backdrop = docked ? null : document.createElement("div");
+        var backdrop = docked || floating ? null : document.createElement("div");
         if (backdrop) backdrop.className = "ctx-backdrop";
         var panel = document.createElement("div");
-        panel.className = "backups-panel" + (extraClass ? " " + extraClass : "") + (fitContent ? " panel-fit-content" : "") + (docked ? " panel-docked" : "");
+        panel.className = "backups-panel" + (extraClass ? " " + extraClass : "") + (fitContent ? " panel-fit-content" : "") + (docked ? " panel-docked" : "") + (floating ? " panel-floating" : "");
         var panelKind = extraClass ? extraClass.split(" ")[0] : "modal";
         var baseMin = basePanelMinSize(panelKind);
         // Redimensionnée à la main (maintenant ou lors d'une ouverture précédente) : la fenêtre garde
@@ -6294,13 +6449,13 @@
             document.removeEventListener("keydown", onKey, true);
             if (docked) {
                 releaseMetroDock();
-            } else {
+            } else if (!floating) {
                 unlockBodyScroll();
                 if (closeActiveModal === close) { closeActiveModal = null; activeModalKind = null; }
             }
         }
         function onKey(e) { if (e.key === "Escape") { if (document.querySelector(".ctx-menu")) return; close(); } } // un menu ouvert par-dessus (popover, clic droit) se referme seul : Échap ne ferme que lui
-        if (!docked) {
+        if (!docked && !floating) {
             backdrop.addEventListener("click", close);
             document.addEventListener("keydown", onKey, true);
             closeActiveModal = close;
@@ -6345,7 +6500,7 @@
             refreshCollapseBtn();
             dockHeader.appendChild(collapseBtn);
             dockHeader.appendChild(closeBtn);
-        } else {
+        } else if (!floating) {
             var closeRow = document.createElement("div");
             closeRow.className = "backups-close-row";
             closeBtn.textContent = "Fermer";
@@ -6374,7 +6529,7 @@
             }
             if (!userSized && !docked && !isMobilePanelLayout() && panel.isConnected) {
                 var prevH = panel.offsetHeight, prevW = panel.offsetWidth;
-                var size = autoSizeFitPanel(panel, fitInner);
+                var size = autoSizeFitPanel(panel, fitInner, !!(opts && opts.noGrow));
                 // Le contenu a grandi (ex. "…" déplié) : on remonte/décale la fenêtre si elle sort
                 // maintenant de l'écran — seulement à ce moment-là, pour ne pas contrarier une fenêtre
                 // qu'on a volontairement poussée en partie hors de l'écran.
@@ -6396,7 +6551,7 @@
         if (docked) {
             attachMetroDock(panel);
         } else {
-            document.body.appendChild(backdrop);
+            if (backdrop) document.body.appendChild(backdrop);
             document.body.appendChild(panel);
         }
 
@@ -6427,6 +6582,11 @@
                 var restored = clampPanelPosition(stored.left, stored.top, w);
                 left = restored.left;
                 top = restored.top;
+            } else if (panelKind === "audio-panel") {
+                // Lecteur : en bas à gauche, sous le bandeau des dossiers (place libre), pour ne pas cacher le contenu ni le
+                // bouton « + » d'ajout ; il reste ouvert pendant qu'on navigue.
+                left = 16;
+                top = Math.max(8, window.innerHeight - h - 16);
             } else if (panelKind === "metronome-panel") {
                 // Pas encore déplacé à la main : on part du point de départ choisi dans les réglages
                 // (centre/haut/bas/coin) plutôt que du centre pur.
@@ -10320,7 +10480,7 @@
             chip.appendChild(label);
             bindContextGesture(chip, function (x, y) { openFileMenu(x, y, meta, container); });
             chip.addEventListener("click", function () {
-                if (isAudioFile(meta)) { toggleAudioPlayer(container, meta); return; }
+                if (isAudioFile(meta)) { openAudioWindow(meta); return; }
                 getFileBlob(meta.id).then(function (blob) {
                     if (!blob) { dlgFileUnavailable(meta.name); return; }
                     var url = URL.createObjectURL(playableBlob(blob, meta));
@@ -10380,10 +10540,9 @@
     }
 
     // Les éléments sont ouverts dans l'ordre où ils s'affichent (exercice par exercice).
-    // Les fichiers audio ne partent jamais dans un onglet du navigateur : ils se lisent dans le lecteur intégré
-    // (vitesse réglable). audioHost = l'endroit de l'écran où l'afficher ; sans lui (on enchaîne sur le guidage,
-    // qui remplace l'écran), les fichiers restent lisibles depuis l'exercice et on le dit.
-    function gsOpenItems(items, audioHost) {
+    // Les fichiers audio ne partent jamais dans un onglet du navigateur : ils se lisent dans la fenêtre de lecture
+    // de l'appli (flottante : elle reste ouverte quand on enchaîne sur le guidage).
+    function gsOpenItems(items) {
         var urls = [], unavailable = [], pending = [], audios = [];
         items.forEach(function (item) {
             if (item.type === "link") { urls.push(item.url); return; }
@@ -10398,12 +10557,8 @@
         });
         openUrlsInTabs(urls);
         if (audios.length) {
-            if (audioHost) {
-                toggleAudioPlayer(audioHost, audios[0].meta, true);
-                if (audios.length > 1) showToast(audios.length + " fichiers audio : le premier est dans le lecteur, les autres se lancent avec leur bouton Lire.", 6000);
-            } else {
-                showToast((audios.length > 1 ? audios.length + " fichiers audio ne sont pas ouverts" : "Le fichier audio n'est pas ouvert") + " dans un onglet : le lecteur de l'appli les lit depuis l'exercice (clic sur le fichier).", 7000);
-            }
+            openAudioWindow(audios[0].meta);
+            if (audios.length > 1) showToast(audios.length + " fichiers audio : le premier est dans la fenêtre de lecture ; les autres se lancent depuis leur exercice (clic sur le fichier).", 7000);
         }
         if (pending.length) showToast("Fichier en cours de lecture, réessayez dans un instant : " + pending.join(", "));
         if (unavailable.length) {
@@ -15174,8 +15329,6 @@
         var allItems = [];
         var list = document.createElement("div");
         list.className = "gs-links-list";
-        var audioHost = document.createElement("div"); // lecteur audio intégré (voir toggleAudioPlayer)
-        audioHost.className = "gs-links-audio";
         session.steps.forEach(function (step) {
             var found = findExerciseById(step.exerciseId);
             if (!found) return;
@@ -15208,13 +15361,13 @@
                 span.textContent = item.label;
                 row.appendChild(span);
                 if (item.type === "file" && isAudioFile(item.meta)) {
-                    // Audio : lecteur intégré (plutôt qu'un onglet du navigateur), sans cocher/décocher la ligne.
+                    // Audio : fenêtre de lecture (plutôt qu'un onglet du navigateur), sans cocher/décocher la ligne.
                     var playBtn = document.createElement("button");
                     playBtn.type = "button";
                     playBtn.className = "btn-ghost gs-links-play";
                     playBtn.textContent = "▶ Lire";
-                    playBtn.title = "Lire dans TrainHub (vitesse réglable)";
-                    playBtn.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); toggleAudioPlayer(audioHost, item.meta); });
+                    playBtn.title = "Lire dans la fenêtre de lecture (vitesse réglable)";
+                    playBtn.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); openAudioWindow(item.meta); });
                     row.appendChild(playBtn);
                 }
                 group.appendChild(row);
@@ -15231,7 +15384,6 @@
             return;
         }
         content.appendChild(list);
-        content.appendChild(audioHost);
 
         function selectedItems() {
             return allItems.filter(function (item) { return gsLinksChecked[item.key]; });
@@ -15240,7 +15392,7 @@
         openBtn.type = "button";
         openBtn.className = fromRun || !session.steps.length ? "btn-accent gs-links-open-btn" : "btn-ghost gs-links-open-btn gs-links-open-only-btn";
         openBtn.textContent = "Ouvrir la sélection";
-        openBtn.addEventListener("click", function () { gsOpenItems(selectedItems(), audioHost); });
+        openBtn.addEventListener("click", function () { gsOpenItems(selectedItems()); });
         content.appendChild(openBtn);
 
         // Avant le lancement : tout ouvrir puis démarrer d'un seul geste.
@@ -15329,7 +15481,7 @@
             var type = (el.type || "text").toLowerCase();
             return ["button", "range", "submit", "reset", "image"].indexOf(type) === -1;
         }
-        return !!(el.closest && el.closest(".metro-step"));
+        return !!(el.closest && el.closest(".metro-step, .audio-panel"));
     }
     // Pas de raccourci quand une autre fenêtre (réglages, accordeur, gammes…) ou un menu est ouvert
     // par-dessus : l'Espace ne doit pas agir sur la session qu'on ne voit plus.

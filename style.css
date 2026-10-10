@@ -1737,7 +1737,6 @@ button.gs-add-step-btn { margin-top: 10px; width: 100%; height: 42px; border: 1p
 .gs-links-group-title { font-weight: 700; font-size: var(--fs-sm); margin-bottom: 6px; }
 .gs-links-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: var(--fs-sm); cursor: pointer; }
 button.gs-links-play { flex: none; margin-left: auto; height: 28px; padding: 0 10px; font-size: var(--fs-xs); font-weight: 600; }
-.gs-links-audio:not(:empty) { margin-top: 10px; }
 .gs-links-open-btn { width: 100%; height: 42px; padding: 0 10px; margin-top: 12px; }
 button.gs-links-open-only-btn { border: 1px solid var(--border); }
 .gs-links-open-run-btn { width: 100%; height: 42px; padding: 0 10px; margin-top: 8px; }
@@ -2056,13 +2055,7 @@ button.add-paste-btn { height: 34px; padding: 0 12px; font-size: var(--fs-xs); f
 button.exercise-image-quick { gap: 4px; padding: 0 8px; }
 .exercise-image-count { font-size: var(--fs-2xs); font-weight: 700; color: var(--accent); }
 
-/* Lecteur audio intégré */
-.audio-player { flex: 0 0 100%; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--accent) 6%, transparent); }
-.audio-player-name { flex: 0 0 100%; font-size: var(--fs-xs); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.audio-player audio { flex: 1; min-width: 180px; height: 36px; }
-.audio-player-rate { height: 32px; font-size: var(--fs-xs); }
-button.audio-player-close { width: 30px; height: 30px; padding: 0; }
-.audio-player-error { flex: 0 0 100%; font-size: var(--fs-xs); color: var(--c-red-text); }
+/* Fenêtre de lecture audio : voir le bloc « Fenêtre de lecture » plus bas */
 
 /* Métronome : volume visible, bandeau relié à l'exercice, progressif simplifié, cadran et chrono plus lisibles */
 .metro-volume-inline { display: inline-flex; align-items: center; gap: 6px; flex: 1; justify-content: flex-end; color: var(--text-muted); cursor: pointer; }
@@ -2422,11 +2415,6 @@ button.img-viewer-btn-on { border-color: var(--accent); color: var(--accent); }
 button.img-thumb-full { flex: none; width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; color: var(--text-muted); }
 button.img-thumb-full .icon { width: 15px; height: 15px; }
 button.img-thumb-full:hover { color: var(--accent); border-color: var(--accent); }
-/* Lecteur audio : volume et vitesse */
-.audio-player-ctl { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--text-muted); }
-.audio-player-ctl-icon .icon { width: 16px; height: 16px; }
-.audio-player-vol, input.audio-player-rate { width: 96px; accent-color: var(--accent); height: auto; }
-.audio-player-rate-txt { min-width: 38px; font-variant-numeric: tabular-nums; cursor: pointer; }
 /* Menus : jamais plus hauts que l'écran (défilent au besoin) */
 .ctx-menu { max-height: calc(100vh - 16px); overflow-y: auto; }
 
@@ -3516,7 +3504,7 @@ html[data-glass="1"] :is(.backups-panel, .ctx-menu, .toast, .tempo-pop, .scales-
 html[data-glass="1"] textarea { background: var(--glass-inp); box-shadow: inset 0 1px 3px rgba(0, 0, 0, .12); }
 html[data-glass="1"] select, html[data-glass="1"] select option { background: var(--glass-select); }
 html[data-glass="1"] button { box-shadow: var(--glass-hi); }
-html[data-glass="1"] :is(.tree-twisty, .metro-dial-value, .crumb) { box-shadow: none; } /* boutons sans cadre : pas de reflet de bord (chevron agrandi, tempo du cadran, fil d'Ariane) */
+html[data-glass="1"] :is(.tree-twisty, .metro-dial-value, .crumb, .audio-ctl-icon) { box-shadow: none; } /* boutons sans cadre : pas de reflet de bord (chevron agrandi, tempo du cadran, fil d'Ariane) */
 html[data-glass="1"] button.btn-ghost, html[data-glass="1"] button.icon-btn.btn-ghost { box-shadow: none; }
 html[data-glass="1"] :is(.exercise.collapsed, .gs-session-row, .gs-step-row, .st-tile, .st-ex, .gs-plan-row) { box-shadow: var(--glass-hi); }
 
@@ -3542,4 +3530,57 @@ html[data-glass="1"] :is(.notes-fixed-textarea, .exercise-fixed-view, .gs-run-fi
     html[data-glass="1"] :is(.top-bar, .sidebar-tree, .chapter-bar, .backups-panel, .ctx-menu, .toast, .tempo-pop, .scales-picker, .gs-preview, .app-dialog, .update-banner, .sel-bar) { -webkit-backdrop-filter: none; backdrop-filter: none; }
     html[data-glass="1"]:not([data-theme="light"]) { --glass-bar: #0d1520 !important; --glass-pop: #121c2b !important; --card-bg: #101a28; --card-bg-2: #15202f; }
     html[data-glass="1"][data-theme="light"] { --glass-bar: #f1f6f9 !important; --glass-pop: #ffffff !important; --card-bg: #f4f8fb; --card-bg-2: #ffffff; }
+}
+
+/* ---- Fenêtre de lecture audio (flottante, non modale : voir buildAudioWindow dans script.js) ----
+   Petite par défaut, déplaçable par son titre, redimensionnable au coin bas-droit comme les autres outils. */
+/* contenu ajustable (comme le métronome) : on agrandit ou on réduit la fenêtre, les commandes suivent — jamais d'ascenseur */
+.backups-panel.audio-panel { width: 340px; min-width: 190px; min-height: 100px; padding: 10px 14px 14px; gap: 8px; }
+.audio-panel .panel-drag-handle { margin: -10px -14px 0 -14px; height: 14px; }
+.audio-player { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.audio-head { display: flex; align-items: center; gap: 8px; }
+.audio-title { flex: 1; min-width: 0; font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: grab; }
+button.audio-player-close { flex: none; width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-sm); color: var(--text-muted); border: 1px solid var(--border); border-radius: var(--radius-sm); background: transparent; }
+button.audio-player-close:hover { color: var(--accent); border-color: var(--accent); }
+.audio-time, .audio-ctl { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.audio-clock { flex: none; min-width: 34px; font-size: var(--fs-xs); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+.audio-clock-total { text-align: right; }
+.audio-transport { display: flex; justify-content: center; align-items: center; gap: 6px; }
+button.audio-btn { flex: 0 1 auto; width: 36px; min-width: 28px; height: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-xs); font-weight: 700; color: var(--text-main); border: 1px solid var(--border); border-radius: var(--radius-sm); background: rgba(var(--ov), .04); }
+button.audio-btn .icon { width: 16px; height: 16px; }
+button.audio-btn:hover { color: var(--accent); border-color: var(--accent); }
+button.audio-btn.audio-play { width: 50px; height: 40px; color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+button.audio-btn.audio-play .icon { width: 20px; height: 20px; }
+button.audio-btn.audio-loop.on { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+button.audio-ctl-icon { flex: none; width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent; color: var(--text-muted); }
+button.audio-ctl-icon:hover { color: var(--text-main); }
+button.audio-ctl-icon .icon { width: 17px; height: 17px; }
+.audio-ctl-val { flex: none; width: 44px; text-align: right; font-size: var(--fs-xs); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+.audio-player-rate-txt { cursor: pointer; }
+.audio-player-rate-txt:hover { color: var(--accent); }
+.audio-player-error { font-size: var(--fs-xs); color: var(--c-red-text); }
+/* Jauges (position, volume, vitesse) : même rendu que celles de la session guidée, couleur de l'application */
+.audio-panel input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    flex: 1; min-width: 0; width: auto; height: 18px; margin: 0; padding: 0; border: none; border-radius: 0; background: transparent;
+    cursor: pointer; --p: 0%;
+}
+.audio-panel input[type=range]:focus { outline: none; }
+.audio-panel input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: linear-gradient(to right, var(--accent) var(--p), var(--btn-neutral-border, rgba(var(--ov), .18)) var(--p)); }
+.audio-panel input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; margin-top: -4px; border-radius: 50%; background: #fff; border: none; box-shadow: 0 1px 4px rgba(0,0,0,calc(.6 * var(--sh-k))); }
+.audio-panel input[type=range]::-moz-range-track { height: 6px; border-radius: 3px; background: var(--btn-neutral-border, rgba(var(--ov), .18)); }
+.audio-panel input[type=range]::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--accent); }
+.audio-panel input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: #fff; border: none; box-shadow: 0 1px 4px rgba(0,0,0,calc(.6 * var(--sh-k))); }
+.audio-panel input[type=range]:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--accent); outline-offset: 1px; }
+@media (max-width: 700px) {
+    /* Téléphone : les autres outils prennent tout l'écran ; le lecteur reste une petite carte en bas (il ne cache pas l'appli). */
+    .backups-panel.audio-panel {
+        top: auto !important; left: 8px !important; right: 8px !important;
+        bottom: calc(8px + env(safe-area-inset-bottom, 0px)) !important;
+        width: auto !important; height: auto !important;
+        border: 1px solid var(--border) !important; border-radius: var(--radius) !important;
+        padding: 10px 14px 12px !important; box-shadow: 0 10px 30px rgba(0,0,0,calc(.55 * var(--sh-k)));
+    }
+    .audio-panel .panel-drag-handle { display: none; }
+    .audio-title { cursor: inherit; }
 }
