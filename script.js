@@ -326,8 +326,57 @@
     function dlgChoice(o, onCancel) {
         dlgOpen({ kind: "choice", title: o.title, message: o.message, note: o.note, warnings: o.warnings, cancelLabel: o.cancelLabel || "Annuler", onCancel: onCancel, buttons: o.buttons });
     }
-    function dlgFileUnavailable(name) {
-        dlgAlert({ title: "Fichier indisponible", message: "« " + name + " » est enregistré sur l'appareil où tu l'as ajouté, pas sur celui-ci." });
+    // Un fichier joint n'a pas son contenu ici : le contenu reste dans le stockage de l'appli (ou du navigateur) où il a été ajouté.
+    // L'appli installée dans le Dock, un onglet de navigateur, un autre navigateur, un autre ordinateur ou le téléphone ont
+    // chacun le leur ; seuls les noms se synchronisent. Avec `meta`, on propose de retrouver le fichier sur cet ordinateur (relié
+    // au même exercice, rien d'autre ne change) ; `onFound` relance alors ce que l'on voulait faire.
+    var FILE_UNAVAILABLE_TEXT = "Les fichiers joints restent là où ils ont été ajoutés : l'appli du Dock, un onglet du navigateur, un autre navigateur, un autre ordinateur ou le téléphone gardent chacun les leurs (seuls les noms sont synchronisés).";
+    function dlgFileUnavailable(name, meta, onFound) {
+        var msg = "« " + name + " » n'est pas enregistré dans cette appli. " + FILE_UNAVAILABLE_TEXT;
+        if (!meta) { dlgAlert({ title: "Fichier indisponible", message: msg }); return; }
+        folderStatus().then(function (fs) {
+            if (fs.connected && !fs.granted) {
+                dlgConfirm({ title: "Accès au dossier à autoriser", message: "Les fichiers sont rangés dans le dossier « " + fs.name + " ». Le navigateur demande d'autoriser son accès à chaque nouvelle session.", confirmLabel: "Autoriser l'accès", cancelLabel: "Plus tard" }, function () {
+                    folderPermission(fs.handle, "read", true).then(function (st) { if (st === "granted" && onFound) onFound(); });
+                });
+            } else if (fs.connected) {
+                dlgConfirm({ title: "Fichier absent du dossier", message: "« " + name + " » n'est pas dans le dossier « " + fs.name + " » (nom attendu : « " + (meta.disk || meta.name) + " »). Remettez-le dans ce dossier, ou retrouvez-le : il y sera copié.", confirmLabel: "Retrouver le fichier…", cancelLabel: "Plus tard" }, function () { relinkFile(meta, onFound); });
+            } else {
+                dlgConfirm({ title: "Fichier indisponible ici", message: msg + " Vous pouvez le retrouver sur cet ordinateur : il sera relié à l'exercice, sans rien changer d'autre.", confirmLabel: "Retrouver le fichier…", cancelLabel: "Plus tard" }, function () { relinkFile(meta, onFound); });
+            }
+        });
+    }
+    function relinkFile(meta, onFound) {
+        var input = document.createElement("input");
+        input.type = "file";
+        var ext = fileExt(meta.name);
+        input.accept = (ext ? "." + ext + "," : "") + (meta.type || "");
+        input.style.display = "none";
+        document.body.appendChild(input);
+        input.addEventListener("cancel", function () { input.remove(); });
+        input.addEventListener("change", function () {
+            var f = input.files && input.files[0];
+            input.remove();
+            if (!f) return;
+            var mime = mimeForFile(meta.name, f.type || meta.type);
+            var blob = mime && f.type !== mime ? new Blob([f], { type: mime }) : f;
+            // Dossier relié : le fichier y est rangé sous le nom attendu ; sinon il va dans le stockage de l'appli.
+            var viaFolder = folderSupported() ? folderGetHandle().then(function (h) {
+                if (!h) return null;
+                return folderPermission(h, "readwrite", true).then(function (st) {
+                    if (st !== "granted") return null;
+                    var want = meta.disk || diskNameFor(meta, f);
+                    return folderPutFile(h, new File([blob], want, { type: mime || f.type })).then(function (n) { meta.disk = n; save(); return true; });
+                });
+            }).catch(function () { return null; }) : Promise.resolve(null);
+            viaFolder.then(function (done) { return done ? null : storeFileBlob(meta.id, blob); }).then(function () {
+                showToast("Fichier retrouvé : « " + meta.name + " »", 4000);
+                if (onFound) onFound();
+            }, function () {
+                dlgAlert({ title: "Fichier non enregistré", message: "Stockage plein, ou navigation privée activée sur cet appareil." });
+            });
+        });
+        input.click();
     }
     // Un élément du même nom existe déjà au même endroit : on prévient, sans bloquer. `label` = verbe de l'action en cours.
     function confirmNameCollision(kind, name, label, onYes, onNo) {
@@ -849,6 +898,8 @@
     }
 
     function storeFileBlob(id, blob) {
+        // Demande au navigateur de ne pas effacer ces données en cas de manque de place (sans effet visible, sans fenêtre).
+        try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
         return openFilesDb().then(function (db) {
             return new Promise(function (resolve, reject) {
                 var tx = db.transaction("files", "readwrite");
@@ -859,8 +910,9 @@
         });
     }
 
-    function getFileBlob(id) {
-        return openFilesDb().then(function (db) {
+    // `meta` (pièce jointe, pas les images) : à défaut du stockage de l'appli, on cherche le fichier dans le dossier relié.
+    function getFileBlob(id, meta) {
+        var local = openFilesDb().then(function (db) {
             return new Promise(function (resolve, reject) {
                 var tx = db.transaction("files", "readonly");
                 var req = tx.objectStore("files").get(id);
@@ -868,6 +920,8 @@
                 req.onerror = function () { reject(req.error); };
             });
         });
+        if (!meta || !folderSupported()) return local;
+        return local.then(function (b) { return b || folderBlobFor(meta); }, function () { return folderBlobFor(meta); });
     }
 
     function deleteFileBlob(id) {
@@ -879,6 +933,156 @@
                 tx.onerror = function () { reject(tx.error); };
             });
         }).catch(function () {});
+    }
+
+    // ---------- dossier de fichiers (Chrome / Edge sur ordinateur) ----------
+    // Au lieu de garder les pièces jointes (audio, PDF…) dans le stockage de chaque appli ou navigateur — qui n'est partagé ni entre
+    // l'appli du Dock, un onglet Chrome et un autre ordinateur —, on peut les ranger dans UN dossier choisi (Bureau, Documents, un
+    // dossier synchronisé par iCloud / Dropbox…). L'appli y copie les fichiers ajoutés, et les relit de là où qu'elle tourne, pourvu
+    // que le dossier y soit relié : on retrouve un fichier par son nom (champ `disk` de la pièce jointe, synchronisé avec les noms).
+    // Le navigateur redemande l'autorisation d'accès à chaque nouvelle session (un clic). Indisponible sur Safari, iPhone et Firefox :
+    // les fichiers restent alors dans l'appli, comme avant. Les IMAGES ne sont pas concernées (elles restent réduites et synchronisées).
+    // Jamais de suppression dans ce dossier : retirer une pièce jointe n'efface rien sur l'ordinateur.
+    var FOLDER_DB_NAME = "trainhub-folder"; // base à part : on ne touche pas à la version de la base des fichiers (d'autres fenêtres peuvent l'avoir ouverte)
+    var folderDbPromise = null, folderHandleCache;
+    function folderSupported() { return typeof window.showDirectoryPicker === "function" && typeof FileSystemDirectoryHandle !== "undefined"; }
+    function openFolderDb() {
+        if (folderDbPromise) return folderDbPromise;
+        folderDbPromise = new Promise(function (resolve, reject) {
+            if (!("indexedDB" in window)) { reject(new Error("IndexedDB indisponible")); return; }
+            var req = indexedDB.open(FOLDER_DB_NAME, 1);
+            req.onupgradeneeded = function () { if (!req.result.objectStoreNames.contains("handles")) req.result.createObjectStore("handles"); };
+            req.onsuccess = function () { resolve(req.result); };
+            req.onerror = function () { reject(req.error); };
+        });
+        return folderDbPromise;
+    }
+    function folderGetHandle() {
+        if (!folderSupported()) return Promise.resolve(null);
+        if (folderHandleCache !== undefined) return Promise.resolve(folderHandleCache);
+        return openFolderDb().then(function (db) {
+            return new Promise(function (resolve) {
+                var req = db.transaction("handles", "readonly").objectStore("handles").get("root");
+                req.onsuccess = function () { resolve(req.result || null); };
+                req.onerror = function () { resolve(null); };
+            });
+        }).catch(function () { return null; }).then(function (h) { folderHandleCache = h; return h; });
+    }
+    function folderSetHandle(h) {
+        folderHandleCache = h || null;
+        return openFolderDb().then(function (db) {
+            return new Promise(function (resolve, reject) {
+                var tx = db.transaction("handles", "readwrite");
+                if (h) tx.objectStore("handles").put(h, "root"); else tx.objectStore("handles").delete("root");
+                tx.oncomplete = function () { resolve(); };
+                tx.onerror = function () { reject(tx.error); };
+            });
+        });
+    }
+    // État de l'autorisation (« granted » / « prompt » / « denied ») ; ask = la demander (nécessite un geste de l'utilisateur récent).
+    function folderPermission(h, mode, ask) {
+        return Promise.resolve(h.queryPermission ? h.queryPermission({ mode: mode }) : "granted").then(function (st) {
+            if (st === "granted" || !ask || !h.requestPermission) return st;
+            return h.requestPermission({ mode: mode });
+        }).catch(function () { return "denied"; });
+    }
+    // Le fichier du dossier correspondant à cette pièce jointe (son nom sur le disque, sinon son nom affiché), ou null.
+    function folderBlobFor(meta, h) {
+        function withHandle(handle) {
+            if (!handle) return null;
+            return folderPermission(handle, "read", true).then(function (st) {
+                if (st !== "granted") return null;
+                var names = [meta.disk, meta.name].filter(function (n, i, a) { return n && a.indexOf(n) === i; });
+                return names.reduce(function (p, n) {
+                    return p.then(function (found) {
+                        if (found) return found;
+                        return handle.getFileHandle(n).then(function (fh) { return fh.getFile(); }).catch(function () { return null; });
+                    });
+                }, Promise.resolve(null));
+            });
+        }
+        return h ? withHandle(h) : folderGetHandle().then(withHandle);
+    }
+    // Nom libre dans le dossier : le même nom avec la même taille = le même fichier (on ne le recopie pas) ; sinon « nom (2).ext »…
+    function folderPutFile(h, file) {
+        var name0 = file.name || "fichier", m = /^(.*?)(\.[A-Za-z0-9]+)?$/.exec(name0), stem = m[1], ext = m[2] || "";
+        function attempt(i) {
+            var n = i === 1 ? name0 : stem + " (" + i + ")" + ext;
+            return h.getFileHandle(n).then(function (fh) {
+                return fh.getFile().then(function (ex) { return ex.size === file.size ? n : attempt(i + 1); });
+            }, function (err) {
+                if (!err || err.name !== "NotFoundError") throw err;
+                return h.getFileHandle(n, { create: true }).then(function (fh) {
+                    return fh.createWritable().then(function (w) { return w.write(file).then(function () { return w.close(); }); });
+                }).then(function () { return n; });
+            });
+        }
+        return attempt(1);
+    }
+    function folderSafeName(n) { return String(n || "fichier").replace(/[\\/:*?"<>|]/g, "_"); }
+    function extForMime(mime) {
+        var keys = Object.keys(FILE_MIME_BY_EXT);
+        for (var i = 0; i < keys.length; i++) if (FILE_MIME_BY_EXT[keys[i]] === mime) return keys[i];
+        return "";
+    }
+    // Nom à donner sur le disque à une pièce jointe (son nom affiché, avec une extension).
+    function diskNameFor(meta, blob) {
+        var n = folderSafeName(meta.name);
+        if (!fileExt(n)) { var e = extForMime(mimeForFile(meta.name, (blob && blob.type) || meta.type)); if (e) n += "." + e; }
+        return n;
+    }
+    // Enregistre un fichier ajouté : dans le dossier s'il est relié et autorisé (renvoie { id, disk }), sinon dans l'appli (comme avant).
+    var lastAttachFallback = false;
+    function storeAttachment(file) {
+        var id = uid();
+        var mime = mimeForFile(file.name, file.type);
+        var toStore = mime && file.type !== mime ? new Blob([file], { type: mime }) : file;
+        function toIdb() { return storeFileBlob(id, toStore).then(function () { return { id: id, mime: mime }; }); }
+        lastAttachFallback = false;
+        if (!folderSupported()) return toIdb();
+        return folderGetHandle().then(function (h) {
+            if (!h) return toIdb();
+            return folderPermission(h, "readwrite", true).then(function (st) {
+                if (st !== "granted") { lastAttachFallback = true; return toIdb(); }
+                return folderPutFile(h, new File([file], folderSafeName(file.name), { type: mime || file.type })).then(function (name) { return { id: id, disk: name, mime: mime }; }, function () { lastAttachFallback = true; return toIdb(); });
+            });
+        }).catch(function () { return toIdb(); });
+    }
+    // Rapport sur le dossier pour les messages : { connected, granted, name }
+    function folderStatus() {
+        return folderGetHandle().then(function (h) {
+            if (!h) return { connected: false };
+            return folderPermission(h, "read", false).then(function (st) { return { connected: true, granted: st === "granted", name: h.name || "dossier", handle: h }; });
+        });
+    }
+    // Copie dans le dossier les fichiers déjà ajoutés (restés dans l'appli) : à faire une fois après avoir choisi le dossier.
+    function folderMigrateFiles(h) {
+        var jobs = [];
+        state.instruments.forEach(function (inst) {
+            collectExercises(inst, function (ex) { return (ex.files || []).length > 0; }).forEach(function (f) {
+                (f.ex.files || []).forEach(function (meta) { if (!meta.disk) jobs.push({ ex: f.ex, meta: meta }); });
+            });
+        });
+        var copied = 0, missing = 0, failed = 0;
+        return folderPermission(h, "readwrite", true).then(function (st) {
+            if (st !== "granted") return { copied: 0, missing: 0, failed: jobs.length, denied: true };
+            return jobs.reduce(function (p, j) {
+                return p.then(function () {
+                    return getFileBlob(j.meta.id).then(function (blob) {
+                        if (!blob) { missing++; return; }
+                        var name = diskNameFor(j.meta, blob);
+                        return folderPutFile(h, new File([blob], name, { type: blob.type || j.meta.type })).then(function (n) { j.meta.disk = n; touchExercise(j.ex); copied++; });
+                    }).catch(function () { failed++; });
+                });
+            }, Promise.resolve()).then(function () { if (copied) { save(); render(); } return { copied: copied, missing: missing, failed: failed, total: jobs.length }; });
+        });
+    }
+    function folderCountLocalFiles() {
+        var n = 0;
+        state.instruments.forEach(function (inst) {
+            collectExercises(inst, function (ex) { return (ex.files || []).length > 0; }).forEach(function (f) { (f.ex.files || []).forEach(function (m) { if (!m.disk) n++; }); });
+        });
+        return n;
     }
 
     // ---------- images des exercices ----------
@@ -1899,7 +2103,9 @@
         return (files || []).map(function (f) {
             var newId = uid();
             getFileBlob(f.id).then(function (blob) { if (blob) storeFileBlob(newId, blob); });
-            return { id: newId, name: f.name, type: f.type, size: f.size };
+            var copy = { id: newId, name: f.name, type: f.type, size: f.size };
+            if (f.disk) copy.disk = f.disk; // le fichier du dossier est partagé par la copie
+            return copy;
         });
     }
 
@@ -4264,9 +4470,9 @@
         if (!links.length) return;
         var pinned = ex.pinnedLinkId ? links.filter(function (l) { return l.id === ex.pinnedLinkId; })[0] : null;
         if (pinned) {
-            row.appendChild(makeQuickLinkButton(pinned));
+            row.appendChild(makeQuickLinkButton(pinned, ex));
         } else if (links.length === 1) {
-            row.appendChild(makeQuickLinkButton(links[0]));
+            row.appendChild(makeQuickLinkButton(links[0], ex));
         } else {
             var btn = document.createElement("button");
             btn.type = "button";
@@ -4289,7 +4495,7 @@
         }
     }
 
-    function makeQuickLinkButton(link) {
+    function makeQuickLinkButton(link, ex) {
         var btn = document.createElement("button");
         btn.type = "button";
         btn.className = "exercise-link-quick";
@@ -4304,7 +4510,7 @@
         btn.appendChild(label);
         btn.addEventListener("click", function (e) {
             e.stopPropagation();
-            openLinkSmart(link);
+            openLinkSmart(link, ex);
         });
         return btn;
     }
@@ -4593,7 +4799,7 @@
             chip.href = link.url;
             chip.target = "_blank";
             chip.rel = "noopener noreferrer";
-            bindAudioLinkClick(chip, link);
+            bindAudioLinkClick(chip, link, ex);
             bindLinkMenu(chip, ex, link);
             var iconSpan = document.createElement("span");
             iconSpan.className = "link-icon";
@@ -4729,6 +4935,8 @@
         function commitLink() {
             var url = urlInput.value.trim();
             if (!url) return;
+            var lf = localFileFromLink(url);
+            if (lf) { urlInput.value = ""; localFileLinkHelp(null, lf, ex); return; } // un chemin de fichier n'est pas un lien : on propose de choisir le fichier
             if (!IREAL_SCHEME_RE.test(url) && !/^https?:\/\//i.test(url)) url = "https://" + url;
             ex.links = ex.links || [];
             var newLink = { id: uid(), label: guessLinkLabel(url), url: url };
@@ -4831,13 +5039,120 @@
         } catch (e) {}
         return url;
     }
-    // Un lien qui s'ouvre : dans le lecteur s'il s'agit d'audio, sinon dans un onglet.
-    function openLinkSmart(link) {
+    // Lien vers un fichier de l'ordinateur (file:///Users/…/morceau.m4a, /Users/…, C:\…) : un navigateur ou une appli web ne peut ni
+    // l'ouvrir ni le lire à partir de son chemin (sécurité) — il faut que l'utilisateur choisisse le fichier lui-même. Reconnu aussi
+    // sous la forme abîmée par d'anciennes versions (« https://file:///… »).
+    function localFileFromLink(url) {
+        var u = String(url || "").trim(), path = null, m;
+        if ((m = /^(?:https?:\/\/)?file:\/\/(?:localhost)?(.*)$/i.exec(u))) path = m[1];
+        else if (/^(?:https?:\/\/)?[A-Za-z]:[\\/]/.test(u)) path = u.replace(/^https?:\/\//i, "");
+        else if (/^(?:https?:\/\/)?\/(?:Users|home|Volumes|mnt)\//.test(u) || /^~\//.test(u)) path = u.replace(/^https?:\/\//i, "");
+        if (path == null) return null;
+        try { path = decodeURIComponent(path); } catch (e) {}
+        if (/^\/[A-Za-z]:[\\/]/.test(path)) path = path.slice(1); // file:///C:/Users → C:/Users
+        var name = path.split(/[\\/]/).filter(Boolean).pop() || "";
+        return { path: path, name: name };
+    }
+    function findExerciseOfLink(link) {
+        for (var i = 0; i < state.instruments.length; i++) {
+            var f = collectExercises(state.instruments[i], function (ex) { return (ex.links || []).some(function (l) { return (link.id && l.id === link.id) || l.url === link.url; }); })[0];
+            if (f) return f.ex;
+        }
+        return null;
+    }
+    var ADD_FILE_ACCEPT = ".pdf,application/pdf,audio/*,video/mp4,image/*,.mp3,.m4a,.aac,.wav,.ogg,.opus,.flac,.aif,.aiff,.mp4,.m4v,.mov,.weba,.webm";
+    // Le fichier choisi devient une pièce jointe de l'exercice (stockée dans l'appli) ; `link` : le lien inutilisable qu'il remplace.
+    function attachFileToExercise(ex, file, displayName) {
+        return storeAttachment(file).then(function (r) {
+            var meta = { id: r.id, name: displayName || file.name, type: r.mime || file.type, size: file.size, addedAt: Date.now() };
+            if (r.disk) meta.disk = r.disk;
+            ex.files = ex.files || [];
+            ex.files.push(meta);
+            return meta;
+        });
+    }
+    function localFileLinkHelp(link, info, ex) {
+        ex = ex || (link && findExerciseOfLink(link));
+        // Dossier relié : si le fichier désigné y est (même nom), on le rattache tout de suite, sans rien demander.
+        if (ex && info.name && folderSupported()) {
+            folderGetHandle().then(function (h) {
+                if (!h) return null;
+                return folderPermission(h, "read", true).then(function (st) {
+                    if (st !== "granted") return null;
+                    return h.getFileHandle(info.name).then(function (fh) { return fh.getFile(); }).catch(function () { return null; });
+                });
+            }).catch(function () { return null; }).then(function (file) {
+                if (!file) { localFileLinkHelpAsk(link, info, ex); return; }
+                var mime = mimeForFile(file.name, file.type);
+                var label = link && link.label && !/^https?:|^file:/i.test(link.label) ? link.label : "";
+                var ext = fileExt(file.name);
+                var shown = label ? (ext && fileExt(label) !== ext ? label + "." + ext : label) : file.name;
+                var meta = { id: uid(), name: shown, type: mime || file.type, size: file.size, addedAt: Date.now(), disk: info.name };
+                ex.files = ex.files || [];
+                ex.files.push(meta);
+                if (link) {
+                    ex.links = (ex.links || []).filter(function (l) { return l.id !== link.id; });
+                    if (ex.pinnedLinkId === link.id) ex.pinnedLinkId = null;
+                }
+                imagesOpenInList[ex.id] = true;
+                touchExercise(ex); save(); render();
+                showToast("Fichier trouvé dans le dossier et ajouté à l'exercice : « " + meta.name + " »", 4500);
+                if (isAudioFile(meta)) openAudioWindow(meta);
+            });
+            return;
+        }
+        localFileLinkHelpAsk(link, info, ex);
+    }
+    function localFileLinkHelpAsk(link, info, ex) {
+        if (!ex) { dlgAlert({ title: "Fichier de votre ordinateur", message: "Ce lien désigne un fichier de cet ordinateur (« " + info.path + " »). Un navigateur ne peut pas l'ouvrir à partir de son chemin : ajoutez plutôt le fichier à l'exercice avec le bouton trombone." }); return; }
+        dlgConfirm({
+            title: "Fichier de votre ordinateur",
+            message: "Ce lien désigne un fichier de cet ordinateur (« " + info.path + " »). Pour des raisons de sécurité, un navigateur ou une appli web ne peut pas ouvrir un fichier à partir de son chemin : il faut le choisir vous-même. " +
+                "Cherchez « " + (info.name || "le fichier") + " » : il sera ajouté à l'exercice en pièce jointe" + (link ? ", à la place de ce lien" : "") + " (audio : lecture dans le lecteur).",
+            confirmLabel: "Choisir le fichier…"
+        }, function () {
+            var input = document.createElement("input");
+            input.type = "file";
+            input.accept = ADD_FILE_ACCEPT;
+            input.style.display = "none";
+            document.body.appendChild(input);
+            input.addEventListener("cancel", function () { input.remove(); });
+            input.addEventListener("change", function () {
+                var f = input.files && input.files[0];
+                input.remove();
+                if (!f) return;
+                // On garde le nom donné au lien (« WB audio ») pour la pièce jointe, avec l'extension du vrai fichier.
+                var ext = fileExt(f.name), label = link && link.label && !/^https?:|^file:/i.test(link.label) ? link.label : "";
+                var shown = label ? (ext && fileExt(label) !== ext ? label + "." + ext : label) : f.name;
+                attachFileToExercise(ex, f, shown).then(function (meta) {
+                    if (link) {
+                        ex.links = (ex.links || []).filter(function (l) { return l.id !== link.id; });
+                        if (ex.pinnedLinkId === link.id) ex.pinnedLinkId = null;
+                    }
+                    imagesOpenInList[ex.id] = true;
+                    touchExercise(ex);
+                    save();
+                    render();
+                    showToast("Fichier ajouté à l'exercice : « " + meta.name + " »", 4000);
+                    if (isAudioFile(meta)) openAudioWindow(meta);
+                }, function () {
+                    dlgAlert({ title: "Fichier non enregistré", message: "Stockage plein, ou navigation privée activée sur cet appareil." });
+                });
+            });
+            input.click();
+        });
+    }
+    // Un lien qui s'ouvre : dans le lecteur s'il s'agit d'audio, aide pour un fichier local, sinon dans un onglet.
+    function openLinkSmart(link, ex) {
+        var lf = localFileFromLink(link.url);
+        if (lf) { localFileLinkHelp(link, lf, ex); return; }
         if (isAudioLink(link)) openAudioUrl(link); else openExternalLink(link.url);
     }
     // Pour les <a href> : clic simple = lecteur ; Ctrl / ⌘ / Maj / clic du milieu gardent leur sens habituel (nouvel onglet).
-    function bindAudioLinkClick(anchor, link) {
+    function bindAudioLinkClick(anchor, link, ex) {
         anchor.addEventListener("click", function (e) {
+            var lf = localFileFromLink(link.url);
+            if (lf) { e.preventDefault(); localFileLinkHelp(link, lf, ex); return; }
             if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button) return;
             if (!isAudioLink(link)) return;
             e.preventDefault();
@@ -4847,16 +5162,16 @@
 
     // ---- ouvrir un fichier joint autrement que dans le lecteur ----
     function fileOpenInTab(meta) {
-        getFileBlob(meta.id).then(function (blob) {
-            if (!blob) { dlgFileUnavailable(meta.name); return; }
+        getFileBlob(meta.id, meta).then(function (blob) {
+            if (!blob) { dlgFileUnavailable(meta.name, meta, function () { fileOpenInTab(meta); }); return; }
             var url = URL.createObjectURL(playableBlob(blob, meta));
             window.open(url, "_blank");
             setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
         });
     }
     function fileOpenWithOtherApp(meta) {
-        getFileBlob(meta.id).then(function (blob) {
-            if (!blob) { dlgFileUnavailable(meta.name); return; }
+        getFileBlob(meta.id, meta).then(function (blob) {
+            if (!blob) { dlgFileUnavailable(meta.name, meta, function () { fileOpenWithOtherApp(meta); }); return; }
             var pb = playableBlob(blob, meta);
             var file = null;
             try { file = new File([pb], meta.name || "fichier", { type: pb.type }); } catch (e) {}
@@ -4869,7 +5184,7 @@
         });
     }
     function fileSaveAs(meta) {
-        getFileBlob(meta.id).then(function (blob) { if (blob) saveBlobAs(playableBlob(blob, meta), meta.name); });
+        getFileBlob(meta.id, meta).then(function (blob) { if (blob) saveBlobAs(playableBlob(blob, meta), meta.name); });
     }
     // Clic droit / appui long sur un fichier joint : lire dans l'app, onglet du navigateur, ou « ouvrir avec » une autre
     // application (feuille de partage du système quand le navigateur la propose, sinon enregistrement du fichier).
@@ -4932,7 +5247,7 @@
 
     // -- les morceaux --
     function audioFileTrack(meta) {
-        return { id: meta.id, kind: "file", name: meta.name, meta: { id: meta.id, name: meta.name, type: meta.type || "", size: meta.size || 0 }, pinned: false, pos: 0, rate: null };
+        return { id: meta.id, kind: "file", name: meta.name, meta: { id: meta.id, name: meta.name, type: meta.type || "", size: meta.size || 0, disk: meta.disk || "" }, pinned: false, pos: 0, rate: null };
     }
     function audioLinkTrack(link) {
         return { id: "url:" + link.url, kind: "link", name: link.label || link.url, originalUrl: link.url, url: audioUrlFor(link.url), pinned: false, pos: 0, rate: null };
@@ -4971,9 +5286,17 @@
 
     // Lecture directe (simple clic) : onglet « aperçu » ; ajout à la liste (clic droit) : onglet fixe.
     function openAudioWindow(meta) { audioAdd(audioFileTrack(meta), { select: true, play: true, pinned: false }); }
-    function openAudioUrl(link) { audioAdd(audioLinkTrack(link), { select: true, play: true, pinned: false }); }
+    function openAudioUrl(link) {
+        var lf = localFileFromLink(link.url);
+        if (lf) { localFileLinkHelp(link, lf); return; }
+        audioAdd(audioLinkTrack(link), { select: true, play: true, pinned: false });
+    }
     function audioAddFileToList(meta) { audioAdd(audioFileTrack(meta), { select: !audioCtl || audioCtl.index < 0, play: false, pinned: true }); }
-    function audioAddLinkToList(link) { audioAdd(audioLinkTrack(link), { select: !audioCtl || audioCtl.index < 0, play: false, pinned: true }); }
+    function audioAddLinkToList(link) {
+        var lf = localFileFromLink(link.url);
+        if (lf) { localFileLinkHelp(link, lf); return; }
+        audioAdd(audioLinkTrack(link), { select: !audioCtl || audioCtl.index < 0, play: false, pinned: true });
+    }
 
     function audioEnsureCtl() {
         if (audioCtl) return audioCtl;
@@ -5088,9 +5411,9 @@
         else {
             audio.removeAttribute("src");
             try { audio.load(); } catch (e) {}
-            getFileBlob(t.meta.id).then(function (blob) {
+            getFileBlob(t.meta.id, t.meta).then(function (blob) {
                 if (token !== ctl.loadToken || audioCtl !== ctl) return; // un autre morceau a été choisi entre-temps
-                if (!blob) { t.unavailable = true; audioRefresh(ctl); return; }
+                if (!blob) { t.unavailable = true; folderStatus().then(function (fs) { t.folder = fs; audioRefresh(ctl); }); return; }
                 ctl.objUrl = URL.createObjectURL(playableBlob(blob, t.meta));
                 start(ctl.objUrl);
                 audioRefresh(ctl);
@@ -5414,8 +5737,21 @@
             try { host = new URL(t.url || t.originalUrl).hostname; } catch (e) {}
             var detail = (code ? "Erreur " + code + " (" + (ERR_TEXT[code] || "inconnue") + ")" : "") + (host ? (code ? " · " : "") + host : "");
             if (unavailable) {
-                txt.textContent = "Fichier absent de cet appareil.";
-                txt.title = "Les fichiers joints restent sur l'appareil où ils ont été ajoutés.";
+                var fs = t.folder || { connected: false };
+                function reload() { t.unavailable = false; audioSelect(ctl.tracks.indexOf(t), { play: true }); }
+                if (fs.connected && !fs.granted) {
+                    txt.textContent = "Accès au dossier « " + fs.name + " » à autoriser.";
+                    txt.title = "Le navigateur demande d'autoriser l'accès au dossier à chaque nouvelle session.";
+                    act("Autoriser l'accès", function () { folderPermission(fs.handle, "read", true).then(function (st) { if (st === "granted") reload(); }); });
+                } else if (fs.connected) {
+                    txt.textContent = "Fichier absent du dossier « " + fs.name + " ».";
+                    txt.title = "Nom attendu : « " + (t.meta.disk || t.meta.name) + " ». Remettez le fichier dans ce dossier, ou retrouvez-le.";
+                    act("Retrouver le fichier…", function () { relinkFile(t.meta, reload); });
+                } else {
+                    txt.textContent = "Fichier absent de cette appli.";
+                    txt.title = FILE_UNAVAILABLE_TEXT;
+                    act("Retrouver le fichier…", function () { relinkFile(t.meta, reload); });
+                }
             } else if (t.kind === "link") {
                 txt.textContent = "Lien illisible dans l'appli" + (detail ? " (" + detail.replace(/^Erreur/, "erreur") + ")" : "") + ".";
                 txt.title = "Le site n'autorise pas la lecture directe, ou le format n'est pas pris en charge. " + detail;
@@ -5583,15 +5919,7 @@
             openBtn.textContent = fileCaption();
             openBtn.addEventListener("click", function () {
                 if (isAudioFile(meta)) { openAudioWindow(meta); return; }
-                getFileBlob(meta.id).then(function (blob) {
-                    if (!blob) {
-                        dlgFileUnavailable(meta.name);
-                        return;
-                    }
-                    var url = URL.createObjectURL(playableBlob(blob, meta));
-                    window.open(url, "_blank");
-                    setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
-                });
+                fileOpenInTab(meta);
             });
             chip.appendChild(openBtn);
             bindContextGesture(chip, function (x, y) { openFileMenu(x, y, meta, list); });
@@ -5665,7 +5993,7 @@
         var fileInput = document.createElement("input");
         fileInput.type = "file";
         fileInput.className = "add-file-input";
-        fileInput.accept = ".pdf,application/pdf,audio/*,video/mp4,image/*,.mp3,.m4a,.aac,.wav,.ogg,.opus,.flac,.aif,.aiff,.mp4,.m4v,.mov,.weba,.webm";
+        fileInput.accept = ADD_FILE_ACCEPT;
         fileInput.multiple = true;
         var fileBtn = svgIconButton(FILE_ICON_SVG, "Ajouter un fichier (PDF, MP3…) ou une image — reste sur cet appareil", function () { fileInput.click(); });
         fileBtn.classList.add("btn-ghost");
@@ -5678,14 +6006,11 @@
             if (imgs.length) addImagesToExercise(ex, imgs);
             if (!files.length) { fileInput.value = ""; return; }
             ex.files = ex.files || [];
+            var fellBack = false;
             Promise.all(files.map(function (file) {
-                var id = uid();
-                var mime = mimeForFile(file.name, file.type);
-                var toStore = mime && file.type !== mime ? new Blob([file], { type: mime }) : file;
-                return storeFileBlob(id, toStore).then(function () {
-                    ex.files.push({ id: id, name: file.name, type: mime || file.type, size: file.size, addedAt: Date.now() });
-                });
+                return attachFileToExercise(ex, file).then(function () { if (lastAttachFallback) fellBack = true; });
             })).then(function () {
+                if (fellBack) showToast("Accès au dossier non autorisé : le fichier est gardé dans l'appli (Paramètres › Données pour le copier dans le dossier).", 7000);
                 imagesOpenInList[ex.id] = true; // la section « Images et fichiers » s'ouvre pour montrer le nouveau fichier
                 fileInput.value = "";
                 // Un seul fichier ajouté : saisie du nom aussitôt (comme pour un lien).
@@ -10417,6 +10742,46 @@
             actionRow("Réimporter des images…", "Rattache des images exportées à leurs exercices", function () { reFile.click(); }, "settings-reimport-btn");
             curCard.appendChild(reFile);
 
+            // Dossier de fichiers (Chrome / Edge) : tous les fichiers audio et PDF dans un seul dossier de l'ordinateur.
+            card("Fichiers audio et PDF", "Images : toujours réduites et synchronisées dans le cloud, rien ne change pour elles. Audio et PDF : par défaut gardés dans cette appli seulement ; avec un dossier, ils sont rangés dans un seul endroit de l'ordinateur, partagé par l'appli du Dock, Chrome et les autres.");
+            var folderHolder = document.createElement("div");
+            folderHolder.className = "settings-folder-rows";
+            curCard.appendChild(folderHolder);
+            function paintFolderCard() {
+                function build(fn) { var keep = curCard; curCard = folderHolder; folderHolder.textContent = ""; try { fn(); } finally { curCard = keep; } }
+                if (!folderSupported()) {
+                    build(function () {
+                        var n = document.createElement("div"); n.className = "settings-field-hint";
+                        n.textContent = "Le choix d'un dossier n'est disponible que dans Chrome et Edge sur ordinateur (pas Safari, iPhone ni Firefox). Ici, les fichiers restent dans l'appli ; seuls leurs noms sont synchronisés.";
+                        folderHolder.appendChild(n);
+                    });
+                    return;
+                }
+                folderStatus().then(function (fs) {
+                    build(function () {
+                        var txt = document.createElement("span"); txt.className = "settings-folder-name";
+                        txt.textContent = fs.connected ? "« " + fs.name + " » · " + (fs.granted ? "autorisé" : "à autoriser") : "Aucun (fichiers gardés dans l'appli)";
+                        field("Dossier", txt, "Choisissez un sous-dossier (ex. Documents › TrainHub) : Chrome n'autorise pas le Bureau, Documents ou Téléchargements eux-mêmes");
+                        actionRow(fs.connected ? "Choisir un autre dossier…" : "Choisir le dossier…", "Un dossier sur le Bureau, dans Documents, iCloud Drive, Dropbox…", function () {
+                            window.showDirectoryPicker({ id: "trainhub-files", mode: "readwrite", startIn: "documents" }).then(function (h) {
+                                return folderPermission(h, "readwrite", true).then(function () { return folderSetHandle(h); }).then(function () { showToast("Dossier relié : « " + h.name + " »", 4000); paintFolderCard(); });
+                            }).catch(function (e) { if (e && e.name !== "AbortError") dlgAlert({ title: "Dossier non relié", message: String((e && e.message) || e) }); });
+                        });
+                        if (fs.connected && !fs.granted) actionRow("Autoriser l'accès", "Le navigateur le redemande à chaque nouvelle session (un clic)", function () { folderPermission(fs.handle, "readwrite", true).then(paintFolderCard); });
+                        var nLocal = fs.connected ? folderCountLocalFiles() : 0;
+                        if (fs.connected && nLocal) actionRow("Copier dans le dossier les " + nLocal + " fichier" + (nLocal > 1 ? "s" : "") + " de l'appli", "Pour les retrouver partout où ce dossier est relié (les originaux restent dans l'appli)", function () {
+                            folderMigrateFiles(fs.handle).then(function (r) {
+                                if (r.denied) showToast("Accès au dossier refusé : rien n'a été copié.", 5000);
+                                else showToast(r.copied + " fichier" + (r.copied > 1 ? "s" : "") + " copié" + (r.copied > 1 ? "s" : "") + " dans le dossier" + (r.missing ? " · " + r.missing + " introuvable" + (r.missing > 1 ? "s" : "") + " dans l'appli" : "") + (r.failed ? " · " + r.failed + " en échec" : "") + ".", 6000);
+                                paintFolderCard();
+                            });
+                        });
+                        if (fs.connected) actionRow("Ne plus utiliser de dossier", "Les fichiers déjà rangés dans le dossier y restent (rien n'est supprimé)", function () { folderSetHandle(null).then(paintFolderCard); });
+                    });
+                });
+            }
+            paintFolderCard();
+
             // ===== Avancé : réglages fins, hors de la page d'accueil des paramètres =====
             section("Avancé");
             card("Chrono libre", "Hors session, le chrono suit l'exercice affiché.");
@@ -10961,7 +11326,7 @@
             chip.href = link.url;
             chip.target = "_blank";
             chip.rel = "noopener noreferrer";
-            bindAudioLinkClick(chip, link);
+            bindAudioLinkClick(chip, link, ex);
             var iconSpan = document.createElement("span");
             iconSpan.className = "link-icon";
             iconSpan.innerHTML = linkIconSvg(link.label, link.url);
@@ -10989,12 +11354,7 @@
             bindContextGesture(chip, function (x, y) { openFileMenu(x, y, meta, container); });
             chip.addEventListener("click", function () {
                 if (isAudioFile(meta)) { openAudioWindow(meta); return; }
-                getFileBlob(meta.id).then(function (blob) {
-                    if (!blob) { dlgFileUnavailable(meta.name); return; }
-                    var url = URL.createObjectURL(playableBlob(blob, meta));
-                    window.open(url, "_blank");
-                    setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
-                });
+                fileOpenInTab(meta);
             });
             container.appendChild(chip);
         });
@@ -11051,9 +11411,14 @@
     // Les fichiers audio ne partent jamais dans un onglet du navigateur : ils se lisent dans la fenêtre de lecture
     // de l'appli (flottante : elle reste ouverte quand on enchaîne sur le guidage).
     function gsOpenItems(items) {
-        var urls = [], unavailable = [], pending = [], audios = [];
+        var urls = [], unavailable = [], pending = [], audios = [], locals = [];
         items.forEach(function (item) {
-            if (item.type === "link") { if (isAudioLink(item)) audios.push(item); else urls.push(item.url); return; }
+            if (item.type === "link") {
+                var lfi = localFileFromLink(item.url);
+                if (lfi) { locals.push({ link: { id: String(item.key || "").replace(/^link:/, ""), label: item.label, url: item.url }, info: lfi }); return; }
+                if (isAudioLink(item)) audios.push(item); else urls.push(item.url);
+                return;
+            }
             if (isAudioFile(item.meta)) { audios.push(item); return; }
             var blob = gsFileBlobCache[item.meta.id];
             if (blob === false) { unavailable.push(item.label); return; }
@@ -11064,6 +11429,7 @@
             setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
         });
         openUrlsInTabs(urls);
+        if (locals.length) localFileLinkHelp(locals[0].link, locals[0].info); // un lien vers un fichier de l'ordinateur ne s'ouvre pas : on propose de choisir le fichier
         if (audios.length) {
             if (audios[0].type === "link") openAudioUrl(audios[0]); else openAudioWindow(audios[0].meta);
             if (audios.length > 1) showToast(audios.length + " fichiers audio : le premier est dans la fenêtre de lecture ; les autres se lancent depuis leur exercice (clic sur le fichier).", 7000);
@@ -15846,7 +16212,7 @@
             // d'asynchrone à attendre (voir gsOpenItems).
             items.forEach(function (item) {
                 if (item.type !== "file" || item.meta.id in gsFileBlobCache) return;
-                getFileBlob(item.meta.id).then(function (b) { gsFileBlobCache[item.meta.id] = b || false; }, function () { gsFileBlobCache[item.meta.id] = false; });
+                getFileBlob(item.meta.id, item.meta).then(function (b) { gsFileBlobCache[item.meta.id] = b || false; }, function () { gsFileBlobCache[item.meta.id] = false; });
             });
 
             var group = document.createElement("div");
