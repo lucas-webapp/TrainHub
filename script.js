@@ -4822,9 +4822,11 @@
     }
 
     // Lecteur intégré sous la liste de puces : un seul à la fois, avec la vitesse de lecture (utile pour travailler un morceau).
-    function toggleAudioPlayer(container, meta) {
+    // keepIfPlaying : « ouvrir » (et non « basculer ») — si ce fichier est déjà dans le lecteur, on ne le ferme pas.
+    function toggleAudioPlayer(container, meta, keepIfPlaying) {
         var existing = container.querySelector(".audio-player");
         var sameId = existing && existing.getAttribute("data-file") === meta.id;
+        if (sameId && keepIfPlaying) return;
         if (existing) { if (existing._cleanup) existing._cleanup(); existing.remove(); }
         if (sameId) return;
         getFileBlob(meta.id).then(function (blob) {
@@ -10378,10 +10380,14 @@
     }
 
     // Les éléments sont ouverts dans l'ordre où ils s'affichent (exercice par exercice).
-    function gsOpenItems(items) {
-        var urls = [], unavailable = [], pending = [];
+    // Les fichiers audio ne partent jamais dans un onglet du navigateur : ils se lisent dans le lecteur intégré
+    // (vitesse réglable). audioHost = l'endroit de l'écran où l'afficher ; sans lui (on enchaîne sur le guidage,
+    // qui remplace l'écran), les fichiers restent lisibles depuis l'exercice et on le dit.
+    function gsOpenItems(items, audioHost) {
+        var urls = [], unavailable = [], pending = [], audios = [];
         items.forEach(function (item) {
             if (item.type === "link") { urls.push(item.url); return; }
+            if (isAudioFile(item.meta)) { audios.push(item); return; }
             var blob = gsFileBlobCache[item.meta.id];
             if (blob === false) { unavailable.push(item.label); return; }
             if (!blob) { pending.push(item.label); return; } // lecture pas encore terminée
@@ -10391,6 +10397,14 @@
             setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
         });
         openUrlsInTabs(urls);
+        if (audios.length) {
+            if (audioHost) {
+                toggleAudioPlayer(audioHost, audios[0].meta, true);
+                if (audios.length > 1) showToast(audios.length + " fichiers audio : le premier est dans le lecteur, les autres se lancent avec leur bouton Lire.", 6000);
+            } else {
+                showToast((audios.length > 1 ? audios.length + " fichiers audio ne sont pas ouverts" : "Le fichier audio n'est pas ouvert") + " dans un onglet : le lecteur de l'appli les lit depuis l'exercice (clic sur le fichier).", 7000);
+            }
+        }
         if (pending.length) showToast("Fichier en cours de lecture, réessayez dans un instant : " + pending.join(", "));
         if (unavailable.length) {
             dlgAlert({ title: "Fichiers indisponibles", message: "Ils sont enregistrés sur l'appareil où tu les as ajoutés, pas sur celui-ci :", items: unavailable });
@@ -15160,6 +15174,8 @@
         var allItems = [];
         var list = document.createElement("div");
         list.className = "gs-links-list";
+        var audioHost = document.createElement("div"); // lecteur audio intégré (voir toggleAudioPlayer)
+        audioHost.className = "gs-links-audio";
         session.steps.forEach(function (step) {
             var found = findExerciseById(step.exerciseId);
             if (!found) return;
@@ -15191,6 +15207,16 @@
                 var span = document.createElement("span");
                 span.textContent = item.label;
                 row.appendChild(span);
+                if (item.type === "file" && isAudioFile(item.meta)) {
+                    // Audio : lecteur intégré (plutôt qu'un onglet du navigateur), sans cocher/décocher la ligne.
+                    var playBtn = document.createElement("button");
+                    playBtn.type = "button";
+                    playBtn.className = "btn-ghost gs-links-play";
+                    playBtn.textContent = "▶ Lire";
+                    playBtn.title = "Lire dans TrainHub (vitesse réglable)";
+                    playBtn.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); toggleAudioPlayer(audioHost, item.meta); });
+                    row.appendChild(playBtn);
+                }
                 group.appendChild(row);
                 allItems.push(item);
             });
@@ -15205,6 +15231,7 @@
             return;
         }
         content.appendChild(list);
+        content.appendChild(audioHost);
 
         function selectedItems() {
             return allItems.filter(function (item) { return gsLinksChecked[item.key]; });
@@ -15213,7 +15240,7 @@
         openBtn.type = "button";
         openBtn.className = fromRun || !session.steps.length ? "btn-accent gs-links-open-btn" : "btn-ghost gs-links-open-btn gs-links-open-only-btn";
         openBtn.textContent = "Ouvrir la sélection";
-        openBtn.addEventListener("click", function () { gsOpenItems(selectedItems()); });
+        openBtn.addEventListener("click", function () { gsOpenItems(selectedItems(), audioHost); });
         content.appendChild(openBtn);
 
         // Avant le lancement : tout ouvrir puis démarrer d'un seul geste.
