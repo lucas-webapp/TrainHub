@@ -2947,6 +2947,8 @@
         title.textContent = link.label;
         menu.appendChild(title);
 
+        menu.appendChild(menuButton("Lire dans TrainHub (lecteur audio)", "", function () { closeFolderMenu(); openAudioUrl(link); }));
+        menu.appendChild(menuButton("Ouvrir dans un onglet du navigateur", "", function () { closeFolderMenu(); openExternalLink(link.url); }));
         var isPinned = ex.pinnedLinkId === link.id;
         menu.appendChild(menuButton(isPinned ? "Ne plus mettre en avant" : "Mettre en avant dans la barre", "", function () {
             ex.pinnedLinkId = isPinned ? null : link.id;
@@ -4204,6 +4206,7 @@
         tools.className = "exercise-row-tools";
         row.appendChild(tools);
         appendExerciseLinkButtons(tools, ex);
+        appendExerciseAudioButton(tools, ex);
         if ((ex.notes && ex.notes.trim()) || (ex.fixedNotes && ex.fixedNotes.trim())) {
             var noteMark = document.createElement("span");
             noteMark.className = "exercise-note-mark";
@@ -4300,7 +4303,7 @@
         btn.appendChild(label);
         btn.addEventListener("click", function (e) {
             e.stopPropagation();
-            openExternalLink(link.url);
+            openLinkSmart(link);
         });
         return btn;
     }
@@ -4346,7 +4349,7 @@
         links.forEach(function (link) {
             menu.appendChild(menuButton(link.label, function () {
                 closeFolderMenu(); // d'abord : l'action peut ouvrir une fenêtre ou un popover qu'il ne faut pas refermer aussitôt
-                if (link.open) link.open(); else openExternalLink(link.url);
+                if (link.open) link.open(); else openLinkSmart(link);
             }));
         });
 
@@ -4589,6 +4592,7 @@
             chip.href = link.url;
             chip.target = "_blank";
             chip.rel = "noopener noreferrer";
+            bindAudioLinkClick(chip, link);
             bindLinkMenu(chip, ex, link);
             var iconSpan = document.createElement("span");
             iconSpan.className = "link-icon";
@@ -4759,12 +4763,21 @@
     // ---- fichiers audio : toutes les extensions se lisent de la même façon (lecteur intégré) ----
     // Le type MIME enregistré par le navigateur est parfois vide ou fantaisiste (m4a, mp4, wav… selon le
     // système) : on le déduit de l'extension, à l'ajout comme à la lecture, pour que tout se comporte pareil.
+    // La liste couvre tous les formats audio courants ; ce que le navigateur sait réellement décoder dépend de lui
+    // (mp3, m4a/aac, wav, ogg/opus, flac, webm partout ; aiff/caf sur Safari ; wma, midi, ape… rarement) — pour les autres,
+    // le lecteur le dit clairement et propose de les ouvrir ailleurs (voir showError dans buildAudioBox).
     var FILE_MIME_BY_EXT = {
-        mp3: "audio/mpeg", m4a: "audio/mp4", aac: "audio/aac", wav: "audio/wav", wave: "audio/wav", ogg: "audio/ogg", oga: "audio/ogg",
-        opus: "audio/ogg", flac: "audio/flac", weba: "audio/webm", webm: "audio/webm", aif: "audio/aiff", aiff: "audio/aiff", caf: "audio/x-caf",
+        mp3: "audio/mpeg", mp2: "audio/mpeg", mpga: "audio/mpeg", m4a: "audio/mp4", m4b: "audio/mp4", m4r: "audio/mp4", aac: "audio/aac", adts: "audio/aac",
+        wav: "audio/wav", wave: "audio/wav", bwf: "audio/wav", ogg: "audio/ogg", oga: "audio/ogg", opus: "audio/ogg", spx: "audio/ogg", flac: "audio/flac",
+        weba: "audio/webm", webm: "audio/webm", mka: "audio/x-matroska", aif: "audio/aiff", aiff: "audio/aiff", aifc: "audio/aiff", caf: "audio/x-caf",
+        au: "audio/basic", snd: "audio/basic", wma: "audio/x-ms-wma", amr: "audio/amr", awb: "audio/amr-wb", "3ga": "audio/3gpp", "3gp": "audio/3gpp",
+        ac3: "audio/ac3", eac3: "audio/eac3", ape: "audio/x-ape", wv: "audio/x-wavpack", tta: "audio/x-tta", mpc: "audio/x-musepack",
+        mid: "audio/midi", midi: "audio/midi", kar: "audio/midi",
         mp4: "video/mp4", m4v: "video/mp4", mov: "video/quicktime", pdf: "application/pdf"
     };
-    var AUDIO_EXTS = ["mp3", "m4a", "aac", "wav", "wave", "ogg", "oga", "opus", "flac", "weba", "webm", "aif", "aiff", "caf", "mp4", "m4v", "mov"];
+    var AUDIO_EXTS = Object.keys(FILE_MIME_BY_EXT).filter(function (e) { return e !== "pdf"; });
+    // Pour un LIEN, on laisse de côté les extensions qui désignent d'abord une vidéo (elle s'ouvre dans l'onglet du navigateur).
+    var LINK_AUDIO_EXTS = AUDIO_EXTS.filter(function (e) { return ["mp4", "m4v", "mov", "webm", "3gp"].indexOf(e) === -1; });
     function fileExt(name) { var m = /\.([A-Za-z0-9]+)$/.exec(name || ""); return m ? m[1].toLowerCase() : ""; }
     function isAudioFile(meta) {
         return AUDIO_EXTS.indexOf(fileExt(meta.name)) !== -1 || /^audio\//.test(meta.type || "");
@@ -4779,36 +4792,92 @@
         var mime = mimeForFile(meta.name, meta.type || blob.type);
         return mime && blob.type !== mime ? new Blob([blob], { type: mime }) : blob;
     }
+
+    // ---- liens vers un fichier audio : lus eux aussi dans le lecteur intégré ----
+    // Reconnus à l'extension de l'adresse (…/morceau.m4a?dl=1) ; sinon, comme pour l'icône « audio » de la pastille, c'est le nom
+    // du lien (« WB audio », « Backing track mp3 »…) qui fait foi — Google Drive et Dropbox, dont l'adresse ne dit rien du contenu,
+    // en profitent. Les sites de streaming (YouTube, Spotify…) restent des pages web. N'importe quel autre lien peut être lu
+    // à la demande (clic droit › « Lire dans TrainHub »), et un lien qui ne se lit pas propose de s'ouvrir dans un onglet.
+    function driveFileId(url) {
+        var m = /^https?:\/\/(?:drive|docs)\.google\.com\/(?:file\/d\/|open\?(?:[^#]*&)?id=|uc\?(?:[^#]*&)?id=)([\w-]{10,})/.exec(url || "");
+        return m ? m[1] : null;
+    }
+    function isDropboxUrl(url) { try { return /(^|\.)dropbox\.com$/.test(new URL(url).hostname); } catch (e) { return false; } }
+    function linkAudioExt(url) {
+        try {
+            var u = new URL(url);
+            if (!/^https?:$/.test(u.protocol)) return "";
+            var e = fileExt(decodeURIComponent(u.pathname));
+            return LINK_AUDIO_EXTS.indexOf(e) !== -1 ? e : "";
+        } catch (err) { return ""; }
+    }
+    var AUDIO_LABEL_HINT_RE = /\baudio\b|mp3|m4a|\bwav\b|flac|\bogg\b|\baac\b/i;
+    var STREAMING_HOST_RE = /(^|\.)(youtube\.com|youtu\.be|spotify\.com|deezer\.com|soundcloud\.com|bandcamp\.com|music\.apple\.com|itunes\.apple\.com|tidal\.com|qobuz\.com|music\.amazon\.[a-z.]+)$/i;
+    function isAudioLink(link) {
+        var url = link && link.url || "";
+        if (linkAudioExt(url)) return true;
+        var host = "";
+        try { var u = new URL(url); if (/^https?:$/.test(u.protocol)) host = u.hostname; } catch (e) {}
+        if (!host || STREAMING_HOST_RE.test(host)) return false;
+        return AUDIO_LABEL_HINT_RE.test(link.label || "");
+    }
+    // Adresse que <audio> sait lire directement (les pages de partage Drive / Dropbox ne sont pas le fichier).
+    function audioUrlFor(url) {
+        try {
+            var id = driveFileId(url);
+            if (id) return "https://drive.google.com/uc?export=download&id=" + id;
+            if (isDropboxUrl(url)) { var u = new URL(url); u.searchParams.delete("dl"); u.searchParams.set("raw", "1"); return u.toString(); }
+        } catch (e) {}
+        return url;
+    }
+    // Un lien qui s'ouvre : dans le lecteur s'il s'agit d'audio, sinon dans un onglet.
+    function openLinkSmart(link) {
+        if (isAudioLink(link)) openAudioUrl(link); else openExternalLink(link.url);
+    }
+    // Pour les <a href> : clic simple = lecteur ; Ctrl / ⌘ / Maj / clic du milieu gardent leur sens habituel (nouvel onglet).
+    function bindAudioLinkClick(anchor, link) {
+        anchor.addEventListener("click", function (e) {
+            if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button) return;
+            if (!isAudioLink(link)) return;
+            e.preventDefault();
+            openAudioUrl(link);
+        });
+    }
+
+    // ---- ouvrir un fichier joint autrement que dans le lecteur ----
+    function fileOpenInTab(meta) {
+        getFileBlob(meta.id).then(function (blob) {
+            if (!blob) { dlgFileUnavailable(meta.name); return; }
+            var url = URL.createObjectURL(playableBlob(blob, meta));
+            window.open(url, "_blank");
+            setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+        });
+    }
+    function fileOpenWithOtherApp(meta) {
+        getFileBlob(meta.id).then(function (blob) {
+            if (!blob) { dlgFileUnavailable(meta.name); return; }
+            var pb = playableBlob(blob, meta);
+            var file = null;
+            try { file = new File([pb], meta.name || "fichier", { type: pb.type }); } catch (e) {}
+            if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+                navigator.share({ files: [file], title: meta.name }).catch(function () {});
+                return;
+            }
+            saveBlobAs(pb, meta.name);
+            showToast("Fichier enregistré : ouvre-le depuis les téléchargements avec l'application de ton choix (clic droit → Ouvrir avec).", 7000);
+        });
+    }
+    function fileSaveAs(meta) {
+        getFileBlob(meta.id).then(function (blob) { if (blob) saveBlobAs(playableBlob(blob, meta), meta.name); });
+    }
     // Clic droit / appui long sur un fichier joint : lire dans l'app, onglet du navigateur, ou « ouvrir avec » une autre
     // application (feuille de partage du système quand le navigateur la propose, sinon enregistrement du fichier).
     function openFileMenu(x, y, meta, container) {
         var items = [];
-        if (isAudioFile(meta)) items.push({ label: "Lire dans TrainHub (fenêtre de lecture)", open: function () { openAudioWindow(meta); } });
-        items.push({ label: "Ouvrir dans un onglet du navigateur", open: function () {
-            getFileBlob(meta.id).then(function (blob) {
-                if (!blob) { dlgFileUnavailable(meta.name); return; }
-                var url = URL.createObjectURL(playableBlob(blob, meta));
-                window.open(url, "_blank");
-                setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
-            });
-        } });
-        items.push({ label: "Ouvrir avec une autre application…", open: function () {
-            getFileBlob(meta.id).then(function (blob) {
-                if (!blob) { dlgFileUnavailable(meta.name); return; }
-                var pb = playableBlob(blob, meta);
-                var file = null;
-                try { file = new File([pb], meta.name || "fichier", { type: pb.type }); } catch (e) {}
-                if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
-                    navigator.share({ files: [file], title: meta.name }).catch(function () {});
-                    return;
-                }
-                saveBlobAs(pb, meta.name);
-                showToast("Fichier enregistré : ouvre-le depuis les téléchargements avec l'application de ton choix (clic droit → Ouvrir avec).", 7000);
-            });
-        } });
-        items.push({ label: "Enregistrer le fichier…", open: function () {
-            getFileBlob(meta.id).then(function (blob) { if (blob) saveBlobAs(playableBlob(blob, meta), meta.name); });
-        } });
+        if (isAudioFile(meta)) items.push({ label: "Lire dans TrainHub (lecteur audio)", open: function () { openAudioWindow(meta); } });
+        items.push({ label: "Ouvrir dans un onglet du navigateur", open: function () { fileOpenInTab(meta); } });
+        items.push({ label: "Ouvrir avec une autre application…", open: function () { fileOpenWithOtherApp(meta); } });
+        items.push({ label: "Enregistrer le fichier…", open: function () { fileSaveAs(meta); } });
         openLinksQuickMenu(x, y, items);
     }
     function saveBlobAs(blob, name) {
@@ -4821,234 +4890,387 @@
         setTimeout(function () { a.remove(); URL.revokeObjectURL(url); }, 4000);
     }
 
-    // ---- fenêtre de lecture audio ----
-    // Vraie fenêtre flottante (comme le métronome ou l'accordeur : déplaçable, redimensionnable, taille et place
-    // retenues), mais NON modale : on peut continuer à naviguer et à régler le métronome pendant qu'elle joue.
-    // Une seule à la fois : un autre fichier remplace le morceau. Fermer la fenêtre arrête la lecture.
+    // ---- lecteur audio ----
+    // Un seul lecteur à la fois (un autre morceau remplace le précédent), qui s'affiche au choix :
+    //  · en fenêtre flottante, comme le métronome ou l'accordeur (déplaçable, redimensionnable, taille et place retenues), NON
+    //    modale : on peut continuer à naviguer et à régler le métronome pendant qu'elle joue ;
+    //  · épinglé en barre horizontale en bas de l'écran principal (la page garde une marge pour ne rien cacher derrière).
+    // Le bouton punaise passe de l'un à l'autre sans couper le son ; le dernier choix, la place, la taille, le volume, la vitesse
+    // et la boucle sont retenus sur cet appareil. Fermer (✕) arrête la lecture.
     var AUDIO_ICONS = {
         restart: '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 5v14" fill="none"/><path d="M19 5.5v13L9 12Z"/></svg>',
         pause: '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4.2" height="14" rx="1.2"/><rect x="13.8" y="5" width="4.2" height="14" rx="1.2"/></svg>',
         loop: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/></svg>',
         muted: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v4h4l5 4V6L8 10Z"/><path d="M17 9.5l5 5"/><path d="M22 9.5l-5 5"/></svg>'
     };
-    var AUDIO_VOL_KEY = "trainhub.audioVol", AUDIO_RATE_KEY = "trainhub.audioRate", AUDIO_LOOP_KEY = "trainhub.audioLoop";
+    var AUDIO_VOL_KEY = "trainhub.audioVol", AUDIO_RATE_KEY = "trainhub.audioRate", AUDIO_LOOP_KEY = "trainhub.audioLoop", AUDIO_MODE_KEY = "trainhub.audioMode";
     var AUDIO_SKIP_S = 5;
-    var audioWin = null; // fenêtre ouverte : { meta, load(meta, blob), raise(), close() }
+    var audioCtl = null; // { audio, host, track, objUrl, view, keep } tant qu'un morceau est ouvert
+    function audioLsGet(k, d) { try { var v = parseFloat(localStorage.getItem(k)); return isNaN(v) ? d : v; } catch (e) { return d; } }
+    function audioLsSet(k, v) { try { localStorage.setItem(k, String(v)); } catch (e) {} }
+    function audioMode() { try { return localStorage.getItem(AUDIO_MODE_KEY) === "dock" ? "dock" : "float"; } catch (e) { return "float"; } }
+    function setAudioMode(m) { try { localStorage.setItem(AUDIO_MODE_KEY, m === "dock" ? "dock" : "float"); } catch (e) {} }
     function audioClock(t) {
         if (!isFinite(t) || t < 0) t = 0;
         var m = Math.floor(t / 60), sec = Math.floor(t % 60);
         return m + ":" + (sec < 10 ? "0" : "") + sec;
     }
-    // Ouvre la fenêtre sur ce fichier (ou, si elle est déjà ouverte, la ramène devant : même morceau → on le relance
-    // s'il était en pause, autre morceau → il remplace le précédent).
+
+    // Ouvrir un fichier joint (ou un lien) dans le lecteur.
     function openAudioWindow(meta) {
         getFileBlob(meta.id).then(function (blob) {
             if (!blob) { dlgFileUnavailable(meta.name); return; }
-            if (audioWin) { audioWin.load(meta, blob); audioWin.raise(); return; }
-            buildAudioWindow(meta, blob);
+            audioPlayTrack({ id: meta.id, kind: "file", name: meta.name, meta: meta, blob: playableBlob(blob, meta) });
         });
     }
-    function buildAudioWindow(meta0, blob0) {
-        function lsGet(k, d) { try { var v = parseFloat(localStorage.getItem(k)); return isNaN(v) ? d : v; } catch (e) { return d; } }
-        function lsSet(k, v) { try { localStorage.setItem(k, String(v)); } catch (e) {} }
-        openModal("audio-panel", function (panel, close) {
-            var audio = document.createElement("audio");
-            audio.preload = "auto";
-            try { audio.preservesPitch = true; audio.webkitPreservesPitch = true; audio.mozPreservesPitch = true; } catch (e) {} // plus lent ≠ plus grave
-            var objUrl = null, rafId = null, seeking = false;
-
-            var box = document.createElement("div");
-            box.className = "audio-player";
-            box.appendChild(audio); // pas de contrôles natifs (display:none) : tout passe par les boutons ci-dessous
-            panel.appendChild(box);
-
-            // -- en-tête : nom du morceau (poignée de déplacement) + fermer --
-            var head = document.createElement("div");
-            head.className = "audio-head";
-            var title = document.createElement("div");
-            title.className = "backups-title audio-title";
-            var closeBtn = document.createElement("button");
-            closeBtn.type = "button";
-            closeBtn.className = "audio-player-close";
-            closeBtn.textContent = "✕";
-            closeBtn.title = "Fermer le lecteur (arrête la lecture)";
-            closeBtn.setAttribute("aria-label", "Fermer le lecteur");
-            closeBtn.addEventListener("click", close);
-            head.appendChild(title); head.appendChild(closeBtn);
-            box.appendChild(head);
-
-            // -- temps écoulé · jauge (cliquable / glissable) · durée --
-            var timeRow = document.createElement("div");
-            timeRow.className = "audio-time";
-            var curEl = document.createElement("span"); curEl.className = "audio-clock"; curEl.textContent = "0:00";
-            var seek = document.createElement("input");
-            seek.type = "range"; seek.min = "0"; seek.max = "1000"; seek.step = "1"; seek.value = "0";
-            seek.className = "audio-seek";
-            seek.title = "Position dans le morceau";
-            seek.setAttribute("aria-label", "Position dans le morceau");
-            var durEl = document.createElement("span"); durEl.className = "audio-clock audio-clock-total"; durEl.textContent = "0:00";
-            timeRow.appendChild(curEl); timeRow.appendChild(seek); timeRow.appendChild(durEl);
-            box.appendChild(timeRow);
-            function paintSeek() {
-                var d = audio.duration, t = audio.currentTime;
-                var frac = isFinite(d) && d > 0 ? Math.min(1, t / d) : 0;
-                if (!seeking) seek.value = String(Math.round(frac * 1000));
-                seek.style.setProperty("--p", (Number(seek.value) / 10) + "%");
-                curEl.textContent = audioClock(seeking ? (seek.value / 1000) * (isFinite(d) ? d : 0) : t);
-                durEl.textContent = isFinite(d) ? audioClock(d) : "0:00";
-            }
-            seek.addEventListener("pointerdown", function () { seeking = true; });
-            seek.addEventListener("input", function () {
-                var d = audio.duration;
-                if (isFinite(d) && d > 0) audio.currentTime = (seek.value / 1000) * d;
-                paintSeek();
-            });
-            function endSeek() { if (!seeking) return; seeking = false; paintSeek(); }
-            seek.addEventListener("change", endSeek);
-            window.addEventListener("pointerup", endSeek);
-
-            // -- boutons : recommencer · −5 s · lecture/pause · +5 s · stop · boucle --
-            var bar = document.createElement("div");
-            bar.className = "audio-transport";
-            function tbtn(cls, html, label, onClick) {
-                var b = document.createElement("button");
-                b.type = "button"; b.className = "audio-btn " + cls; b.innerHTML = html;
-                b.title = label; b.setAttribute("aria-label", label);
-                b.addEventListener("click", onClick);
-                bar.appendChild(b);
-                return b;
-            }
-            function playFrom(t) { if (t != null) { try { audio.currentTime = t; } catch (e) {} } var pr = audio.play(); if (pr && pr.catch) pr.catch(function () {}); }
-            tbtn("audio-restart", AUDIO_ICONS.restart, "Recommencer depuis le début", function () { playFrom(0); });
-            tbtn("audio-skip", "−" + AUDIO_SKIP_S + " s", "Reculer de " + AUDIO_SKIP_S + " secondes", function () { audio.currentTime = Math.max(0, audio.currentTime - AUDIO_SKIP_S); paintSeek(); });
-            var playBtn = tbtn("audio-play", METRO_PLAY_ICON_SVG, "Lecture", function () { if (audio.paused) playFrom(null); else audio.pause(); });
-            tbtn("audio-skip", "+" + AUDIO_SKIP_S + " s", "Avancer de " + AUDIO_SKIP_S + " secondes", function () { var d = audio.duration; audio.currentTime = isFinite(d) ? Math.min(d, audio.currentTime + AUDIO_SKIP_S) : audio.currentTime + AUDIO_SKIP_S; paintSeek(); });
-            tbtn("audio-stop", METRO_STOP_ICON_SVG, "Stop (arrêter et revenir au début)", function () { audio.pause(); try { audio.currentTime = 0; } catch (e) {} paintSeek(); });
-            var loopBtn = tbtn("audio-loop", AUDIO_ICONS.loop, "Répéter le morceau", function () {
-                audio.loop = !audio.loop; lsSet(AUDIO_LOOP_KEY, audio.loop ? 1 : 0); paintLoop();
-            });
-            function paintLoop() { loopBtn.classList.toggle("on", audio.loop); loopBtn.setAttribute("aria-pressed", audio.loop ? "true" : "false"); }
-            audio.loop = lsGet(AUDIO_LOOP_KEY, 0) === 1;
-            paintLoop();
-            box.appendChild(bar);
-            function paintPlay() {
-                var playing = !audio.paused && !audio.ended;
-                playBtn.innerHTML = playing ? AUDIO_ICONS.pause : METRO_PLAY_ICON_SVG;
-                playBtn.title = playing ? "Pause" : "Lecture";
-                playBtn.setAttribute("aria-label", playBtn.title);
-                playBtn.classList.toggle("on", playing);
-            }
-
-            // -- réglages : volume (retenu) · vitesse (retenue) --
-            function ctlRow(iconHtml, iconTitle, onIcon, slider, valueEl) {
-                var row = document.createElement("div");
-                row.className = "audio-ctl";
-                var ib = document.createElement("button");
-                ib.type = "button"; ib.className = "audio-ctl-icon"; ib.innerHTML = iconHtml; ib.title = iconTitle; ib.setAttribute("aria-label", iconTitle);
-                ib.addEventListener("click", onIcon);
-                row.appendChild(ib); row.appendChild(slider); row.appendChild(valueEl);
-                box.appendChild(row);
-                return ib;
-            }
-            var vol = document.createElement("input");
-            vol.type = "range"; vol.min = "0"; vol.max = "100"; vol.step = "1"; vol.className = "audio-player-vol";
-            vol.title = "Volume"; vol.setAttribute("aria-label", "Volume");
-            vol.value = String(Math.round(lsGet(AUDIO_VOL_KEY, 1) * 100));
-            var volTxt = document.createElement("span"); volTxt.className = "audio-ctl-val";
-            var volBtn = ctlRow(METRO_VOLUME_ICON_SVG, "Couper / rétablir le son", function () { audio.muted = !audio.muted; paintVol(); }, vol, volTxt);
-            function paintVol() {
-                audio.volume = vol.value / 100;
-                volTxt.textContent = audio.muted ? "muet" : vol.value + " %";
-                volBtn.innerHTML = audio.muted || Number(vol.value) === 0 ? AUDIO_ICONS.muted : METRO_VOLUME_ICON_SVG;
-                vol.style.setProperty("--p", vol.value + "%");
-            }
-            vol.addEventListener("input", function () { audio.muted = false; lsSet(AUDIO_VOL_KEY, vol.value / 100); paintVol(); });
-            paintVol();
-
-            var rate = document.createElement("input");
-            rate.type = "range"; rate.min = "25"; rate.max = "150"; rate.step = "5"; rate.className = "audio-player-rate";
-            rate.title = "Vitesse de lecture"; rate.setAttribute("aria-label", "Vitesse de lecture");
-            rate.value = String(Math.round(lsGet(AUDIO_RATE_KEY, 1) * 100));
-            var rateTxt = document.createElement("span"); rateTxt.className = "audio-ctl-val audio-player-rate-txt";
-            function applyRate() {
-                audio.playbackRate = rate.value / 100;
-                rateTxt.textContent = rate.value + " %";
-                rate.style.setProperty("--p", ((rate.value - rate.min) / (rate.max - rate.min) * 100) + "%");
-            }
-            function resetRate() { rate.value = "100"; applyRate(); lsSet(AUDIO_RATE_KEY, 1); }
-            rate.addEventListener("input", function () { applyRate(); lsSet(AUDIO_RATE_KEY, rate.value / 100); });
-            rateTxt.title = "Clic : vitesse normale (100 %)";
-            rateTxt.addEventListener("click", resetRate);
-            ctlRow(METRO_CHRONO_ICON_SVG, "Vitesse normale (100 %)", resetRate, rate, rateTxt);
-            applyRate();
-
-            var msg = document.createElement("div");
-            msg.className = "audio-player-error";
-            msg.hidden = true;
-            box.appendChild(msg);
-
-            // -- le morceau --
-            audio.addEventListener("error", function () {
-                msg.hidden = false;
-                msg.textContent = "Ce navigateur ne sait pas lire ce format (." + (fileExt(win.meta.name) || "?") + "). Convertis le fichier en MP3 ou M4A, ou ouvre-le dans une autre application.";
-            });
-            ["play", "pause", "ended"].forEach(function (ev) { audio.addEventListener(ev, function () { paintPlay(); if (ev === "play") tick(); else paintSeek(); }); });
-            ["loadedmetadata", "durationchange", "timeupdate", "seeked"].forEach(function (ev) { audio.addEventListener(ev, paintSeek); });
-            audio.addEventListener("loadedmetadata", applyRate); // certains navigateurs remettent la vitesse à 1 au chargement
-            // Jauge fluide pendant la lecture (l'événement timeupdate ne tombe que ~4 fois par seconde).
-            function tick() {
-                if (rafId) return;
-                rafId = requestAnimationFrame(function step() {
-                    rafId = null;
-                    if (!panel.isConnected) return;
-                    paintSeek();
-                    if (!audio.paused && !audio.ended) rafId = requestAnimationFrame(step);
-                });
-            }
-            var win = {
-                meta: null,
-                load: function (meta, blob) {
-                    if (win.meta && win.meta.id === meta.id && audio.src) { if (audio.paused) playFrom(null); return; }
-                    win.meta = meta;
-                    msg.hidden = true;
-                    if (objUrl) URL.revokeObjectURL(objUrl);
-                    objUrl = URL.createObjectURL(playableBlob(blob, meta));
-                    audio.src = objUrl;
-                    title.textContent = meta.name;
-                    title.title = meta.name + " — faire glisser pour déplacer la fenêtre";
-                    seek.value = "0";
-                    paintSeek(); applyRate();
-                    playFrom(null);
-                },
-                raise: function () { if (panel.parentNode) panel.parentNode.appendChild(panel); },
-                close: close
-            };
-            audioWin = win;
-            win.load(meta0, blob0);
-
-            // Espace : lecture/pause quand le focus est dans la fenêtre (le raccourci général Espace, lui, la laisse tranquille).
-            panel.addEventListener("keydown", function (e) {
-                if (e.key !== " " && e.code !== "Space") return;
-                var t = e.target && e.target.tagName;
-                if (t === "BUTTON") return; // un bouton se déclenche déjà tout seul à l'Espace
-                e.preventDefault();
-                if (audio.paused) playFrom(null); else audio.pause();
-            });
+    function openAudioUrl(link) {
+        audioPlayTrack({ id: "url:" + link.url, kind: "link", name: link.label || link.url, originalUrl: link.url, url: audioUrlFor(link.url) });
+    }
+    function audioEnsureCtl() {
+        if (audioCtl) return audioCtl;
+        var audio = document.createElement("audio");
+        audio.preload = "auto";
+        try { audio.preservesPitch = true; audio.webkitPreservesPitch = true; audio.mozPreservesPitch = true; } catch (e) {} // plus lent ≠ plus grave
+        var host = document.createElement("div"); // l'élément audio reste en place quand l'affichage change : le son ne coupe pas
+        host.className = "audio-host";
+        host.hidden = true;
+        host.appendChild(audio);
+        document.body.appendChild(host);
+        audio.loop = audioLsGet(AUDIO_LOOP_KEY, 0) === 1;
+        audio.volume = Math.min(1, Math.max(0, audioLsGet(AUDIO_VOL_KEY, 1)));
+        function applyRate() { audio.playbackRate = audioLsGet(AUDIO_RATE_KEY, 1); }
+        applyRate();
+        audio.addEventListener("loadedmetadata", applyRate); // certains navigateurs remettent la vitesse à 1 au chargement
+        audioCtl = { audio: audio, host: host, track: null, objUrl: null, view: null, keep: false };
+        return audioCtl;
+    }
+    function audioDestroy() {
+        var ctl = audioCtl;
+        if (!ctl) return;
+        audioCtl = null;
+        try { ctl.audio.pause(); } catch (e) {}
+        ctl.audio.removeAttribute("src");
+        try { ctl.audio.load(); } catch (e) {}
+        if (ctl.objUrl) URL.revokeObjectURL(ctl.objUrl);
+        ctl.host.remove();
+    }
+    function audioPlayTrack(track) {
+        var ctl = audioEnsureCtl();
+        var same = !!(ctl.track && ctl.track.id === track.id && ctl.audio.getAttribute("src"));
+        if (!same) {
+            if (ctl.objUrl) { URL.revokeObjectURL(ctl.objUrl); ctl.objUrl = null; }
+            ctl.track = track;
+            if (track.blob) { ctl.objUrl = URL.createObjectURL(track.blob); ctl.audio.src = ctl.objUrl; } else ctl.audio.src = track.url;
+        }
+        showAudioView();
+        if (!same || ctl.audio.paused) { var pr = ctl.audio.play(); if (pr && pr.catch) pr.catch(function () {}); }
+    }
+    // Montre le lecteur dans le mode choisi ; s'il est déjà affiché dans l'autre, on change d'affichage sans toucher au son.
+    function showAudioView() {
+        var ctl = audioCtl;
+        if (!ctl) return;
+        var mode = audioMode();
+        if (ctl.view && ctl.view.kind === mode) { ctl.view.raise(); ctl.view.setTrack(ctl.track); return; }
+        if (ctl.view) { ctl.keep = true; ctl.view.close(); ctl.keep = false; }
+        ctl.view = mode === "dock" ? buildAudioDockView(ctl) : buildAudioFloatView(ctl);
+        ctl.view.setTrack(ctl.track);
+    }
+    function buildAudioFloatView(ctl) {
+        var box = null, closeModal = null;
+        var view = {
+            kind: "float",
+            setTrack: function (t) { if (box) box.setTrack(t); },
+            raise: function () { var p = box && box.el.closest(".audio-panel"); if (p && p.parentNode) p.parentNode.appendChild(p); },
+            close: function () { if (closeModal) closeModal(); }
+        };
+        closeModal = openModal("audio-panel", function (panel) {
+            box = buildAudioBox(ctl, "float");
+            panel.appendChild(box.el);
             return function onClose() {
-                window.removeEventListener("pointerup", endSeek);
-                if (rafId) cancelAnimationFrame(rafId);
-                try { audio.pause(); } catch (e) {}
-                audio.removeAttribute("src");
-                try { audio.load(); } catch (e) {}
-                if (objUrl) URL.revokeObjectURL(objUrl);
-                if (audioWin === win) audioWin = null;
+                box.dispose();
+                if (ctl.view === view) ctl.view = null;
+                if (!ctl.keep) audioDestroy();
             };
         }, { floating: true, fitContent: true, noGrow: true });
+        return view;
+    }
+    function buildAudioDockView(ctl) {
+        var dock = document.getElementById("audio-dock");
+        if (!dock) { dock = document.createElement("div"); dock.id = "audio-dock"; dock.className = "audio-dock"; dock.setAttribute("aria-label", "Lecteur audio"); document.body.appendChild(dock); }
+        var root = document.documentElement;
+        var box = buildAudioBox(ctl, "dock");
+        dock.textContent = "";
+        dock.appendChild(box.el);
+        dock.hidden = false;
+        root.classList.add("audio-docked");
+        function metrics() { root.style.setProperty("--audio-dock-h", dock.offsetHeight + "px"); }
+        var ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(metrics) : null;
+        if (ro) ro.observe(dock);
+        window.addEventListener("resize", metrics);
+        metrics();
+        var view = {
+            kind: "dock",
+            setTrack: box.setTrack,
+            raise: function () {},
+            close: function () {
+                if (ro) ro.disconnect();
+                window.removeEventListener("resize", metrics);
+                box.dispose();
+                dock.textContent = "";
+                dock.hidden = true;
+                root.classList.remove("audio-docked");
+                root.style.removeProperty("--audio-dock-h");
+                if (ctl.view === view) ctl.view = null;
+                if (!ctl.keep) audioDestroy();
+            }
+        };
+        return view;
+    }
+
+    // Le contenu du lecteur (même construction pour la fenêtre et la barre épinglée ; la mise en page vient du CSS).
+    function buildAudioBox(ctl, mode) {
+        var audio = ctl.audio;
+        var offs = [];
+        function on(ev, fn) { audio.addEventListener(ev, fn); offs.push(function () { audio.removeEventListener(ev, fn); }); }
+        var rafId = null, seeking = false;
+
+        var box = document.createElement("div");
+        box.className = "audio-player audio-player-" + mode;
+
+        // -- en-tête : nom du morceau (poignée de déplacement) · punaise · fermer --
+        var top = document.createElement("div");
+        top.className = "audio-top";
+        var title = document.createElement("div");
+        title.className = "backups-title audio-title";
+        var actions = document.createElement("div");
+        actions.className = "audio-actions";
+        var pinBtn = document.createElement("button");
+        pinBtn.type = "button";
+        pinBtn.className = "audio-pin";
+        pinBtn.innerHTML = mode === "dock" ? METRO_UNPIN_ICON_SVG : METRO_PIN_ICON_SVG;
+        pinBtn.title = mode === "dock" ? "Détacher : revenir à la fenêtre flottante" : "Épingler en barre en bas de l'écran";
+        pinBtn.setAttribute("aria-label", pinBtn.title);
+        pinBtn.setAttribute("aria-pressed", mode === "dock" ? "true" : "false");
+        pinBtn.addEventListener("click", function () { setAudioMode(mode === "dock" ? "float" : "dock"); showAudioView(); });
+        var closeBtn = document.createElement("button");
+        closeBtn.type = "button";
+        closeBtn.className = "audio-player-close";
+        closeBtn.textContent = "✕";
+        closeBtn.title = "Fermer le lecteur (arrête la lecture)";
+        closeBtn.setAttribute("aria-label", "Fermer le lecteur");
+        closeBtn.addEventListener("click", function () { ctl.keep = false; if (ctl.view) ctl.view.close(); });
+        actions.appendChild(pinBtn); actions.appendChild(closeBtn);
+        top.appendChild(title); top.appendChild(actions);
+        box.appendChild(top);
+
+        // -- temps écoulé · jauge (cliquable / glissable) · durée --
+        var timeRow = document.createElement("div");
+        timeRow.className = "audio-time";
+        var curEl = document.createElement("span"); curEl.className = "audio-clock"; curEl.textContent = "0:00";
+        var seek = document.createElement("input");
+        seek.type = "range"; seek.min = "0"; seek.max = "1000"; seek.step = "1"; seek.value = "0";
+        seek.className = "audio-seek";
+        seek.title = "Position dans le morceau";
+        seek.setAttribute("aria-label", "Position dans le morceau");
+        var durEl = document.createElement("span"); durEl.className = "audio-clock audio-clock-total"; durEl.textContent = "0:00";
+        timeRow.appendChild(curEl); timeRow.appendChild(seek); timeRow.appendChild(durEl);
+        box.appendChild(timeRow);
+        function paintSeek() {
+            var d = audio.duration, t = audio.currentTime;
+            var frac = isFinite(d) && d > 0 ? Math.min(1, t / d) : 0;
+            if (!seeking) seek.value = String(Math.round(frac * 1000));
+            seek.style.setProperty("--p", (Number(seek.value) / 10) + "%");
+            curEl.textContent = audioClock(seeking ? (seek.value / 1000) * (isFinite(d) ? d : 0) : t);
+            durEl.textContent = isFinite(d) ? audioClock(d) : "0:00";
+        }
+        seek.addEventListener("pointerdown", function () { seeking = true; });
+        seek.addEventListener("input", function () {
+            var d = audio.duration;
+            if (isFinite(d) && d > 0) audio.currentTime = (seek.value / 1000) * d;
+            paintSeek();
+        });
+        function endSeek() { if (!seeking) return; seeking = false; paintSeek(); }
+        seek.addEventListener("change", endSeek);
+        window.addEventListener("pointerup", endSeek);
+
+        // -- boutons : recommencer · −5 s · lecture/pause · +5 s · stop · boucle --
+        var bar = document.createElement("div");
+        bar.className = "audio-transport";
+        function tbtn(cls, html, label, onClick) {
+            var b = document.createElement("button");
+            b.type = "button"; b.className = "audio-btn " + cls; b.innerHTML = html;
+            b.title = label; b.setAttribute("aria-label", label);
+            b.addEventListener("click", onClick);
+            bar.appendChild(b);
+            return b;
+        }
+        function playFrom(t) { if (t != null) { try { audio.currentTime = t; } catch (e) {} } var pr = audio.play(); if (pr && pr.catch) pr.catch(function () {}); }
+        tbtn("audio-restart", AUDIO_ICONS.restart, "Recommencer depuis le début", function () { playFrom(0); });
+        tbtn("audio-skip", "−" + AUDIO_SKIP_S + " s", "Reculer de " + AUDIO_SKIP_S + " secondes", function () { audio.currentTime = Math.max(0, audio.currentTime - AUDIO_SKIP_S); paintSeek(); });
+        var playBtn = tbtn("audio-play", METRO_PLAY_ICON_SVG, "Lecture", function () { if (audio.paused) playFrom(null); else audio.pause(); });
+        tbtn("audio-skip", "+" + AUDIO_SKIP_S + " s", "Avancer de " + AUDIO_SKIP_S + " secondes", function () { var d = audio.duration; audio.currentTime = isFinite(d) ? Math.min(d, audio.currentTime + AUDIO_SKIP_S) : audio.currentTime + AUDIO_SKIP_S; paintSeek(); });
+        tbtn("audio-stop", METRO_STOP_ICON_SVG, "Stop (arrêter et revenir au début)", function () { audio.pause(); try { audio.currentTime = 0; } catch (e) {} paintSeek(); });
+        var loopBtn = tbtn("audio-loop", AUDIO_ICONS.loop, "Répéter le morceau", function () {
+            audio.loop = !audio.loop; audioLsSet(AUDIO_LOOP_KEY, audio.loop ? 1 : 0); paintLoop();
+        });
+        function paintLoop() { loopBtn.classList.toggle("on", audio.loop); loopBtn.setAttribute("aria-pressed", audio.loop ? "true" : "false"); }
+        paintLoop();
+        box.appendChild(bar);
+        function paintPlay() {
+            var playing = !audio.paused && !audio.ended;
+            playBtn.innerHTML = playing ? AUDIO_ICONS.pause : METRO_PLAY_ICON_SVG;
+            playBtn.title = playing ? "Pause" : "Lecture";
+            playBtn.setAttribute("aria-label", playBtn.title);
+            playBtn.classList.toggle("on", playing);
+        }
+
+        // -- réglages : volume (retenu) · vitesse (retenue) --
+        function ctlRow(cls, iconHtml, iconTitle, onIcon, slider, valueEl) {
+            var row = document.createElement("div");
+            row.className = "audio-ctl " + cls;
+            var ib = document.createElement("button");
+            ib.type = "button"; ib.className = "audio-ctl-icon"; ib.innerHTML = iconHtml; ib.title = iconTitle; ib.setAttribute("aria-label", iconTitle);
+            ib.addEventListener("click", onIcon);
+            row.appendChild(ib); row.appendChild(slider); row.appendChild(valueEl);
+            box.appendChild(row);
+            return ib;
+        }
+        var vol = document.createElement("input");
+        vol.type = "range"; vol.min = "0"; vol.max = "100"; vol.step = "1"; vol.className = "audio-player-vol";
+        vol.title = "Volume"; vol.setAttribute("aria-label", "Volume");
+        vol.value = String(Math.round(audio.volume * 100));
+        var volTxt = document.createElement("span"); volTxt.className = "audio-ctl-val";
+        var volBtn = ctlRow("audio-ctl-vol", METRO_VOLUME_ICON_SVG, "Couper / rétablir le son", function () { audio.muted = !audio.muted; paintVol(); }, vol, volTxt);
+        function paintVol() {
+            audio.volume = vol.value / 100;
+            volTxt.textContent = audio.muted ? "muet" : vol.value + " %";
+            volBtn.innerHTML = audio.muted || Number(vol.value) === 0 ? AUDIO_ICONS.muted : METRO_VOLUME_ICON_SVG;
+            vol.style.setProperty("--p", vol.value + "%");
+        }
+        vol.addEventListener("input", function () { audio.muted = false; audioLsSet(AUDIO_VOL_KEY, vol.value / 100); paintVol(); });
+        paintVol();
+
+        var rate = document.createElement("input");
+        rate.type = "range"; rate.min = "25"; rate.max = "150"; rate.step = "5"; rate.className = "audio-player-rate";
+        rate.title = "Vitesse de lecture"; rate.setAttribute("aria-label", "Vitesse de lecture");
+        rate.value = String(Math.round(audioLsGet(AUDIO_RATE_KEY, 1) * 100));
+        var rateTxt = document.createElement("span"); rateTxt.className = "audio-ctl-val audio-player-rate-txt";
+        function applyRate() {
+            audio.playbackRate = rate.value / 100;
+            rateTxt.textContent = rate.value + " %";
+            rate.style.setProperty("--p", ((rate.value - rate.min) / (rate.max - rate.min) * 100) + "%");
+        }
+        function resetRate() { rate.value = "100"; applyRate(); audioLsSet(AUDIO_RATE_KEY, 1); }
+        rate.addEventListener("input", function () { applyRate(); audioLsSet(AUDIO_RATE_KEY, rate.value / 100); });
+        rateTxt.title = "Clic : vitesse normale (100 %)";
+        rateTxt.addEventListener("click", resetRate);
+        ctlRow("audio-ctl-rate", METRO_CHRONO_ICON_SVG, "Vitesse normale (100 %)", resetRate, rate, rateTxt);
+        applyRate();
+
+        // -- format ou lien illisible : message clair et autres façons de l'ouvrir --
+        var msg = document.createElement("div");
+        msg.className = "audio-player-error";
+        msg.hidden = true;
+        box.appendChild(msg);
+        function showError() {
+            var t = ctl.track;
+            if (!t) return;
+            msg.hidden = false;
+            msg.textContent = "";
+            var txt = document.createElement("div");
+            var acts = document.createElement("div");
+            acts.className = "audio-error-actions";
+            function act(label, fn) {
+                var b = document.createElement("button");
+                b.type = "button"; b.className = "btn-ghost"; b.textContent = label;
+                b.addEventListener("click", fn);
+                acts.appendChild(b);
+            }
+            if (t.kind === "link") {
+                txt.textContent = "Ce lien ne se lit pas dans l'appli (le site n'autorise pas la lecture directe, ou le format n'est pas pris en charge).";
+                act("Ouvrir dans un onglet", function () { openExternalLink(t.originalUrl); });
+            } else {
+                txt.textContent = "Ce navigateur ne sait pas lire ce format (." + (fileExt(t.name) || "?") + "). Convertis le fichier en MP3 ou M4A, ou ouvre-le dans une autre application.";
+                act("Ouvrir avec une autre application…", function () { fileOpenWithOtherApp(t.meta); });
+                act("Enregistrer…", function () { fileSaveAs(t.meta); });
+            }
+            msg.appendChild(txt); msg.appendChild(acts);
+        }
+
+        // -- le morceau --
+        on("error", showError);
+        ["play", "pause", "ended"].forEach(function (ev) { on(ev, function () { paintPlay(); if (ev === "play") tick(); else paintSeek(); }); });
+        ["loadedmetadata", "durationchange", "timeupdate", "seeked"].forEach(function (ev) { on(ev, paintSeek); });
+        on("loadedmetadata", applyRate);
+        // Jauge fluide pendant la lecture (l'événement timeupdate ne tombe que ~4 fois par seconde).
+        function tick() {
+            if (rafId) return;
+            rafId = requestAnimationFrame(function step() {
+                rafId = null;
+                if (!box.isConnected) return;
+                paintSeek();
+                if (!audio.paused && !audio.ended) rafId = requestAnimationFrame(step);
+            });
+        }
+        paintPlay(); paintSeek();
+        if (!audio.paused) tick();
+
+        // Espace : lecture/pause quand le focus est dans le lecteur (le raccourci général Espace, lui, le laisse tranquille).
+        box.addEventListener("keydown", function (e) {
+            if (e.key !== " " && e.code !== "Space") return;
+            var t = e.target && e.target.tagName;
+            if (t === "BUTTON") return; // un bouton se déclenche déjà tout seul à l'Espace
+            e.preventDefault();
+            if (audio.paused) playFrom(null); else audio.pause();
+        });
+
+        return {
+            el: box,
+            setTrack: function (track) {
+                if (!track) return;
+                title.textContent = track.name;
+                title.title = track.name + (mode === "float" ? " — faire glisser pour déplacer la fenêtre" : "");
+                msg.hidden = true;
+                paintSeek(); applyRate(); paintPlay();
+                if (audio.error) showError();
+            },
+            dispose: function () {
+                window.removeEventListener("pointerup", endSeek);
+                if (rafId) cancelAnimationFrame(rafId);
+                offs.forEach(function (f) { f(); });
+            }
+        };
+    }
+
+    // Vignette « audio » dans la barre de l'exercice : un clic lance le lecteur (plusieurs fichiers : on choisit).
+    function appendExerciseAudioButton(row, ex) {
+        var audios = (ex.files || []).filter(isAudioFile);
+        if (!audios.length) return;
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "exercise-link-quick exercise-audio-quick";
+        var icon = document.createElement("span");
+        icon.className = "link-icon";
+        icon.innerHTML = LINK_ICONS.audio;
+        btn.appendChild(icon);
+        var label = document.createElement("span");
+        label.className = "exercise-link-quick-label";
+        label.textContent = audios.length === 1 ? audios[0].name.replace(/\.[A-Za-z0-9]{1,5}$/, "") : "Audio (" + audios.length + ")";
+        btn.appendChild(label);
+        btn.title = audios.length === 1 ? "Écouter : " + audios[0].name : "Écouter un fichier audio (" + audios.length + ")";
+        btn.setAttribute("aria-label", btn.title);
+        btn.addEventListener("click", function (e) {
+            e.stopPropagation();
+            if (audios.length === 1) { openAudioWindow(audios[0]); return; }
+            var rect = btn.getBoundingClientRect();
+            openLinksQuickMenu(rect.left, rect.bottom, audios.map(function (m) { return { label: m.name, open: function () { openAudioWindow(m); } }; }));
+        });
+        row.appendChild(btn);
     }
 
     function fileKindIcon(mimeOrName) {
         mimeOrName = String(mimeOrName || "").trim();
-        var isAudio = /audio|video\/mp4|\.(mp3|m4a|aac|wav|wave|ogg|oga|opus|flac|weba|webm|aiff?|caf|mp4|m4v|mov)$/i.test(mimeOrName);
+        var isAudio = /audio|video\/mp4/i.test(mimeOrName) || AUDIO_EXTS.indexOf(fileExt(mimeOrName)) !== -1;
         return isAudio
             ? '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>'
             : '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg>';
@@ -10454,6 +10676,7 @@
             chip.href = link.url;
             chip.target = "_blank";
             chip.rel = "noopener noreferrer";
+            bindAudioLinkClick(chip, link);
             var iconSpan = document.createElement("span");
             iconSpan.className = "link-icon";
             iconSpan.innerHTML = linkIconSvg(link.label, link.url);
@@ -10545,7 +10768,7 @@
     function gsOpenItems(items) {
         var urls = [], unavailable = [], pending = [], audios = [];
         items.forEach(function (item) {
-            if (item.type === "link") { urls.push(item.url); return; }
+            if (item.type === "link") { if (isAudioLink(item)) audios.push(item); else urls.push(item.url); return; }
             if (isAudioFile(item.meta)) { audios.push(item); return; }
             var blob = gsFileBlobCache[item.meta.id];
             if (blob === false) { unavailable.push(item.label); return; }
@@ -10557,7 +10780,7 @@
         });
         openUrlsInTabs(urls);
         if (audios.length) {
-            openAudioWindow(audios[0].meta);
+            if (audios[0].type === "link") openAudioUrl(audios[0]); else openAudioWindow(audios[0].meta);
             if (audios.length > 1) showToast(audios.length + " fichiers audio : le premier est dans la fenêtre de lecture ; les autres se lancent depuis leur exercice (clic sur le fichier).", 7000);
         }
         if (pending.length) showToast("Fichier en cours de lecture, réessayez dans un instant : " + pending.join(", "));
@@ -15360,14 +15583,14 @@
                 var span = document.createElement("span");
                 span.textContent = item.label;
                 row.appendChild(span);
-                if (item.type === "file" && isAudioFile(item.meta)) {
+                if ((item.type === "file" && isAudioFile(item.meta)) || (item.type === "link" && isAudioLink(item))) {
                     // Audio : fenêtre de lecture (plutôt qu'un onglet du navigateur), sans cocher/décocher la ligne.
                     var playBtn = document.createElement("button");
                     playBtn.type = "button";
                     playBtn.className = "btn-ghost gs-links-play";
                     playBtn.textContent = "▶ Lire";
                     playBtn.title = "Lire dans la fenêtre de lecture (vitesse réglable)";
-                    playBtn.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); openAudioWindow(item.meta); });
+                    playBtn.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); if (item.type === "link") openAudioUrl(item); else openAudioWindow(item.meta); });
                     row.appendChild(playBtn);
                 }
                 group.appendChild(row);
@@ -15481,7 +15704,7 @@
             var type = (el.type || "text").toLowerCase();
             return ["button", "range", "submit", "reset", "image"].indexOf(type) === -1;
         }
-        return !!(el.closest && el.closest(".metro-step, .audio-panel"));
+        return !!(el.closest && el.closest(".metro-step, .audio-panel, .audio-dock"));
     }
     // Pas de raccourci quand une autre fenêtre (réglages, accordeur, gammes…) ou un menu est ouvert
     // par-dessus : l'Espace ne doit pas agir sur la session qu'on ne voit plus.
