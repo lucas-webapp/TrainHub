@@ -3527,6 +3527,9 @@ button.audio-ctl-icon { flex: none; width: 28px; height: 28px; padding: 0; displ
 button.audio-ctl-icon:hover { color: var(--text-main); }
 button.audio-ctl-icon .icon { width: 17px; height: 17px; }
 .audio-ctl-val { flex: none; width: 44px; text-align: right; font-size: var(--fs-xs); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+.audio-ctl-rate { gap: 4px; }
+button.audio-rate-step { flex: none; width: 20px; height: 20px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; line-height: 1; color: var(--text-muted); background: rgba(var(--ov), .04); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+button.audio-rate-step:hover { color: var(--accent); border-color: var(--accent); }
 .audio-player-rate-txt { cursor: pointer; }
 .audio-player-rate-txt:hover { color: var(--accent); }
 /* Message d'erreur court (le détail est au survol et en petit dessous), jamais plus haut que nécessaire */
@@ -3587,7 +3590,7 @@ button.audio-tab-x:hover { opacity: 1; background: rgba(var(--ov), .12); }
 .audio-player-dock .audio-time { order: 3; flex: 1 1 250px; min-width: 190px; }
 .audio-player-dock .audio-ctl { flex: 0 1 150px; min-width: 112px; }
 .audio-player-dock .audio-ctl-vol { order: 4; }
-.audio-player-dock .audio-ctl-rate { order: 5; }
+.audio-player-dock .audio-ctl-rate { order: 5; flex: 0 1 205px; min-width: 165px; }
 .audio-player-dock .audio-actions { order: 6; margin-left: auto; }
 .audio-player-dock .audio-player-error { order: 7; flex: 1 1 100%; }
 html.audio-docked .layout { padding-bottom: calc(var(--audio-dock-h, 0px) + 12px); }
@@ -3623,6 +3626,8 @@ html.audio-docked :is(.sel-bar, .update-banner) { bottom: calc(14px + var(--audi
     .audio-player-dock .audio-time { order: 3; flex: 1 1 100%; }
     .audio-player-dock .audio-transport { order: 4; flex: 1 1 100%; }
     .audio-player-dock .audio-ctl { flex: 1 1 calc(50% - 6px); min-width: 0; }
+    .audio-player-dock .audio-ctl-vol { flex: 1 1 34%; }
+    .audio-player-dock .audio-ctl-rate { flex: 1 1 60%; }
     .audio-player-dock .audio-ctl-val { width: 38px; }
 }
 
@@ -3758,3 +3763,108 @@ button.gs-step-dice.gs-step-dice-on { color: var(--accent); border-color: color-
 html[data-glass="1"]:not([data-theme="light"]) { --glass-solid: #121c2b; }
 html[data-glass="1"][data-theme="light"] { --glass-solid: #ffffff; }
 html[data-glass="1"] :is(.dice-panel, .scales-picker, .tempo-pop, .gs-pop, .ctx-menu.ctx-over-modal) { background: var(--glass-solid); }
+
+/* ---------- v171 ---------- */
+/* Verre : le liseré clair du haut des boutons (--glass-hi) dépassait sur le trait des cellules du tableau de tempo progressif
+   et des champs « ‹ 20 › » : il dessinait comme un cadran sombre autour du nombre. Ces boutons sont sans cadre dans leur cellule. */
+html[data-glass="1"] :is(.metro-prog-grid button, .num-stepper > button.num-stepper-btn) { box-shadow: none; }
+
+/* Bande de session : visible sous la barre du haut quand on navigue (dossiers, recherche…) pendant une session en cours */
+.top-bar > .gs-strip { order: 99; flex: 1 1 100%; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 3px 5px 3px 6px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); border-radius: var(--radius); background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.top-bar .gs-strip button { height: 30px; box-sizing: border-box; padding: 0 10px; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; font: inherit; font-size: var(--fs-sm); font-weight: 700; border-radius: 8px; }
+.top-bar .gs-strip button.gs-strip-title { flex: 1 1 auto; min-width: 0; justify-content: flex-start; gap: 8px; padding: 0 6px; border: 0; background: transparent; color: var(--text-main); cursor: pointer; text-align: left; }
+.gs-strip-step { flex: 0 0 auto; font-size: var(--fs-xs); font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+.gs-strip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-strip-time { flex: 0 0 auto; min-width: 3.4em; text-align: right; font-size: 1.15rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-main); }
+.gs-strip-over .gs-strip-time { color: var(--c-red-text); }
+.gs-strip-paused .gs-strip-time { color: var(--text-muted); }
+.top-bar .gs-strip button.gs-strip-pause { width: 32px; padding: 0; color: var(--text-main); border: 1px solid color-mix(in srgb, var(--text-muted) 40%, transparent); background: color-mix(in srgb, var(--text-main) 7%, transparent); }
+.gs-strip-paused button.gs-strip-pause { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 52%, transparent); background: color-mix(in srgb, var(--accent) 17%, transparent); }
+.gs-strip-pause .icon { width: 18px; height: 18px; }
+.top-bar .gs-strip button.gs-strip-back { color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 52%, transparent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.top-bar .gs-strip button.gs-strip-back:hover, .top-bar .gs-strip button.gs-strip-pause:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+html[data-glass="1"] .gs-strip button { box-shadow: none; }
+@media (max-width: 700px) { .gs-strip-step { display: none; } .top-bar .gs-strip button.gs-strip-back { padding: 0 8px; } }
+
+/* Volume du métronome : la barre se réduit au lieu de déborder sur l'icône (volet étroit, fenêtre zoomée), même rendu sur tous les
+   navigateurs (Safari affichait sa glissière d'origine, très épaisse), icône = bouton muet. */
+.metro-volume-inline { flex: 1 1 0; min-width: 0; justify-content: flex-start; gap: 6px; cursor: default; }
+button.metro-volume-btn-icon.metro-volume-mute { flex: none; width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-muted); cursor: pointer; }
+button.metro-volume-btn-icon.metro-volume-mute:hover { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+button.metro-volume-btn-icon.metro-volume-mute[aria-pressed="true"] { color: var(--text-dim); }
+button.metro-volume-btn-icon.metro-volume-mute .icon { width: 17px; height: 17px; }
+input.metro-volume-inline-slider { flex: 1 1 60px; width: auto; min-width: 0; max-width: 260px; }
+input.metro-volume-inline-slider, input.metro-volume-slider {
+    -webkit-appearance: none; appearance: none; height: 22px; margin: 0; padding: 0; border: none; border-radius: 0; background: transparent; cursor: pointer; --p: 50%;
+    -webkit-user-select: none; user-select: none; touch-action: pan-y;
+}
+input.metro-volume-inline-slider:focus, input.metro-volume-slider:focus { outline: none; }
+input.metro-volume-inline-slider::-webkit-slider-runnable-track, input.metro-volume-slider::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: linear-gradient(to right, var(--accent) var(--p), var(--btn-neutral-border, rgba(var(--ov), .2)) var(--p)); }
+input.metro-volume-inline-slider::-webkit-slider-thumb, input.metro-volume-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; margin-top: -5px; border-radius: 50%; background: #fff; border: none; box-shadow: 0 1px 4px rgba(0,0,0,calc(.6 * var(--sh-k, 1))); }
+input.metro-volume-inline-slider::-moz-range-track, input.metro-volume-slider::-moz-range-track { height: 6px; border-radius: 3px; background: var(--btn-neutral-border, rgba(var(--ov), .2)); }
+input.metro-volume-inline-slider::-moz-range-progress, input.metro-volume-slider::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--accent); }
+input.metro-volume-inline-slider::-moz-range-thumb, input.metro-volume-slider::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: #fff; border: none; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+input.metro-volume-inline-slider:focus-visible::-webkit-slider-thumb, input.metro-volume-slider:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* ---------- onglets médias de l'exercice : plus présents (v171) ----------
+   Onglets plus larges, avec une vignette-logo à gauche (vidéo / image / lien), un reflet lumineux dans la couleur du média (le « verre
+   dépoli » en reçoit une vraie petite lumière) et une flèche qui indique ouvert / fermé. Le texte garde toujours la couleur pleine. */
+.media-tabs { gap: 8px; align-items: stretch; padding: 4px 2px 6px; border-bottom: 0; }
+button.media-tab[data-tab="videos"] { --tabc: #ef5350; }
+button.media-tab[data-tab="images"] { --tabc: #5c9dff; }
+button.media-tab[data-tab="links"]  { --tabc: #20c997; }
+button.media-tab {
+    position: relative; overflow: hidden; isolation: isolate;
+    flex: 0 0 auto; min-width: 128px; height: 40px; margin: 0; padding: 0 12px 0 7px; gap: 9px;
+    border: 1px solid color-mix(in srgb, var(--tabc, var(--text-muted)) 34%, var(--border)); border-radius: 12px;
+    background:
+        radial-gradient(110px 44px at 22px -8px, color-mix(in srgb, var(--tabc, var(--accent)) 34%, transparent), transparent 72%),
+        linear-gradient(180deg, rgba(var(--ov), .085), rgba(var(--ov), .03));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 1px 6px rgba(0, 0, 0, calc(.16 * var(--sh-k, 1)));
+    font-size: var(--fs-sm); font-weight: 700; color: var(--text-main);
+    transition: border-color .15s ease, background .15s ease, box-shadow .15s ease, transform .1s ease;
+}
+button.media-tab:hover {
+    color: var(--text-main); border-color: color-mix(in srgb, var(--tabc, var(--accent)) 62%, var(--border));
+    background:
+        radial-gradient(120px 48px at 22px -8px, color-mix(in srgb, var(--tabc, var(--accent)) 46%, transparent), transparent 74%),
+        linear-gradient(180deg, rgba(var(--ov), .11), rgba(var(--ov), .045));
+}
+button.media-tab:active { transform: translateY(1px); }
+button.media-tab.active {
+    color: var(--text-main); border-color: color-mix(in srgb, var(--tabc, var(--accent)) 80%, transparent);
+    background:
+        radial-gradient(140px 52px at 22px -8px, color-mix(in srgb, var(--tabc, var(--accent)) 58%, transparent), transparent 76%),
+        linear-gradient(180deg, color-mix(in srgb, var(--tabc, var(--accent)) 16%, transparent), color-mix(in srgb, var(--tabc, var(--accent)) 6%, transparent));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .26), 0 0 0 1px color-mix(in srgb, var(--tabc, var(--accent)) 28%, transparent), 0 4px 16px -4px color-mix(in srgb, var(--tabc, var(--accent)) 55%, transparent);
+}
+.media-tab-ico { flex: none; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 9px; color: var(--tabc, var(--accent)); background: color-mix(in srgb, var(--tabc, var(--accent)) 20%, transparent); border: 1px solid color-mix(in srgb, var(--tabc, var(--accent)) 42%, transparent); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22); }
+.media-tab-ico .icon { width: 17px; height: 17px; }
+button.media-tab.active .media-tab-ico { background: color-mix(in srgb, var(--tabc, var(--accent)) 34%, transparent); }
+.media-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-main); }
+button.media-tab .media-tab-count { color: var(--text-main); background: rgba(var(--ov), .13); }
+button.media-tab.active .media-tab-count { color: var(--text-main); background: color-mix(in srgb, var(--tabc, var(--accent)) 30%, transparent); }
+button.media-tab::after { content: ""; flex: none; width: 6px; height: 6px; margin: 0 2px 2px 0; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; opacity: .55; transform: rotate(-45deg); transition: transform .15s ease, opacity .15s ease; }
+button.media-tab.active::after { transform: rotate(45deg); opacity: .9; margin-bottom: 4px; }
+/* Verre dépoli : flou derrière l'onglet et petit éclat au bord haut */
+html[data-glass="1"] button.media-tab { -webkit-backdrop-filter: blur(10px) saturate(150%); backdrop-filter: blur(10px) saturate(150%); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .34), inset 0 0 14px -6px color-mix(in srgb, var(--tabc, var(--accent)) 60%, transparent), 0 2px 10px -3px rgba(0, 0, 0, calc(.4 * var(--sh-k, 1))); }
+html[data-glass="1"] button.media-tab.active { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .42), inset 0 0 18px -4px color-mix(in srgb, var(--tabc, var(--accent)) 70%, transparent), 0 0 0 1px color-mix(in srgb, var(--tabc, var(--accent)) 30%, transparent), 0 4px 18px -4px color-mix(in srgb, var(--tabc, var(--accent)) 60%, transparent); }
+html[data-theme="light"] button.media-tab[data-tab="videos"] { --tabc: #d6403d; }
+html[data-theme="light"] button.media-tab[data-tab="images"] { --tabc: #2f6fe0; }
+html[data-theme="light"] button.media-tab[data-tab="links"]  { --tabc: #0f9d74; }
+@media (max-width: 520px) {
+    .media-tabs { gap: 6px; }
+    button.media-tab { flex: 0 1 auto; min-width: 0; padding: 0 8px 0 5px; gap: 6px; font-size: var(--fs-xs); }
+    .media-tab-ico { width: 24px; height: 24px; border-radius: 8px; }
+    .media-tab-ico .icon { width: 15px; height: 15px; }
+    button.media-tab::after { display: none; }
+    .media-tab-label-more { display: none; }
+}
+
+/* Nom des captures (sous la vignette) */
+.img-fig { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: 100%; }
+button.img-caption { align-self: flex-start; max-width: min(100%, 360px); height: auto; min-height: 24px; padding: 2px 8px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-dim); font-size: var(--fs-xs); font-weight: 600; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text; }
+button.img-caption:hover { color: var(--text-main); border-color: var(--border); background: rgba(var(--ov), .05); }
+button.img-caption.img-caption-empty { color: var(--text-muted); font-style: italic; font-weight: 500; }
+input.img-caption-input { align-self: stretch; box-sizing: border-box; width: min(100%, 320px); height: 28px; padding: 0 8px; font-size: var(--fs-xs); font-weight: 600; border-radius: 8px; }
+html[data-glass="1"] button.img-caption { box-shadow: none; }

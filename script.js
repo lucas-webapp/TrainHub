@@ -483,6 +483,7 @@
     var PREF_FREE_START_SEC = [0, 5, 10, 15, 30];
     var PREF_FREE_IDLE_MIN = [5, 10, 15, 30, 60];
     var PREF_BELL_LEAD_SEC = [5, 10, 15, 30];   // alerte de fin d'exercice (session sans enchaînement automatique) : combien de secondes avant la fin
+    var PREF_MINI_MODES = ["auto", "window"]; // petite fenêtre de session : « auto » = au-dessus des autres applications si le navigateur sait faire, « window » = fenêtre ordinaire cliquable
     var PREF_CLOUD_BUDGET_MB = [250, 500, 800, 1000]; // espace que TrainHub s'autorise dans Firestore (limite gratuite : 1 Gio, partagée avec les autres applis du projet)
     function normalizePrefs(s) {
         if (!s.settings.prefs || typeof s.settings.prefs !== "object") s.settings.prefs = {};
@@ -493,8 +494,10 @@
         if (PREF_FREE_IDLE_MIN.indexOf(p.freeIdleMin) === -1) p.freeIdleMin = 15;
         if (PREF_CLOUD_BUDGET_MB.indexOf(p.cloudBudgetMB) === -1) p.cloudBudgetMB = 800;
         if (PREF_BELL_LEAD_SEC.indexOf(p.bellLeadSec) === -1) p.bellLeadSec = 10;
+        if (PREF_MINI_MODES.indexOf(p.miniMode) === -1) p.miniMode = "auto";
+        p.pauseOnHidden = p.pauseOnHidden === true; // chrono de session : par défaut il continue quand TrainHub passe au second plan
     }
-    function prefs() { return (state && state.settings && state.settings.prefs) || { tempoStep: 10, defaultMinutes: 5, freeStartSec: 10, freeIdleMin: 15, cloudBudgetMB: 800, bellLeadSec: 10 }; }
+    function prefs() { return (state && state.settings && state.settings.prefs) || { tempoStep: 10, defaultMinutes: 5, freeStartSec: 10, freeIdleMin: 15, cloudBudgetMB: 800, bellLeadSec: 10, pauseOnHidden: false, miniMode: "auto" }; }
 
     // Une session guidée = un enchaînement d'exercices avec un temps alloué à chacun. Les pas
     // référencent l'exercice par son id (unique dans toute l'appli, voir uid()) plutôt que de
@@ -1174,8 +1177,9 @@
         return IMG_SIZE_DEFAULTS[where];
     }
     function setImgSize(where, v) { try { localStorage.setItem(IMG_SIZE_KEYS[where], v); } catch (e) {} }
-    var IMG_GS_SHOWN_KEY = "trainhub.imgShownSession.v1";
-    function imagesShownInSession() { try { return localStorage.getItem(IMG_GS_SHOWN_KEY) === "1"; } catch (e) { return false; } }
+    // v2 : les images de l'exercice s'affichent d'office en session (l'ancien réglage, masqué de base, n'est plus lu)
+    var IMG_GS_SHOWN_KEY = "trainhub.imgShownSession.v2";
+    function imagesShownInSession() { try { return localStorage.getItem(IMG_GS_SHOWN_KEY) !== "0"; } catch (e) { return true; } }
     function setImagesShownInSession(on) { try { localStorage.setItem(IMG_GS_SHOWN_KEY, on ? "1" : "0"); } catch (e) {} }
     var exerciseMediaTab = {}; // id d'exercice -> onglet ouvert ("videos" | "images" | "links") ; absent : tout est replié
     var imageUrlCache = {};    // id d'image -> adresse blob: (false = absente de cet appareil)
@@ -1478,7 +1482,48 @@
                 });
                 side.appendChild(rm);
             }
-            strip.appendChild(cell);
+            // Nom de la capture : sous la vignette, un clic permet de le modifier (Entrée enregistre, Échap annule).
+            var fig = document.createElement("div");
+            fig.className = "img-fig";
+            fig.appendChild(cell);
+            var cap = document.createElement("button");
+            cap.type = "button";
+            cap.className = "img-caption";
+            cap.title = "Donner un nom à cette capture";
+            function paintCap() {
+                var nm = (meta.name || "").trim();
+                cap.textContent = nm || "Nommer cette capture…";
+                cap.classList.toggle("img-caption-empty", !nm);
+                b.title = (nm || "Image") + " — cliquer pour agrandir";
+            }
+            paintCap();
+            cap.addEventListener("click", function () {
+                var inp = document.createElement("input");
+                inp.type = "text"; inp.className = "img-caption-input"; inp.maxLength = 120;
+                inp.value = (meta.name || "").trim(); inp.placeholder = "Nom de la capture";
+                inp.setAttribute("aria-label", "Nom de la capture");
+                var done = false;
+                function finish(keep) {
+                    if (done) return;
+                    done = true;
+                    if (keep) {
+                        var v = inp.value.trim();
+                        if (v !== (meta.name || "").trim()) { meta.name = v; touchExercise(ex); save(); }
+                    }
+                    if (inp.parentNode) inp.parentNode.replaceChild(cap, inp);
+                    paintCap();
+                }
+                inp.addEventListener("keydown", function (e) {
+                    e.stopPropagation(); // pas de raccourci (barre espace…) pendant la saisie
+                    if (e.key === "Enter") { e.preventDefault(); finish(true); }
+                    else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+                });
+                inp.addEventListener("blur", function () { finish(true); });
+                fig.replaceChild(inp, cap);
+                inp.focus(); inp.select();
+            });
+            fig.appendChild(cap);
+            strip.appendChild(fig);
         });
         return strip;
     }
@@ -1513,6 +1558,8 @@
     // (repliés de base : un lecteur YouTube est lourd) : plus de long défilement pour atteindre une capture ; cliquer sur l'onglet
     // ouvert le referme. Un onglet n'existe que s'il y a quelque chose à montrer ; l'ajout se fait depuis la barre unique placée dessous.
     // `videoChips` : puces des liens YouTube (renommer / retirer) ; `resourcesList` : liens hors vidéo + fichiers (PDF, audio…).
+    var VIDEO_TAB_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="4"/><path d="M10 9.4v5.2l4.6-2.6Z" fill="currentColor"/></svg>';
+    var LINK_TAB_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>';
     function buildMediaTabs(ex, videoChips, resourcesList, ytLinks) {
         var wrap = document.createElement("div");
         wrap.className = "media-section images-section";
@@ -1535,7 +1582,20 @@
             b.dataset.tab = t.key;
             b.setAttribute("role", "tab");
             b.setAttribute("aria-selected", cur === t.key ? "true" : "false");
-            b.appendChild(document.createTextNode(t.label));
+            var ico = document.createElement("span"); // vignette-logo du type de média, sur le côté
+            ico.className = "media-tab-ico";
+            ico.innerHTML = t.key === "videos" ? VIDEO_TAB_ICON_SVG : t.key === "images" ? IMAGE_ICON_SVG : LINK_TAB_ICON_SVG;
+            b.appendChild(ico);
+            var lb = document.createElement("span");
+            lb.className = "media-tab-label";
+            if (t.key === "links") { // sur téléphone « Liens » suffit : le reste de l'étiquette est masqué (CSS)
+                lb.appendChild(document.createTextNode("Liens"));
+                var more = document.createElement("span");
+                more.className = "media-tab-label-more";
+                more.textContent = " et fichiers";
+                lb.appendChild(more);
+            } else lb.textContent = t.label;
+            b.appendChild(lb);
             var c = document.createElement("span");
             c.className = "media-tab-count";
             c.textContent = String(t.n);
@@ -1863,6 +1923,7 @@
 
     function setNavPath(inst, path) {
         navPaths[inst.id] = path;
+        if (gsRunSession) gsBrowseAway(); // aller dans un dossier pendant une session : l'écran de session laisse la place (la bande garde le chrono)
     }
 
     function clearFilters() {
@@ -3592,6 +3653,7 @@
         var searchTimer = null;
         $searchInput.addEventListener("input", function () {
             searchQuery = $searchInput.value;
+            if (gsRunSession) gsBrowseAway();
             clearTimeout(searchTimer);
             // affichage rapide : tout de suite ; affichage lent (beaucoup d'exercices, téléphone) : on attend la fin de la frappe
             if (lastRenderMs < 30) render(); else searchTimer = setTimeout(render, 140);
@@ -4412,6 +4474,7 @@
             // (ex. "Youtube bassless"), ou par le contenu de ses notes — pas seulement par son titre.
             if (ex.links.some(function (l) { return (l.label || "").toLowerCase().indexOf(query) !== -1; })) return true;
             if (ex.files.some(function (f) { return (f.name || "").toLowerCase().indexOf(query) !== -1; })) return true;
+            if ((ex.images || []).some(function (im) { return (im.name || "").toLowerCase().indexOf(query) !== -1; })) return true; // nom d'une capture
             if ((ex.notes || "").toLowerCase().indexOf(query) !== -1 || (ex.fixedNotes || "").toLowerCase().indexOf(query) !== -1) return true;
             return false;
         }
@@ -5311,7 +5374,13 @@
         return m + ":" + (sec < 10 ? "0" : "") + sec;
     }
     function audioCur(ctl) { return ctl && ctl.tracks[ctl.index] || null; }
-    function audioRateFor(t) { return t && t.rate != null ? t.rate : audioLsGet(AUDIO_RATE_KEY, 1); }
+    var AUDIO_RATE_MIN = 25, AUDIO_RATE_MAX = 115; // la jauge s'arrête à 115 % : plus de place pour régler finement les vitesses lentes
+    function audioRateFor(t) {
+        var r = t && t.rate != null ? t.rate : audioLsGet(AUDIO_RATE_KEY, 1);
+        r = Number(r);
+        if (!isFinite(r) || r <= 0) r = 1;
+        return Math.min(AUDIO_RATE_MAX / 100, Math.max(AUDIO_RATE_MIN / 100, r)); // d'anciens morceaux réglés à 150 % sont ramenés à 115 %
+    }
 
     // -- les morceaux --
     function audioFileTrack(meta) {
@@ -5758,7 +5827,7 @@
         paintVol();
 
         var rate = document.createElement("input");
-        rate.type = "range"; rate.min = "25"; rate.max = "150"; rate.step = "5"; rate.className = "audio-player-rate";
+        rate.type = "range"; rate.min = String(AUDIO_RATE_MIN); rate.max = String(AUDIO_RATE_MAX); rate.step = "5"; rate.className = "audio-player-rate";
         rate.title = "Vitesse de lecture (propre à ce morceau)"; rate.setAttribute("aria-label", "Vitesse de lecture");
         rate.value = String(Math.round(audioRateFor(cur()) * 100));
         var rateTxt = document.createElement("span"); rateTxt.className = "audio-ctl-val audio-player-rate-txt";
@@ -5768,6 +5837,7 @@
             rate.style.setProperty("--p", ((rate.value - rate.min) / (rate.max - rate.min) * 100) + "%");
         }
         function setRate(pct) {
+            pct = Math.min(AUDIO_RATE_MAX, Math.max(AUDIO_RATE_MIN, Math.round(pct / 5) * 5));
             rate.value = String(pct); applyRate();
             var t = cur(); if (t) { t.rate = pct / 100; audioSaveList(ctl); }
             audioLsSet(AUDIO_RATE_KEY, pct / 100); // la dernière vitesse choisie sert de départ aux prochains morceaux
@@ -5775,7 +5845,19 @@
         rate.addEventListener("input", function () { setRate(Number(rate.value)); });
         rateTxt.title = "Clic : vitesse normale (100 %)";
         rateTxt.addEventListener("click", function () { setRate(100); });
-        ctlRow("audio-ctl-rate", METRO_CHRONO_ICON_SVG, "Vitesse normale (100 %)", function () { setRate(100); }, rate, rateTxt);
+        var rateIcon = ctlRow("audio-ctl-rate", METRO_CHRONO_ICON_SVG, "Vitesse normale (100 %)", function () { setRate(100); }, rate, rateTxt);
+        // petits boutons − et + de part et d'autre de la jauge : un pas de 5 % à chaque appui
+        function rateStepBtn(sign) {
+            var b = document.createElement("button");
+            b.type = "button"; b.className = "audio-rate-step " + (sign < 0 ? "audio-rate-minus" : "audio-rate-plus");
+            b.textContent = sign < 0 ? "−" : "+";
+            b.title = sign < 0 ? "Ralentir de 5 %" : "Accélérer de 5 %";
+            b.setAttribute("aria-label", b.title);
+            b.addEventListener("click", function () { setRate(Number(rate.value) + sign * 5); });
+            return b;
+        }
+        rateIcon.parentNode.insertBefore(rateStepBtn(-1), rate);
+        rateIcon.parentNode.insertBefore(rateStepBtn(1), rateTxt);
         applyRate();
 
         // -- format ou lien illisible, fichier absent : message court, détail au survol, et d'autres façons de l'ouvrir --
@@ -6391,7 +6473,7 @@
         var el = document.getElementById("top-clock"), last = "";
         if (!el) return;
         function tick() {
-            var show = !!(guidedSessionViewActive || freeRun);
+            var show = !!(guidedSessionViewActive || freeRun || gsRunSession);
             if (el.hidden === show) el.hidden = !show;
             if (!show) return;
             var d = new Date(), t = (d.getHours() < 10 ? "0" : "") + d.getHours() + ":" + (d.getMinutes() < 10 ? "0" : "") + d.getMinutes();
@@ -6406,6 +6488,7 @@
     $instrumentSelect.addEventListener("change", function () {
         exSel = {}; exSelAnchor = null; sessSel = {}; sessSelAnchor = null;
         state.activeInstrumentId = $instrumentSelect.value;
+        if (gsRunSession) gsBrowseAway();
         save();
         render();
     });
@@ -8515,10 +8598,6 @@
             volumeSlider.value = Math.round(m.volume * 100);
             volumeSlider.className = "metro-volume-slider";
             volumeSlider.title = "Volume";
-            volumeSlider.addEventListener("input", function () {
-                setMetroVolume(parseInt(volumeSlider.value, 10) / 100);
-                saveSoon();
-            });
             var volumeBtn = document.createElement("button");
             volumeBtn.type = "button";
             volumeBtn.className = "metro-volume-btn";
@@ -8535,24 +8614,41 @@
                 if (volumeRow.classList.contains("metro-volume-expanded-row")) volumeSlider.focus();
             });
             // Volume toujours visible (barre) ; sur petit écran, on garde le bouton qui déplie la barre (voir CSS).
-            var volInline = document.createElement("label");
+            var volInline = document.createElement("div");
             volInline.className = "metro-volume-inline";
             volInline.title = "Volume";
-            var volInlineIcon = document.createElement("span");
-            volInlineIcon.className = "metro-volume-btn-icon";
-            volInlineIcon.innerHTML = METRO_VOLUME_ICON_SVG;
+            // L'icône est un vrai bouton : un clic coupe le son, un deuxième le rétablit au niveau d'avant.
+            var volInlineIcon = document.createElement("button");
+            volInlineIcon.type = "button";
+            volInlineIcon.className = "metro-volume-btn-icon metro-volume-mute";
+            volInlineIcon.title = "Couper / rétablir le son du métronome";
+            volInlineIcon.setAttribute("aria-label", "Couper ou rétablir le son du métronome");
             var volInlineSlider = document.createElement("input");
             volInlineSlider.type = "range";
             volInlineSlider.min = "0"; volInlineSlider.max = "100";
             volInlineSlider.value = Math.round(m.volume * 100);
             volInlineSlider.className = "metro-volume-inline-slider";
             volInlineSlider.setAttribute("aria-label", "Volume");
-            volInlineSlider.addEventListener("input", function () {
-                setMetroVolume(parseInt(volInlineSlider.value, 10) / 100);
+            var volBeforeMute = m.volume > 0 ? m.volume : 0.6;
+            function paintVolume() { // icône (barrée à zéro) et remplissage de la barre
+                var v = parseInt(volInlineSlider.value, 10) || 0;
+                volInlineIcon.innerHTML = v === 0 ? AUDIO_ICONS.muted : METRO_VOLUME_ICON_SVG;
+                volInlineIcon.setAttribute("aria-pressed", v === 0 ? "true" : "false");
+                volInlineSlider.style.setProperty("--p", v + "%");
+                volumeSlider.style.setProperty("--p", v + "%");
+            }
+            function applyVolume(v01, fromRow) {
+                v01 = Math.min(1, Math.max(0, v01));
+                if (v01 > 0) volBeforeMute = v01;
+                setMetroVolume(v01);
+                volInlineSlider.value = String(Math.round(v01 * 100));
                 volumeSlider.value = volInlineSlider.value;
+                paintVolume();
                 saveSoon();
-            });
-            volumeSlider.addEventListener("input", function () { volInlineSlider.value = volumeSlider.value; });
+            }
+            volInlineSlider.addEventListener("input", function () { applyVolume(parseInt(volInlineSlider.value, 10) / 100); });
+            volumeSlider.addEventListener("input", function () { applyVolume(parseInt(volumeSlider.value, 10) / 100); });
+            volInlineIcon.addEventListener("click", function () { applyVolume(parseInt(volInlineSlider.value, 10) > 0 ? 0 : volBeforeMute); });
             volInline.appendChild(volInlineIcon);
             volInline.appendChild(volInlineSlider);
             headerRow.appendChild(volInline);
@@ -8570,6 +8666,7 @@
             panel.appendChild(headerRow);
             volumeRow.appendChild(volumeSlider);
             panel.appendChild(volumeRow);
+            paintVolume();
             refreshLinkBar();
 
             // ---------- transport : cadran flanqué des boutons de vitesse ----------
@@ -10856,6 +10953,9 @@
             section("Sessions");
             card("Nouvel exercice");
             field("Durée par défaut", selectControl(PREF_DEFAULT_MINUTES.map(function (n) { return [String(n), n + " min"]; }), String(prefs().defaultMinutes), function (v) { setPref("defaultMinutes", parseInt(v, 10)); }), "Exercice jamais minuté");
+            card("Chrono de session");
+            field("Petite fenêtre", selectControl([["auto", "Au-dessus des autres applications"], ["window", "Fenêtre ordinaire"]], prefs().miniMode, function (v) { setPref("miniMode", v); }), "Chrome/Edge : vraie fenêtre toujours au-dessus. Safari : image dans l'image (chrono et pause/suivant seulement). Ordinaire : boutons complets, mais elle passe derrière les autres fenêtres");
+            field("Pause en arrière-plan", switchControl(prefs().pauseOnHidden, function (v) { setPref("pauseOnHidden", v); }), "Mettre le chrono en pause quand TrainHub passe au second plan. Désactivé : il continue (autre fenêtre, plein écran d'un autre logiciel)");
             card("Alerte de fin d'exercice", "Une note discrète avant la fin de l'exercice (cloche de la session) ; l'enchaînement automatique garde ses carillons.");
             field("Prévenir avant la fin", selectControl(PREF_BELL_LEAD_SEC.map(function (n) { return [String(n), n + " s"]; }), String(prefs().bellLeadSec), function (v) { setPref("bellLeadSec", parseInt(v, 10)); }), "Sans effet si l'enchaînement automatique est activé");
             field("Son", soundPicker(ALERT_SOUNDS.map(function (k) { return [k, ALERT_SOUND_LABELS[k]]; }), getAlertSound(), function (v) {
@@ -12077,7 +12177,6 @@
     function revealFolder(instId, pathIds) {
         var inst = findById(state.instruments, instId);
         if (!inst) return false;
-        if (gsRunActive() && guidedSessionViewActive) { showToast("Une session est en cours : termine-la avant d'aller dans les dossiers.", 4500); return false; }
         if (closeActiveModal) closeActiveModal();
         closeFolderMenu();
         var keptDraft = leaveGuidedViewForNav();
@@ -12114,7 +12213,7 @@
         var key = (ex.updatedAt || 0) + ":" + (ex.notes || "").length + ":" + (ex.fixedNotes || "").length + ":" + (ex.links || []).length + ":" + (ex.files || []).length;
         var c = qfCache && qfCache.get(ex);
         if (c && c.key === key) return c.text;
-        var text = qfNorm([ex.notes || "", ex.fixedNotes || ""].concat((ex.links || []).map(function (l) { return l.label || ""; }), (ex.files || []).map(function (f) { return f.name || ""; })).join(" \n "));
+        var text = qfNorm([ex.notes || "", ex.fixedNotes || ""].concat((ex.links || []).map(function (l) { return l.label || ""; }), (ex.files || []).map(function (f) { return f.name || ""; }), (ex.images || []).map(function (im) { return im.name || ""; })).join(" \n "));
         if (qfCache) qfCache.set(ex, { key: key, text: text });
         return text;
     }
@@ -12289,7 +12388,6 @@
     function revealExercise(exId) {
         var f = findExerciseById(exId);
         if (!f) { showToast("Exercice introuvable : il a peut-être été supprimé (voir la corbeille)."); return false; }
-        if (gsRunActive() && guidedSessionViewActive) { showToast("Une session est en cours : termine-la avant d'aller dans les dossiers.", 4500); return false; }
         if (closeActiveModal) closeActiveModal();
         closeFolderMenu();
         var keptDraft = leaveGuidedViewForNav();
@@ -15898,20 +15996,105 @@
             playSoftChime("go");
             gsRunStepIndex++;
             gsEnterRunStep();
-            render();
+            if (guidedSessionViewActive) render(); else gsStripRefresh(); // en train de naviguer ailleurs : on ne reconstruit pas l'écran
         } else {
             gsWarnKey = key + ":end";
             playSoftChime("end"); // dernier exercice : on prévient, sans fermer la session
         }
     }
 
+    // ---------- bande de session : naviguer pendant une session ----------
+    // Une session en cours ne bloque plus l'application : un clic dans les dossiers, la recherche, un autre espace… quitte
+    // l'écran de session (qui continue : chrono, métronome, enchaînement) et une bande reste en haut de l'écran avec
+    // l'exercice, le temps restant, pause/reprise et « Session » pour revenir. Le bouton Session de la barre fait de même à la main.
+    var gsStripEl = null;
+    function gsBrowseAway() {
+        if (!(gsRunSession && gsScreen === "run" && guidedSessionViewActive)) return false;
+        guidedSessionViewActive = false;
+        if ($guidedSessionBtn) $guidedSessionBtn.classList.remove("active");
+        if (gsRunInterval) { clearInterval(gsRunInterval); gsRunInterval = null; } // le tic de la bande (gsGlobalTick) prend le relais
+        return true;
+    }
+    function gsStripBuild() {
+        var bar = document.querySelector(".top-bar");
+        if (!bar) return null;
+        var el = document.createElement("div");
+        el.id = "gs-strip"; el.className = "gs-strip";
+        var title = document.createElement("button");
+        title.type = "button"; title.className = "gs-strip-title"; title.title = "Revenir à l'écran de la session";
+        var stepEl = document.createElement("span"); stepEl.className = "gs-strip-step";
+        var nameEl = document.createElement("span"); nameEl.className = "gs-strip-name";
+        title.appendChild(stepEl); title.appendChild(nameEl);
+        var time = document.createElement("span"); time.className = "gs-strip-time"; time.title = "Temps restant pour cet exercice";
+        var pause = document.createElement("button");
+        pause.type = "button"; pause.className = "gs-strip-pause";
+        var back = document.createElement("button");
+        back.type = "button"; back.className = "gs-strip-back"; back.textContent = "Session";
+        back.title = "Revenir à l'écran de la session"; back.setAttribute("aria-label", "Revenir à l'écran de la session");
+        function goBack() { if ($guidedSessionBtn && !guidedSessionViewActive) $guidedSessionBtn.click(); }
+        title.addEventListener("click", goBack);
+        back.addEventListener("click", goBack);
+        pause.addEventListener("click", function () {
+            if (!gsRunSession) return;
+            if (gsRunPaused) gsResumeRun(); else gsPauseRun();
+            if (gsRefreshRunUi) gsRefreshRunUi();
+            gsStripRefresh();
+        });
+        [title, time, pause, back].forEach(function (n) { el.appendChild(n); });
+        bar.appendChild(el);
+        gsStripEl = el;
+        updateMetroDockMetrics();
+        return el;
+    }
+    function gsStripRefresh() {
+        var want = !!(gsRunSession && !guidedSessionViewActive);
+        if (!want) {
+            if (gsStripEl) {
+                if (gsStripEl.parentNode) gsStripEl.parentNode.removeChild(gsStripEl);
+                gsStripEl = null;
+                updateMetroDockMetrics();
+            }
+            return;
+        }
+        var el = gsStripEl || gsStripBuild();
+        if (!el) return;
+        var step = gsRunSession.steps[gsRunStepIndex], found = step && findExerciseById(step.exerciseId);
+        var remaining = gsRunAllocatedSec - Math.floor(gsRunElapsedNowMs() / 1000), abs = Math.abs(remaining);
+        var mm = Math.floor(abs / 60), ss = abs % 60;
+        var txt = (remaining < 0 ? "+" : "") + (mm < 10 ? "0" : "") + mm + ":" + (ss < 10 ? "0" : "") + ss;
+        var stepTxt = (gsRunStepIndex + 1) + "/" + gsRunSession.steps.length, name = found ? found.ex.title : "(exercice supprimé)";
+        var q = function (c) { return el.querySelector(c); };
+        if (q(".gs-strip-step").textContent !== stepTxt) q(".gs-strip-step").textContent = stepTxt;
+        if (q(".gs-strip-name").textContent !== name) q(".gs-strip-name").textContent = name;
+        if (q(".gs-strip-time").textContent !== txt) q(".gs-strip-time").textContent = txt;
+        el.classList.toggle("gs-strip-over", remaining < 0);
+        el.classList.toggle("gs-strip-paused", gsRunPaused);
+        var pb = q(".gs-strip-pause"), label = gsRunPaused ? "Reprendre la session" : "Mettre la session en pause";
+        if (pb.getAttribute("data-paused") !== (gsRunPaused ? "1" : "0")) {
+            pb.setAttribute("data-paused", gsRunPaused ? "1" : "0");
+            pb.innerHTML = gsRunPaused ? METRO_PLAY_ICON_SVG : FREE_PAUSE_SVG;
+            pb.title = label; pb.setAttribute("aria-label", label);
+        }
+    }
+    // Tic permanent : quand l'écran de session n'est pas affiché (on navigue ailleurs), c'est lui qui tient la bande à jour et
+    // laisse passer l'alerte de fin / l'enchaînement automatique. L'écran de session garde son propre tic (refreshTimer).
+    setInterval(function () {
+        if (!gsRunSession) { if (gsStripEl) gsStripRefresh(); return; }
+        if (guidedSessionViewActive && gsScreen === "run" && gsRunInterval) { if (gsStripEl) gsStripRefresh(); return; }
+        gsStripRefresh();
+        var step = gsRunSession.steps[gsRunStepIndex];
+        if (step) gsAutoAdvanceTick(gsRunAllocatedSec - Math.floor(gsRunElapsedNowMs() / 1000), step, gsRunSession);
+    }, 250);
+
     // ---------- fenêtre flottante de session (toujours visible) ----------
     // Pour garder le chrono sous les yeux quand la page TrainHub est cachée (PDF, iReal Pro, vidéo…) : une petite
     // fenêtre séparée, avec le nom de l'exercice, le temps restant (−1/+1 min, pause) et le métronome (tempo qui
     // clignote à chaque temps, lecture/pause). Sur Chrome/Edge (bureau) c'est une vraie fenêtre « image dans l'image »
-    // qui reste AU-DESSUS des autres applications ; ailleurs (Safari, Firefox) c'est une petite fenêtre ordinaire,
-    // à garder visible à côté.
-    var miniWin = null, miniIsPip = false, miniTimerId = null;
+    // (Document Picture-in-Picture) qui reste AU-DESSUS des autres applications. Sur Safari/Firefox, aucune page web ne peut
+    // se mettre au-dessus des autres applications : on utilise la vidéo en image dans l'image (chrono dessiné sur un canvas,
+    // commandes lecture/pause et précédent/suivant). Le réglage « Petite fenêtre » (Paramètres › Sessions) permet de préférer
+    // une petite fenêtre ordinaire (boutons complets, mais elle passe derrière les autres applications).
+    var miniWin = null, miniIsPip = false, miniIsVideo = false, miniTimerId = null;
     var MINI_SIZE_KEY = "trainhub.miniSize.v1";
     function miniWinOpen() { return !!(miniWin && !miniWin.closed); }
     function miniLoadSize() {
@@ -15934,27 +16117,196 @@
             b.setAttribute("aria-pressed", miniWinOpen() ? "true" : "false");
         });
     }
+    function miniVideoSupported() {
+        try {
+            var v = document.createElement("video"), c = document.createElement("canvas");
+            return !!(c.captureStream && (v.requestPictureInPicture || v.webkitSetPresentationMode) && document.pictureInPictureEnabled !== false);
+        } catch (e) { return false; }
+    }
     function openMiniWindow() {
         if (miniWinOpen()) { closeMiniWindow(); return; }
         if (!gsRunSession) return;
         var size = miniLoadSize();
-        var request;
-        if (window.documentPictureInPicture && documentPictureInPicture.requestWindow) {
+        var request, auto = prefs().miniMode !== "window", viaVideo = false;
+        miniIsVideo = false;
+        function popup() {
+            var w = null;
+            try { w = window.open("", "trainhub-mini", "popup=yes,width=" + size.w + ",height=" + size.h + ",left=40,top=80"); } catch (e) {}
+            return w;
+        }
+        if (auto && window.documentPictureInPicture && documentPictureInPicture.requestWindow) {
             miniIsPip = true;
             request = documentPictureInPicture.requestWindow({ width: size.w, height: size.h }).catch(function () { return null; });
+        } else if (auto && miniVideoSupported()) {
+            // Safari (et Firefox) : pas de fenêtre « toujours au-dessus » pour une page web, mais la vidéo en image dans l'image,
+            // elle, flotte au-dessus de tout. On y affiche le chrono dessiné sur un canvas.
+            miniIsPip = true; viaVideo = true;
+            request = miniOpenVideoPip().catch(function () { return null; });
         } else {
             miniIsPip = false;
-            var w0 = null;
-            try { w0 = window.open("", "trainhub-mini", "popup=yes,width=" + size.w + ",height=" + size.h + ",left=40,top=80"); } catch (e) {}
-            request = Promise.resolve(w0);
+            request = Promise.resolve(popup());
         }
         request.then(function (win) {
             if (!win && miniIsPip) { // l'« image dans l'image » a été refusée : on se rabat sur une petite fenêtre ordinaire
-                miniIsPip = false;
-                try { win = window.open("", "trainhub-mini", "popup=yes,width=" + size.w + ",height=" + size.h + ",left=40,top=80"); } catch (e) {}
+                miniIsPip = false; viaVideo = false;
+                win = popup();
+                if (win && auto) showToast("Fenêtre au-dessus des autres indisponible ici : fenêtre ordinaire à la place.", 4500);
             }
             if (!win) { showToast("Fenêtre flottante impossible : autorise les pop-ups pour TrainHub, ou utilise Chrome/Edge."); return; }
+            if (viaVideo) return; // miniOpenVideoPip a déjà tout installé
             setupMiniWindow(win);
+        });
+    }
+    // ---- variante « vidéo en image dans l'image » (Safari, Firefox) ----
+    // Une page web ne peut pas forcer sa fenêtre au-dessus des autres applications, sauf Chrome/Edge (Document Picture-in-Picture).
+    // Reste la vidéo en image dans l'image, que le système fait flotter au-dessus de tout (même d'un logiciel en plein écran) :
+    // le chrono est dessiné sur un canvas lu comme une vidéo. Elle n'a pas de boutons à nous : pause/reprise et précédent/suivant
+    // passent par les commandes média de la fenêtre (MediaSession), le reste se règle dans TrainHub.
+    function miniOpenVideoPip() {
+        return new Promise(function (resolve, reject) {
+            var W = 480, H = 270, FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+            var canvas = document.createElement("canvas");
+            canvas.width = W; canvas.height = H;
+            var ctx = canvas.getContext("2d");
+            if (!ctx || !canvas.captureStream) { reject(new Error("canvas")); return; }
+            var stream = canvas.captureStream(5);
+            var video = document.createElement("video");
+            video.muted = true; video.defaultMuted = true; video.playsInline = true; video.setAttribute("playsinline", "");
+            video.srcObject = stream;
+            video.style.cssText = "position:fixed;left:0;bottom:0;width:2px;height:2px;opacity:.01;pointer-events:none;z-index:-1";
+            document.body.appendChild(video);
+            var closed = false, settled = false, beatUntil = 0, beatAccent = false, lastToggle = 0, tickId = null, metaKey = "";
+
+            function fit(text, maxW) {
+                if (ctx.measureText(text).width <= maxW) return text;
+                while (text.length > 1 && ctx.measureText(text + "…").width > maxW) text = text.slice(0, -1);
+                return text + "…";
+            }
+            function draw() {
+                var step = gsRunSession && gsRunSession.steps[gsRunStepIndex], found = step && findExerciseById(step.exerciseId);
+                var remaining = gsRunAllocatedSec - Math.floor(gsRunElapsedNowMs() / 1000), abs = Math.abs(remaining);
+                var mm = Math.floor(abs / 60), ss = abs % 60;
+                var txt = (remaining < 0 ? "+" : "") + (mm < 10 ? "0" : "") + mm + ":" + (ss < 10 ? "0" : "") + ss;
+                var title = (gsRunSession ? (gsRunStepIndex + 1) + "/" + gsRunSession.steps.length + " · " : "") + (found ? found.ex.title : "(exercice)");
+                ctx.fillStyle = "#121212"; ctx.fillRect(0, 0, W, H);
+                ctx.textAlign = "center"; ctx.textBaseline = "middle";
+                ctx.font = "700 26px " + FONT; ctx.fillStyle = "#eeeeee";
+                ctx.fillText(fit(title, W - 40), W / 2, 36);
+                ctx.font = "800 120px " + FONT;
+                ctx.fillStyle = remaining < 0 ? "#ff8a65" : gsRunPaused ? "#9a9a9a" : "#eeeeee";
+                ctx.fillText(txt, W / 2, 140);
+                var on = Date.now() < beatUntil, label = (gsRunPaused ? "EN PAUSE  ·  " : "") + state.settings.metronome.bpm + " BPM";
+                ctx.font = "700 28px " + FONT;
+                var tw = ctx.measureText(label).width + 36;
+                if (on) { ctx.fillStyle = beatAccent ? "#ffffff" : "#00e676"; ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(W / 2 - tw / 2, 205, tw, 44, 12); else ctx.rect(W / 2 - tw / 2, 205, tw, 44); ctx.fill(); }
+                ctx.fillStyle = on ? "#04140a" : metroPlaying ? "#00e676" : "#9a9a9a";
+                ctx.fillText(label, W / 2, 228);
+            }
+            function mediaMeta() {
+                try {
+                    if (!window.MediaMetadata || !navigator.mediaSession) return;
+                    var step = gsRunSession && gsRunSession.steps[gsRunStepIndex], found = step && findExerciseById(step.exerciseId);
+                    var key = (gsRunStepIndex + 1) + "|" + (found ? found.ex.title : "");
+                    if (key === metaKey) return;
+                    metaKey = key;
+                    navigator.mediaSession.metadata = new MediaMetadata({ title: found ? found.ex.title : "TrainHub", artist: "TrainHub · exercice " + (gsRunStepIndex + 1) + "/" + (gsRunSession ? gsRunSession.steps.length : 1) });
+                    navigator.mediaSession.playbackState = "playing"; // la vidéo, elle, joue toujours : c'est le dessin qui montre la pause
+                } catch (e) {}
+            }
+            function toggleSession() { // un seul bouton lecture/pause dans la fenêtre : il bascule la session
+                var now = Date.now();
+                if (now - lastToggle < 400 || !gsRunSession) return;
+                lastToggle = now;
+                if (gsRunPaused) gsResumeRun(); else gsPauseRun();
+                if (gsRefreshRunUi) gsRefreshRunUi();
+                gsStripRefresh();
+                draw();
+            }
+            function stepBy(d) {
+                if (!gsRunSession) return;
+                var n = gsRunStepIndex + d;
+                if (n < 0 || n > gsRunSession.steps.length - 1) return;
+                gsRunStepIndex = n;
+                gsEnterRunStep();
+                if (guidedSessionViewActive) render(); else gsStripRefresh();
+                mediaMeta(); draw();
+            }
+            function tick() {
+                if (closed) return;
+                if (!gsRunSession) { if (miniWin === pseudo) closeMiniWindow(); else pseudo.close(); return; }
+                var step = gsRunSession.steps[gsRunStepIndex];
+                if (step) gsAutoAdvanceTick(gsRunAllocatedSec - Math.floor(gsRunElapsedNowMs() / 1000), step, gsRunSession);
+                draw(); mediaMeta();
+            }
+            function onLeave() { if (!closed && settled) { if (miniWin === pseudo) closeMiniWindow(); else pseudo.close(); } }
+            function onModeChange() { if (video.webkitPresentationMode && video.webkitPresentationMode !== "picture-in-picture") onLeave(); }
+            function onVideoPause() { if (closed || !settled) return; toggleSession(); try { var pl = video.play(); if (pl && pl.catch) pl.catch(function () {}); } catch (e) {} }
+
+            var pseudo = {
+                closed: false,
+                clearInterval: function (id) { clearInterval(id); },
+                close: function () {
+                    if (closed) return;
+                    closed = true; pseudo.closed = true;
+                    if (tickId) { clearInterval(tickId); tickId = null; }
+                    video.removeEventListener("leavepictureinpicture", onLeave);
+                    video.removeEventListener("webkitpresentationmodechanged", onModeChange);
+                    video.removeEventListener("pause", onVideoPause);
+                    try { if (document.pictureInPictureElement === video && document.exitPictureInPicture) document.exitPictureInPicture().catch(function () {}); else if (video.webkitPresentationMode === "picture-in-picture" && video.webkitSetPresentationMode) video.webkitSetPresentationMode("inline"); } catch (e) {}
+                    try { video.pause(); } catch (e) {}
+                    try { stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
+                    video.srcObject = null;
+                    if (video.parentNode) video.parentNode.removeChild(video);
+                    try {
+                        if (navigator.mediaSession) {
+                            ["play", "pause", "previoustrack", "nexttrack"].forEach(function (a) { try { navigator.mediaSession.setActionHandler(a, null); } catch (e) {} });
+                            navigator.mediaSession.metadata = null;
+                        }
+                    } catch (e) {}
+                }
+            };
+            function fail(err) { pseudo.close(); if (!settled) { settled = true; reject(err || new Error("pip")); } }
+            function success() {
+                if (closed || settled) return;
+                settled = true;
+                miniWin = pseudo; miniIsVideo = true;
+                miniTimerId = tickId;
+                miniBeat = function (stepIdx, isBeat, strength) { if (!isBeat || closed) return; beatUntil = Date.now() + 90; beatAccent = strength === 2; draw(); };
+                metroBeatListeners.push(miniBeat);
+                try {
+                    if (navigator.mediaSession) {
+                        navigator.mediaSession.setActionHandler("play", toggleSession);
+                        navigator.mediaSession.setActionHandler("pause", toggleSession);
+                        navigator.mediaSession.setActionHandler("previoustrack", function () { stepBy(-1); });
+                        navigator.mediaSession.setActionHandler("nexttrack", function () { stepBy(1); });
+                    }
+                } catch (e) {}
+                video.addEventListener("pause", onVideoPause);
+                refreshMiniButtons();
+                tick();
+                resolve(pseudo);
+            }
+            var entering = false;
+            function enter() {
+                if (closed || entering) return;
+                entering = true;
+                video.addEventListener("leavepictureinpicture", onLeave);
+                video.addEventListener("webkitpresentationmodechanged", onModeChange);
+                var played = null, entered;
+                try { played = video.play(); } catch (e) {}
+                try {
+                    if (video.requestPictureInPicture) entered = video.requestPictureInPicture();
+                    else { video.webkitSetPresentationMode("picture-in-picture"); entered = Promise.resolve(); }
+                } catch (e) { entered = Promise.reject(e); }
+                Promise.all([played && played.then ? played : Promise.resolve(), entered]).then(success, fail);
+            }
+            draw();
+            tickId = setInterval(function () { if (!settled) draw(); else tick(); }, 250);
+            if (video.readyState >= 1) enter();
+            else {
+                var timer = setTimeout(enter, 1500);
+                video.addEventListener("loadedmetadata", function () { clearTimeout(timer); enter(); }, { once: true });
+            }
         });
     }
     function setupMiniWindow(win) {
@@ -15993,7 +16345,7 @@
         var modeTxt = doc.createElement("span");
         modeTxt.className = "mode";
         modeTxt.textContent = miniIsPip ? "📌 reste au-dessus" : "fenêtre simple";
-        modeTxt.title = miniIsPip ? "Cette fenêtre reste au-dessus des autres applications." : "Ce navigateur n'offre pas la fenêtre « toujours au-dessus » : utilise Chrome ou Edge sur ordinateur.";
+        modeTxt.title = miniIsPip ? "Cette fenêtre reste au-dessus des autres applications." : prefs().miniMode === "window" ? "Fenêtre ordinaire (choix dans Paramètres › Sessions) : elle passe derrière les autres applications." : "Ce navigateur n'offre pas la fenêtre « toujours au-dessus » : utilise Chrome ou Edge sur ordinateur, ou garde cette fenêtre visible à côté.";
         tools.appendChild(modeTxt);
         var hide = doc.createElement("button");
         hide.className = "x"; hide.textContent = "Masquer"; hide.title = "Fermer cette fenêtre (le bouton de la session la rouvre)";
@@ -16383,6 +16735,20 @@
         navRow.appendChild(nextBtn);
         content.appendChild(navRow);
 
+        // Images de l'exercice (captures de partition) : visibles d'office juste sous les boutons, pour les lire en jouant ;
+        // un clic sur la barre les masque (choix retenu), un clic sur une vignette l'agrandit.
+        if (found && (found.ex.images || []).length) {
+            var imgShown = imagesShownInSession();
+            var imgToggle = document.createElement("button");
+            imgToggle.type = "button";
+            imgToggle.className = "btn-ghost gs-yt-toggle gs-img-toggle";
+            imgToggle.textContent = (imgShown ? "▾ " : "▸ ") + "Images (" + found.ex.images.length + ") — " + (imgShown ? "masquer" : "afficher");
+            imgToggle.title = "Afficher ou masquer les images de l'exercice";
+            imgToggle.addEventListener("click", function () { setImagesShownInSession(!imgShown); render(); });
+            content.appendChild(imgToggle);
+            if (imgShown) content.appendChild(buildImageStrip(found.ex, "gs", false));
+        }
+
         // Notes et liens de l'exercice (ceux de l'exercice lui-même, pas de la session) : lisibles et
         // modifiables ici, enregistrés dans l'exercice pour la prochaine fois. Dépliés d'office quand
         // l'exercice a déjà une note ; le choix de l'utilisateur est ensuite retenu.
@@ -16478,19 +16844,6 @@
                 });
                 content.appendChild(hiddenRow);
             }
-        }
-        // Images de l'exercice (captures de partition), petites sous les vidéos ; masquées de base,
-        // un clic sur la barre les affiche (choix retenu), un clic sur une vignette l'agrandit.
-        if (found && (found.ex.images || []).length) {
-            var imgShown = imagesShownInSession();
-            var imgToggle = document.createElement("button");
-            imgToggle.type = "button";
-            imgToggle.className = "btn-ghost gs-yt-toggle gs-img-toggle";
-            imgToggle.textContent = (imgShown ? "▾ " : "▸ ") + "Images (" + found.ex.images.length + ") — " + (imgShown ? "masquer" : "afficher");
-            imgToggle.title = "Afficher ou masquer les images de l'exercice";
-            imgToggle.addEventListener("click", function () { setImagesShownInSession(!imgShown); render(); });
-            content.appendChild(imgToggle);
-            if (imgShown) content.appendChild(buildImageStrip(found.ex, "gs", false));
         }
         renderGsRunPlan(content, session);
     }
@@ -16595,15 +16948,20 @@
         }
     }
 
-    // Une session en cours ne doit pas continuer à décompter pendant qu'on est ailleurs (un autre
-    // onglet, une appli, l'écran verrouillé) : on la met en pause dès que la page n'est plus
-    // visible. Reprise toujours manuelle (bouton Reprendre), pour ne pas relancer le chrono par
-    // surprise au retour.
+    // Le chrono d'une session continue quand TrainHub passe au second plan (une autre fenêtre, un autre logiciel en plein
+    // écran, un autre espace du Mac) : on joue souvent avec un PDF ou une vidéo ouverts ailleurs. Il se calcule sur l'heure
+    // réelle, donc il est juste même si le navigateur ralentit ses minuteries. Le réglage « Mettre en pause quand TrainHub
+    // passe au second plan » (Paramètres › Sessions) rétablit l'ancienne pause automatique ; la reprise est alors manuelle.
     document.addEventListener("visibilitychange", function () {
-        if (document.hidden && gsRunSession && !gsRunPaused && !miniWinOpen()) {
-            gsPauseRun();
-            // Pas de render() ici : reconstruire l'écran détruirait les lecteurs YouTube en cours.
-            if (guidedSessionViewActive && gsScreen === "run" && gsRefreshRunUi) gsRefreshRunUi();
+        if (!gsRunSession) return;
+        if (document.hidden) {
+            if (!gsRunPaused && prefs().pauseOnHidden && !miniWinOpen()) {
+                gsPauseRun();
+                // Pas de render() ici : reconstruire l'écran détruirait les lecteurs YouTube en cours.
+                if (guidedSessionViewActive && gsScreen === "run" && gsRefreshRunUi) gsRefreshRunUi();
+            }
+        } else if (gsRefreshRunUi) {
+            gsRefreshRunUi(); // au retour : afficher tout de suite le temps réel (et laisser passer l'enchaînement qui serait dû)
         }
     });
 
