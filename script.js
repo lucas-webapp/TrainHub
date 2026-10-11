@@ -698,6 +698,69 @@
             logTouch(m);
         });
     }
+    // ---- sessions libres : une seule par jour ----
+    // Tous les bouts d'entraînement libre d'une même journée (même espace, même nom) ne forment qu'UNE séance : durées additionnées, exercices
+    // regroupés (temps cumulé, tempo du premier bout au meilleur). La séance fusionnée garde la trace des séances absorbées (`parts`) : si un autre
+    // appareil renvoie l'un des bouts d'origine, il est reconnu comme déjà compté et n'est pas additionné deux fois.
+    function freeGroupKey(rec) {
+        var d = new Date(rec.date), p2 = function (n) { return (n < 10 ? "0" : "") + n; };
+        return (rec.instrumentId || "") + "|" + d.getFullYear() + "-" + p2(d.getMonth() + 1) + "-" + p2(d.getDate()) + "|" + String(rec.name || "Session libre").trim().toLowerCase();
+    }
+    function mergeFreeSteps(list) {
+        var order = [], by = {};
+        list.forEach(function (st) {
+            var k = st.exerciseId || ("t:" + (st.title || "?"));
+            var o = by[k];
+            if (!o) { by[k] = JSON.parse(JSON.stringify(st)); order.push(k); return; }
+            o.actualSec = (o.actualSec || 0) + (st.actualSec || 0);
+            o.playedSec = (o.playedSec || 0) + (st.playedSec || 0);
+            o.plannedMin = (o.plannedMin || 0) + (st.plannedMin || 0);
+            if (st.bpmMax) {
+                if (!o.bpmMax) { o.bpmFirst = st.bpmFirst; o.bpmMax = st.bpmMax; o.bpmEnd = st.bpmEnd; }
+                else { o.bpmMax = Math.max(o.bpmMax, st.bpmMax); o.bpmEnd = st.bpmEnd || o.bpmEnd; if (!o.bpmFirst) o.bpmFirst = st.bpmFirst; }
+            }
+            delete o.bpmShort; delete o.bpmTarget; delete o.bpmStop;
+        });
+        return order.map(function (k) { return by[k]; });
+    }
+    // Fusionne le groupe : la séance la plus ancienne reste (même identifiant), les autres sont retirées du journal. Renvoie la séance obtenue.
+    function mergeFreeGroup(recs) {
+        recs = recs.slice().sort(function (a, b) { return a.date - b.date; });
+        var counted = {}, base = null, steps = [], total = 0, planned = 0, last = 0, parts = [], removeIds = [];
+        recs.forEach(function (r) {
+            if (counted[r.id]) { removeIds.push(r.id); return; } // déjà compté dans une séance fusionnée
+            (r.parts || [r.id]).forEach(function (id) { counted[id] = true; if (parts.indexOf(id) === -1) parts.push(id); });
+            if (!base) base = r; else removeIds.push(r.id);
+            steps = steps.concat(r.steps || []);
+            total += r.totalSec || 0; planned += r.plannedSec || 0; last = Math.max(last, r.endedAt || r.date || 0);
+        });
+        var out = JSON.parse(JSON.stringify(base));
+        out.steps = mergeFreeSteps(steps);
+        out.totalSec = total; out.plannedSec = planned; out.endedAt = last;
+        out.parts = parts;
+        removeIds.forEach(function (id) { if (id !== out.id) logRemove(id); });
+        logAdd(out);
+        return out;
+    }
+    // Enregistre une séance ; une séance libre rejoint celle du même jour s'il y en a déjà une. Renvoie la séance (fusionnée ou non).
+    function logAddMergingFree(rec) {
+        if (!rec || !rec.free) { logAdd(rec); return rec; }
+        var key = freeGroupKey(rec), same = logAll().filter(function (r) { return r.free && r.id !== rec.id && freeGroupKey(r) === key; });
+        if (!same.length) { logAdd(rec); return rec; }
+        return mergeFreeGroup(same.concat([rec]));
+    }
+    // Séances libres déjà enregistrées séparément le même jour : regroupées une fois pour toutes. Renvoie le nombre de jours regroupés.
+    function consolidateFreeRecords() {
+        var groups = {}, n = 0;
+        logAll().forEach(function (r) { if (r && r.free) (groups[freeGroupKey(r)] = groups[freeGroupKey(r)] || []).push(r); });
+        Object.keys(groups).forEach(function (k) {
+            var g = groups[k];
+            if (g.length < 2) return;
+            mergeFreeGroup(g); n++;
+        });
+        return n;
+    }
+
     // Anciens formats (journal rangé dans les réglages, fichier importé, version reçue d'un ancien appareil).
     function logMigrateIn(arr) {
         var touched = {};
@@ -741,6 +804,7 @@
         });
         Object.keys(touched).forEach(logTouch);
     })();
+    consolidateFreeRecords(); // les bouts d'entraînement libre d'un même jour deviennent une seule séance
 
     function load() {
         try {
@@ -4260,6 +4324,13 @@
         $sidebarTree.appendChild(addWrap);
     }
 
+    // Exercices d'un dossier, sous-dossiers compris (hors exercices archivés, qui se retrouvent dans « Archivés »).
+    function countFolderExercises(folder) {
+        var n = 0;
+        (folder.exercises || []).forEach(function (ex) { if (!ex.archived) n++; });
+        (folder.folders || []).forEach(function (f) { n += countFolderExercises(f); });
+        return n;
+    }
     function renderTreeNode(inst, folder, ancestorPath, currentPath, rootColor, depth) {
         var fullPath = ancestorPath.concat(folder.id);
         var isSelected = folder.id === currentPath[currentPath.length - 1];
@@ -4309,6 +4380,15 @@
         label.className = "tree-label";
         label.textContent = folder.name;
         row.appendChild(label);
+        if (depth >= 1) { // nombre d'exercices du sous-dossier (sous-dossiers compris), à droite, en petit ; pas sur les grands chapitres
+            var nEx = countFolderExercises(folder);
+            var cnt = document.createElement("span");
+            cnt.className = "tree-count";
+            cnt.textContent = String(nEx);
+            cnt.title = nEx === 0 ? "Aucun exercice" : nEx + " exercice" + (nEx > 1 ? "s" : "") + (folder.folders.length ? " (sous-dossiers compris)" : "");
+            if (!nEx) cnt.classList.add("tree-count-zero");
+            row.appendChild(cnt);
+        }
         bindFolderMenu(row, function () { return getParentArrayFor(getActiveInstrument(), ancestorPath); }, folder, inst);
 
         row.addEventListener("click", function (e) {
@@ -6576,6 +6656,7 @@
             });
         });
         return Promise.all(tasks).then(function (changed) {
+            if (consolidateFreeRecords()) changed.push(true); // un autre appareil a pu ajouter un bout d'entraînement libre ce jour-là
             return logPushDirty().then(function () { if (changed.some(Boolean)) render(); });
         }).catch(function (e) { console.error("Synchro du journal impossible", e); setSyncStatus("error"); });
     }
@@ -7538,6 +7619,7 @@
         var startX = 0, startY = 0, startLeft = 0, startTop = 0;
         function onDown(e) {
             if (isMobilePanelLayout()) return;
+            if (e.target && e.target.closest && e.target.closest("button, input, select, textarea, a") && handle.contains(e.target)) return; // un bouton du titre garde son clic
             dragging = true;
             startX = e.clientX; startY = e.clientY;
             var rect = panel.getBoundingClientRect();
@@ -13255,29 +13337,26 @@
             content.appendChild(list);
         }
 
-        // À côté du titre : calendrier (programmation) et historique/statistiques.
+        // À côté du titre : calendrier (programmation), historique et statistiques — trois logos au même niveau.
         var headActions = document.createElement("div");
         headActions.className = "gs-head-actions";
-        var calBtn = document.createElement("button");
-        calBtn.type = "button";
-        calBtn.className = "gs-calendar-btn";
-        calBtn.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18"/><path d="M8 3v4M16 3v4"/></svg><span>Calendrier</span>';
-        calBtn.title = "Programmer des sessions pour les prochaines semaines";
-        calBtn.addEventListener("click", function () { if (typeof openSessionCalendar === "function") openSessionCalendar({}); });
-        headActions.appendChild(calBtn);
-        var histBtn = document.createElement("button");
-        histBtn.type = "button";
-        histBtn.className = "gs-history-btn";
-        histBtn.textContent = "Historique";
-        histBtn.title = "Sessions réalisées et statistiques d'entraînement";
-        histBtn.addEventListener("click", function () { openSessionHistory(); });
+        function headIcon(cls, svg, title, fn) {
+            var bt = document.createElement("button");
+            bt.type = "button"; bt.className = "gs-icon-btn " + cls;
+            bt.innerHTML = svg; bt.title = title; bt.setAttribute("aria-label", title);
+            bt.addEventListener("click", fn);
+            headActions.appendChild(bt);
+            return bt;
+        }
+        headIcon("gs-calendar-btn", GS_ICON_CAL, "Calendrier : programmer des sessions pour les prochaines semaines", function () { if (typeof openSessionCalendar === "function") openSessionCalendar({}); });
+        headIcon("gs-history-btn", GS_ICON_HIST, "Historique : sessions réalisées, exercices par jour, semaine, mois ou année", function () { openSessionHistory(); });
+        var statsBtn = headIcon("gs-stats-btn", GS_ICON_STATS, "Statistiques d'entraînement", function () { openStatistics(); });
         var nToSort = statsIssueCount();
         if (nToSort) {
-            var hb = document.createElement("span"); hb.className = "gs-tab-count st-issue-count"; hb.textContent = String(nToSort);
-            histBtn.appendChild(hb);
-            histBtn.title += " — " + nToSort + " exercice" + (nToSort > 1 ? "s" : "") + " à ranger pour les statistiques";
+            var hb = document.createElement("span"); hb.className = "gs-tab-count st-issue-count gs-icon-badge"; hb.textContent = String(nToSort);
+            statsBtn.appendChild(hb);
+            statsBtn.title += " — " + nToSort + " exercice" + (nToSort > 1 ? "s" : "") + " à ranger pour les statistiques";
         }
-        headActions.appendChild(histBtn);
         if (window.matchMedia && window.matchMedia("(min-width: 880px)").matches) $contentHeading.appendChild(headActions);
         else content.insertBefore(headActions, content.firstChild);
     }
@@ -13669,7 +13748,7 @@
                     details.appendChild(ownRow);
                     if (found) { // objectif tempo : propriété de l'exercice (donc de toutes ses sessions et copies liées), pas de ce pas
                         var goalRow = document.createElement("label");
-                        goalRow.className = "gs-step-owntempo gs-step-goal";
+                        goalRow.className = "gs-step-goal";
                         var goalCb = document.createElement("input");
                         goalCb.type = "checkbox";
                         goalCb.checked = tempoGoalOn(found.ex);
@@ -14148,7 +14227,11 @@
         openRunRecordEditor(record, {
             title: title,
             extraSteps: extraSteps || [],
-            onSave: function (rec) { logAdd(rec); save(); gsLiveClear(); showToast(rec.free ? "Entraînement enregistré dans l'historique" : "Session enregistrée dans l'historique"); },
+            onSave: function (rec) {
+                var res = logAddMergingFree(rec), joined = rec.free && res !== rec;
+                save(); gsLiveClear();
+                showToast(joined ? "Ajouté à la session libre du jour (total " + gsFmtDur(res.totalSec) + ")" : rec.free ? "Entraînement enregistré dans l'historique" : "Session enregistrée dans l'historique", joined ? 5000 : undefined);
+            },
             onCancel: function () { gsLiveClear(); }
         });
     }
@@ -14832,8 +14915,10 @@
             var pickSession = opts.sessionId || null; // mode « choisis le(s) jour(s) » (depuis le clic droit sur une session)
             var pickCtl = null;
             var title = document.createElement("div");
-            title.className = "backups-title";
-            title.textContent = "Calendrier des sessions";
+            title.className = "backups-title gs-title-row";
+            var tt = document.createElement("span"); tt.className = "gs-title-text"; tt.textContent = "Calendrier des sessions";
+            title.appendChild(tt);
+            title.appendChild(gsNavIcons("cal", close));
             panel.appendChild(title);
             var errBox = document.createElement("div"); errBox.className = "cal-error"; errBox.hidden = true; errBox.setAttribute("role", "alert");
             var errTimer = null;
@@ -15735,44 +15820,127 @@
         requestAnimationFrame(function () { clampPanelToViewport(box.closest(".backups-panel")); });
     }
 
-    // Historique : séances enregistrées (de la plus récente à la plus ancienne) et statistiques.
+    // Les trois écrans « suivi » : calendrier, historique, statistiques. Chacun propose les deux autres en un clic (logos dans son titre).
+    var GS_ICON_CAL = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18"/><path d="M8 3v4M16 3v4"/></svg>';
+    var GS_ICON_HIST = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7.5V12l3 2"/></svg>';
+    var GS_ICON_STATS = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="12" width="3.6" height="8" rx="1"/><rect x="10.2" y="5" width="3.6" height="15" rx="1"/><rect x="16.4" y="9" width="3.6" height="11" rx="1"/></svg>';
+    // `current` : "cal" | "hist" | "stats" (l'écran ouvert, non proposé) ; `close` : ferme la fenêtre actuelle avant d'ouvrir l'autre.
+    function gsNavIcons(current, close) {
+        var wrap = document.createElement("div");
+        wrap.className = "gs-nav-icons";
+        [["cal", GS_ICON_CAL, "Calendrier", function () { openSessionCalendar({}); }],
+         ["hist", GS_ICON_HIST, "Historique", function () { openSessionHistory(); }],
+         ["stats", GS_ICON_STATS, "Statistiques", function () { openStatistics(); }]].forEach(function (it) {
+            if (it[0] === current) return;
+            var b = document.createElement("button");
+            b.type = "button"; b.className = "gs-nav-ico gs-nav-" + it[0];
+            b.innerHTML = it[1]; b.title = it[2]; b.setAttribute("aria-label", it[2]);
+            b.addEventListener("click", function () { close(); it[3](); });
+            wrap.appendChild(b);
+        });
+        return wrap;
+    }
+
+    // Statistiques d'entraînement : un écran à part (plus dans l'historique).
+    function openStatistics() {
+        openModal("gs-stats-panel gs-history-panel gs-history-wide", function (panel, close) {
+            var title = document.createElement("div");
+            title.className = "backups-title gs-title-row";
+            var tt = document.createElement("span"); tt.className = "gs-title-text"; tt.textContent = "Statistiques";
+            title.appendChild(tt);
+            title.appendChild(gsNavIcons("stats", close));
+            panel.appendChild(title);
+            var tools = document.createElement("div");
+            tools.className = "gs-history-tabs";
+            var period = document.createElement("select"); period.className = "gs-hist-period gs-stats-period"; period.setAttribute("aria-label", "Période");
+            [["7", "7 jours"], ["28", "28 jours"], ["90", "90 jours"], ["m0", "Ce mois"], ["m1", "Mois dernier"], ["y0", "Cette année"], ["y1", "Année dernière"], ["0", "Tout"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if (o[0] === "28") op.selected = true; period.appendChild(op); });
+            tools.appendChild(period);
+            panel.appendChild(tools);
+            var list = document.createElement("div");
+            list.className = "gs-sync-list gs-history-list";
+            panel.appendChild(list);
+            function markIssues(n) {
+                var old = title.querySelector(".st-issue-count"); if (old) old.remove();
+                if (n > 0) { var bub = document.createElement("span"); bub.className = "gs-tab-count st-issue-count"; bub.textContent = String(n); bub.title = n + " exercice(s) à ranger pour les statistiques"; tt.appendChild(bub); }
+            }
+            function fill() {
+                requestAnimationFrame(function () { clampPanelToViewport(panel); });
+                renderStatsScreen(list, period.value, markIssues);
+            }
+            period.addEventListener("change", fill);
+            fill();
+        });
+    }
+
+    // ---- historique : exercices regroupés par jour / semaine / mois / année ----
+    var HIST_VIEWS = [["log", "Séances", "Séances enregistrées, de la plus récente à la plus ancienne"], ["day", "Jour", "Exercices travaillés, jour par jour"], ["week", "Semaine", "Exercices travaillés, semaine par semaine"], ["month", "Mois", "Exercices travaillés, mois par mois"], ["year", "Année", "Exercices travaillés, année par année"]];
+    var HIST_VIEW_KEY = "trainhub.histView.v1";
+    function histViewLoad() { try { var v = localStorage.getItem(HIST_VIEW_KEY); return HIST_VIEWS.some(function (x) { return x[0] === v; }) ? v : "log"; } catch (e) { return "log"; } }
+    function histViewSave(v) { try { localStorage.setItem(HIST_VIEW_KEY, v); } catch (e) {} }
+    // Période d'un instant : clé de tri, libellé et ordre.
+    function histPeriodOf(ts, mode) {
+        var d = new Date(ts), p2 = function (n) { return (n < 10 ? "0" : "") + n; };
+        if (mode === "year") return { key: String(d.getFullYear()), label: String(d.getFullYear()) };
+        if (mode === "month") return { key: d.getFullYear() + "-" + p2(d.getMonth() + 1), label: CAL_MONTHS[d.getMonth()].charAt(0).toUpperCase() + CAL_MONTHS[d.getMonth()].slice(1) + " " + d.getFullYear() };
+        if (mode === "week") {
+            var mon = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7)), sun = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6);
+            var lbl = mon.getMonth() === sun.getMonth() ? mon.getDate() + " au " + sun.getDate() + " " + CAL_MONTHS[sun.getMonth()] : mon.getDate() + " " + CAL_MONTHS[mon.getMonth()] + " au " + sun.getDate() + " " + CAL_MONTHS[sun.getMonth()];
+            return { key: calKey(mon), label: "Semaine du " + lbl + " " + sun.getFullYear() };
+        }
+        var k = calKey(d), L = calLongDate(k);
+        return { key: k, label: L.charAt(0).toUpperCase() + L.slice(1) + " " + d.getFullYear() };
+    }
+    // Regroupe les séances par période : pour chaque exercice, temps cumulé et, s'il a un objectif tempo, le tempo (meilleur BPM) de la première à la dernière séance.
+    function histGroups(log, mode) {
+        var by = {}, order = [];
+        log.forEach(function (rec) {
+            var per = histPeriodOf(rec.date, mode), g = by[per.key];
+            if (!g) { g = by[per.key] = { key: per.key, label: per.label, sec: 0, sessions: 0, ex: {}, exOrder: [] }; order.push(per.key); }
+            g.sessions++;
+            (rec.steps || []).forEach(function (st) {
+                var k = st.exerciseId || ("t:" + (st.title || "?")), o = g.ex[k];
+                if (!o) { o = g.ex[k] = { key: k, title: logStepTitle(st), exerciseId: st.exerciseId || null, sec: 0, n: 0, pts: [], goal: true }; g.exOrder.push(k); }
+                o.sec += st.actualSec || 0; o.n++; g.sec += st.actualSec || 0;
+                o.goal = o.goal && stepBpmShown(st);
+                if (st.bpmMax) o.pts.push({ date: rec.date, bpm: st.bpmMax });
+            });
+        });
+        return order.sort(function (a, b) { return a < b ? 1 : a > b ? -1 : 0; }).map(function (k) {
+            var g = by[k];
+            g.list = g.exOrder.map(function (x) { var o = g.ex[x]; o.pts.sort(function (a, b) { return a.date - b.date; }); return o; }).sort(function (a, b) { return b.sec - a.sec; });
+            return g;
+        });
+    }
+
+    // Historique : séances enregistrées, ou exercices regroupés par jour, semaine, mois ou année.
     function openSessionHistory(startTab) {
+        if (startTab === "stats") { openStatistics(); return; }
         openModal("gs-history-panel", function (panel, close) {
             var title = document.createElement("div");
-            title.className = "backups-title";
-            title.textContent = "Historique des sessions";
+            title.className = "backups-title gs-title-row";
+            var tt = document.createElement("span"); tt.className = "gs-title-text"; tt.textContent = "Historique des sessions";
+            title.appendChild(tt);
+            title.appendChild(gsNavIcons("hist", close));
             panel.appendChild(title);
             var tabs = document.createElement("div");
             tabs.className = "gs-history-tabs";
-            var tabLog = document.createElement("button"); tabLog.type = "button"; tabLog.className = "gs-hist-tab"; tabLog.textContent = "Séances";
-            var tabStats = document.createElement("button"); tabStats.type = "button"; tabStats.className = "gs-hist-tab"; tabStats.textContent = "Statistiques";
-            var period = document.createElement("select"); period.className = "gs-hist-period"; period.setAttribute("aria-label", "Période");
-            [["7", "7 jours"], ["28", "28 jours"], ["90", "90 jours"], ["m0", "Ce mois"], ["m1", "Mois dernier"], ["y0", "Cette année"], ["y1", "Année dernière"], ["0", "Tout"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if (o[0] === "28") op.selected = true; period.appendChild(op); });
-            tabs.appendChild(tabLog); tabs.appendChild(tabStats); tabs.appendChild(period);
-            function markStatsIssues(n) {
-                tabStats.textContent = "Statistiques";
-                if (n > 0) { var bub = document.createElement("span"); bub.className = "gs-tab-count st-issue-count"; bub.textContent = String(n); bub.title = n + " exercice(s) à ranger pour les statistiques"; tabStats.appendChild(bub); }
-            }
-            markStatsIssues(statsIssueCount());
+            tabs.setAttribute("role", "tablist");
+            var mode = histViewLoad(), tabEls = {};
+            HIST_VIEWS.forEach(function (v) {
+                var b = document.createElement("button"); b.type = "button"; b.className = "gs-hist-tab"; b.dataset.view = v[0]; b.textContent = v[1]; b.title = v[2];
+                b.setAttribute("role", "tab");
+                b.addEventListener("click", function () { mode = v[0]; histViewSave(mode); fill(); });
+                tabs.appendChild(b); tabEls[v[0]] = b;
+            });
             panel.appendChild(tabs);
             var list = document.createElement("div");
             list.className = "gs-sync-list gs-history-list";
             panel.appendChild(list);
-            var mode = startTab === "stats" ? "stats" : "log";
-            panel.classList.toggle("gs-history-wide", mode === "stats");
             function myLog() { return logAll().filter(function (e) { return !e.instrumentId || e.instrumentId === state.activeInstrumentId; }); }
             function fill() {
-                panel.classList.toggle("gs-history-wide", mode === "stats");
-                // le mode Statistiques est plus haut : on rentre la fenêtre dans l'écran (sans écraser une position choisie à la main)
-                requestAnimationFrame(function () { clampPanelToViewport(panel); });
-                tabLog.classList.toggle("active", mode === "log");
-                tabStats.classList.toggle("active", mode === "stats");
-                period.hidden = mode !== "stats";
+                HIST_VIEWS.forEach(function (v) { tabEls[v[0]].classList.toggle("active", mode === v[0]); tabEls[v[0]].setAttribute("aria-selected", mode === v[0] ? "true" : "false"); });
                 list.innerHTML = "";
-                if (mode === "stats") {
-                    renderStatsScreen(list, period.value, markStatsIssues);
-                    return;
-                }
+                if (mode !== "log") { fillGrouped(); return; }
                 var log = myLog().slice().reverse();
                 if (!log.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Aucune session enregistrée pour l'instant. À la fin d'une session d'au moins 10 min, on te propose de l'enregistrer."; list.appendChild(none); return; }
                 log.forEach(function (e) {
@@ -15807,9 +15975,36 @@
                     list.appendChild(box);
                 });
             }
-            tabLog.addEventListener("click", function () { mode = "log"; fill(); });
-            tabStats.addEventListener("click", function () { mode = "stats"; fill(); });
-            period.addEventListener("change", fill);
+            // Exercices regroupés par période : temps cumulé et, pour un exercice à objectif tempo, la progression du tempo.
+            function fillGrouped() {
+                var groups = histGroups(myLog(), mode);
+                if (!groups.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Aucune session enregistrée pour l'instant."; list.appendChild(none); return; }
+                groups.forEach(function (g) {
+                    var box = document.createElement("div"); box.className = "gs-hist-group"; box.dataset.key = g.key;
+                    var head = document.createElement("div"); head.className = "gs-hist-group-head";
+                    var lb = document.createElement("span"); lb.className = "gs-hist-group-label"; lb.textContent = g.label;
+                    var tot = document.createElement("span"); tot.className = "gs-hist-group-total"; tot.textContent = gsFmtDur(g.sec) + " · " + g.sessions + " séance" + (g.sessions > 1 ? "s" : "");
+                    head.appendChild(lb); head.appendChild(tot); box.appendChild(head);
+                    g.list.forEach(function (o) {
+                        var r = document.createElement("div"); r.className = "gs-hist-exrow";
+                        var n = document.createElement("span"); n.className = "gs-hist-exname"; n.textContent = o.title; n.title = o.title;
+                        var d = document.createElement("span"); d.className = "gs-hist-exdur"; d.textContent = gsFmtDur(o.sec) + (o.n > 1 ? " · " + o.n + "×" : "");
+                        r.appendChild(n); r.appendChild(d);
+                        if (o.goal && o.pts.length) {
+                            var from = o.pts[0].bpm, to = o.pts[o.pts.length - 1].bpm, diff = to - from;
+                            var t = document.createElement("span"); t.className = "gs-hist-extempo" + (diff > 0 ? " gs-hist-gain" : diff < 0 ? " gs-hist-loss" : "");
+                            t.textContent = o.pts.length > 1 ? "♩ " + from + " → " + to + " BPM" + (diff ? " (" + (diff > 0 ? "+" : "−") + Math.abs(diff) + ")" : "") : "♩ " + to + " BPM";
+                            t.title = o.pts.length > 1 ? "Meilleur tempo de la première à la dernière séance de la période" : "Meilleur tempo de la période";
+                            r.appendChild(t);
+                        }
+                        var live = o.exerciseId ? findExerciseById(o.exerciseId) : null;
+                        if (live) bindContextGesture(r, function (x, y) { openExerciseMenu(x, y, live.ex, live.folder, { reveal: true, after: function () { close(); } }); });
+                        else if (o.exerciseId) n.classList.add("gs-hist-gone");
+                        box.appendChild(r);
+                    });
+                    list.appendChild(box);
+                });
+            }
             fill();
         });
     }

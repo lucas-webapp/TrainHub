@@ -3880,7 +3880,8 @@ button.tempo-goal-btn.tempo-goal-mini { width: 30px; height: 30px; padding: 0; m
 html[data-glass="1"] button.tempo-goal-btn { box-shadow: none; }
 input.gs-rec-bpm.gs-rec-bpm-off { opacity: .45; }
 .gs-rec-bw { display: inline-flex; align-items: center; gap: 4px; }
-.gs-step-goal { margin-top: 2px; }
+.gs-step-goal { display: flex; align-items: center; gap: 8px; margin: 2px 0 8px; font-size: var(--fs-sm); color: var(--text-muted); cursor: pointer; }
+.gs-step-goal input { accent-color: var(--accent); }
 button.exercise-link-badge { flex: none; display: inline-flex; align-items: center; gap: 3px; height: 28px; padding: 0 7px; border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border)); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--accent) 8%, transparent); color: var(--accent); cursor: pointer; }
 button.exercise-link-badge .icon { width: 15px; height: 15px; }
 .exercise-link-count { font-size: var(--fs-2xs); font-weight: 800; font-variant-numeric: tabular-nums; }
@@ -3911,3 +3912,38 @@ button.link-dlg-open { flex: none; height: 26px; padding: 0 10px; font-size: var
 .metro-preset-row > button.tempo-goal-btn.tempo-goal-mini { width: 30px; height: 30px; padding: 0; margin-left: 0; }
 button.tempo-goal-btn.tempo-goal-mini:not(.tempo-goal-on) { position: relative; }
 button.tempo-goal-btn.tempo-goal-mini:not(.tempo-goal-on)::after { content: ""; position: absolute; left: 6px; right: 6px; top: 50%; height: 2px; margin-top: -1px; border-radius: 1px; background: currentColor; opacity: .75; transform: rotate(-40deg); pointer-events: none; }
+
+/* ---------- v173 ---------- */
+/* Bandeau de gauche : nombre d'exercices, à droite de la ligne de chaque sous-dossier (pas des grands chapitres) */
+.tree-row > .tree-count { flex: none; margin-left: auto; padding-left: 8px; font-size: var(--fs-2xs); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-muted); opacity: .85; }
+.tree-row > .tree-count.tree-count-zero { opacity: .4; }
+.tree-row.selected > .tree-count { color: var(--chapter-ink); opacity: 1; }
+/* Calendrier, historique, statistiques : trois boutons-logos au même niveau (liste des sessions) et dans le titre de chaque écran */
+.gs-head-actions button.gs-icon-btn { position: relative; width: 38px; height: 34px; padding: 0; display: inline-flex; align-items: center; justify-content: center; gap: 0; color: var(--text-dim); }
+.gs-head-actions button.gs-icon-btn .icon { width: 19px; height: 19px; }
+.gs-head-actions button.gs-icon-btn:hover { color: var(--accent); border-color: var(--accent); }
+html[data-glass="1"] .gs-head-actions button.gs-icon-btn { box-shadow: var(--glass-hi); }
+.gs-icon-btn .gs-icon-badge { position: absolute; top: -6px; right: -6px; margin: 0; min-width: 16px; height: 16px; padding: 0 4px; font-size: 10px; line-height: 16px; border-radius: 999px; text-align: center; }
+.backups-title.gs-title-row { display: flex; align-items: center; gap: 10px; }
+.gs-title-text { flex: 1 1 auto; min-width: 0; }
+.gs-nav-icons { flex: none; display: flex; gap: 6px; margin-left: auto; }
+.gs-nav-icons button.gs-nav-ico { width: 34px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: var(--radius-sm); background: transparent; color: var(--text-dim); cursor: pointer; }
+.gs-nav-icons button.gs-nav-ico .icon { width: 18px; height: 18px; }
+.gs-nav-icons button.gs-nav-ico:hover { color: var(--accent); border-color: var(--accent); }
+html[data-glass="1"] .gs-nav-icons button.gs-nav-ico { box-shadow: var(--glass-hi); }
+/* Historique : exercices regroupés par période */
+.gs-history-tabs { gap: 6px; }
+button.gs-hist-tab { padding: 0 12px; }
+.gs-hist-group { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: rgba(var(--ov), .03); }
+.gs-hist-group + .gs-hist-group { margin-top: 8px; }
+.gs-hist-group-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding-bottom: 4px; border-bottom: 1px solid var(--border); margin-bottom: 2px; }
+.gs-hist-group-label { font-size: var(--fs-sm); font-weight: 800; color: var(--text-main); }
+.gs-hist-group-total { font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.gs-hist-exrow { display: flex; align-items: baseline; gap: 10px; padding: 2px 0; font-size: var(--fs-sm); min-width: 0; }
+.gs-hist-exname { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-main); }
+.gs-hist-exname.gs-hist-gone { color: var(--text-muted); font-style: italic; }
+.gs-hist-exdur { flex: none; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.gs-hist-extempo { flex: none; min-width: 8.5em; text-align: right; font-size: var(--fs-xs); font-weight: 700; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.gs-hist-extempo.gs-hist-gain { color: var(--accent); }
+.gs-hist-extempo.gs-hist-loss { color: var(--status-en-cours); }
+@media (max-width: 520px) { .gs-hist-exrow { flex-wrap: wrap; row-gap: 0; } .gs-hist-exname { flex-basis: 100%; } .gs-hist-extempo { margin-left: auto; min-width: 0; } }
