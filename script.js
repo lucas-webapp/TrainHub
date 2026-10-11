@@ -1172,7 +1172,7 @@
     var IMG_GS_SHOWN_KEY = "trainhub.imgShownSession.v1";
     function imagesShownInSession() { try { return localStorage.getItem(IMG_GS_SHOWN_KEY) === "1"; } catch (e) { return false; } }
     function setImagesShownInSession(on) { try { localStorage.setItem(IMG_GS_SHOWN_KEY, on ? "1" : "0"); } catch (e) {} }
-    var imagesOpenInList = {}; // id d'exercice -> section Images dépliée (masquée de base)
+    var exerciseMediaTab = {}; // id d'exercice -> onglet ouvert ("videos" | "images" | "links") ; absent : tout est replié
     var imageUrlCache = {};    // id d'image -> adresse blob: (false = absente de cet appareil)
 
     // Type réel d'une image d'après ses premiers octets (un type MIME absent ou faux empêche certains navigateurs de l'afficher).
@@ -1493,7 +1493,7 @@
                 });
             });
         })).then(function () {
-            imagesOpenInList[ex.id] = true;
+            exerciseMediaTab[ex.id] = "images";
             if (guidedSessionViewActive && gsScreen === "run") setImagesShownInSession(true); // collée pendant la session : on la voit aussitôt
             touchExercise(ex);
             save();
@@ -1504,27 +1504,72 @@
         });
     }
 
-    // Section « Images et fichiers » d'un exercice : une barre à cliquer, repliée de base, qui regroupe les liens
-    // (hors vidéos YouTube, qui ont leur propre barre), les fichiers (PDF, audio…) et les images. N'existe que
-    // s'il y a quelque chose à montrer ; l'ajout se fait depuis la barre unique placée sous les sections.
-    function buildFilesSection(ex, chipsList) {
+    // Médias d'un exercice : trois onglets, dans l'ordre Vidéos · Images · Liens et fichiers. Un seul volet est ouvert à la fois
+    // (repliés de base : un lecteur YouTube est lourd) : plus de long défilement pour atteindre une capture ; cliquer sur l'onglet
+    // ouvert le referme. Un onglet n'existe que s'il y a quelque chose à montrer ; l'ajout se fait depuis la barre unique placée dessous.
+    // `videoChips` : puces des liens YouTube (renommer / retirer) ; `resourcesList` : liens hors vidéo + fichiers (PDF, audio…).
+    function buildMediaTabs(ex, videoChips, resourcesList, ytLinks) {
         var wrap = document.createElement("div");
-        wrap.className = "images-section";
+        wrap.className = "media-section images-section";
         var nImages = (ex.images || []).length;
-        var nOther = chipsList ? chipsList.querySelectorAll(".link-chip, .file-chip").length : 0;
-        var count = nImages + nOther;
-        if (!count) return wrap;
-        var open = !!imagesOpenInList[ex.id];
-        var bar = document.createElement("button");
-        bar.type = "button";
-        bar.className = "btn-ghost images-toggle";
-        bar.textContent = (open ? "▾ " : "▸ ") + "Images et fichiers (" + count + ") — " + (open ? "masquer" : "afficher");
-        bar.addEventListener("click", function () { imagesOpenInList[ex.id] = !open; render(); });
+        var nLinks = resourcesList.querySelectorAll(".link-chip, .file-chip").length;
+        var tabs = [];
+        if (ytLinks.length) tabs.push({ key: "videos", label: "Vidéos", n: ytLinks.length });
+        if (nImages) tabs.push({ key: "images", label: "Images", n: nImages });
+        if (nLinks) tabs.push({ key: "links", label: "Liens et fichiers", n: nLinks });
+        if (!tabs.length) return wrap;
+        var cur = exerciseMediaTab[ex.id];
+        if (!tabs.some(function (t) { return t.key === cur; })) cur = ""; // l'onglet ouvert s'est vidé
+        var bar = document.createElement("div");
+        bar.className = "media-tabs";
+        bar.setAttribute("role", "tablist");
+        tabs.forEach(function (t) {
+            var b = document.createElement("button");
+            b.type = "button";
+            b.className = "media-tab" + (cur === t.key ? " active" : "");
+            b.dataset.tab = t.key;
+            b.setAttribute("role", "tab");
+            b.setAttribute("aria-selected", cur === t.key ? "true" : "false");
+            b.appendChild(document.createTextNode(t.label));
+            var c = document.createElement("span");
+            c.className = "media-tab-count";
+            c.textContent = String(t.n);
+            b.appendChild(c);
+            b.addEventListener("click", function () {
+                var next = cur === t.key ? "" : t.key;
+                exerciseMediaTab[ex.id] = next;
+                if (next === "videos") exerciseVideosOpen[ex.id] = true; // clic sur l'onglet : les lecteurs s'affichent
+                render();
+            });
+            bar.appendChild(b);
+        });
         wrap.appendChild(bar);
-        if (open) {
-            if (nOther) wrap.appendChild(chipsList);
-            if (nImages) wrap.appendChild(buildImageStrip(ex, "ex", true));
+        if (!cur) return wrap;
+        var panel = document.createElement("div");
+        panel.className = "media-panel";
+        panel.setAttribute("role", "tabpanel");
+        if (cur === "videos") {
+            panel.appendChild(videoChips);
+            var playersOpen = !!exerciseVideosOpen[ex.id];
+            var tg = document.createElement("button");
+            tg.type = "button";
+            tg.className = "btn-ghost gs-yt-toggle gs-yt-toggle-ex";
+            tg.textContent = (playersOpen ? "▾ " : "▸ ") + "Lecteurs YouTube — " + (playersOpen ? "masquer" : "afficher");
+            tg.addEventListener("click", function () { exerciseVideosOpen[ex.id] = !playersOpen; render(); });
+            panel.appendChild(tg);
+            if (playersOpen) {
+                ytLinks.forEach(function (link) {
+                    var card = buildYouTubeCard(link, ex, youTubeVideoInfo(link.url), null);
+                    card.classList.add("gs-yt-small");
+                    panel.appendChild(card);
+                });
+            }
+        } else if (cur === "images") {
+            panel.appendChild(buildImageStrip(ex, "ex", true));
+        } else {
+            panel.appendChild(resourcesList);
         }
+        wrap.appendChild(panel);
         return wrap;
     }
 
@@ -4856,8 +4901,7 @@
         details.appendChild(notes);
         details.appendChild(archiveBox);
 
-        // Ordre de la fiche : notes · vidéos YouTube · images et fichiers (liens hors vidéo, PDF, audio, images)
-        // · barre d'ajout unique tout en bas.
+        // Ordre de la fiche : notes · onglets Vidéos / Images / Liens et fichiers · barre d'ajout unique tout en bas.
         var videoChips = document.createElement("div"); // puces des liens YouTube (renommer / retirer), toujours visibles
         videoChips.className = "links-list";
         var resourcesList = document.createElement("div"); // liens hors vidéo + fichiers
@@ -4969,32 +5013,11 @@
         });
         appendFileChips(resourcesList, ex);
 
-        // Vidéos YouTube de l'exercice : TOUJOURS masquées de base (un lecteur intégré est lourd : rien
-        // n'est chargé tant qu'on n'a pas cliqué), en petit, et seulement dans l'exercice déplié.
-        // Replier l'exercice referme aussi les vidéos (voir renderExercise).
+        // Vidéos YouTube de l'exercice : masquées de base (un lecteur intégré est lourd : rien n'est chargé tant qu'on n'a pas
+        // ouvert l'onglet « Vidéos »), en petit, et seulement dans l'exercice déplié. Replier l'exercice referme aussi les lecteurs
+        // (voir renderExercise).
         var exYtLinks = (ex.links || []).filter(function (l) { return !!youTubeVideoInfo(l.url); });
-        if (exYtLinks.length) {
-            details.appendChild(videoChips);
-            var exVideosOpen = !!exerciseVideosOpen[ex.id];
-            var exYtToggle = document.createElement("button");
-            exYtToggle.type = "button";
-            exYtToggle.className = "btn-ghost gs-yt-toggle gs-yt-toggle-ex";
-            exYtToggle.textContent = (exVideosOpen ? "▾ " : "▸ ") + "Vidéos YouTube (" + exYtLinks.length + ") — " + (exVideosOpen ? "masquer" : "afficher");
-            exYtToggle.addEventListener("click", function () {
-                exerciseVideosOpen[ex.id] = !exVideosOpen;
-                render();
-            });
-            details.appendChild(exYtToggle);
-            if (exVideosOpen) {
-                exYtLinks.forEach(function (link) {
-                    var card = buildYouTubeCard(link, ex, youTubeVideoInfo(link.url), null);
-                    card.classList.add("gs-yt-small");
-                    details.appendChild(card);
-                });
-            }
-        }
-
-        details.appendChild(buildFilesSection(ex, resourcesList));
+        details.appendChild(buildMediaTabs(ex, videoChips, resourcesList, exYtLinks));
 
         var addLinkRow = document.createElement("div");
         addLinkRow.className = "add-link-row";
@@ -5012,7 +5035,7 @@
             ex.links.push(newLink);
             pendingRenameKey = "link:" + newLink.id;
             newLinkPropagateId = newLink.id;
-            if (!youTubeVideoInfo(url)) imagesOpenInList[ex.id] = true;
+            exerciseMediaTab[ex.id] = youTubeVideoInfo(url) ? "videos" : "links"; // l'onglet s'ouvre : le nom du lien se saisit aussitôt
             urlInput.value = "";
             touchExercise(ex);
             save();
@@ -5169,7 +5192,7 @@
                         ex.links = (ex.links || []).filter(function (l) { return l.id !== link.id; });
                         if (ex.pinnedLinkId === link.id) ex.pinnedLinkId = null;
                     }
-                    imagesOpenInList[ex.id] = true;
+                    exerciseMediaTab[ex.id] = "links";
                     touchExercise(ex);
                     save();
                     render();
@@ -6051,7 +6074,7 @@
             if (!files.length) { fileInput.value = ""; return; }
             ex.files = ex.files || [];
             Promise.all(files.map(function (file) { return attachFileToExercise(ex, file); })).then(function () {
-                imagesOpenInList[ex.id] = true; // la section « Images et fichiers » s'ouvre pour montrer le nouveau fichier
+                exerciseMediaTab[ex.id] = "links"; // l'onglet « Liens et fichiers » s'ouvre pour montrer le nouveau fichier
                 fileInput.value = "";
                 // Un seul fichier ajouté : saisie du nom aussitôt (comme pour un lien).
                 if (files.length === 1) pendingRenameKey = "file:" + ex.files[ex.files.length - 1].id;
@@ -6564,7 +6587,7 @@
         var id = uid();
         return storeFileBlob(id, file).then(function () {
             ex.images.push({ id: id, name: file.name, type: file.type, size: file.size, addedAt: Date.now() });
-            imagesOpenInList[ex.id] = true;
+            exerciseMediaTab[ex.id] = "images";
             touchExercise(ex);
             stats.added++;
         });
@@ -8128,6 +8151,7 @@
         if (!metroLink) return;
         var found = findExerciseById(metroLink.exId);
         if (!found) { showToast("Exercice introuvable (supprimé ?).", 4000); setMetroLink(null); return; }
+        if (!metroLinkDirty()) { showToast("Ce réglage est déjà celui de « " + found.ex.title + " ».", 2500); return; }
         var preset = metroCurrentAsPreset();
         setExerciseMetronome(found.ex, preset);
         metroLink.base = cloneJson(preset);
@@ -8175,6 +8199,7 @@
     function metroPresetIsSpecial(p) {
         return !!((p.progressive && p.progressive.enabled) || (p.training && p.training.enabled) || p.advanced);
     }
+    var SAVE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>';
     var GEAR_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>';
 
     // Édition complexe d'un préréglage avec le vrai panneau du métronome (progressif, entraînement, rythme…) :
@@ -8417,34 +8442,24 @@
             }
             var headerRow = document.createElement("div");
             headerRow.className = "metro-header-row";
-            // Bandeau « relié à l'exercice » : quel exercice a fourni ce réglage, et bouton pour l'y enregistrer
-            // dès qu'on a modifié quelque chose (tempo, mesure, progressif…).
-            var linkBar = document.createElement("div");
-            linkBar.className = "metro-link-bar";
-            linkBar.hidden = true;
-            var linkTxt = document.createElement("span");
-            linkTxt.className = "metro-link-text";
+            // « Enregistrer dans l'exercice » : un petit bouton discret de l'en-tête, à utiliser quand on le décide. Plus de bandeau
+            // qui surgit à chaque retouche du tempo. Présent seulement quand le réglage vient d'un exercice (▶, ou exercice
+            // d'une session) ; un peu plus net quand le réglage a changé, sans couleur d'alerte.
             var linkSave = document.createElement("button");
             linkSave.type = "button";
-            linkSave.className = "btn-accent metro-link-save";
+            linkSave.className = "btn-ghost metro-link-save";
+            linkSave.hidden = true;
+            linkSave.innerHTML = SAVE_ICON_SVG;
             linkSave.addEventListener("click", function () { saveMetroToLinkedExercise(); });
-            var linkClose = document.createElement("button");
-            linkClose.type = "button";
-            linkClose.className = "metro-link-close";
-            linkClose.textContent = "✕";
-            linkClose.title = "Ne plus relier le métronome à cet exercice";
-            linkClose.addEventListener("click", function () { setMetroLink(null); });
-            linkBar.appendChild(linkTxt); linkBar.appendChild(linkSave); linkBar.appendChild(linkClose);
             function refreshLinkBar() {
-                if (!metroLink || metroEdit) { linkBar.hidden = true; return; }
+                if (!metroLink || metroEdit) { linkSave.hidden = true; return; }
                 var dirty = metroLinkDirty();
-                linkBar.hidden = !dirty; // discret : visible seulement quand le réglage diffère de celui de l'exercice
-                linkBar.classList.toggle("metro-link-dirty", dirty);
-                linkTxt.textContent = metroLink.title;
-                linkTxt.title = "Réglage modifié · « " + metroLink.title + " »";
-                linkSave.textContent = metroLink.base ? "Mettre à jour" : "Enregistrer";
-                linkSave.title = "Enregistrer ce réglage dans l'exercice";
-                linkSave.hidden = !dirty;
+                linkSave.hidden = false;
+                linkSave.classList.toggle("metro-link-dirty", dirty);
+                linkSave.title = dirty
+                    ? (metroLink.base ? "Mettre à jour" : "Enregistrer") + " ce réglage dans l'exercice « " + metroLink.title + " »"
+                    : "Identique au réglage de « " + metroLink.title + " »";
+                linkSave.setAttribute("aria-label", linkSave.title);
             }
             metroLinkRefresh = refreshLinkBar;
             // Toute action dans le panneau (clic, saisie, molette, fin de glisser) peut avoir modifié le réglage.
@@ -8515,6 +8530,7 @@
             volInline.appendChild(volInlineSlider);
             headerRow.appendChild(volInline);
             headerRow.appendChild(volumeBtn);
+            headerRow.appendChild(linkSave);
             // Épingle : accrocher à droite / détacher (voir switchMetronomeDock).
             var pinBtn = document.createElement("button");
             pinBtn.type = "button";
@@ -8527,7 +8543,6 @@
             panel.appendChild(headerRow);
             volumeRow.appendChild(volumeSlider);
             panel.appendChild(volumeRow);
-            panel.appendChild(linkBar);
             refreshLinkBar();
 
             // ---------- transport : cadran flanqué des boutons de vitesse ----------
@@ -9100,6 +9115,8 @@
                     padRow.appendChild(groupEl);
                     groupIdx++;
                 }
+                padRow.style.setProperty("--pad-n", String(pattern.length)); // pour ajuster la taille des cases à la largeur (voir CSS)
+                padRow.style.setProperty("--pad-g", String(Math.max(1, groupIdx)));
             }
 
             function setPadStep(stepEl, value) {

@@ -1882,7 +1882,15 @@ button.gs-run-exdetails-toggle { width: 100%; justify-content: space-between; he
 
 /* Images des exercices */
 .images-section { display: flex; flex-direction: column; gap: 8px; }
-button.images-toggle { justify-content: flex-start; width: 100%; height: 34px; padding: 0 10px; border: 1px solid var(--border); font-size: var(--fs-xs); color: var(--text-muted); }
+/* Onglets Vidéos · Images · Liens et fichiers d'un exercice : un seul volet ouvert à la fois (voir buildMediaTabs). */
+.media-tabs { display: flex; align-items: flex-end; gap: 2px; margin-top: 12px; border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
+.media-tabs::-webkit-scrollbar { display: none; }
+button.media-tab { flex: none; height: 32px; margin-bottom: -1px; padding: 0 12px; display: inline-flex; align-items: center; gap: 7px; background: transparent; border: 1px solid transparent; border-bottom: 2px solid transparent; border-radius: 8px 8px 0 0; font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); white-space: nowrap; }
+button.media-tab:hover { color: var(--text-main); background: rgba(var(--ov), .05); border-color: transparent; border-bottom-color: transparent; }
+button.media-tab.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, transparent); border-bottom-color: var(--accent); }
+.media-tab-count { min-width: 18px; padding: 1px 6px; border-radius: 999px; background: rgba(var(--ov), .1); font-size: var(--fs-2xs); font-weight: 700; text-align: center; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+button.media-tab.active .media-tab-count { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--accent); }
+.media-panel { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; }
 .img-strip { display: flex; flex-wrap: wrap; gap: 8px; }
 .img-thumb { position: relative; }
 button.img-thumb-btn { padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--card-bg-2); cursor: zoom-in; display: block; }
@@ -2068,13 +2076,6 @@ input.metro-volume-inline-slider { width: 130px; max-width: 40%; padding: 0; acc
     .metro-header-row button.metro-volume-btn { display: inline-flex; }
     .metro-volume-row.metro-volume-expanded-row { display: flex; }
 }
-.metro-link-bar { display: flex; align-items: center; gap: 8px; margin: 8px 0 2px; padding: 6px 8px 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--fs-xs); color: var(--text-muted); }
-.metro-link-bar[hidden] { display: none; }
-.metro-link-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.metro-link-bar.metro-link-dirty { border-color: color-mix(in srgb, var(--c-orange) 55%, var(--border)); background: color-mix(in srgb, var(--c-orange) 10%, transparent); color: var(--c-orange-text); }
-button.metro-link-save { height: 30px; padding: 0 10px; font-size: var(--fs-xs); flex: none; }
-button.metro-link-save[hidden] { display: none; }
-button.metro-link-close { width: 26px; height: 26px; padding: 0; background: transparent; border-color: transparent; color: var(--text-muted); flex: none; }
 .metro-progressive-field { font-size: var(--fs-2xs); }
 input.metro-prog-input { box-sizing: border-box; height: 38px; width: 78px; font-size: var(--fs-base); font-weight: 700; text-align: center; border-radius: var(--radius-sm); }
 .metro-prog-row { align-items: flex-end; }
@@ -2977,10 +2978,6 @@ body.ex-selecting .toast, body.sess-selecting .toast { bottom: calc(84px + env(s
 .gs-keep-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; max-width: 320px; }
 .gs-keep-pop { min-width: 280px; }
 
-/* bandeau « mettre à jour l'exercice » : une petite ligne discrète */
-.metro-link-bar { margin: 4px 0 0; padding: 2px 4px 2px 8px; gap: 6px; }
-button.metro-link-save { height: 22px; padding: 0 8px; font-size: var(--fs-2xs); }
-button.metro-link-close { width: 20px; height: 20px; font-size: 11px; }
 .gs-run-controls .gs-run-tools-row { grid-template-columns: repeat(3, 1fr); }
 
 /* paliers du tempo progressif : tableau à deux colonnes (délai | seuil) */
@@ -3674,4 +3671,59 @@ html.audio-docked :is(.sel-bar, .update-banner) { bottom: calc(14px + var(--audi
     .audio-player-dock .audio-transport { order: 4; flex: 1 1 100%; }
     .audio-player-dock .audio-ctl { flex: 1 1 calc(50% - 6px); min-width: 0; }
     .audio-player-dock .audio-ctl-val { width: 38px; }
+}
+
+/* ---------- métronome plus compact (v169) ----------
+   Boutons moins gros (le reste de l'appli est plus fin), rien ne passe à la ligne quand le volet est étroit, et le texte des
+   boutons ne se sélectionne plus quand on clique plusieurs fois vite sur − + −10 +10. */
+.metronome-panel, .metro-dock { -webkit-user-select: none; user-select: none; }
+.metronome-panel input, .metronome-panel select, .metronome-panel textarea { -webkit-user-select: text; user-select: text; }
+.metronome-panel button { -webkit-tap-highlight-color: transparent; }
+/* cadran et boutons − + −10 +10 */
+.metro-transport-row.metro-transport-quad { --D: 116px; --B: 42px; margin-top: 8px; }
+.metro-dial { --tap-h: 26px; }
+.metro-dial-value { font-size: calc(var(--fs-xl) * 1.3); }
+.metro-transport-quad .metro-dial > button.metro-dial-tap { width: 78px; margin-left: -39px; height: var(--tap-h); padding: 0 0 6px; font-size: 10px; }
+button.metro-q .q-sign-big { font-size: 28px; }
+button.metro-q .q-num { font-size: 14px; }
+button.metro-q-bl .q-sign, button.metro-q-br .q-sign { font-size: 16px; }
+@media (max-width: 480px) {
+    .metro-transport-row.metro-transport-quad { --D: 104px; --B: 38px; }
+    .metro-dial-value { font-size: calc(var(--fs-lg) * 1.3); }
+    button.metro-q .q-sign-big { font-size: 24px; }
+    button.metro-q .q-num { font-size: 13px; }
+    button.metro-q-bl .q-sign, button.metro-q-br .q-sign { font-size: 15px; }
+}
+/* en-tête : épingle et fermeture plus petites */
+.metronome-panel button.panel-dock-close, .metronome-panel button.panel-dock-collapse, .metronome-panel button.metro-pin-btn { width: 30px; height: 30px; }
+.metronome-panel button.metro-pin-btn .icon { width: 16px; height: 16px; }
+.metro-title-icon > .icon { width: 22px; height: 22px; }
+.metro-volume-inline .icon { width: 17px; height: 17px; }
+/* petit bouton « enregistrer dans l'exercice » (à la demande, pas de bandeau) */
+.metro-header-row button.metro-link-save { flex: none; width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--text-muted); }
+.metro-header-row button.metro-link-save[hidden] { display: none; }
+.metro-header-row button.metro-link-save .icon { width: 15px; height: 15px; }
+.metro-header-row button.metro-link-save:hover { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: transparent; }
+.metro-header-row button.metro-link-save.metro-link-dirty { color: var(--text-soft); }
+/* rangées de boutons */
+button.metro-mini-btn { min-height: 30px; padding: 0 12px; }
+.metro-tools-row { margin-top: 8px; gap: 8px; }
+.metro-formulas-row { gap: 5px; margin-top: 8px; }
+.metro-formulas-row > button.metro-mini-btn { min-height: 30px; height: 30px; }
+button.metro-mini-btn.metro-formula-btn { padding: 0 8px; }
+button.metro-mini-btn.metro-formula-btn:not(.metro-formula-none) { min-width: 28px; padding: 0 5px; }
+button.metro-mini-btn.metro-mini-btn-icon { width: 32px; }
+button.metro-mini-btn.metro-mini-btn-icon .icon { width: 17px; height: 17px; }
+.metro-sig { font-size: 13px; }
+button.metro-progressive-toggle, .metro-tools-row button.metro-progressive-toggle.metro-mini-btn-icon { width: 80px; min-width: 80px; }
+.metro-footer-row { margin-top: 8px; flex-wrap: nowrap; }
+button.metro-play-btn-big { height: 44px; margin-top: 10px; font-size: var(--fs-base); }
+.metro-play-btn-icon .icon { width: 20px; height: 20px; }
+/* pavé : sur UNE ligne ; la taille des cases s'adapte à la largeur du volet (--pad-n cases, --pad-g temps : voir renderPad). Elles ne
+   passent à la ligne, par temps entier, que si elles deviendraient plus petites que 12 px (très longues mesures détaillées). */
+.metro-pad { container-type: inline-size; flex-wrap: wrap; gap: 6px 8px; margin-top: 8px; padding: 2px 0; }
+.metro-beat-group { flex: none; gap: 3px; align-items: center; }
+.metro-pad .metro-step {
+    --fit: calc((100cqw - (var(--pad-g, 4) - 1) * 8px - (var(--pad-n, 4) - var(--pad-g, 4)) * 3px) / var(--pad-n, 4));
+    flex: none; width: clamp(12px, var(--fit), 26px); min-width: 0; height: auto; aspect-ratio: 1 / 1;
 }
