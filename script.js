@@ -224,7 +224,9 @@
             box.appendChild(ul);
         }
         (spec.warnings || []).forEach(function (t) { var w = document.createElement("div"); w.className = "app-dialog-warn"; w.textContent = "⚠ " + t; box.appendChild(w); });
+        if (spec.body) box.appendChild(spec.body); // contenu libre (cases, listes…), inséré avant les boutons
         if (spec.note) { var nt = document.createElement("div"); nt.className = "app-dialog-note"; nt.textContent = spec.note; box.appendChild(nt); }
+        if (spec.wide) box.classList.add("app-dialog-wide");
         var input = null, initial = "";
         if (spec.input) {
             input = document.createElement("input");
@@ -436,6 +438,9 @@
             if (!Array.isArray(ex.noteDates)) ex.noteDates = [];
             // Notes fixes (toujours visibles, sans date) ; ex.notes = notes mobiles (suivi daté au jour le jour).
             if (typeof ex.fixedNotes !== "string") ex.fixedNotes = "";
+            // Liaison avec des exercices dupliqués (voir « exercices liés ») et objectif tempo (absent = oui, comme avant).
+            if (typeof ex.linkId !== "string" || !ex.linkId) delete ex.linkId;
+            if (typeof ex.tempoGoal !== "boolean") delete ex.tempoGoal;
             // Remplace les statuts (à faire/en cours/terminé/à revoir), jugés trop compliqués au
             // quotidien : juste deux cases à cocher, accessibles par clic droit/appui long.
             if (typeof ex.favorite !== "boolean") ex.favorite = false;
@@ -1067,6 +1072,7 @@
                 var live = findFileMeta(meta.id);
                 if (!live) { cloudDeleteChunks(cid, n); return "ok"; } // retiré pendant l'envoi
                 live.cloud = true; live.chunks = n; live.size = blob.size;
+                shareMetaState(live, "file"); // les exercices liés qui ont ce fichier le savent aussi
                 persist();
                 return "ok";
             });
@@ -1282,7 +1288,7 @@
             if (!blob) return false;
             return blobToDataUrl(blob).then(function (dataUrl) {
                 return cloudImageDoc(meta.id).set({ data: dataUrl, type: meta.type || blob.type, name: meta.name || "", updatedAt: Date.now() });
-            }).then(function () { meta.cloud = true; persist(); return true; });
+            }).then(function () { meta.cloud = true; shareMetaState(meta, "image"); persist(); return true; });
         }).catch(function (e) { console.warn("Envoi de l'image vers le cloud impossible", e); return false; });
     }
     function cloudDeleteImage(id) {
@@ -1472,10 +1478,10 @@
                 rm.addEventListener("click", function () {
                     dlgConfirm({ title: "Retirer cette image ?", message: "Elle sera supprimée de l'exercice.", confirmLabel: "Retirer", danger: true }, function () {
                         ex.images = ex.images.filter(function (m) { return m.id !== meta.id; });
+                        touchExercise(ex); // d'abord : les exercices liés la perdent aussi
                         deleteFileBlob(meta.id);
                         cloudDeleteImage(meta.id);
                         delete imageUrlCache[meta.id];
-                        touchExercise(ex);
                         save();
                         render();
                     });
@@ -1740,8 +1746,8 @@
     // dupliquée utilise encore sont ainsi gardés dans le cloud. Les morceaux envoyés dans le cloud sont libérés avec le reste.
     function purgeTrashEntry(entry) {
         var a = attachmentsOf(entry);
-        a.files.forEach(function (f) { deleteFileBlob(f.id); cloudDeleteFile(f); });
-        a.images.forEach(function (f) { deleteFileBlob(f.id); cloudDeleteImage(f.id); });
+        a.files.forEach(function (f) { if (!attachmentIdInUse("file", f.id)) deleteFileBlob(f.id); cloudDeleteFile(f); });
+        a.images.forEach(function (f) { if (!attachmentIdInUse("image", f.id)) { deleteFileBlob(f.id); cloudDeleteImage(f.id); } }); // un exercice lié peut encore s'en servir
     }
 
     function addToTrash(type, data, extra) {
@@ -1788,6 +1794,7 @@
             }
         }
         removeFromTrash(entryId);
+        reconcileLinks(); // un exercice lié qui revient reprend les pièces jointes et réglages communs (le plus récemment modifié fait foi)
         save();
         render();
     }
@@ -2102,6 +2109,72 @@
 
     function touchExercise(ex) {
         ex.updatedAt = Date.now();
+        if (ex.linkId) syncLinked(ex);
+    }
+
+    // ---------- exercices liés ----------
+    // Un exercice dupliqué reste LIÉ à son original : leurs pièces jointes (liens, fichiers, images) et leurs réglages (métronome
+    // prédéfini, objectif tempo, notes fixes) sont communs — modifier l'un modifie les autres, où qu'ils soient rangés. Le titre, les
+    // notes mobiles, favoris et archivage restent propres à chaque exercice. Les exercices d'un groupe partagent les mêmes identifiants
+    // de pièces jointes (un seul fichier sur l'appareil, un seul envoi dans le cloud) ; en quittant le groupe, un exercice reçoit ses
+    // propres copies. Clic droit › « Liaison… » pour rompre ou créer une liaison.
+    var syncingLinks = false;
+    function linkedMembers(ex) {
+        if (!ex || !ex.linkId) return [];
+        var out = [];
+        (state.instruments || []).forEach(function (inst) {
+            collectExercises(inst, function (o) { return o.linkId === ex.linkId; }).forEach(function (r) { out.push({ ex: r.ex, inst: inst, folder: r.folder, pathNames: r.pathNames, pathIds: r.pathIds }); });
+        });
+        return out;
+    }
+    function linkedOthers(ex) { return linkedMembers(ex).filter(function (m) { return m.ex !== ex; }); }
+    function sharedSig(ex) {
+        return JSON.stringify([ex.links || [], ex.files || [], ex.images || [], ex.metronome || null, ex.tempoGoal === undefined ? null : ex.tempoGoal, ex.fixedNotes || "", ex.pinnedLinkId || null]);
+    }
+    function copySharedFields(from, to) {
+        to.links = cloneJson(from.links || []);
+        to.files = cloneJson(from.files || []);
+        to.images = cloneJson(from.images || []);
+        to.metronome = from.metronome ? cloneJson(from.metronome) : null;
+        if (from.tempoGoal === undefined) delete to.tempoGoal; else to.tempoGoal = from.tempoGoal;
+        to.fixedNotes = from.fixedNotes || "";
+        to.pinnedLinkId = from.pinnedLinkId || null;
+        to.updatedAt = Date.now();
+    }
+    function syncLinked(ex) {
+        if (!ex || !ex.linkId || syncingLinks) return;
+        syncingLinks = true;
+        try {
+            var sig = sharedSig(ex);
+            linkedOthers(ex).forEach(function (m) { if (sharedSig(m.ex) !== sig) copySharedFields(ex, m.ex); });
+        } finally { syncingLinks = false; }
+    }
+    // Après un envoi vers le cloud : l'état « envoyé » d'un fichier ou d'une image doit se voir chez tous les exercices qui l'ont.
+    function shareMetaState(meta, kind) {
+        allAttachmentMetas().forEach(function (it) {
+            if (it.kind !== kind || it.meta === meta || it.meta.id !== meta.id) return;
+            ["cloud", "chunks", "size", "cid"].forEach(function (k) { if (meta[k] === undefined) delete it.meta[k]; else it.meta[k] = meta[k]; });
+        });
+    }
+    // Même identifiant de pièce jointe encore utilisé ailleurs (exercice lié, corbeille) ?
+    function attachmentIdInUse(kind, id) {
+        return allAttachmentMetas().some(function (it) { return it.kind === kind && it.meta.id === id; });
+    }
+    // Remet d'accord les exercices d'un même groupe dont les pièces jointes ou réglages diffèrent (après une restauration de la corbeille,
+    // ou une synchronisation entre appareils) : le plus récemment modifié fait foi.
+    function reconcileLinks() {
+        var groups = {};
+        (state.instruments || []).forEach(function (inst) {
+            collectExercises(inst, function (o) { return !!o.linkId; }).forEach(function (r) { (groups[r.ex.linkId] = groups[r.ex.linkId] || []).push(r.ex); });
+        });
+        Object.keys(groups).forEach(function (id) {
+            var g = groups[id];
+            if (g.length < 2) return;
+            var sigs = {}; g.forEach(function (e) { sigs[sharedSig(e)] = true; });
+            if (Object.keys(sigs).length < 2) return;
+            var src = g.reduce(function (a, b) { return (b.updatedAt || 0) > (a.updatedAt || 0) ? b : a; });
+            g.forEach(function (e) { if (e !== src) copySharedFields(src, e); });
+        });
     }
 
     function formatUpdatedAt(ts) {
@@ -2284,27 +2357,32 @@
             var newId = uid();
             getFileBlob(f.id).then(function (blob) { if (blob) storeFileBlob(newId, blob); });
             var copy = { id: newId, name: f.name, type: f.type, size: f.size };
+            if (f.addedAt) copy.addedAt = f.addedAt;
             if (shareCloud && f.cloud && f.chunks) { copy.cloud = true; copy.chunks = f.chunks; copy.cid = f.cid || f.id; }
             return copy;
         });
     }
 
+    // La copie reste liée à l'original : mêmes pièces jointes (mêmes identifiants, rien n'est recopié) et mêmes réglages, voir « exercices liés ».
     function duplicateExercise(ex) {
+        if (!ex.linkId) ex.linkId = uid();
         return {
             id: uid(),
             title: ex.title + " (copie)",
+            linkId: ex.linkId,
             notes: ex.notes || "",
             fixedNotes: ex.fixedNotes || "",
             favorite: false,
             archived: false,
-            links: cloneLinksForDuplicate(ex.links),
-            files: cloneFilesForDuplicate(ex.files, true),
-            images: cloneFilesForDuplicate(ex.images),
+            links: cloneJson(ex.links || []),
+            files: cloneJson(ex.files || []),
+            images: cloneJson(ex.images || []),
             metronome: ex.metronome ? JSON.parse(JSON.stringify(ex.metronome)) : null,
+            tempoGoal: ex.tempoGoal,
             notesArchive: (ex.notesArchive || []).map(function (e) { return { d: e.d, t: e.t }; }),
             noteDates: (ex.noteDates || []).slice(),
             lastMinutes: ex.lastMinutes || undefined,
-            pinnedLinkId: null,
+            pinnedLinkId: ex.pinnedLinkId || null,
             collapsed: true,
             updatedAt: Date.now()
         };
@@ -3122,6 +3200,8 @@
         menu.appendChild(menuButton("Renommer…", "", function () { closeFolderMenu(); renameExercisePrompt(ex, folder, opts.after); }));
         if (!opts.noAddToSession) menu.appendChild(menuButton("Ajouter à une session…", "", function () { closeFolderMenu(); openAddToSessionMenu(x, y, ex); }));
         menu.appendChild(menuButton("Remplacer partout par…", "", function () { closeFolderMenu(); startReplaceEverywhere(ex.id, ex.title); }));
+        var nLinked = linkedOthers(ex).length;
+        menu.appendChild(menuButton(nLinked ? "🔗 Liaison (" + nLinked + ")… rompre ou modifier" : "🔗 Lier à un autre exercice…", "", function () { openExerciseLinksDialog(ex, opts.after); }));
         if (!opts.noSelect) menu.appendChild(menuButton(ex.id in exSel ? "☐ Désélectionner" : "☑ Sélectionner (plusieurs)", "", function () { closeFolderMenu(); exSelToggle(ex.id); }));
         menu.appendChild(menuButton(ex.favorite ? "★ Retirer des favoris" : "☆ Marquer en favori", "", function () {
             ex.favorite = !ex.favorite;
@@ -3147,7 +3227,7 @@
                 // sans explication, l'air d'un bug plutôt que d'un choix.
                 if (ex.favorite || ex.archived) {
                     showToast("Copie créée dans « " + folder.name + " » (non " + (ex.archived ? "archivée" : "favorite") + ")");
-                }
+                } else showToast("Copie liée à l'original : pièces jointes et réglages communs (clic droit › Liaison pour les séparer)", 5000);
             }));
             menu.appendChild(menuButton("Déplacer vers…", "", function () {
                 closeFolderMenu();
@@ -3186,7 +3266,7 @@
         var inst = getActiveInstrument();
         var key = (ex.title || "").trim().toLowerCase();
         if (!inst || !key) return [];
-        return collectExercises(inst, function (o) { return o.id !== ex.id && (o.title || "").trim().toLowerCase() === key; });
+        return collectExercises(inst, function (o) { return o.id !== ex.id && !(ex.linkId && o.linkId === ex.linkId) && (o.title || "").trim().toLowerCase() === key; });
     }
 
     // Petit dialogue centré à choix, sur le modèle des menus contextuels.
@@ -3221,6 +3301,218 @@
     }
 
     function hasLinkUrl(o, url) { return (o.links || []).some(function (l) { return l.url === url; }); }
+
+    // ---------- liaison entre exercices (clic droit › Liaison…) ----------
+    // Voir « exercices liés » : un exercice dupliqué reste lié à son original. Ici : rompre la liaison (l'exercice garde son contenu
+    // actuel, en copies indépendantes) ou en créer une (en choisissant le sort des pièces jointes déjà présentes).
+    var CHAIN_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>';
+    function linkPathText(m) { return (m.inst && state.instruments.length > 1 ? m.inst.name + " › " : "") + m.pathNames.join(" › ") + " › " + m.ex.title; }
+    function linkBadgeText(ex) {
+        var o = linkedOthers(ex);
+        return "Lié à " + (o.length === 1 ? "un autre exercice" : o.length + " autres exercices") + " : pièces jointes et réglages communs (" + o.slice(0, 3).map(linkPathText).join(" ; ") + (o.length > 3 ? "…" : "") + "). Cliquer pour gérer la liaison.";
+    }
+    function appendExerciseLinkBadge(tools, ex) {
+        var o = linkedOthers(ex);
+        if (!o.length) return;
+        var b = document.createElement("button");
+        b.type = "button"; b.className = "exercise-link-badge";
+        b.innerHTML = CHAIN_ICON_SVG + '<span class="exercise-link-count">' + o.length + "</span>";
+        b.title = linkBadgeText(ex); b.setAttribute("aria-label", "Exercice lié : gérer la liaison");
+        b.addEventListener("click", function (e) { e.stopPropagation(); openExerciseLinksDialog(ex); });
+        tools.appendChild(b);
+    }
+    // L'exercice quitte son groupe : il garde son contenu actuel, mais en copies à lui (nouveaux identifiants, fichiers recopiés).
+    function detachExercise(ex) {
+        var others = linkedOthers(ex);
+        if (others.length) {
+            var idMap = {};
+            ex.links = (ex.links || []).map(function (l) { var nl = { id: uid(), label: l.label, url: l.url }; idMap[l.id] = nl.id; return nl; });
+            ex.pinnedLinkId = ex.pinnedLinkId ? (idMap[ex.pinnedLinkId] || null) : null;
+            ex.files = cloneFilesForDuplicate(ex.files, true);
+            ex.images = cloneFilesForDuplicate(ex.images);
+            ex.updatedAt = Date.now();
+            if (others.length === 1) delete others[0].ex.linkId; // plus qu'un seul : il n'est plus lié à personne
+        }
+        delete ex.linkId;
+        cloudFilesSoon();
+        syncImagesToCloud();
+    }
+    function detachAll(ex) {
+        var all = linkedMembers(ex);
+        all.slice(1).forEach(function (m) { detachExercise(m.ex); });
+        if (all[0]) delete all[0].ex.linkId;
+    }
+    function openExerciseLinksDialog(ex, after) {
+        closeFolderMenu();
+        var others = linkedOthers(ex);
+        if (!others.length) { startLinkExercises(ex, after); return; }
+        var body = document.createElement("div");
+        body.className = "link-dlg-body";
+        var intro = document.createElement("div");
+        intro.className = "link-dlg-intro";
+        intro.textContent = "Pièces jointes (liens, fichiers, images) et réglages (métronome prédéfini, objectif tempo, notes fixes) sont communs avec :";
+        body.appendChild(intro);
+        var list = document.createElement("div");
+        list.className = "link-dlg-list";
+        others.forEach(function (m) {
+            var row = document.createElement("div");
+            row.className = "link-dlg-row";
+            var t = document.createElement("span"); t.className = "link-dlg-path"; t.textContent = linkPathText(m); t.title = linkPathText(m);
+            var open = document.createElement("button"); open.type = "button"; open.className = "btn-ghost link-dlg-open"; open.textContent = "Ouvrir";
+            open.addEventListener("click", function () { if (dlgCurrent) dlgCurrent.dismiss(); revealExercise(m.ex.id); });
+            row.appendChild(t); row.appendChild(open);
+            list.appendChild(row);
+        });
+        body.appendChild(list);
+        var note = document.createElement("div");
+        note.className = "link-dlg-note";
+        note.textContent = "Le titre, les notes mobiles et les favoris restent propres à chaque exercice. Rompre la liaison : l'exercice garde ce qu'il a maintenant, mais en copies à lui.";
+        body.appendChild(note);
+        var buttons = [];
+        buttons.push({ label: "Rompre pour cet exercice", kind: "plain", left: true, onClick: function () {
+            detachExercise(ex); save(); render(); if (after) after();
+            toastUndo("« " + ex.title + " » n'est plus lié aux autres exercices");
+        } });
+        if (others.length > 1) buttons.push({ label: "Tout séparer", kind: "plain", onClick: function () {
+            detachAll(ex); save(); render(); if (after) after();
+            toastUndo("Les " + (others.length + 1) + " exercices ne sont plus liés");
+        } });
+        buttons.push({ label: "Lier à un autre…", kind: "primary", onClick: function () { startLinkExercises(ex, after); } });
+        dlgOpen({ kind: "choice", title: "Liaison de « " + ex.title + " »", body: body, wide: true, cancelLabel: "Fermer", buttons: buttons });
+    }
+    function startLinkExercises(ex, after) {
+        var f = findExerciseById(ex.id);
+        var skip = [ex.id].concat(linkedOthers(ex).map(function (m) { return m.ex.id; }));
+        openExercisePickerModal("Lier « " + ex.title + " » à…", { inst: f ? f.inst : getActiveInstrument(), exclude: skip }, function (target) { openLinkPlanDialog(ex, target, after); });
+    }
+    // Pièces jointes d'un exercice sous forme de liste d'éléments comparables (lien, fichier, image).
+    function linkItemsOf(ex, tag) {
+        var out = [];
+        (ex.links || []).forEach(function (l) { out.push({ kind: "link", meta: l, key: "link:" + l.id, label: l.label || l.url, from: tag, dup: "u:" + l.url }); });
+        (ex.files || []).forEach(function (f) { out.push({ kind: "file", meta: f, key: "file:" + f.id, label: f.name, from: tag, dup: "f:" + f.name + "|" + f.size }); });
+        (ex.images || []).forEach(function (m) { out.push({ kind: "image", meta: m, key: "image:" + m.id, label: m.name || "Capture", from: tag, dup: "i:" + (m.name || "") + "|" + m.size }); });
+        return out;
+    }
+    function applyLinkPlan(a, b, chosen, paramsFrom) {
+        var seen = {}, members = [];
+        [a, b].forEach(function (e) { var g = linkedMembers(e); (g.length ? g.map(function (m) { return m.ex; }) : [e]).forEach(function (x) { if (!seen[x.id]) { seen[x.id] = 1; members.push(x); } }); });
+        var gid = a.linkId || b.linkId || uid();
+        var links = [], files = [], images = [], keep = { file: {}, image: {} };
+        chosen.forEach(function (it) {
+            if (it.kind === "link") links.push(cloneJson(it.meta));
+            else if (it.kind === "file") { files.push(cloneJson(it.meta)); keep.file[it.meta.id] = true; }
+            else { images.push(cloneJson(it.meta)); keep.image[it.meta.id] = true; }
+        });
+        var src = paramsFrom === "b" ? b : a;
+        var pinUrl = null;
+        if (src.pinnedLinkId) { var pl = (src.links || []).filter(function (l) { return l.id === src.pinnedLinkId; })[0]; pinUrl = pl && pl.url; }
+        var pinned = pinUrl ? (links.filter(function (l) { return l.url === pinUrl; })[0] || {}).id || null : null;
+        var dropped = {};
+        members.forEach(function (m) {
+            (m.files || []).forEach(function (f) { if (!keep.file[f.id]) dropped["file:" + f.id] = { kind: "file", meta: f }; });
+            (m.images || []).forEach(function (f) { if (!keep.image[f.id]) dropped["image:" + f.id] = { kind: "image", meta: f }; });
+        });
+        members.forEach(function (m) {
+            m.linkId = gid;
+            m.links = cloneJson(links); m.files = cloneJson(files); m.images = cloneJson(images);
+            m.metronome = src.metronome ? cloneJson(src.metronome) : null;
+            if (src.tempoGoal === undefined) delete m.tempoGoal; else m.tempoGoal = src.tempoGoal;
+            m.fixedNotes = src.fixedNotes || "";
+            m.pinnedLinkId = pinned;
+            m.updatedAt = Date.now();
+        });
+        Object.keys(dropped).forEach(function (k) { // pièces jointes non retenues : leur contenu est supprimé (si plus rien ne s'en sert)
+            var d = dropped[k];
+            if (attachmentIdInUse(d.kind, d.meta.id)) return;
+            deleteFileBlob(d.meta.id);
+            if (d.kind === "file") cloudDeleteFile(d.meta); else cloudDeleteImage(d.meta.id);
+        });
+        return { dropped: Object.keys(dropped).length, members: members.length };
+    }
+    function openLinkPlanDialog(a, b, after) {
+        closeFolderMenu();
+        var A = linkItemsOf(a, "A"), B = linkItemsOf(b, "B");
+        var fa = findExerciseById(a.id), fb = findExerciseById(b.id);
+        var aOthers = linkedOthers(a), bOthers = linkedOthers(b);
+        var body = document.createElement("div");
+        body.className = "link-plan";
+        function para(cls, text) { var d = document.createElement("div"); d.className = cls; d.textContent = text; body.appendChild(d); return d; }
+        para("link-dlg-intro", "« " + a.title + " » (" + (fa ? fa.pathNames.join(" › ") : "") + ") et « " + b.title + " » (" + (fb ? fb.pathNames.join(" › ") : "") + ") mettront en commun leurs pièces jointes et leurs réglages : modifier l'un modifiera l'autre.");
+        if (aOthers.length || bOthers.length) para("link-dlg-note", "Les exercices déjà liés à l'un ou à l'autre (" + (aOthers.length + bOthers.length) + ") rejoignent aussi le groupe.");
+        var radios = {};
+        function radioGroup(name, options, def) {
+            var wrap = document.createElement("div"); wrap.className = "link-plan-group";
+            options.forEach(function (o) {
+                var lab = document.createElement("label"); lab.className = "link-plan-opt";
+                var r = document.createElement("input"); r.type = "radio"; r.name = name; r.value = o.value; r.checked = o.value === def;
+                var t = document.createElement("span"); t.textContent = o.text;
+                lab.appendChild(r); lab.appendChild(t); wrap.appendChild(lab);
+                r.addEventListener("change", refresh);
+            });
+            body.appendChild(wrap);
+            radios[name] = wrap;
+        }
+        function val(name) { var r = radios[name].querySelector("input:checked"); return r ? r.value : ""; }
+        var pickBox = null, picks = [];
+        if (A.length || B.length) {
+            para("link-plan-h", "Pièces jointes déjà présentes (" + A.length + " dans « " + a.title + " », " + B.length + " dans « " + b.title + " »)");
+            var opts = [{ value: "union", text: "Additionner les pièces jointes des deux" }];
+            if (A.length) opts.push({ value: "a", text: "Garder seulement celles de « " + a.title + " » (" + A.length + ")" });
+            if (B.length) opts.push({ value: "b", text: "Garder seulement celles de « " + b.title + " » (" + B.length + ")" });
+            opts.push({ value: "none", text: "Ne garder aucune pièce jointe" });
+            opts.push({ value: "pick", text: "Choisir une à une…" });
+            radioGroup("att", opts, A.length && B.length ? "union" : (A.length ? "a" : "b"));
+            pickBox = document.createElement("div"); pickBox.className = "link-plan-pick"; pickBox.hidden = true;
+            A.concat(B).forEach(function (it) {
+                var lab = document.createElement("label"); lab.className = "link-plan-pickrow";
+                var cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = true; cb.addEventListener("change", refresh);
+                var ic = document.createElement("span"); ic.className = "link-plan-kind"; ic.textContent = it.kind === "link" ? "lien" : it.kind === "file" ? "fichier" : "image";
+                var tx = document.createElement("span"); tx.className = "link-plan-label"; tx.textContent = it.label; tx.title = it.label;
+                var fr = document.createElement("span"); fr.className = "link-plan-from"; fr.textContent = "de " + (it.from === "A" ? a.title : b.title);
+                lab.appendChild(cb); lab.appendChild(ic); lab.appendChild(tx); lab.appendChild(fr);
+                pickBox.appendChild(lab); picks.push({ it: it, cb: cb });
+            });
+            body.appendChild(pickBox);
+        } else para("link-dlg-note", "Aucun des deux n'a de pièce jointe pour l'instant.");
+        function presetText(e) { return e.metronome ? "♩ " + e.metronome.bpm + " BPM" : "pas de métronome prédéfini"; }
+        var preferB = !(a.metronome || a.fixedNotes) && (b.metronome || b.fixedNotes);
+        para("link-plan-h", "Réglages communs (métronome prédéfini, objectif tempo, notes fixes)");
+        radioGroup("par", [
+            { value: "a", text: "Ceux de « " + a.title + " » (" + presetText(a) + ")" },
+            { value: "b", text: "Ceux de « " + b.title + " » (" + presetText(b) + ")" }
+        ], preferB ? "b" : "a");
+        var warn = document.createElement("div"); warn.className = "app-dialog-warn link-plan-warn"; warn.hidden = true; body.appendChild(warn);
+        function chosen() {
+            var mode = pickBox ? val("att") : "union";
+            if (mode === "a") return A.slice();
+            if (mode === "b") return B.slice();
+            if (mode === "none") return [];
+            if (mode === "pick") return picks.filter(function (p) { return p.cb.checked; }).map(function (p) { return p.it; });
+            var seen = {}, out = []; // additionner : sans doublon (même adresse, même nom et même taille)
+            A.concat(B).forEach(function (it) { if (seen[it.dup]) return; seen[it.dup] = 1; out.push(it); });
+            return out;
+        }
+        function dropCount() {
+            var keep = {}; chosen().forEach(function (it) { keep[it.kind + ":" + it.meta.id] = 1; });
+            var n = 0; A.concat(B).forEach(function (it) { if (it.kind !== "link" && !keep[it.kind + ":" + it.meta.id]) n++; });
+            return n;
+        }
+        var okBtn = null;
+        function refresh() {
+            if (pickBox) pickBox.hidden = val("att") !== "pick";
+            var n = dropCount();
+            warn.hidden = !n;
+            warn.textContent = n ? n + " fichier" + (n > 1 ? "s ou images seront supprimés" : " ou image sera supprimé") + " définitivement (non retenu" + (n > 1 ? "s" : "") + ")." : "";
+            if (okBtn) { okBtn.textContent = n ? "Lier et supprimer " + n : "Lier"; okBtn.classList.toggle("btn-danger", n > 0); okBtn.classList.toggle("btn-accent", n === 0); }
+        }
+        dlgOpen({ kind: "choice", title: "Lier les deux exercices", body: body, wide: true, cancelLabel: "Annuler", buttons: [{ label: "Lier", kind: "primary", onClick: function () {
+            var res = applyLinkPlan(a, b, chosen(), val("par"));
+            save(); render(); if (after) after();
+            toastUndo("« " + a.title + " » et « " + b.title + " » sont liés" + (res.members > 2 ? " (" + res.members + " exercices)" : ""));
+        } }] });
+        okBtn = document.querySelector(".app-dialog .app-dialog-ok");
+        refresh();
+    }
 
     // Exercice lâché sur un dossier de l'arborescence : on demande s'il faut le déplacer ou le copier.
     function openExerciseDropMenu(x, y, ex, fromFolder, destFolder) {
@@ -3339,6 +3631,7 @@
         var isPinned = ex.pinnedLinkId === link.id;
         menu.appendChild(menuButton(isPinned ? "Ne plus mettre en avant" : "Mettre en avant dans la barre", "", function () {
             ex.pinnedLinkId = isPinned ? null : link.id;
+            touchExercise(ex);
             save();
             closeFolderMenu();
             render();
@@ -4604,6 +4897,7 @@
             tools.appendChild(noteMark);
         }
         appendExerciseImageButton(tools, ex);
+        appendExerciseLinkBadge(tools, ex);
         var tempoChip = buildTempoChip({
             title: ex.title,
             exId: ex.id,
@@ -4854,6 +5148,7 @@
         details.appendChild(buildMetronomePresetRow({
             title: ex.title,
             exId: ex.id,
+            goalEx: ex,
             get: function () { return ex.metronome; },
             set: function (p) { setExerciseMetronome(ex, p); }
         }));
@@ -6128,9 +6423,9 @@
             removeBtn.addEventListener("click", function () {
                 dlgConfirm({ title: "Retirer « " + meta.name + " » ?", message: "Le fichier sera supprimé de l'exercice.", confirmLabel: "Retirer", danger: true }, function () {
                     ex.files = ex.files.filter(function (f) { return f.id !== meta.id; });
+                    touchExercise(ex); // d'abord : les exercices liés le perdent aussi, sinon leurs morceaux cloud passeraient pour « utilisés »
                     deleteFileBlob(meta.id);
                     cloudDeleteFile(meta);
-                    touchExercise(ex);
                     save();
                     render();
                 });
@@ -8419,6 +8714,7 @@
         btn(GEAR_ICON_SVG, "Options : préconfigurer un métronome complet (progressif, entraînement, rythme…)", act.options, "metro-preset-btn-icon");
         if (act.eff) btn("▶", "Charger ce réglage dans le métronome et le lancer", act.play, "metro-preset-btn-icon");
         if (act.cur) btn("✕", "Retirer ce réglage", act.remove, "metro-preset-btn-icon");
+        if (cfg.goalEx) row.appendChild(buildTempoGoalToggle(cfg.goalEx, false));
         return row;
     }
 
@@ -8512,6 +8808,43 @@
         found.ex.metronome = p ? cloneJson(p) : null;
         touchExercise(found.ex);
         save();
+    }
+
+    // ---------- objectif tempo ----------
+    // Tous les exercices n'ont pas pour but de faire accélérer : décoché, l'exercice sort des statistiques de tempo (ses séances restent
+    // comptées pour le temps). La case est une propriété de l'EXERCICE : elle vaut dans toutes les sessions qui le contiennent, dans ses
+    // copies liées (voir « exercices liés ») et, après question, dans ses homonymes non liés. Absent = oui (comportement d'avant).
+    var TARGET_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/></svg>';
+    function tempoGoalOn(ex) { return !!ex && ex.tempoGoal !== false; }
+    function setTempoGoal(ex, on) {
+        on = !!on;
+        ex.tempoGoal = on;
+        touchExercise(ex);
+        save();
+        document.dispatchEvent(new CustomEvent("trainhub-tempogoal", { detail: { exId: ex.id } }));
+        askApplyToSameNamed(ex, "Appliquer aussi l'objectif tempo (" + (on ? "activé" : "désactivé") + ") ?",
+            function (o) { return tempoGoalOn(o) !== on; },
+            function (o) { o.tempoGoal = on; });
+    }
+    // Bouton à bascule « Objectif tempo » ; `mini` : icône seule (ligne d'un pas de session).
+    function buildTempoGoalToggle(ex, mini) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "tempo-goal-btn" + (mini ? " tempo-goal-mini" : "");
+        function paint() {
+            var on = tempoGoalOn(ex);
+            b.classList.toggle("tempo-goal-on", on);
+            b.setAttribute("aria-pressed", on ? "true" : "false");
+            b.innerHTML = TARGET_ICON_SVG + (mini ? "" : "<span>Objectif tempo</span>");
+            b.title = on ? "Objectif tempo : les tempos de cet exercice sont suivis dans les statistiques — cliquer pour l'exclure"
+                : "Pas d'objectif tempo : cet exercice est exclu des statistiques de tempo — cliquer pour le suivre";
+            b.setAttribute("aria-label", "Objectif tempo");
+        }
+        paint();
+        b.addEventListener("click", function (e) { e.stopPropagation(); setTempoGoal(ex, !tempoGoalOn(ex)); paint(); });
+        function onChange() { if (!document.body.contains(b)) { document.removeEventListener("trainhub-tempogoal", onChange); return; } paint(); }
+        document.addEventListener("trainhub-tempogoal", onChange);
+        return b;
     }
 
     // Mise à jour du métronome d'un exercice : vaut pour toutes les sessions qui l'utilisent, sauf celles où le pas
@@ -11979,6 +12312,8 @@
         return rec && rec.name && rec.name !== cur ? rec.name : null;
     }
     // Titre à afficher pour un exercice d'une séance enregistrée : titre actuel s'il existe encore.
+    // Faut-il montrer le tempo de ce pas d'une séance enregistrée ? (non pour un exercice sans objectif tempo)
+    function stepBpmShown(st) { var f = st && st.exerciseId ? findExerciseById(st.exerciseId) : null; return !f || tempoGoalOn(f.ex); }
     function logStepTitle(st) {
         var f = st && st.exerciseId ? findExerciseById(st.exerciseId) : null;
         return f ? f.ex.title : (st && st.title) || "(exercice)";
@@ -13223,6 +13558,7 @@
                     w.owner = step;
                 });
                 tempoSlot.appendChild(diceBtn);
+                if (found) tempoSlot.appendChild(buildTempoGoalToggle(found.ex, true));
                 tempoSlot.appendChild(buildTempoChip(stepTempoCfg, true));
                 line.appendChild(tempoSlot);
                 // Données de la session (durée de chaque exercice, recopier) : zone séparée, alignée à droite.
@@ -13331,6 +13667,19 @@
                     ownTxt.title = "Coché : ce tempo ne change que dans cette session. Décoché : le tempo de l'exercice, le même partout.";
                     ownRow.appendChild(ownCb); ownRow.appendChild(ownTxt);
                     details.appendChild(ownRow);
+                    if (found) { // objectif tempo : propriété de l'exercice (donc de toutes ses sessions et copies liées), pas de ce pas
+                        var goalRow = document.createElement("label");
+                        goalRow.className = "gs-step-owntempo gs-step-goal";
+                        var goalCb = document.createElement("input");
+                        goalCb.type = "checkbox";
+                        goalCb.checked = tempoGoalOn(found.ex);
+                        goalCb.addEventListener("change", function () { setTempoGoal(found.ex, goalCb.checked); renderSteps(); });
+                        var goalTxt = document.createElement("span");
+                        goalTxt.textContent = "Objectif tempo";
+                        goalTxt.title = "Coché : les tempos de cet exercice comptent dans les statistiques. Valable dans toutes les sessions qui le contiennent et ses copies liées.";
+                        goalRow.appendChild(goalCb); goalRow.appendChild(goalTxt);
+                        details.appendChild(goalRow);
+                    }
                     var noteLabel = document.createElement("div");
                     noteLabel.className = "section-label";
                     noteLabel.textContent = "Note pour cet exercice (affichée pendant la session)";
@@ -13739,6 +14088,14 @@
                 var dur = document.createElement("span"); dur.className = "gs-rec-dur";
                 dur.appendChild(mi); dur.appendChild(document.createTextNode("′")); dur.appendChild(si); dur.appendChild(document.createTextNode("″"));
                 var bw = document.createElement("span"); bw.className = "gs-rec-bw"; bw.appendChild(document.createTextNode("♩ ")); bw.appendChild(bi);
+                var recFound = st.exerciseId ? findExerciseById(st.exerciseId) : null;
+                if (recFound) { // objectif tempo modifiable ici aussi : sans objectif, le tempo n'entre pas dans les statistiques
+                    var goalBtn = buildTempoGoalToggle(recFound.ex, true);
+                    var paintGoal = function () { bi.classList.toggle("gs-rec-bpm-off", !tempoGoalOn(recFound.ex)); };
+                    goalBtn.addEventListener("click", paintGoal);
+                    paintGoal();
+                    bw.appendChild(goalBtn);
+                }
                 var rm = iconButton("✕", "Retirer cet exercice de la séance", function () { it.removed = true; box.hidden = true; refresh(); });
                 line.appendChild(nm); line.appendChild(dur); line.appendChild(bw); line.appendChild(rm);
                 box.appendChild(line);
@@ -14302,7 +14659,7 @@
             (rec.steps || []).forEach(function (st) {
                 var r = document.createElement("div"); r.className = "cal-recap-row";
                 var n = document.createElement("span"); n.className = "cal-recap-name"; n.textContent = logStepTitle(st);
-                var v = document.createElement("span"); v.className = "cal-recap-dur"; v.textContent = gsFmtDur(st.actualSec || 0) + (st.bpmMax ? " · " + st.bpmMax + " BPM" : "");
+                var v = document.createElement("span"); v.className = "cal-recap-dur"; v.textContent = gsFmtDur(st.actualSec || 0) + (st.bpmMax && stepBpmShown(st) ? " · " + st.bpmMax + " BPM" : "");
                 r.appendChild(n); r.appendChild(v); list.appendChild(r);
                 var live = st.exerciseId ? findExerciseById(st.exerciseId) : null;
                 if (live) {
@@ -14727,7 +15084,8 @@
                     plannedSec: (st.plannedMin || 0) * 60,
                     subKey: subName ? (subId || "n:" + chapterKeyOf(chapId, frozenName) + "|" + subName) : null,
                     subName: subName,
-                    bpmFirst: st.bpmFirst || null, bpmMax: st.bpmMax || null, bpmEnd: st.bpmEnd || null
+                    bpmFirst: st.bpmFirst || null, bpmMax: st.bpmMax || null, bpmEnd: st.bpmEnd || null,
+                    tempoGoal: live ? live.ex.tempoGoal !== false : true // exercice sans objectif tempo : hors statistiques de tempo
                 });
             });
         });
@@ -15039,7 +15397,7 @@
             var o = by[r.exKey] || (by[r.exKey] = { key: r.exKey, title: r.title, chapterName: r.chapterName, rows: [], sec: 0, plannedSec: 0, plannedN: 0, realOfPlanned: 0, pts: [] });
             o.rows.push(r); o.sec += r.sec; o.title = r.title; o.chapterName = r.chapterName;
             if (r.plannedSec) { o.plannedSec += r.plannedSec; o.plannedN++; o.realOfPlanned += r.sec; }
-            if (r.bpmMax && r.exKey.indexOf("t:") !== 0) o.pts.push({ date: r.date, bpm: r.bpmMax, first: r.bpmFirst, end: r.bpmEnd });
+            if (r.bpmMax && r.tempoGoal !== false && r.exKey.indexOf("t:") !== 0) o.pts.push({ date: r.date, bpm: r.bpmMax, first: r.bpmFirst, end: r.bpmEnd });
         });
         function mins(sec) { var m = sec / 60; return m < 10 ? Math.max(1, Math.round(m)) : Math.max(5, Math.round(m / 5) * 5); }
         var nEx = Object.keys(by).length;
@@ -15437,7 +15795,7 @@
                     head.appendChild(nm); head.appendChild(du); head.appendChild(edit); head.appendChild(del);
                     var det = document.createElement("div");
                     det.className = "gs-history-steps";
-                    det.textContent = e.steps.map(function (st) { return logStepTitle(st) + " (" + gsFmtDur(st.actualSec) + (st.bpmMax ? ", " + (st.bpmFirst && st.bpmFirst !== st.bpmMax ? st.bpmFirst + "→" : "") + st.bpmMax + " BPM" : "") + ")"; }).join(" · ");
+                    det.textContent = e.steps.map(function (st) { return logStepTitle(st) + " (" + gsFmtDur(st.actualSec) + (st.bpmMax && stepBpmShown(st) ? ", " + (st.bpmFirst && st.bpmFirst !== st.bpmMax ? st.bpmFirst + "→" : "") + st.bpmMax + " BPM" : "") + ")"; }).join(" · ");
                     box.appendChild(head); box.appendChild(det);
                     var g = gsFindSession(e.sessionId);
                     if (g) bindContextGesture(box, function (x, y) {

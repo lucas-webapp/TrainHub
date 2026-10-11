@@ -3868,3 +3868,46 @@ button.img-caption:hover { color: var(--text-main); border-color: var(--border);
 button.img-caption.img-caption-empty { color: var(--text-muted); font-style: italic; font-weight: 500; }
 input.img-caption-input { align-self: stretch; box-sizing: border-box; width: min(100%, 320px); height: 28px; padding: 0 8px; font-size: var(--fs-xs); font-weight: 600; border-radius: 8px; }
 html[data-glass="1"] button.img-caption { box-shadow: none; }
+
+/* ---------- objectif tempo et exercices liés (v172) ---------- */
+button.tempo-goal-btn { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; margin-left: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: transparent; color: var(--text-muted); font-size: var(--fs-xs); font-weight: 700; cursor: pointer; white-space: nowrap; }
+button.tempo-goal-btn .icon { width: 16px; height: 16px; }
+button.tempo-goal-btn:hover { color: var(--text-main); border-color: var(--text-muted); }
+button.tempo-goal-btn.tempo-goal-on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 11%, transparent); }
+button.tempo-goal-btn:not(.tempo-goal-on) { text-decoration: line-through; text-decoration-thickness: 1px; opacity: .85; }
+button.tempo-goal-btn:not(.tempo-goal-on) .icon { opacity: .6; }
+button.tempo-goal-btn.tempo-goal-mini { width: 30px; height: 30px; padding: 0; margin-left: 0; justify-content: center; }
+html[data-glass="1"] button.tempo-goal-btn { box-shadow: none; }
+input.gs-rec-bpm.gs-rec-bpm-off { opacity: .45; }
+.gs-rec-bw { display: inline-flex; align-items: center; gap: 4px; }
+.gs-step-goal { margin-top: 2px; }
+button.exercise-link-badge { flex: none; display: inline-flex; align-items: center; gap: 3px; height: 28px; padding: 0 7px; border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border)); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--accent) 8%, transparent); color: var(--accent); cursor: pointer; }
+button.exercise-link-badge .icon { width: 15px; height: 15px; }
+.exercise-link-count { font-size: var(--fs-2xs); font-weight: 800; font-variant-numeric: tabular-nums; }
+button.exercise-link-badge:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+html[data-glass="1"] button.exercise-link-badge { box-shadow: none; }
+.app-dialog.app-dialog-wide { width: min(560px, 100%); }
+.link-dlg-body, .link-plan { display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow-y: auto; font-size: var(--fs-sm); color: var(--text-dim); }
+.link-dlg-intro { line-height: 1.45; }
+.link-dlg-note { font-size: var(--fs-xs); line-height: 1.45; color: var(--text-muted); }
+.link-dlg-list { display: flex; flex-direction: column; gap: 4px; max-height: 32vh; overflow-y: auto; }
+.link-dlg-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: rgba(var(--ov), .03); }
+.link-dlg-path { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-main); font-weight: 600; }
+button.link-dlg-open { flex: none; height: 26px; padding: 0 10px; font-size: var(--fs-xs); }
+.link-plan-h { margin-top: 4px; font-size: var(--fs-xs); font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+.link-plan-group { display: flex; flex-direction: column; gap: 4px; }
+.link-plan-opt { display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--text-main); line-height: 1.35; }
+.link-plan-opt:has(input:checked) { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.link-plan-opt input { margin: 2px 0 0; flex: none; accent-color: var(--accent); }
+.link-plan-pick { display: flex; flex-direction: column; gap: 2px; max-height: 26vh; overflow-y: auto; padding: 4px; border: 1px dashed var(--border); border-radius: var(--radius-sm); }
+.link-plan-pick[hidden] { display: none; }
+.link-plan-pickrow { display: flex; align-items: center; gap: 8px; padding: 3px 4px; cursor: pointer; min-width: 0; }
+.link-plan-pickrow input { flex: none; accent-color: var(--accent); }
+.link-plan-kind { flex: none; min-width: 3.4em; font-size: var(--fs-2xs); font-weight: 800; text-transform: uppercase; color: var(--text-muted); }
+.link-plan-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-main); }
+.link-plan-from { flex: none; max-width: 38%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-2xs); color: var(--text-muted); }
+.link-plan-warn[hidden] { display: none; }
+.metro-preset-row > button.tempo-goal-btn { width: auto; height: 28px; padding: 0 10px; margin-left: auto; }
+.metro-preset-row > button.tempo-goal-btn.tempo-goal-mini { width: 30px; height: 30px; padding: 0; margin-left: 0; }
+button.tempo-goal-btn.tempo-goal-mini:not(.tempo-goal-on) { position: relative; }
+button.tempo-goal-btn.tempo-goal-mini:not(.tempo-goal-on)::after { content: ""; position: absolute; left: 6px; right: 6px; top: 50%; height: 2px; margin-top: -1px; border-radius: 1px; background: currentColor; opacity: .75; transform: rotate(-40deg); pointer-events: none; }
