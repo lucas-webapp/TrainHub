@@ -2978,7 +2978,7 @@ body.ex-selecting .toast, body.sess-selecting .toast { bottom: calc(84px + env(s
 .gs-keep-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; max-width: 320px; }
 .gs-keep-pop { min-width: 280px; }
 
-.gs-run-controls .gs-run-tools-row { grid-template-columns: repeat(3, 1fr); }
+.gs-run-controls .gs-run-tools-row { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 1fr; }
 
 /* paliers du tempo progressif : tableau à deux colonnes (délai | seuil) */
 table.metro-prog-table { border-collapse: collapse; margin: 4px auto; }
@@ -3142,45 +3142,9 @@ button.metro-mini-btn.metro-progressive-toggle.metro-progressive-active { backgr
 .metro-prog-grid button.metro-mini-btn.metro-prog-add, .metro-prog-grid button.metro-mini-btn.metro-prog-presets { height: 24px; font-size: var(--fs-base); }
 .metro-prog-grid tfoot td { padding: 0; }
 
-/* Gammes : mode hasard (dé) */
+/* Gammes : bouton du dé (la fenêtre du tirage est décrite plus bas : « Tirage de gamme ») */
 .scales-chip.scales-dice-btn { padding: 0 9px; }
 .scales-chip.scales-dice-btn .icon { width: 18px; height: 18px; }
-.scales-rand-pop { position: fixed; width: min(290px, calc(100vw - 24px)); padding: 10px; display: flex; flex-direction: column; gap: 8px; box-sizing: border-box; overflow: visible; }
-.scales-rand-row-btn { display: flex; align-items: center; gap: 8px; width: 100%; padding: 0 10px; height: 38px; box-sizing: border-box; background: var(--card-bg-2); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-main); font: inherit; font-size: var(--fs-sm); cursor: pointer; text-align: left; }
-.scales-rand-row-btn:hover, .scales-rand-row-btn.scales-rand-row-on { border-color: var(--accent); }
-.scales-rand-row-label { font-weight: 700; flex: 0 0 auto; }
-.scales-rand-row-val { flex: 1 1 auto; min-width: 0; text-align: right; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.scales-rand-row-chev { flex: 0 0 auto; color: var(--text-muted); font-size: 18px; line-height: 1; }
-.scales-rand-sub { position: absolute; left: calc(100% + 8px); top: 0; width: max-content; max-width: min(360px, calc(100vw - 24px)); box-sizing: border-box; padding: 10px; background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 10px 30px rgba(0,0,0,calc(.5 * var(--sh-k))); display: flex; flex-direction: column; gap: 6px; z-index: 2; }
-.scales-rand-pop.scales-rand-pop-sub { overflow-y: auto; }
-.scales-rand-pop.scales-rand-pop-sub > :not(.scales-rand-sub) { display: none; }
-.scales-rand-sub.scales-rand-sub-over { position: static; width: auto; max-width: none; padding: 0; background: none; border: none; box-shadow: none; }
-.scales-rand-sub-over .scales-rand-hint { display: none; }
-.scales-rand-sub-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
-.scales-rand-back { width: 26px; height: 26px; padding: 0; font-size: 18px; line-height: 1; background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-muted); cursor: pointer; }
-.scales-rand-sub-title { font-size: var(--fs-sm); font-weight: 800; flex: 1 1 auto; }
-.scales-rand-links { display: inline-flex; gap: 10px; font-size: var(--fs-xs); font-weight: 600; }
-.scales-rand-links button { background: none; border: none; padding: 0; color: var(--text-muted); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
-.scales-rand-links button:hover { color: var(--accent); }
-.scales-rand-group { margin-top: 4px; font-size: var(--fs-2xs); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
-.scales-rand-opt { display: flex; align-items: center; justify-content: flex-start; gap: 8px; box-sizing: border-box; background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--text-main); font: inherit; font-size: var(--fs-sm); cursor: pointer; text-align: left; padding: 4px 6px; }
-.scales-rand-opt:hover { background: rgba(var(--ov), .05); }
-.scales-rand-box { flex: 0 0 auto; width: 18px; height: 18px; box-sizing: border-box; border: 1.5px solid var(--text-muted); border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 900; color: transparent; }
-.scales-rand-opt-on .scales-rand-box { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-.scales-rand-name { font-weight: 600; white-space: nowrap; }
-.scales-rand-hint { color: var(--text-muted); font-size: var(--fs-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.scales-rand-opt-row { width: 100%; }
-.scales-rand-opt-row .scales-rand-hint { margin-left: auto; max-width: 150px; }
-.scales-rand-keys { display: grid; grid-template-columns: repeat(14, minmax(0, 22px)); grid-template-rows: auto auto; gap: 6px 0; }
-.scales-rand-key { justify-content: center; border-color: var(--border); padding: 5px 0; height: 32px; }
-.scales-rand-key .scales-rand-box { display: none; }
-.scales-rand-key.scales-rand-opt-on { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); color: var(--accent); }
-.scales-rand-avoid { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); cursor: pointer; }
-.scales-rand-avoid input { width: 18px; height: 18px; accent-color: var(--accent); }
-.scales-rand-result { min-height: 1.3em; text-align: center; font-weight: 800; color: var(--accent); }
-.scales-rand-count { text-align: center; font-size: var(--fs-xs); color: var(--text-muted); margin-top: -4px; }
-.scales-rand-go { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; width: 100%; font-weight: 800; }
-.scales-rand-go .icon { width: 18px; height: 18px; }
 .scales-rand-again { margin-left: 8px; width: 30px; height: 28px; padding: 0; vertical-align: middle; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-muted); cursor: pointer; }
 .scales-rand-again:hover { color: var(--accent); border-color: var(--accent); }
 .scales-rand-again .icon { width: 16px; height: 16px; }
@@ -3188,17 +3152,6 @@ button.metro-mini-btn.metro-progressive-toggle.metro-progressive-active { backgr
 /* Nature de la gamme affichée (gamme / pentatonique / arpège) et historique des tirages du dé */
 .scales-kind { display: inline-block; margin-right: 8px; padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: var(--fs-xs); font-weight: 700; color: var(--text-dim); vertical-align: middle; white-space: nowrap; }
 .scales-kind-arp { border-color: color-mix(in srgb, var(--status-a-revoir) 70%, transparent); background: color-mix(in srgb, var(--status-a-revoir) 14%, transparent); color: var(--status-a-revoir); }
-.scales-rand-hist { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--border); padding-top: 8px; }
-.scales-rand-hist[hidden] { display: none; }
-.scales-rand-hist-head { display: flex; align-items: center; justify-content: space-between; font-size: var(--fs-2xs); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
-.scales-rand-hist-head button { background: none; border: none; padding: 0; color: var(--text-muted); font: inherit; text-transform: none; letter-spacing: 0; font-size: var(--fs-xs); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
-.scales-rand-hist-head button:hover { color: var(--accent); }
-.scales-rand-hist-list { display: flex; flex-direction: column; max-height: 150px; overflow-y: auto; }
-.scales-rand-hist-item { display: flex; align-items: baseline; gap: 8px; width: 100%; box-sizing: border-box; padding: 5px 6px; background: transparent; border: none; border-radius: var(--radius-sm); color: var(--text-main); font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer; }
-.scales-rand-hist-item:hover { background: rgba(var(--ov), .06); }
-.scales-rand-hist-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.scales-rand-hist-kind { flex: 0 0 auto; color: var(--text-muted); font-size: var(--fs-xs); white-space: nowrap; }
-@media (max-width: 719px) { .scales-rand-pop { overflow-y: auto; max-height: calc(100vh - 16px); } }
 .gs-rec-title-in { margin-bottom: 8px; }
 
 /* Aperçu d'une session au survol du titre : exercices dans l'ordre, avec leur durée */
@@ -3727,3 +3680,81 @@ button.metro-play-btn-big { height: 44px; margin-top: 10px; font-size: var(--fs-
     --fit: calc((100cqw - (var(--pad-g, 4) - 1) * 8px - (var(--pad-n, 4) - var(--pad-g, 4)) * 3px) / var(--pad-n, 4));
     flex: none; width: clamp(12px, var(--fit), 26px); min-width: 0; height: auto; aspect-ratio: 1 / 1;
 }
+
+/* ---------- horloge de la barre du haut (en session) ---------- */
+.top-clock { flex: none; display: inline-flex; align-items: center; height: 34px; padding: 0 10px; font-size: var(--fs-md); font-weight: 700; letter-spacing: .02em; font-variant-numeric: tabular-nums; color: var(--text-muted); white-space: nowrap; }
+.top-clock[hidden] { display: none; }
+
+/* ---------- fenêtre « Tirage de gamme » (le dé) : outil Gammes et pas d'une session ---------- */
+.backups-panel.dice-panel { width: min(680px, calc(100vw - 24px)); height: min(740px, calc(100vh - 24px)); max-height: calc(100vh - 16px); padding: 12px 16px 14px; gap: 10px; overflow: hidden; text-align: left; }
+.dice-head { flex: none; display: flex; align-items: center; gap: 10px; }
+.dice-title { flex: 1; min-width: 0; }
+button.dice-close { flex: none; width: 28px; height: 28px; padding: 0; color: var(--text-muted); }
+.dice-result { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: rgba(var(--ov), .04); text-align: center; }
+.dice-result-main { font-size: var(--fs-xl); font-weight: 800; color: var(--accent); min-height: 1.3em; overflow-wrap: anywhere; }
+.dice-result-main.dice-result-empty { color: var(--text-muted); font-size: var(--fs-md); font-weight: 600; }
+.dice-result-notes { min-height: 1.2em; font-size: var(--fs-sm); color: var(--text-muted); overflow-wrap: anywhere; }
+.dice-go-row { display: flex; justify-content: center; gap: 8px; }
+button.dice-go { flex: 1 1 auto; max-width: 320px; height: 42px; font-size: var(--fs-md); font-weight: 800; gap: 8px; }
+button.dice-go .icon { width: 20px; height: 20px; }
+button.dice-view { height: 42px; padding: 0 14px; font-size: var(--fs-sm); }
+.dice-count { font-size: var(--fs-xs); color: var(--text-muted); }
+.dice-count-bad { color: var(--c-red-text, #ff6b6b); }
+.dice-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; padding-right: 4px; }
+.dice-sec { display: flex; flex-direction: column; gap: 8px; }
+.dice-sec-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.dice-sec-title { font-size: var(--fs-2xs); font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); }
+.dice-sec-note { font-size: var(--fs-xs); line-height: 1.4; color: var(--text-muted); }
+.dice-links { display: inline-flex; gap: 12px; margin-left: auto; }
+.dice-links button, button.dice-links-solo { padding: 0; background: none; border: none; font: inherit; font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.dice-links button:hover, button.dice-links-solo:hover { color: var(--accent); }
+.dice-one-count { margin-left: auto; font-size: var(--fs-xs); color: var(--accent); }
+.dice-group { margin-top: 2px; font-size: var(--fs-2xs); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
+.dice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 10px; }
+.dice-grid-scales { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+button.dice-opt { display: flex; align-items: center; justify-content: flex-start; gap: 8px; width: 100%; box-sizing: border-box; padding: 6px 8px; background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--text-main); font: inherit; font-size: var(--fs-sm); text-align: left; }
+button.dice-opt:hover { background: rgba(var(--ov), .06); border-color: transparent; }
+.dice-box { flex: none; width: 18px; height: 18px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; border: 1.5px solid var(--text-muted); border-radius: 5px; font-size: 12px; font-weight: 900; color: transparent; }
+.dice-opt-on .dice-box { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.dice-name { min-width: 0; font-weight: 600; }
+.dice-hint { min-width: 0; max-width: 55%; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--text-muted); }
+button.dice-opt-small .dice-name { font-size: var(--fs-xs); line-height: 1.2; }
+.dice-alt-row { display: flex; align-items: center; gap: 14px; }
+.dice-alt-sel { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--text-muted); }
+.dice-alt-sel select { width: 64px; min-width: 0; }
+.dice-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+button.dice-preset { height: 28px; padding: 0 12px; font-size: var(--fs-xs); font-weight: 600; }
+button.dice-preset-on { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.dice-keys { display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); grid-template-rows: auto auto; gap: 6px 0; max-width: 440px; }
+button.dice-key { justify-content: center; height: 32px; padding: 0; border-color: var(--border); }
+button.dice-key .dice-box { display: none; }
+button.dice-key.dice-opt-on { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); color: var(--accent); }
+.dice-hist-list { display: flex; flex-direction: column; max-height: 180px; overflow-y: auto; }
+button.dice-hist-item { display: flex; align-items: baseline; justify-content: flex-start; gap: 8px; width: 100%; box-sizing: border-box; padding: 5px 6px; background: transparent; border: none; border-radius: var(--radius-sm); color: var(--text-main); font: inherit; font-size: var(--fs-sm); text-align: left; }
+button.dice-hist-item:hover { background: rgba(var(--ov), .06); }
+.dice-hist-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dice-hist-kind { flex: none; font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; }
+button.dice-remove { align-self: flex-start; padding: 0; background: none; border: none; font-size: var(--fs-xs); color: var(--c-red-text, #ff6b6b); text-decoration: underline; text-underline-offset: 2px; }
+@media (max-width: 520px) { .dice-grid, .dice-grid-scales { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ---------- dé de gamme dans une session ---------- */
+.gs-run-timer-row { display: flex; align-items: center; justify-content: center; gap: 16px; }
+button.gs-run-dice { flex: none; width: 46px; height: 46px; padding: 0; border-radius: 12px; color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+button.gs-run-dice .icon { width: 26px; height: 26px; }
+button.gs-run-dice:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); border-color: var(--accent); }
+.gs-run-dice-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 12px; margin: -4px 0 14px; text-align: center; }
+.gs-run-dice-result { font-size: var(--fs-lg); font-weight: 800; color: var(--accent); }
+.gs-run-dice-empty { font-size: var(--fs-sm); font-weight: 600; color: var(--text-muted); }
+.gs-run-dice-notes { font-size: var(--fs-xs); color: var(--text-muted); }
+button.gs-run-dice-mini { height: 26px; padding: 0 10px; font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); }
+button.gs-run-dice-add { display: inline-flex; align-items: center; justify-content: center; height: var(--gs-btn-h, 44px); padding: 0; color: var(--text-muted); }
+button.gs-run-dice-add .icon { width: 20px; height: 20px; }
+button.gs-run-dice-add:hover { color: var(--accent); border-color: var(--accent); }
+button.gs-step-dice { flex: none; width: 30px; height: 30px; margin-right: 6px; padding: 0; color: var(--text-muted); border-color: transparent; background: transparent; }
+button.gs-step-dice .icon { width: 17px; height: 17px; }
+button.gs-step-dice:hover { color: var(--accent); }
+button.gs-step-dice.gs-step-dice-on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+/* un menu ou une fenêtre posés par-dessus un manche ou un clavier : fond plein, jamais translucide (le dessin passait au travers) */
+html[data-glass="1"]:not([data-theme="light"]) { --glass-solid: #121c2b; }
+html[data-glass="1"][data-theme="light"] { --glass-solid: #ffffff; }
+html[data-glass="1"] :is(.dice-panel, .scales-picker, .tempo-pop, .gs-pop, .ctx-menu.ctx-over-modal) { background: var(--glass-solid); }
