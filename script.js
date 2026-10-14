@@ -5052,6 +5052,40 @@
         return wrap;
     }
 
+    // Sur téléphone (voir le CSS, @container exl), les vignettes de médias d'un exercice — liens, audio, images — se regroupent en UNE seule
+    // pastille « trombone » : la ligne garde de la place pour le titre au lieu de passer sur deux lignes. Un clic ouvre la liste de tout ce qui est joint.
+    // Hors téléphone, ce bouton est masqué et les vignettes habituelles restent affichées. Inutile (et absent) avec une seule vignette.
+    var MEDIA_GROUP_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.4 11.1-8.5 8.5a5.5 5.5 0 0 1-7.8-7.8l8.5-8.5a3.7 3.7 0 0 1 5.2 5.2l-8.5 8.5a1.8 1.8 0 0 1-2.6-2.6l7.8-7.8"/></svg>';
+    function appendMediaGroupButton(tools, ex) {
+        var vign = Array.prototype.filter.call(tools.children, function (c) { return c.classList && (c.classList.contains("exercise-link-quick") || c.classList.contains("exercise-image-quick")); });
+        if (vign.length < 2) return;
+        var links = ex.links || [], audios = (ex.files || []).filter(isAudioFile), others = (ex.files || []).filter(function (f) { return !isAudioFile(f); }), images = ex.images || [];
+        var n = links.length + audios.length + others.length + images.length;
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "exercise-media-group";
+        btn.innerHTML = MEDIA_GROUP_ICON_SVG + '<span class="exercise-media-count">' + n + "</span>";
+        var parts = [];
+        if (links.length) parts.push(links.length + " lien" + (links.length > 1 ? "s" : ""));
+        if (audios.length) parts.push(audios.length + " audio" + (audios.length > 1 ? "s" : ""));
+        if (others.length) parts.push(others.length + " fichier" + (others.length > 1 ? "s" : ""));
+        if (images.length) parts.push(images.length + " image" + (images.length > 1 ? "s" : ""));
+        btn.title = "Liens, audio et images de l'exercice : " + parts.join(", ");
+        btn.setAttribute("aria-label", btn.title);
+        btn.addEventListener("click", function (e) {
+            e.stopPropagation();
+            var items = [];
+            links.forEach(function (l) { items.push({ label: l.label || l.url, open: function () { openLinkSmart(l, ex); } }); });
+            audios.forEach(function (m) { items.push({ label: "♪ " + m.name, open: function () { openAudioWindow(m); } }); });
+            others.forEach(function (m) { items.push({ label: "📄 " + m.name, open: function () { fileOpenInTab(m); } }); });
+            images.forEach(function (m, i) { items.push({ label: "▣ " + (m.name || "Image " + (i + 1)), open: function () { openExerciseImageInTab(m); } }); });
+            var rect = btn.getBoundingClientRect();
+            openLinksQuickMenu(rect.right - 200, rect.bottom, items);
+        });
+        var first = vign[0];
+        vign.forEach(function (c) { c.classList.add("exercise-media-sep"); });
+        tools.insertBefore(btn, first);
+    }
     // Pastilles et boutons de droite de la ligne d'un exercice (liens, audio, notes, images, tempo, ✕) : reconstruits tels quels quand les
     // médias changent (voir refreshExerciseMedia).
     function fillExerciseTools(tools, folder, ex) {
@@ -5066,6 +5100,7 @@
             tools.appendChild(noteMark);
         }
         appendExerciseImageButton(tools, ex);
+        appendMediaGroupButton(tools, ex);
         appendExerciseLinkBadge(tools, ex);
         var tempoChip = buildTempoChip({
             title: ex.title,
@@ -7034,17 +7069,25 @@
     (window.requestIdleCallback || function (f) { setTimeout(f, 60); })(loadFirebaseThenInit, { timeout: 1500 });
 
     // ---------- horloge ----------
-    // L'heure actuelle, discrète, dans la barre du haut pendant une session (guidée ou libre) : sur grand écran, rien d'autre
-    // n'indique l'heure. Visible dès qu'on est dans le mode session ou qu'un entraînement libre est en cours.
+    // L'heure et la date du jour, toujours visibles tout en haut de l'appli (partout, session ou non) : petite, en retrait, avec un cadran
+    // de pendule et un texte fin — pour ne pas la confondre avec le chronomètre (gros chiffres, logo de chrono).
     (function () {
         var el = document.getElementById("top-clock"), last = "";
         if (!el) return;
+        var elDate = el.querySelector(".top-clock-date"), elTime = el.querySelector(".top-clock-time");
+        var DAYS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
+        var MONTHS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+        var DAYS_S = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."], MONTHS_S = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
+        function p2(n) { return (n < 10 ? "0" : "") + n; }
         function tick() {
-            var show = !!(guidedSessionViewActive || freeRun || gsRunSession);
-            if (el.hidden === show) el.hidden = !show;
-            if (!show) return;
-            var d = new Date(), t = (d.getHours() < 10 ? "0" : "") + d.getHours() + ":" + (d.getMinutes() < 10 ? "0" : "") + d.getMinutes();
-            if (t !== last) { last = t; el.textContent = t; }
+            var d = new Date(), t = p2(d.getHours()) + ":" + p2(d.getMinutes()) + "|" + d.getDate();
+            if (t === last) return;
+            last = t;
+            elTime.textContent = p2(d.getHours()) + ":" + p2(d.getMinutes());
+            var day = DAYS[d.getDay()], mon = MONTHS[d.getMonth()];
+            elDate.textContent = DAYS_S[d.getDay()] + " " + d.getDate() + " " + MONTHS_S[d.getMonth()];
+            el.title = "Heure actuelle : " + day + " " + d.getDate() + " " + mon + " " + d.getFullYear() + ", " + elTime.textContent;
+            el.setAttribute("aria-label", el.title);
         }
         tick();
         setInterval(tick, 1000);
@@ -7787,6 +7830,7 @@
         "scales-panel": { w: 320, h: 200 },
         "dice-panel": { w: 320, h: 360 },
         "folder-picker-panel": { w: 280, h: 280 },
+        "recorder-panel": { w: 300, h: 260 },
         "audio-panel": { w: 190, h: 100 }
     };
     function basePanelMinSize(kind) {
@@ -8161,6 +8205,10 @@
                 // bouton « + » d'ajout ; il reste ouvert pendant qu'on navigue.
                 left = 16;
                 top = Math.max(8, window.innerHeight - h - 16);
+            } else if (panelKind === "recorder-panel") {
+                // Enregistreur : en haut à droite, sous la barre d'outils, pour laisser voir l'exercice dans lequel on range.
+                left = Math.max(8, window.innerWidth - w - 16);
+                top = Math.max(8, Math.min(136, window.innerHeight - h - 8));
             } else if (panelKind === "dice-panel") {
                 // Fenêtre du dé : à droite, pour laisser voir le manche (ou le chrono) qu'elle commande ; ensuite, là où on l'a mise.
                 left = Math.max(8, window.innerWidth - w - 16);
@@ -8939,8 +8987,22 @@
         var cur = cfg.get();
         var inh = cfg.inherited ? cfg.inherited() : null;
         var base = cur || inh;
+        var tg = base ? metroProgressiveTarget(base) : null;
         return {
             cur: cur, eff: base,
+            target: tg && tg.limit > 0 ? tg.limit : 0, // tempo progressif avec seuil : c'est le seuil (dernier palier) qu'on affiche, pas le tempo de départ
+            setTarget: function (n) {
+                if (!n) { if (cur) cfg.set(null); return; }
+                n = Math.min(300, Math.max(30, n));
+                var p = base ? cloneJson(base) : blankMetroPreset(n), pr = p.progressive;
+                if (!pr || !pr.enabled) p.bpm = n;
+                else if (pr.stagesMode && pr.stages && pr.stages.length) {
+                    var top = pr.stages.reduce(function (a, b) { return b.until > a.until ? b : a; });
+                    top.until = n;
+                    if (pr.limitBpm > 0) pr.limitBpm = n;
+                } else pr.limitBpm = n;
+                cfg.set(p);
+            },
             setBpm: function (n) {
                 if (!n) { if (cur) cfg.set(null); return; }
                 var p = base ? cloneJson(base) : blankMetroPreset(n);
@@ -8960,10 +9022,10 @@
         inp.min = "30"; inp.max = "300";
         inp.className = className;
         inp.placeholder = "—";
-        inp.value = act.eff ? act.eff.bpm : "";
-        inp.title = "Tempo cible : glisser vers le haut/bas, molette ou saisie";
+        inp.value = act.eff ? (act.target || act.eff.bpm) : "";
+        inp.title = act.target ? "Tempo cible = seuil du tempo progressif (départ : " + act.eff.bpm + " BPM) : glisser vers le haut/bas, molette ou saisie" : "Tempo cible : glisser vers le haut/bas, molette ou saisie";
         bindScrubInput(inp, 30, 300, { pxPerStep: 5, wheel: true, emptyStart: 100 });
-        inp.addEventListener("change", function () { act.setBpm(parseInt(inp.value, 10) || 0); });
+        inp.addEventListener("change", function () { var n = parseInt(inp.value, 10) || 0; if (act.target) act.setTarget(n); else act.setBpm(n); });
         return inp;
     }
 
@@ -9066,7 +9128,7 @@
         lab.className = "metro-preset-label";
         lab.textContent = "Tempo cible";
         var applied = false;
-        var inp = tempoInput({ eff: act.eff, setBpm: function (n) { if (applied) return; applied = true; close(); act.setBpm(n); } }, "metro-preset-bpm");
+        var inp = tempoInput({ eff: act.eff, target: act.target, setBpm: function (n) { if (applied) return; applied = true; close(); act.setBpm(n); }, setTarget: function (n) { if (applied) return; applied = true; close(); act.setTarget(n); } }, "metro-preset-bpm");
         var unit = document.createElement("span");
         unit.className = "metro-preset-unit";
         unit.textContent = "BPM";
@@ -11361,6 +11423,342 @@
         });
     }
 
+    // ---------- enregistreur rapide ----------
+    // Enregistre ce que capte le micro ou la carte son (choix de l'entrée), avec le métronome en fond si on veut (et, en option, son clic dans
+    // l'enregistrement). À l'arrêt : on nomme la prise, puis on la range — dans l'exercice en cours (celui de la session, du chrono libre ou
+    // ouvert à l'écran : sans rien chercher dans les dossiers), dans un autre exercice, ou dans un NOUVEL exercice d'un dossier au choix.
+    // L'enregistrement continue même fenêtre fermée (le bouton de la barre clignote) ; une prise non rangée est gardée, même si l'appli se
+    // ferme, jusqu'à ce qu'on la range ou la supprime. Le fichier est une pièce jointe audio comme les autres (lecteur, renommer, cloud).
+    var REC_KEYS = { device: "trainhub.recDevice.v1", dest: "trainhub.recDest.v1", auto: "trainhub.recAuto.v1", metro: "trainhub.recMetro.v1", click: "trainhub.recClick.v1", pending: "trainhub.recPending.v1" };
+    function recPref(k, d) { try { var v = localStorage.getItem(REC_KEYS[k]); return v === null ? d : v; } catch (e) { return d; } }
+    function recSetPref(k, v) { try { localStorage.setItem(REC_KEYS[k], v); } catch (e) {} }
+    var REC_PENDING_BLOB = "rec-pending";
+    var REC_MIC_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8.5" y="2.5" width="6" height="11" rx="3"/><path d="M4.5 11a7 7 0 0 0 13 3.6"/><path d="M11.5 18v3.5"/><path d="M8.5 21.5h6"/><circle cx="19" cy="5.5" r="2.3" fill="#ff5252" stroke="none"/></svg>';
+    var rec = { phase: "idle", stream: null, ctx: null, analyser: null, src: null, mr: null, chunks: [], startedAt: 0, ms: 0, timer: null, mime: "", take: null, startedMetro: false, clickDest: null,
+        dest: { mode: "", exId: null, folderId: null }, destAtStart: null, error: "", listeners: [], panelClose: null, meterRaf: null };
+    function recEmit() {
+        var b = document.getElementById("rec-btn");
+        if (b) { b.classList.toggle("rec-live", rec.phase === "recording"); b.classList.toggle("active", !!rec.panelClose); b.classList.toggle("rec-pending", rec.phase === "review"); }
+        rec.listeners.slice().forEach(function (fn) { try { fn(); } catch (e) {} });
+    }
+    function recSupported() { return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder); }
+    function recPickMime() {
+        var c = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"];
+        for (var i = 0; i < c.length; i++) { try { if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(c[i])) return c[i]; } catch (e) {} }
+        return "";
+    }
+    function recExt(mime) { return /mp4/.test(mime) ? ".m4a" : /ogg/.test(mime) ? ".ogg" : ".webm"; }
+    function recFmtTime(ms) { var t = Math.floor(ms / 1000), m = Math.floor(t / 60), sc = t % 60; return (m < 10 ? "0" : "") + m + ":" + (sc < 10 ? "0" : "") + sc; }
+    function recDevices() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return Promise.resolve([]);
+        return navigator.mediaDevices.enumerateDevices().then(function (list) {
+            var n = 0;
+            return list.filter(function (d) { return d.kind === "audioinput"; }).map(function (d) { n++; return { id: d.deviceId, label: d.label ? describeAudioSource(d.label) : "Entrée audio " + n }; });
+        }, function () { return []; });
+    }
+    // L'exercice « en cours » : celui de la session guidée, du chrono libre ou ouvert à l'écran principal — sinon, le dernier touché encore déplié.
+    function recContextExercise() {
+        var f = null;
+        if (gsRunSession && gsRunSession.steps[gsRunStepIndex]) f = findExerciseById(gsRunSession.steps[gsRunStepIndex].exerciseId);
+        if (!f && freeRun && freeRun.cur) f = findExerciseById(freeRun.cur);
+        if (!f) { var vid = freeVisibleExercise(); if (vid) f = findExerciseById(vid); }
+        if (!f && lastTouchedExerciseId) { var g = findExerciseById(lastTouchedExerciseId); if (g && !g.ex.collapsed) f = g; }
+        return f;
+    }
+    // Où la prise sera rangée d'après le choix courant : { kind: "ex", f } | { kind: "folder", folder } | null (« me demander »).
+    function recResolveTarget(dest) {
+        dest = dest || rec.dest;
+        if (dest.mode === "ctx") { var c = (dest.ctx && findExerciseById(dest.ctx)) || recContextExercise(); return c ? { kind: "ex", f: c } : null; } // dest.ctx : l'exercice en cours AU DÉPART de la prise
+        if (dest.mode === "pick" && dest.exId) { var f = findExerciseById(dest.exId); return f ? { kind: "ex", f: f } : null; }
+        if (dest.mode === "folder" && dest.folderId) { var fo = findFolderById(getActiveInstrument(), dest.folderId); return fo ? { kind: "folder", folder: fo } : null; }
+        return null;
+    }
+    function recCloseStream() {
+        if (rec.meterRaf) { cancelAnimationFrame(rec.meterRaf); rec.meterRaf = null; }
+        if (rec.stream) { rec.stream.getTracks().forEach(function (t) { t.stop(); }); rec.stream = null; }
+        if (rec.src) { try { rec.src.disconnect(); } catch (e) {} rec.src = null; }
+        if (rec.ctx) { try { rec.ctx.close(); } catch (e) {} rec.ctx = null; }
+        rec.analyser = null;
+    }
+    function recOpenStream() {
+        recCloseStream();
+        rec.error = "";
+        if (!recSupported()) { rec.error = "Cet appareil ou ce navigateur ne permet pas d'enregistrer le son."; recEmit(); return Promise.resolve(false); }
+        var dev = recPref("device", "");
+        var audio = { echoCancellation: false, noiseSuppression: false, autoGainControl: false }; // son brut : on enregistre un instrument, pas une conversation
+        if (dev) audio.deviceId = { exact: dev };
+        return navigator.mediaDevices.getUserMedia({ audio: audio }).then(function (stream) {
+            rec.stream = stream;
+            rec.ctx = new (window.AudioContext || window.webkitAudioContext)();
+            try { rec.ctx.resume(); } catch (e) {}
+            rec.src = rec.ctx.createMediaStreamSource(stream);
+            rec.analyser = rec.ctx.createAnalyser(); rec.analyser.fftSize = 1024;
+            rec.src.connect(rec.analyser);
+            if (rec.phase !== "review" && rec.phase !== "recording") rec.phase = "armed";
+            recEmit();
+            return true;
+        }).catch(function (err) {
+            if (dev && err && (err.name === "OverconstrainedError" || err.name === "NotFoundError")) { recSetPref("device", ""); return recOpenStream(); } // l'entrée choisie n'est plus là
+            rec.error = "Accès au micro / à la carte son refusé ou indisponible (" + (err && err.name || "erreur") + ").";
+            rec.phase = rec.phase === "review" ? "review" : "idle";
+            recEmit();
+            return false;
+        });
+    }
+    function recStart() {
+        if (rec.phase !== "armed" || !rec.stream) return;
+        var mime = recPickMime(), srcStream = rec.stream, withMetro = recPref("metro", "0") === "1", withClick = withMetro && recPref("click", "0") === "1";
+        rec.chunks = []; rec.mime = mime; rec.clickDest = null; rec.startedMetro = false;
+        try {
+            if (withMetro) {
+                ensureMetroAudio(true);
+                if (withClick && metroAudioCtx && metroMasterGain && metroAudioCtx.createMediaStreamDestination) { // le clic rejoint l'enregistrement : mélange micro + métronome
+                    var md = metroAudioCtx.createMediaStreamDestination();
+                    metroMasterGain.connect(md);
+                    var dest = rec.ctx.createMediaStreamDestination();
+                    rec.src.connect(dest);
+                    rec.ctx.createMediaStreamSource(md.stream).connect(dest);
+                    rec.clickDest = md; srcStream = dest.stream;
+                }
+                if (!metroPlaying) { if (metroPanelApi && metroPanelApi.toggle) metroPanelApi.toggle(); else startMetronome(); rec.startedMetro = metroPlaying; } // via le panneau du métronome s'il est ouvert : son bouton suit
+            }
+            rec.mr = mime ? new MediaRecorder(srcStream, { mimeType: mime }) : new MediaRecorder(srcStream);
+        } catch (e) { rec.error = "Impossible de démarrer l'enregistrement (" + (e && e.name || "erreur") + ")."; recEmit(); return; }
+        rec.mime = rec.mr.mimeType || mime || "audio/webm";
+        rec.mr.ondataavailable = function (ev) { if (ev.data && ev.data.size) rec.chunks.push(ev.data); };
+        rec.mr.onstop = function () { recFinish(); };
+        rec.destAtStart = { mode: rec.dest.mode, exId: rec.dest.exId, folderId: rec.dest.folderId, ctx: (function () { var c = recContextExercise(); return c ? c.ex.id : null; })() };
+        rec.startedAt = Date.now(); rec.ms = 0;
+        rec.mr.start(1000);
+        rec.phase = "recording";
+        rec.timer = setInterval(function () { rec.ms = Date.now() - rec.startedAt; recEmit(); }, 250);
+        recEmit();
+    }
+    function recStop() {
+        if (rec.phase !== "recording" || !rec.mr) return;
+        rec.ms = Date.now() - rec.startedAt;
+        clearInterval(rec.timer); rec.timer = null;
+        rec.phase = "finishing";
+        try { rec.mr.stop(); } catch (e) { recFinish(); }
+        if (rec.startedMetro && metroPlaying) { if (metroPanelApi && metroPanelApi.toggle) metroPanelApi.toggle(); else stopMetronome(); }
+        rec.startedMetro = false;
+        if (rec.clickDest) { try { metroMasterGain.disconnect(rec.clickDest); } catch (e) {} rec.clickDest = null; }
+        recEmit();
+    }
+    function recFinish() {
+        var blob = new Blob(rec.chunks, { type: rec.mime || "audio/webm" });
+        rec.chunks = []; rec.mr = null;
+        if (!blob.size) { rec.phase = rec.stream ? "armed" : "idle"; rec.error = "Rien n'a été enregistré."; recEmit(); return; }
+        var d = new Date(), p2 = function (n) { return (n < 10 ? "0" : "") + n; };
+        var mons = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
+        rec.take = { blob: blob, mime: (rec.mime || blob.type).split(";")[0], ms: rec.ms, name: "Enregistrement " + d.getDate() + " " + mons[d.getMonth()] + " " + p2(d.getHours()) + ":" + p2(d.getMinutes()), at: Date.now() };
+        rec.phase = "review";
+        // gardée même si l'appli se ferme avant qu'on la range
+        storeFileBlob(REC_PENDING_BLOB, blob).then(function () { recSetPref("pending", JSON.stringify({ name: rec.take.name, mime: rec.take.mime, ms: rec.take.ms, at: rec.take.at, size: blob.size })); }, function () {});
+        recEmit();
+        // « ranger sans demander » : la prise part tout de suite dans la destination choisie au départ
+        if (recPref("auto", "0") === "1" && recResolveTarget(rec.dest)) recSave(rec.take.name, true);
+    }
+    function recClearPending() { recSetPref("pending", ""); try { localStorage.removeItem(REC_KEYS.pending); } catch (e) {} deleteFileBlob(REC_PENDING_BLOB); }
+    function recDiscard() {
+        rec.take = null;
+        rec.phase = rec.stream ? "armed" : "idle";
+        recClearPending();
+        recEmit();
+    }
+    // Reprise d'une prise non rangée restée d'une séance précédente.
+    function recRestorePending() {
+        if (rec.take || rec.phase === "recording" || rec.phase === "finishing") return Promise.resolve();
+        var meta = null;
+        try { meta = JSON.parse(localStorage.getItem(REC_KEYS.pending) || "null"); } catch (e) {}
+        if (!meta || !meta.name) return Promise.resolve();
+        return getFileBlob(REC_PENDING_BLOB).then(function (blob) {
+            if (!blob) { recClearPending(); return; }
+            rec.take = { blob: blob, mime: meta.mime || blob.type, ms: meta.ms || 0, name: meta.name, at: meta.at || Date.now() };
+            rec.phase = "review"; recEmit();
+        }, function () {});
+    }
+    // Range la prise : pièce jointe audio de l'exercice visé, ou d'un nouvel exercice créé dans le dossier visé.
+    function recSave(name, quiet) {
+        var take = rec.take, target = recResolveTarget(quiet && rec.destAtStart ? rec.destAtStart : rec.dest);
+        if (!take) return;
+        if (!target) { showToast("Choisis où ranger l'enregistrement (un exercice, ou un dossier).", 4000); return; }
+        name = (name || take.name || "Enregistrement").trim().slice(0, 80) || "Enregistrement";
+        var file;
+        try { file = new File([take.blob], name + recExt(take.mime), { type: take.mime }); } catch (e) { file = take.blob; file.name = name + recExt(take.mime); }
+        var ex = target.kind === "ex" ? target.f.ex : { id: uid(), title: name, notes: "", favorite: false, archived: false, links: [], files: [], tempoGoal: false, collapsed: true, updatedAt: Date.now() };
+        return attachFileToExercise(ex, file, name).then(function (meta) {
+            if (target.kind === "folder") target.folder.exercises.push(ex);
+            exerciseMediaTab[ex.id] = "links";
+            touchExercise(ex);
+            save();
+            if (target.kind === "ex") refreshExerciseMedia(ex); else render();
+            var where = target.kind === "ex" ? "« " + ex.title + " »" : "le dossier « " + target.folder.name + " » (nouvel exercice)";
+            rec.take = null; rec.phase = rec.stream ? "armed" : "idle";
+            recClearPending();
+            recEmit();
+            showToast("Enregistré dans " + where + " : « " + name + " ».", 6000, { label: "Écouter", run: function () { openAudioWindow(meta); } });
+        }, function () {
+            dlgAlert({ title: "Enregistrement non rangé", message: "Stockage plein, ou navigation privée activée sur cet appareil. La prise reste ici : tu peux réessayer." });
+        });
+    }
+    window.addEventListener("beforeunload", function () { if (rec.phase === "recording") { try { rec.mr.stop(); } catch (e) {} } });
+
+    function openRecorderPanel() {
+        if (rec.panelClose) { rec.panelClose(); return; }
+        var closeFn = openModal("recorder-panel", function (panel, close) {
+            function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+            var head = el("div", "backups-title rec-title");
+            head.appendChild(el("span", "rec-title-ico")); head.firstChild.innerHTML = REC_MIC_SVG;
+            head.appendChild(el("span", "rec-title-text", "Enregistreur"));
+            var x = el("button", "btn-ghost rec-close", "✕"); x.type = "button"; x.title = "Fermer (un enregistrement en cours continue)"; x.setAttribute("aria-label", "Fermer l'enregistreur");
+            x.addEventListener("click", function () { close(); });
+            head.appendChild(x);
+            panel.appendChild(head);
+
+            // -- entrée (micro / carte son)
+            var srcRow = el("label", "rec-row"); srcRow.appendChild(el("span", "rec-lab", "Entrée"));
+            var srcSel = el("select", "rec-select"); srcSel.setAttribute("aria-label", "Entrée audio (micro ou carte son)");
+            srcRow.appendChild(srcSel); panel.appendChild(srcRow);
+            function fillDevices() {
+                recDevices().then(function (list) {
+                    var cur = recPref("device", "");
+                    srcSel.innerHTML = "";
+                    var d0 = el("option", "", "Entrée par défaut du système"); d0.value = ""; srcSel.appendChild(d0);
+                    list.forEach(function (d) { if (!d.id || d.id === "default") return; var o = el("option", "", d.label); o.value = d.id; srcSel.appendChild(o); });
+                    srcSel.value = cur; if (srcSel.value !== cur) srcSel.value = "";
+                });
+            }
+            srcSel.addEventListener("change", function () { recSetPref("device", srcSel.value); if (rec.phase !== "recording" && rec.phase !== "finishing") recOpenStream().then(fillDevices); });
+
+            // -- métronome en fond
+            var mRow = el("div", "rec-row rec-metro-row");
+            var mLab = el("label", "rec-check"); var mCb = el("input"); mCb.type = "checkbox"; mCb.checked = recPref("metro", "0") === "1";
+            mLab.appendChild(mCb); mLab.appendChild(el("span", "", "Métronome en fond"));
+            var bpmIn = el("input", "rec-bpm"); bpmIn.type = "number"; bpmIn.min = "30"; bpmIn.max = "300"; bpmIn.value = String(state.settings.metronome.bpm); bpmIn.setAttribute("aria-label", "Tempo du métronome (BPM)");
+            bindScrubInput(bpmIn, 30, 300, { pxPerStep: 5, wheel: true, emptyStart: 100 });
+            bpmIn.addEventListener("change", function () { var n = Math.min(300, Math.max(30, parseInt(bpmIn.value, 10) || state.settings.metronome.bpm)); bpmIn.value = String(n); state.settings.metronome.bpm = n; saveSoon(); if (metroTempoCallback) metroTempoCallback(); });
+            var mUnit = el("span", "rec-unit", "BPM");
+            mRow.appendChild(mLab); mRow.appendChild(bpmIn); mRow.appendChild(mUnit);
+            panel.appendChild(mRow);
+            var cRow = el("div", "rec-row rec-click-row");
+            var cLab = el("label", "rec-check"); var cCb = el("input"); cCb.type = "checkbox"; cCb.checked = recPref("click", "0") === "1";
+            cLab.appendChild(cCb); cLab.appendChild(el("span", "", "Garder le clic dans l'enregistrement"));
+            cRow.appendChild(cLab); cRow.appendChild(el("span", "rec-hint", "Sinon, il ne sert que de guide (casque conseillé)."));
+            panel.appendChild(cRow);
+            function paintMetro() { cRow.hidden = !mCb.checked; bpmIn.disabled = !mCb.checked; }
+            mCb.addEventListener("change", function () { recSetPref("metro", mCb.checked ? "1" : "0"); paintMetro(); });
+            cCb.addEventListener("change", function () { recSetPref("click", cCb.checked ? "1" : "0"); });
+            paintMetro();
+
+            // -- où ranger
+            var dRow = el("label", "rec-row"); dRow.appendChild(el("span", "rec-lab", "Ranger dans"));
+            var dSel = el("select", "rec-select rec-dest"); dSel.setAttribute("aria-label", "Où ranger l'enregistrement");
+            dRow.appendChild(dSel); panel.appendChild(dRow);
+            var aRow = el("div", "rec-row rec-auto-row");
+            var aLab = el("label", "rec-check"); var aCb = el("input"); aCb.type = "checkbox"; aCb.checked = recPref("auto", "0") === "1";
+            aLab.appendChild(aCb); aLab.appendChild(el("span", "", "Ranger sans demander à l'arrêt"));
+            aRow.appendChild(aLab); panel.appendChild(aRow);
+            aCb.addEventListener("change", function () { recSetPref("auto", aCb.checked ? "1" : "0"); });
+            if (!rec.dest.mode) rec.dest.mode = recPref("dest", "ctx");
+            function paintDest() {
+                var ctx = recContextExercise(), pickF = rec.dest.exId ? findExerciseById(rec.dest.exId) : null, fo = rec.dest.folderId ? findFolderById(getActiveInstrument(), rec.dest.folderId) : null;
+                dSel.innerHTML = "";
+                function opt(v, t) { var o = el("option", "", t); o.value = v; dSel.appendChild(o); }
+                opt("ctx", ctx ? "Exercice en cours : « " + ctx.ex.title + " »" : "Exercice en cours (aucun d'ouvert)");
+                opt("pick", pickF ? "Un exercice : « " + pickF.ex.title + " »" : "Un autre exercice…");
+                opt("folder", fo ? "Nouvel exercice dans « " + fo.name + " »" : "Nouvel exercice dans un dossier…");
+                opt("ask", "Me demander à la fin");
+                dSel.value = rec.dest.mode;
+                aRow.hidden = !recResolveTarget(rec.dest);
+            }
+            dSel.addEventListener("change", function () {
+                var v = dSel.value, prev = rec.dest.mode;
+                if (v === "pick") openExercisePickerModal("Ranger l'enregistrement dans…", { onCancel: function () { rec.dest.mode = prev; paintDest(); } }, function (ex) { rec.dest.mode = "pick"; rec.dest.exId = ex.id; recSetPref("dest", "pick"); paintDest(); });
+                else if (v === "folder") openFolderPickerModal("Nouvel exercice dans quel dossier ?", [], function (folder) { rec.dest.mode = "folder"; rec.dest.folderId = folder.id; recSetPref("dest", "folder"); paintDest(); });
+                else { rec.dest.mode = v; recSetPref("dest", v); paintDest(); }
+            });
+
+            // -- enregistrement : bouton, durée, niveau
+            var main = el("div", "rec-main");
+            var go = el("button", "rec-go"); go.type = "button";
+            var timeEl = el("span", "rec-time", "00:00");
+            var meter = el("div", "rec-meter"); var fill = el("div", "rec-meter-fill"); meter.appendChild(fill);
+            main.appendChild(go); main.appendChild(timeEl); main.appendChild(meter);
+            panel.appendChild(main);
+            var msg = el("div", "rec-msg"); msg.setAttribute("role", "status"); panel.appendChild(msg);
+            go.addEventListener("click", function () { if (rec.phase === "recording") recStop(); else if (rec.phase === "armed") recStart(); else if (rec.phase === "idle") recOpenStream(); });
+
+            // -- la prise : écoute, nom, rangement
+            var take = el("div", "rec-take"); take.hidden = true;
+            var audio = el("audio", "rec-audio"); audio.controls = true; audio.preload = "metadata";
+            var nameIn = el("input", "rec-name"); nameIn.type = "text"; nameIn.maxLength = 80; nameIn.setAttribute("aria-label", "Nom de l'enregistrement"); nameIn.placeholder = "Nom de l'enregistrement";
+            var info = el("div", "rec-take-info");
+            var acts = el("div", "rec-take-acts");
+            var save = el("button", "btn-accent rec-save", "Enregistrer"); save.type = "button";
+            var del = el("button", "btn-ghost rec-del", "Supprimer"); del.type = "button";
+            acts.appendChild(del); acts.appendChild(save);
+            take.appendChild(audio); take.appendChild(nameIn); take.appendChild(info); take.appendChild(acts);
+            panel.appendChild(take);
+            var shownTake = null, audioUrl = null;
+            save.addEventListener("click", function () { recSave(nameIn.value); });
+            nameIn.addEventListener("keydown", function (e) { e.stopPropagation(); if (e.key === "Enter") { e.preventDefault(); recSave(nameIn.value); } });
+            del.addEventListener("click", function () { dlgConfirm({ title: "Supprimer cet enregistrement ?", message: (nameIn.value || "Enregistrement") + " · " + recFmtTime(rec.take ? rec.take.ms : 0), confirmLabel: "Supprimer", danger: true }, recDiscard); });
+
+            function paintLevel() {
+                if (!rec.analyser) { fill.style.width = "0%"; return; }
+                var buf = new Uint8Array(rec.analyser.fftSize); rec.analyser.getByteTimeDomainData(buf);
+                var peak = 0; for (var i = 0; i < buf.length; i++) { var v = Math.abs(buf[i] - 128) / 128; if (v > peak) peak = v; }
+                fill.style.width = Math.min(100, Math.round(Math.sqrt(peak) * 100)) + "%";
+                fill.classList.toggle("rec-hot", peak > 0.92);
+            }
+            function loop() { paintLevel(); rec.meterRaf = (rec.phase === "armed" || rec.phase === "recording") ? requestAnimationFrame(loop) : null; if (!rec.meterRaf) fill.style.width = "0%"; }
+            function paint() {
+                var ph = rec.phase, recording = ph === "recording", busy = ph === "recording" || ph === "finishing";
+                panel.classList.toggle("rec-is-live", recording);
+                go.className = "rec-go" + (recording ? " rec-go-stop" : "");
+                go.innerHTML = recording ? '<span class="rec-go-sq"></span>Arrêter' : '<span class="rec-go-dot"></span>' + (ph === "idle" ? "Activer l'entrée" : "Enregistrer");
+                go.disabled = ph === "finishing" || (ph === "review" && !rec.stream);
+                go.hidden = ph === "review";
+                timeEl.textContent = recFmtTime(recording || ph === "finishing" ? rec.ms : rec.take ? rec.take.ms : 0);
+                srcSel.disabled = busy; mCb.disabled = busy; cCb.disabled = busy; dSel.disabled = ph === "finishing";
+                msg.textContent = rec.error || (ph === "recording" ? "Enregistrement en cours — tu peux fermer cette fenêtre, il continue." : ph === "finishing" ? "Finalisation…" : ph === "armed" ? "Prêt : lance l'enregistrement quand tu veux." : ph === "idle" ? "Entrée audio éteinte." : "");
+                msg.classList.toggle("rec-msg-err", !!rec.error);
+                var showTake = ph === "review" && rec.take;
+                take.hidden = !showTake;
+                if (showTake && shownTake !== rec.take) {
+                    shownTake = rec.take;
+                    if (audioUrl) URL.revokeObjectURL(audioUrl);
+                    audioUrl = URL.createObjectURL(rec.take.blob); audio.src = audioUrl;
+                    nameIn.value = rec.take.name;
+                    info.textContent = recFmtTime(rec.take.ms) + " · " + fmtStorage(rec.take.blob.size) + (rec.take.blob.size > CLOUD_FILE_MAX_BYTES ? " — plus de 30 Mo : restera sur cet appareil" : "");
+                    setTimeout(function () { try { nameIn.focus(); nameIn.select(); } catch (e) {} }, 30);
+                }
+                if (!showTake) shownTake = null;
+                if ((ph === "armed" || recording) && !rec.meterRaf) loop();
+                paintDest();
+            }
+            rec.listeners.push(paint);
+            rec.panelClose = close;
+            recEmit();
+            fillDevices();
+            // à l'ouverture : l'entrée s'allume (comme l'accordeur) sauf si une prise ou un enregistrement est déjà là
+            recRestorePending().then(function () { if (rec.phase === "idle") recOpenStream().then(fillDevices); else fillDevices(); paint(); });
+            paint();
+            // le contexte peut changer (autre exercice ouvert) : le choix « exercice en cours » suit
+            var ctxTimer = setInterval(function () { if (rec.phase !== "recording" && rec.phase !== "finishing") paintDest(); }, 1500);
+            return function () {
+                clearInterval(ctxTimer);
+                rec.listeners = rec.listeners.filter(function (fn) { return fn !== paint; });
+                rec.panelClose = null;
+                if (audioUrl) URL.revokeObjectURL(audioUrl);
+                if (rec.phase === "armed" || rec.phase === "idle") { recCloseStream(); rec.phase = "idle"; }
+                recEmit();
+            };
+        }, { floating: true });
+        return closeFn;
+    }
+
     // ---------- paramètres généraux ----------
     // ---------- raccourcis et astuces (ampoule des paramètres) ----------
     var IS_APPLE = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
@@ -11417,6 +11815,114 @@
         });
     }
 
+    // Liste des fichiers de l'appli (audio, images et captures, PDF…) pour faire de la place : taille, exercice d'origine, présence sur cet appareil
+    // et dans le compte ; on peut libérer l'appareil (le fichier reste dans le compte, il se retélécharge au besoin) ou le supprimer pour de bon.
+    function openFilesPanel() {
+        openModal("gs-files-panel", function (panel, close) {
+            var head = document.createElement("div"); head.className = "backups-title gs-title-row";
+            var tt = document.createElement("span"); tt.className = "gs-title-text"; tt.textContent = "Fichiers de l'application";
+            var back = document.createElement("button"); back.type = "button"; back.className = "btn-ghost gs-files-back"; back.textContent = "← Paramètres";
+            back.addEventListener("click", function () { close(); openSettingsPanel(); });
+            head.appendChild(tt); head.appendChild(back);
+            panel.appendChild(head);
+            var sum = document.createElement("div"); sum.className = "gs-sync-intro gs-files-sum";
+            panel.appendChild(sum);
+            var bar = document.createElement("div"); bar.className = "gs-files-bar";
+            var tabs = document.createElement("div"); tabs.className = "gs-history-tabs"; tabs.setAttribute("role", "tablist");
+            var tab = "all", sortBy = "size", tabEls = {};
+            [["all", "Tout"], ["audio", "Audio"], ["image", "Images"], ["other", "PDF et autres"]].forEach(function (t) {
+                var b = document.createElement("button"); b.type = "button"; b.className = "gs-hist-tab"; b.dataset.tab = t[0]; b.setAttribute("role", "tab");
+                b.addEventListener("click", function () { tab = t[0]; fill(); });
+                tabs.appendChild(b); tabEls[t[0]] = b; b.__label = t[1];
+            });
+            var sortSel = document.createElement("select"); sortSel.className = "gs-files-sort"; sortSel.setAttribute("aria-label", "Trier les fichiers");
+            [["size", "Plus lourds d'abord"], ["name", "Nom"], ["exercise", "Exercice"], ["added", "Plus récents d'abord"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; sortSel.appendChild(op); });
+            sortSel.addEventListener("change", function () { sortBy = sortSel.value; fill(); });
+            bar.appendChild(tabs); bar.appendChild(sortSel);
+            panel.appendChild(bar);
+            var list = document.createElement("div"); list.className = "gs-sync-list gs-files-list";
+            panel.appendChild(list);
+            var local = {}; // id -> présent sur cet appareil ? (rempli de façon asynchrone)
+            function collect() {
+                var map = {}, order = [];
+                allAttachmentMetas().forEach(function (it) {
+                    var key = it.kind + ":" + it.meta.id, e = map[key];
+                    if (!e) { e = map[key] = { key: key, kind: it.kind, meta: it.meta, exs: [], trash: !!it.trash }; order.push(e); }
+                    if (it.ex && e.exs.indexOf(it.ex) === -1) e.exs.push(it.ex);
+                    if (!it.trash) e.trash = false;
+                });
+                return order;
+            }
+            function cat(e) { return e.kind === "image" ? "image" : isAudioFile(e.meta) ? "audio" : "other"; }
+            function where(e) { var f = e.exs[0] ? findExerciseById(e.exs[0].id) : null; return f ? f.pathNames.concat([f.ex.title]).join(" › ") : ""; }
+            function paintLocal(e, badge) {
+                var known = local[e.key];
+                badge.textContent = known === undefined ? "…" : known ? "sur cet appareil" : "pas sur cet appareil";
+                badge.classList.toggle("gs-files-off", known === false);
+            }
+            function fill() {
+                var all = collect(), rows = all.filter(function (e) { return tab === "all" || cat(e) === tab; });
+                var counts = { all: all.length, audio: 0, image: 0, other: 0 }, bytes = { all: 0 };
+                all.forEach(function (e) { counts[cat(e)]++; bytes.all += e.meta.size || 0; });
+                Object.keys(tabEls).forEach(function (k) { tabEls[k].textContent = tabEls[k].__label + " (" + counts[k] + ")"; tabEls[k].classList.toggle("active", tab === k); tabEls[k].setAttribute("aria-selected", tab === k ? "true" : "false"); });
+                sum.textContent = counts.all + " fichier" + (counts.all > 1 ? "s" : "") + " · " + fmtStorage(bytes.all) + " au total" + (rows.length !== all.length ? " · " + rows.length + " affiché" + (rows.length > 1 ? "s" : "") : "");
+                rows.sort(function (a, b) {
+                    if (sortBy === "name") return (a.meta.name || "").localeCompare(b.meta.name || "", "fr");
+                    if (sortBy === "exercise") return where(a).localeCompare(where(b), "fr");
+                    if (sortBy === "added") return (b.meta.addedAt || 0) - (a.meta.addedAt || 0);
+                    return (b.meta.size || 0) - (a.meta.size || 0);
+                });
+                list.innerHTML = "";
+                if (!rows.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Aucun fichier."; list.appendChild(none); return; }
+                rows.forEach(function (e) {
+                    var m = e.meta, box = document.createElement("div"); box.className = "gs-files-row"; box.dataset.id = m.id;
+                    var ic = document.createElement("span"); ic.className = "gs-files-ico"; ic.textContent = cat(e) === "audio" ? "♪" : cat(e) === "image" ? "▣" : "▤";
+                    var main = document.createElement("div"); main.className = "gs-files-main";
+                    var nm = document.createElement("span"); nm.className = "gs-files-name"; nm.textContent = m.name || (cat(e) === "image" ? "Image" : "Fichier"); nm.title = nm.textContent;
+                    var sub = document.createElement("span"); sub.className = "gs-files-sub";
+                    var w = e.trash ? "Corbeille" : where(e) + (e.exs.length > 1 ? " (+" + (e.exs.length - 1) + " copie" + (e.exs.length > 2 ? "s" : "") + " liée" + (e.exs.length > 2 ? "s" : "") + ")" : "");
+                    sub.textContent = w || "Sans exercice"; sub.title = sub.textContent;
+                    var badges = document.createElement("span"); badges.className = "gs-files-badges";
+                    var bl = document.createElement("span"); bl.className = "gs-files-badge"; paintLocal(e, bl);
+                    badges.appendChild(bl);
+                    if (m.cloud) { var bc = document.createElement("span"); bc.className = "gs-files-badge"; bc.textContent = "dans le compte"; badges.appendChild(bc); }
+                    main.appendChild(nm); main.appendChild(sub); main.appendChild(badges);
+                    var size = document.createElement("span"); size.className = "gs-files-size"; size.textContent = fmtStorage(m.size || 0);
+                    var acts = document.createElement("span"); acts.className = "gs-files-acts";
+                    var open = iconButton(cat(e) === "audio" ? "▶" : "↗", cat(e) === "audio" ? "Écouter" : "Ouvrir", function () {
+                        if (cat(e) === "audio") openAudioWindow(m); else if (e.kind === "image") openImageViewer([m], 0, false); else fileOpenInTab(m);
+                    });
+                    acts.appendChild(open);
+                    if (m.cloud && !e.trash) { // libère l'appareil sans rien perdre : le fichier reste dans le compte
+                        var free = iconButton("⇩", "Libérer de la place sur cet appareil (le fichier reste dans le compte et se retélécharge au besoin)", function () {
+                            deleteFileBlob(m.id).then(function () { if (e.kind === "image") delete imageUrlCache[m.id]; local[e.key] = false; paintLocal(e, bl); showToast("« " + (m.name || "Fichier") + " » retiré de cet appareil (gardé dans le compte)."); });
+                        });
+                        free.classList.add("gs-files-free"); acts.appendChild(free);
+                    }
+                    if (!e.trash) {
+                        var del = iconButton("✕", "Supprimer ce fichier de l'exercice, de l'appareil et du compte", function () {
+                            dlgConfirm({ title: "Supprimer « " + (m.name || "ce fichier") + " » ?", message: (where(e) ? where(e) + (e.exs.length > 1 ? " et ses copies liées" : "") + " · " : "") + fmtStorage(m.size || 0) + ". Il sera retiré de l'exercice, de cet appareil et du compte.", confirmLabel: "Supprimer", danger: true }, function () {
+                                e.exs.forEach(function (ex) {
+                                    if (e.kind === "image") ex.images = (ex.images || []).filter(function (x) { return x.id !== m.id; });
+                                    else ex.files = (ex.files || []).filter(function (x) { return x.id !== m.id; });
+                                });
+                                if (e.exs[0]) touchExercise(e.exs[0]); // d'abord : les exercices liés le perdent aussi
+                                deleteFileBlob(m.id);
+                                if (e.kind === "image") { cloudDeleteImage(m.id); delete imageUrlCache[m.id]; } else cloudDeleteFile(m);
+                                save(); fill(); render();
+                                showToast("Fichier supprimé : « " + (m.name || "") + " »");
+                            });
+                        });
+                        del.classList.add("gs-files-del"); acts.appendChild(del);
+                    }
+                    box.appendChild(ic); box.appendChild(main); box.appendChild(size); box.appendChild(acts);
+                    list.appendChild(box);
+                    if (local[e.key] === undefined) getFileBlob(m.id).then(function (b) { local[e.key] = !!b; paintLocal(e, bl); }, function () { local[e.key] = false; paintLocal(e, bl); });
+                });
+            }
+            fill();
+        });
+    }
     function openSettingsPanel() {
         openModal("settings-panel", function (panel) {
             var a = state.settings.appearance;
@@ -11755,6 +12261,7 @@
                 paintStorage();
                 syncFilesToCloud();
             }), "Réserve de la place aux autres applis du projet. Les nouveaux fichiers ne partent plus au-delà");
+            actionRow("Fichiers de l'application", "Audio, images, captures, PDF : taille, exercice, suppression pour faire de la place", openFilesPanel, "settings-files-btn");
             card("Sauvegarde");
             actionRow("Sauvegardes de secours", "Revenir à une version précédente de tes données", openBackupsPanel);
             actionRow("Exporter", "Télécharger tout dans un fichier JSON", function () { var t = document.getElementById("export-btn"); if (t) t.click(); });
@@ -12707,6 +13214,22 @@
         return set;
     }
 
+    // Onglets « Tous / ★ Favoris » des choix d'exercice : les favoris d'un coup d'œil, sans chercher dans les dossiers.
+    function buildPickTabs(inst, get, set, onChange) {
+        var nFav = collectExercises(inst, function (ex) { return !!ex.favorite && !ex.archived; }).length;
+        var bar = document.createElement("div");
+        bar.className = "gs-pick-tabs";
+        bar.setAttribute("role", "tablist");
+        [["all", "Tous"], ["fav", "★ Favoris (" + nFav + ")"]].forEach(function (t) {
+            var b = document.createElement("button");
+            b.type = "button"; b.className = "gs-pick-tab" + (get() === t[0] ? " active" : ""); b.dataset.tab = t[0]; b.textContent = t[1];
+            b.setAttribute("role", "tab"); b.setAttribute("aria-selected", get() === t[0] ? "true" : "false");
+            b.addEventListener("click", function () { set(t[0]); Array.prototype.forEach.call(bar.children, function (x) { var on = x.dataset.tab === t[0]; x.classList.toggle("active", on); x.setAttribute("aria-selected", on ? "true" : "false"); }); onChange(); });
+            bar.appendChild(b);
+        });
+        return bar;
+    }
+    var pickTabMem = "all"; // dernier onglet choisi (Tous / Favoris), retenu d'un choix d'exercice à l'autre
     // Fenêtre de choix d'un exercice (recherche + arborescence) : sert à « Remplacer partout par… ».
     function openExercisePickerModal(titleText, opts, onPick) {
         opts = opts || {};
@@ -12719,10 +13242,12 @@
             var search = document.createElement("input");
             search.type = "search"; search.className = "gs-pick-search"; search.placeholder = "Rechercher un exercice…"; search.setAttribute("aria-label", "Rechercher un exercice");
             panel.appendChild(search);
+            panel.appendChild(buildPickTabs(inst, function () { return pickTabMem; }, function (v) { pickTabMem = v; }, function () { refresh(); }));
             var wrap = document.createElement("div");
             wrap.className = "folder-picker-tree";
             panel.appendChild(wrap);
-            function choose(ex) { close(); onPick(ex); }
+            var chosen = false;
+            function choose(ex) { chosen = true; close(); onPick(ex); }
             function exButton(ex, pathNames, color) {
                 var b = document.createElement("button");
                 b.type = "button"; b.className = "gs-pick-exercise-row"; b.dataset.exId = ex.id;
@@ -12757,14 +13282,15 @@
             function refresh() {
                 wrap.innerHTML = "";
                 var q = search.value.trim().toLowerCase();
-                if (!q) { node(wrap, inst.categories, 0, null); return; }
-                var res = collectExercises(inst, function (ex) { return !ex.archived && exclude.indexOf(ex.id) === -1 && ex.title.toLowerCase().indexOf(q) !== -1; });
-                if (!res.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Aucun exercice ne correspond."; wrap.appendChild(none); return; }
+                if (!q && pickTabMem === "all") { node(wrap, inst.categories, 0, null); return; }
+                var res = collectExercises(inst, function (ex) { return !ex.archived && exclude.indexOf(ex.id) === -1 && (pickTabMem !== "fav" || !!ex.favorite) && (!q || ex.title.toLowerCase().indexOf(q) !== -1); });
+                if (!res.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = pickTabMem === "fav" && !q ? "Aucun favori : marque un exercice d'une étoile (clic droit › Marquer en favori)." : "Aucun exercice ne correspond."; wrap.appendChild(none); return; }
                 res.forEach(function (r) { var root = findById(inst.categories, r.pathIds[0]); wrap.appendChild(exButton(r.ex, r.pathNames, (root && root.color) || "#00e676")); });
             }
             search.addEventListener("input", refresh);
             refresh();
             setTimeout(function () { try { search.focus(); } catch (e) {} }, 30);
+            return function () { if (!chosen && opts.onCancel) opts.onCancel(); }; // fermé sans choisir (clic à côté, Échap)
         });
     }
 
@@ -14232,6 +14758,7 @@
         searchInput.className = "gs-pick-search";
         searchInput.placeholder = "Rechercher un exercice…";
         content.appendChild(searchInput);
+        content.appendChild(buildPickTabs(getActiveInstrument(), function () { return pickTabMem; }, function (v) { pickTabMem = v; }, function () { refreshResults(); }));
 
         var resultsWrap = document.createElement("div");
         content.appendChild(resultsWrap);
@@ -14243,19 +14770,19 @@
 
             // Recherche : liste à plat (peu importe le dossier, on cherche partout). Sans
             // recherche : l'arborescence complète, comme dans la barre latérale.
-            if (!q) {
+            if (!q && pickTabMem === "all") {
                 resultsWrap.className = "gs-pick-tree";
                 renderGsPickTree(resultsWrap, inst.categories, 0, null);
                 return;
             }
             resultsWrap.className = "gs-pick-results";
             var results = collectExercises(inst, function (ex) {
-                return !ex.archived && ex.title.toLowerCase().indexOf(q) !== -1;
+                return !ex.archived && (pickTabMem !== "fav" || !!ex.favorite) && (!q || ex.title.toLowerCase().indexOf(q) !== -1);
             });
             if (!results.length) {
                 var empty = document.createElement("div");
                 empty.className = "gs-empty";
-                empty.textContent = "Aucun exercice ne correspond.";
+                empty.textContent = pickTabMem === "fav" && !q ? "Aucun favori : marque un exercice d'une étoile (clic droit › Marquer en favori)." : "Aucun exercice ne correspond.";
                 resultsWrap.appendChild(empty);
                 return;
             }
@@ -14448,6 +14975,16 @@
                 nameIn.placeholder = "Session libre"; nameIn.value = record.name || "Session libre"; nameIn.setAttribute("aria-label", "Nom de la séance");
                 panel.appendChild(nameIn);
             }
+            var dateIn = null, timeIn = null; // séance saisie à la main : date et heure au choix
+            if (opts.manual) {
+                var dRow = document.createElement("div"); dRow.className = "gs-rec-date-row";
+                var dLb = document.createElement("span"); dLb.textContent = "Faite le";
+                var d0 = new Date(record.date || Date.now()), pad2 = function (n) { return (n < 10 ? "0" : "") + n; };
+                dateIn = document.createElement("input"); dateIn.type = "date"; dateIn.className = "gs-rec-date"; dateIn.max = calKey(new Date()); dateIn.value = calKey(d0); dateIn.setAttribute("aria-label", "Date de la séance");
+                timeIn = document.createElement("input"); timeIn.type = "time"; timeIn.className = "gs-rec-time"; timeIn.value = pad2(d0.getHours()) + ":" + pad2(d0.getMinutes()); timeIn.setAttribute("aria-label", "Heure de la séance");
+                dRow.appendChild(dLb); dRow.appendChild(dateIn); dRow.appendChild(timeIn);
+                panel.appendChild(dRow);
+            }
             var sum = document.createElement("div");
             sum.className = "gs-sync-intro gs-rec-sum";
             panel.appendChild(sum);
@@ -14465,7 +15002,7 @@
                 yes.disabled = blocked || totalSec() <= 0;
                 yes.title = blocked ? "Confirme le tempo des exercices arrêtés avant leur seuil" : "";
             }
-            items.forEach(function (it) {
+            function renderItem(it) {
                 var st = it.st;
                 var box = document.createElement("div");
                 box.className = "gs-rec-item" + (it.extra ? " gs-rec-extra" : "");
@@ -14508,20 +15045,16 @@
                     box.appendChild(q);
                 }
                 list.appendChild(box);
-            });
-            var actions = document.createElement("div");
-            actions.className = "gs-sync-actions";
-            var no = document.createElement("button"); no.type = "button"; no.className = "btn-ghost"; no.textContent = opts.cancelLabel || "Ne pas enregistrer";
-            no.addEventListener("click", function () { resolved = true; close(); if (opts.onCancel) opts.onCancel(); });
-            yes = document.createElement("button"); yes.type = "button"; yes.className = "btn-accent gs-rec-save"; yes.textContent = "Enregistrer";
-            yes.addEventListener("click", function () {
-                resolved = true;
+            }
+            items.forEach(renderItem);
+            // Séance saisie à la main : on ajoute les exercices un à un (le choix ouvre une fenêtre, puis ce récapitulatif se rouvre avec la saisie en cours).
+            function buildOut(keepZero) {
                 var out = cloneJson(record);
                 out.steps = [];
                 items.forEach(function (it) {
                     if (it.removed) return;
                     var sec = numVal(it.mi) * 60 + numVal(it.si);
-                    if (sec <= 0) return;
+                    if (sec <= 0 && !keepZero) return;
                     var st = it.st, v = bpmOf(it);
                     st.actualSec = sec;
                     if (v) { st.bpmFirst = st.bpmFirst && st.bpmFirst <= v ? st.bpmFirst : v; st.bpmMax = v; st.bpmEnd = v; }
@@ -14532,6 +15065,28 @@
                 });
                 out.totalSec = out.steps.reduce(function (a, x) { return a + x.actualSec; }, 0);
                 if (nameIn) out.name = nameIn.value.trim() || "Session libre";
+                if (dateIn && dateIn.value) {
+                    var dp = dateIn.value.split("-"), tp = (timeIn && timeIn.value ? timeIn.value : "12:00").split(":");
+                    var dt = new Date(+dp[0], +dp[1] - 1, +dp[2], +tp[0] || 0, +tp[1] || 0, 0, 0);
+                    if (!isNaN(dt.getTime())) out.date = Math.min(dt.getTime(), Date.now());
+                }
+                if (opts.manual) out.endedAt = out.date + out.totalSec * 1000;
+                return out;
+            }
+            if (opts.manual) {
+                var addEx = document.createElement("button"); addEx.type = "button"; addEx.className = "btn-ghost gs-rec-add";
+                addEx.textContent = "＋ Ajouter un exercice";
+                addEx.addEventListener("click", function () { var snap = buildOut(true); resolved = true; close(); if (opts.onAddExercise) opts.onAddExercise(snap); });
+                panel.appendChild(addEx);
+            }
+            var actions = document.createElement("div");
+            actions.className = "gs-sync-actions";
+            var no = document.createElement("button"); no.type = "button"; no.className = "btn-ghost"; no.textContent = opts.cancelLabel || "Ne pas enregistrer";
+            no.addEventListener("click", function () { resolved = true; close(); if (opts.onCancel) opts.onCancel(); });
+            yes = document.createElement("button"); yes.type = "button"; yes.className = "btn-accent gs-rec-save"; yes.textContent = "Enregistrer";
+            yes.addEventListener("click", function () {
+                resolved = true;
+                var out = buildOut(false);
                 close();
                 opts.onSave(out);
             });
@@ -14955,6 +15510,36 @@
             cancelLabel: "Annuler",
             onSave: function (out) { logAdd(out); save(); showToast("Séance modifiée"); if (afterClose) afterClose(); },
             onCancel: afterClose
+        });
+    }
+    // Séance déjà faite, saisie à la main (entraînement hors ligne, mal enregistré, rétrospective) : date et heure au choix, exercices un à un
+    // avec leur durée et leur tempo. Elle entre dans l'historique et les statistiques ; comme tout entraînement libre, elle rejoint la
+    // séance libre du jour si elle porte le même nom. opts : { dateKey, afterClose, draft (saisie en cours, voir onAddExercise) }.
+    function openManualSession(opts) {
+        opts = opts || {};
+        var rec = opts.draft;
+        if (!rec) {
+            var d = opts.dateKey ? calParse(opts.dateKey) : new Date(), now = new Date();
+            if (opts.dateKey && opts.dateKey !== calTodayKey()) d.setHours(12, 0, 0, 0); else d.setHours(now.getHours(), now.getMinutes(), 0, 0);
+            rec = { v: 2, id: uid(), sessionId: "free", name: "Session libre", free: true, manual: true, instrumentId: state.activeInstrumentId, date: d.getTime(), endedAt: d.getTime(), totalSec: 0, plannedSec: 0, steps: [] };
+        }
+        function again(snap) { openManualSession({ dateKey: opts.dateKey, afterClose: opts.afterClose, draft: snap }); }
+        openRunRecordEditor(rec, {
+            title: "Ajouter une séance passée", cancelLabel: "Annuler", manual: true,
+            onAddExercise: function (snap) {
+                openExercisePickerModal("Exercice effectué", { onCancel: function () { again(snap); } }, function (ex) {
+                    var st = gsStepRecord({ id: "free:" + ex.id, exerciseId: ex.id, minutes: 0 }, Math.max(1, gsDefaultMinutes(ex)) * 60000, {});
+                    snap.steps.push(st);
+                    again(snap);
+                });
+            },
+            onSave: function (out) {
+                var res = logAddMergingFree(out), joined = res !== out;
+                save();
+                showToast("Séance du " + calLongDate(calKey(new Date(out.date))) + " ajoutée (" + gsFmtDur(out.totalSec) + (joined ? ", jointe à la séance libre du jour : " + gsFmtDur(res.totalSec) : "") + ")", 6000);
+                if (opts.afterClose) opts.afterClose(out);
+            },
+            onCancel: function () { if (opts.afterClose) opts.afterClose(null); }
         });
     }
     // ---------- calendrier : programmer des sessions (futur) ; le passé = sessions réalisées et enregistrées ----------
@@ -15445,6 +16030,14 @@
                     detail.appendChild(r);
                 });
                 if (!it.planned.length && !it.done.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = past ? "Aucune session réalisée ce jour-là." : "Rien de prévu ce jour-là."; detail.appendChild(none); }
+                if (selected <= todayKey && !pickSession) { // jour passé ou aujourd'hui : on peut y ajouter à la main une séance déjà faite
+                    var addDone = document.createElement("button"); addDone.type = "button"; addDone.className = "btn-ghost cal-add-done";
+                    addDone.textContent = "＋ Ajouter une séance faite ce jour-là";
+                    addDone.title = "Saisir à la main des exercices faits ce jour-là (hors ligne, oubli…) : ils comptent dans les statistiques";
+                    var dayKey = selected;
+                    addDone.addEventListener("click", function () { close(); openManualSession({ dateKey: dayKey, afterClose: function () { openSessionCalendar({ focusDate: dayKey }); } }); });
+                    detail.appendChild(addDone);
+                }
             }
             prev.addEventListener("click", function () { cur = new Date(cur.getFullYear(), cur.getMonth() - 1, 1); renderGrid(); });
             next.addEventListener("click", function () { cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1); renderGrid(); });
@@ -16282,6 +16875,11 @@
             title.className = "backups-title gs-title-row";
             var tt = document.createElement("span"); tt.className = "gs-title-text"; tt.textContent = "Historique des sessions";
             title.appendChild(tt);
+            var addPast = document.createElement("button"); addPast.type = "button"; addPast.className = "btn-ghost gs-hist-add";
+            addPast.textContent = "＋ Séance passée";
+            addPast.title = "Ajouter à la main une séance déjà faite (date au choix, hors ligne, oubli…) : elle compte dans l'historique et les statistiques";
+            addPast.addEventListener("click", function () { close(); openManualSession({ afterClose: function () { openSessionHistory(); } }); });
+            title.appendChild(addPast);
             title.appendChild(gsNavIcons("hist", close));
             panel.appendChild(title);
             var tabs = document.createElement("div");
@@ -18043,6 +18641,8 @@
     if ($scalesBtn) $scalesBtn.addEventListener("click", openScalesPanel);
     var $tunerBtn = document.getElementById("tuner-btn");
     if ($tunerBtn) $tunerBtn.addEventListener("click", openTunerPanel);
+    var $recBtn = document.getElementById("rec-btn");
+    if ($recBtn) $recBtn.addEventListener("click", openRecorderPanel);
     var $audioBtn = document.getElementById("audio-btn");
     if ($audioBtn) $audioBtn.addEventListener("click", openAudioPlayerPanel);
     var $guidedSessionBtn = document.getElementById("guided-session-btn");

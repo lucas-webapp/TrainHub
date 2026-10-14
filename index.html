@@ -16,6 +16,11 @@
 </head>
 <body>
 <div class="top-bar">
+    <div id="top-clock" class="top-clock" role="timer" aria-live="off" title="Heure actuelle" aria-label="Heure actuelle">
+        <svg class="top-clock-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 6.5V12l3.6 2.2"/></svg>
+        <span class="top-clock-date"></span>
+        <span class="top-clock-time"></span>
+    </div>
     <button type="button" id="sidebar-toggle-btn" class="icon-btn btn-ghost sidebar-toggle-btn" title="Masquer / afficher le bandeau des dossiers (Ctrl+B ou ⌘B)" aria-label="Masquer ou afficher le bandeau des dossiers" aria-pressed="false">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
     </button>
@@ -53,7 +58,6 @@
         </div>
     </div>
     <div class="top-actions">
-        <span id="top-clock" class="top-clock" hidden title="Heure actuelle" aria-label="Heure actuelle"></span>
         <button type="button" id="undo-btn" class="icon-btn btn-ghost" title="Annuler" aria-label="Annuler" disabled>
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
         </button>
@@ -83,6 +87,9 @@
         </button>
         <button type="button" id="tuner-btn" class="icon-btn btn-ghost" title="Accordeur (micro ou carte son)" aria-label="Accordeur">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 3v7a3.5 3.5 0 0 0 7 0V3"/><line x1="12" y1="13.5" x2="12" y2="20"/><line x1="9.5" y1="21" x2="14.5" y2="21"/></svg>
+        </button>
+        <button type="button" id="rec-btn" class="icon-btn btn-ghost" title="Enregistreur rapide (micro ou carte son, métronome en fond, rangé dans un exercice)" aria-label="Enregistreur rapide">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8.5" y="2.5" width="6" height="11" rx="3"/><path d="M4.5 11a7 7 0 0 0 13 3.6"/><path d="M11.5 18v3.5"/><path d="M8.5 21.5h6"/><circle cx="19" cy="5.5" r="2.3" fill="#ff5252" stroke="none"/></svg>
         </button>
         <button type="button" id="audio-btn" class="icon-btn btn-ghost" title="Lecteur audio et liste de lecture" aria-label="Lecteur audio">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M21 14v4a2 2 0 0 1-2 2h-1v-6h3"/><path d="M3 14v4a2 2 0 0 0 2 2h1v-6H3"/></svg>

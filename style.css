@@ -1937,7 +1937,7 @@ button.gs-run-auto-on, button.gs-run-bell-btn.gs-run-auto-on { color: var(--acce
     /* Bandeau masqué : la colonne de session, les vidéos et les images gagnent de la place. */
     html.sidebar-hidden .gs-main { max-width: 760px; }
     html.sidebar-hidden .gs-main.gs-main-wide { max-width: 1080px; }
-    html.sidebar-hidden { --img-cap: 860px; }
+    html.sidebar-hidden .img-strip { --img-cap: 860px; }
 }
 button.sidebar-toggle-btn[aria-pressed="true"] { color: var(--accent); }
 
@@ -3687,8 +3687,6 @@ button.metro-play-btn-big { height: 44px; margin-top: 10px; font-size: var(--fs-
 }
 
 /* ---------- horloge de la barre du haut (en session) ---------- */
-.top-clock { flex: none; display: inline-flex; align-items: center; height: 34px; padding: 0 10px; font-size: var(--fs-md); font-weight: 700; letter-spacing: .02em; font-variant-numeric: tabular-nums; color: var(--text-muted); white-space: nowrap; }
-.top-clock[hidden] { display: none; }
 
 /* ---------- fenêtre « Tirage de gamme » (le dé) : outil Gammes et pas d'une session ---------- */
 .backups-panel.dice-panel { width: min(680px, calc(100vw - 24px)); height: min(740px, calc(100vh - 24px)); max-height: calc(100vh - 16px); padding: 12px 16px 14px; gap: 10px; overflow: hidden; text-align: left; }
@@ -3993,4 +3991,92 @@ button.img-thumb-btn.img-loading { min-width: 120px; min-height: 64px; }
 button.img-thumb-btn { cursor: zoom-in; }
 .drag-ghost.link-chip, .drag-ghost.file-chip, .drag-ghost.img-fig { z-index: 990; box-shadow: 0 8px 22px rgba(0,0,0,calc(.4 * var(--sh-k, 1))); opacity: .95; }
 
-:root { --img-cap: 520px; }
+.img-strip { --img-cap: 520px; }
+
+/* ---------- v175 ---------- */
+/* Choix d'un exercice : onglets Tous / Favoris */
+.gs-pick-tabs { display: flex; gap: 6px; margin: 8px 0 4px; }
+button.gs-pick-tab { height: 30px; padding: 0 14px; font-size: var(--fs-sm); font-weight: 700; border-radius: var(--radius-sm); }
+button.gs-pick-tab.active { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+button.gs-pick-tab[data-tab="fav"].active { border-color: #ffd60a; color: #ffd60a; background: color-mix(in srgb, #ffd60a 10%, transparent); }
+/* Horloge persistante : fine bande tout en haut, petite et en retrait (cadran + date + heure en texte léger) — le chronomètre, lui, a de gros chiffres gras et son logo de chrono */
+.top-bar > .top-clock { order: -1; flex: 0 0 100%; display: flex; align-items: center; justify-content: center; gap: 6px; height: 14px; margin: -6px 0 -4px; font-size: 11px; font-weight: 500; letter-spacing: .04em; line-height: 1; color: var(--text-muted); opacity: .85; font-variant-numeric: tabular-nums; white-space: nowrap; user-select: none; -webkit-user-select: none; cursor: default; }
+.top-clock-ico { width: 12px; height: 12px; flex: none; opacity: .8; }
+.top-clock-date { text-transform: lowercase; opacity: .9; }
+.top-clock-time { font-weight: 600; color: var(--text-dim); }
+.top-clock-date:not(:empty)::after { content: "·"; margin-left: 6px; opacity: .6; }
+/* Barre d'exercice sur téléphone : pas de retour à la ligne. Les vignettes de médias (liens, audio, images) se regroupent en une pastille,
+   le titre se coupe par « … » ; la ligne ne passe sur deux lignes qu'en dernier recours, quand le titre n'aurait plus ~100 px pour se lire. */
+button.exercise-media-group { display: none; flex: none; align-items: center; justify-content: center; gap: 4px; height: 30px; min-width: 36px; padding: 0 8px; box-sizing: border-box; border-radius: 6px; font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+button.exercise-media-group .icon { width: 17px; height: 17px; }
+button.exercise-media-group:hover { border-color: var(--accent); color: var(--accent); }
+.exercise-title { flex: 100 1 min(var(--t-w, 96px), 104px); } /* base réduite : la ligne ne passe sur deux lignes que si le titre ne garde plus ~100 px */
+@container exl (max-width: 520px) {
+  .exercise-row-tools .exercise-media-sep { display: none; }
+  .exercise-row-tools button.exercise-media-group { display: inline-flex; }
+  .exercise-row-tools { gap: 5px; }
+  .exercise-row { gap: 5px; }
+  .exercise-row-spacer { min-width: 0; }
+}
+/* Séance passée saisie à la main */
+.gs-rec-date-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--fs-sm); color: var(--text-dim); }
+.gs-rec-date-row input { height: 34px; padding: 0 8px; font: inherit; }
+button.gs-rec-add { align-self: flex-start; height: 34px; padding: 0 14px; font-weight: 700; }
+button.gs-hist-add { flex: none; height: 32px; padding: 0 12px; font-size: var(--fs-xs); font-weight: 700; }
+button.cal-add-done { align-self: flex-start; margin-top: 8px; height: 32px; padding: 0 12px; font-size: var(--fs-xs); font-weight: 700; }
+/* Fichiers de l'application (Paramètres › Données) */
+.backups-panel.gs-files-panel { width: min(680px, calc(100vw - 24px)); max-height: calc(100vh - 24px); }
+.gs-files-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.gs-files-bar .gs-history-tabs { flex: 1 1 auto; flex-wrap: wrap; }
+select.gs-files-sort { height: 32px; padding: 0 8px; font-size: var(--fs-sm); }
+.gs-files-list { overflow-y: auto; max-height: min(60vh, 560px); gap: 6px; }
+.gs-files-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); min-width: 0; }
+.gs-files-ico { flex: none; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; background: rgba(var(--ov), .07); color: var(--text-muted); font-size: var(--fs-md); }
+.gs-files-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.gs-files-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-files-sub { font-size: var(--fs-xs); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-files-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.gs-files-badge { font-size: var(--fs-2xs); font-weight: 600; padding: 1px 7px; border-radius: 999px; background: rgba(var(--ov), .07); color: var(--text-dim); }
+.gs-files-badge.gs-files-off { color: var(--text-muted); font-style: italic; }
+.gs-files-size { flex: none; font-size: var(--fs-sm); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text-dim); min-width: 56px; text-align: right; }
+.gs-files-acts { flex: none; display: flex; gap: 2px; }
+.gs-files-acts .icon-btn { width: 30px; height: 30px; padding: 0; }
+@media (max-width: 520px) { .gs-files-row { flex-wrap: wrap; } .gs-files-main { flex-basis: calc(100% - 140px); } }
+/* Enregistreur rapide */
+button#rec-btn.rec-live svg circle { animation: rec-blink 1s ease-in-out infinite; }
+button#rec-btn.rec-live { border-color: #ff5252; }
+button#rec-btn.rec-pending::after { content: ""; position: absolute; top: 4px; right: 4px; width: 8px; height: 8px; border-radius: 50%; background: #ffb020; }
+button#rec-btn { position: relative; }
+@keyframes rec-blink { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+.backups-panel.recorder-panel { width: min(360px, calc(100vw - 16px)); padding: 12px 14px 14px; gap: 10px; text-align: left; }
+.rec-title { display: flex; align-items: center; gap: 8px; }
+.rec-title-ico .icon { width: 20px; height: 20px; }
+.rec-title-text { flex: 1; min-width: 0; }
+button.rec-close { flex: none; width: 28px; height: 28px; padding: 0; color: var(--text-muted); }
+.rec-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rec-lab { flex: none; width: 82px; font-size: var(--fs-2xs); font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; white-space: nowrap; }
+select.rec-select { flex: 1; min-width: 0; height: 34px; padding: 0 8px; font-size: var(--fs-sm); }
+.rec-check { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--text-main); cursor: pointer; }
+.rec-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+input.rec-bpm { width: 64px; height: 30px; padding: 0 6px; text-align: center; font-variant-numeric: tabular-nums; }
+.rec-unit, .rec-hint { font-size: var(--fs-xs); color: var(--text-muted); }
+.rec-click-row { padding-left: 24px; flex-wrap: wrap; row-gap: 2px; }
+.rec-main { display: flex; align-items: center; gap: 10px; }
+button.rec-go { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 18px; border-radius: var(--radius); font-size: var(--fs-md); font-weight: 800; border-color: color-mix(in srgb, #ff5252 55%, var(--border)); background: color-mix(in srgb, #ff5252 14%, transparent); color: var(--text-hi); }
+button.rec-go:disabled { opacity: .5; }
+.rec-go-dot { width: 14px; height: 14px; border-radius: 50%; background: #ff5252; }
+.rec-go-sq { width: 13px; height: 13px; border-radius: 3px; background: #ff5252; }
+button.rec-go.rec-go-stop { background: color-mix(in srgb, #ff5252 28%, transparent); }
+.rec-time { flex: none; font-size: var(--fs-md); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-dim); min-width: 48px; }
+.rec-meter { flex: 1; min-width: 40px; height: 8px; border-radius: 999px; background: rgba(var(--ov), .1); overflow: hidden; }
+.rec-meter-fill { height: 100%; width: 0; background: var(--accent); border-radius: 999px; transition: width .06s linear; }
+.rec-meter-fill.rec-hot { background: #ff5252; }
+.rec-msg { min-height: 1.2em; font-size: var(--fs-xs); color: var(--text-muted); }
+.rec-msg.rec-msg-err { color: var(--c-red-text, #ff6b6b); }
+.rec-take { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: rgba(var(--ov), .04); }
+.rec-take[hidden] { display: none; }
+audio.rec-audio { width: 100%; height: 36px; }
+input.rec-name { height: 34px; padding: 0 8px; font-weight: 600; }
+.rec-take-info { font-size: var(--fs-xs); color: var(--text-muted); }
+.rec-take-acts { display: flex; justify-content: space-between; gap: 8px; }
+.rec-take-acts button { height: 34px; padding: 0 14px; font-weight: 700; }
