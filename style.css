@@ -4151,3 +4151,8 @@ input.rec-wave-vrange { flex: 1 1 120px; min-width: 90px; accent-color: var(--ac
 .rec-lib-row { display: flex; align-items: center; gap: 6px; }
 input.rec-lib-name { flex: 1; min-width: 0; height: 30px; padding: 0 8px; font-size: var(--fs-sm); font-weight: 600; }
 button.rec-lib-play, button.rec-lib-go { flex: none; width: 30px; height: 30px; padding: 0; }
+/* Fenêtre d'enregistrement d'une séance : un clic à côté ne la ferme pas, elle secoue un instant et rappelle comment la quitter */
+@keyframes panel-nudge { 0%, 100% { transform: translateX(0); } 18% { transform: translateX(-7px); } 38% { transform: translateX(6px); } 58% { transform: translateX(-4px); } 78% { transform: translateX(3px); } }
+.backups-panel.panel-nudge { animation: panel-nudge .36s ease; }
+.gs-rec-guard-hint { margin: 2px 0 6px; padding: 6px 10px; border-radius: var(--radius-sm); font-size: var(--fs-xs); color: var(--c-orange-text, var(--c-orange)); background: color-mix(in srgb, var(--c-orange) 10%, transparent); border: 1px solid color-mix(in srgb, var(--c-orange) 40%, transparent); }
+.gs-rec-guard-hint[hidden] { display: none; }

@@ -8076,6 +8076,10 @@
         var cleanupTitleDrag = null;
 
         var onClose = null;
+        // `opts.guard(how, panel)` : appelée pour toute fermeture voulue par l'utilisateur (how = "backdrop" clic à côté, "escape", "button" bouton Fermer) ;
+        // elle renvoie false pour la REFUSER (et se charge d'avertir ou de demander). Les fermetures déclenchées par l'appli (une autre fenêtre qui s'ouvre…) passent toujours.
+        var guard = opts && typeof opts.guard === "function" ? opts.guard : null;
+        function userClose(how) { if (guard && guard(how, panel) === false) return; close(); }
         var fitTimer = null;
         var fitBox = null, fitInner = null;
         var resizeObs = null, mutationObs = null, fitFrame = null;
@@ -8099,9 +8103,9 @@
                 if (closeActiveModal === close) { closeActiveModal = null; activeModalKind = null; }
             }
         }
-        function onKey(e) { if (e.key === "Escape") { if (document.querySelector(".ctx-menu")) return; close(); } } // un menu ouvert par-dessus (popover, clic droit) se referme seul : Échap ne ferme que lui
+        function onKey(e) { if (e.key === "Escape") { if (document.querySelector(".ctx-menu")) return; userClose("escape"); } } // un menu ouvert par-dessus (popover, clic droit) se referme seul : Échap ne ferme que lui
         if (!docked && !floating) {
-            backdrop.addEventListener("click", close);
+            backdrop.addEventListener("click", function () { userClose("backdrop"); });
             document.addEventListener("keydown", onKey, true);
             closeActiveModal = close;
             activeModalKind = panelKind;
@@ -8121,7 +8125,7 @@
         var closeBtn = document.createElement("button");
         closeBtn.type = "button";
         closeBtn.className = "btn-ghost";
-        closeBtn.addEventListener("click", close);
+        closeBtn.addEventListener("click", function () { userClose("button"); });
         if (docked) {
             // Volet intégré : pas de ligne "Fermer" en bas (de la hauteur gagnée pour le contenu),
             // une croix dans l'en-tête, à côté du bouton Volume.
@@ -15615,7 +15619,10 @@
     function openRunRecordEditor(record, opts) {
         opts = opts || {};
         var items = record.steps.concat(opts.extraSteps || []).map(function (st) { var c = cloneJson(st); return { st: c, ask: !!c.bpmShort, answered: false, extra: (record.steps.indexOf(st) === -1) }; });
-        var resolved = false; // un bouton a tranché ; sinon la fenêtre a été fermée d'un clic à côté, d'Échap… (opts.onDismiss)
+        var resolved = false; // un bouton a tranché ; sinon la fenêtre a été fermée par l'appli (une autre fenêtre qui s'ouvre…) : opts.onDismiss
+        var guardImpl = null;
+        // Garde-fous : la fenêtre ne se ferme pas par un clic à côté ; Échap et « Fermer » demandent confirmation. opts.confirmLeave : "always" (fin de
+        // session : on demande toujours) ou "dirty" (par défaut : seulement s'il y a des modifications en cours).
         openModal("gs-save-run-panel", function (panel, close) {
             var title = document.createElement("div");
             title.className = "backups-title";
@@ -15643,11 +15650,16 @@
             var list = document.createElement("div");
             list.className = "gs-rec-list";
             panel.appendChild(list);
-            var yes;
+            var yes, snap0 = null;
             function numVal(inp) { var n = parseInt(inp.value, 10); return isNaN(n) || n < 0 ? 0 : n; }
             function totalSec() { return items.reduce(function (a, it) { return a + (it.removed ? 0 : numVal(it.mi) * 60 + numVal(it.si)); }, 0); }
             function bpmOf(it) { var n = parseInt(it.bi.value, 10); return n >= 30 && n <= 300 ? n : null; }
+            var progressTimer = null;
             function refresh() {
+                if (opts.onProgress && snap0 !== null) { // ce qui est saisi est mis à l'abri tout de suite (retrouvé si l'appli se ferme)
+                    clearTimeout(progressTimer);
+                    progressTimer = setTimeout(function () { if (!resolved) opts.onProgress(snapshot()); }, 500);
+                }
                 var n = items.filter(function (it) { return !it.removed && numVal(it.mi) * 60 + numVal(it.si) > 0; }).length;
                 sum.textContent = (nameIn ? "" : "« " + record.name + " » · ") + gsFmtDur(totalSec()) + " · " + n + " exercice" + (n > 1 ? "s" : "");
                 var blocked = items.some(function (it) { return it.ask && !it.answered && !it.removed; });
@@ -15718,20 +15730,35 @@
                 list.appendChild(box);
             }
             items.forEach(renderItem);
+            // Ce qui est saisi, en l'état : sert à repérer des modifications non enregistrées, et à les garder si la séance part dans les « non enregistrées ».
+            function sig() {
+                return JSON.stringify([nameIn ? nameIn.value : "", dateIn ? dateIn.value : "", timeIn ? timeIn.value : "", items.map(function (it) { return [it.removed ? 1 : 0, it.mi.value, it.si.value, it.bi.value, it.st.chapterId || "", it.answered ? 1 : 0]; })]);
+            }
+            function snapshot() {
+                var edited = buildOut(true, true), keep = [], extra = [], i = 0;
+                items.forEach(function (it) { // buildOut(true) garde tous les pas non retirés, dans l'ordre
+                    if (it.removed) return;
+                    var cur = edited.steps[i++];
+                    if (it.extra && !(cur.actualSec > 0)) extra.push(cur); else keep.push(cur);
+                });
+                edited.steps = keep;
+                edited.totalSec = keep.reduce(function (a, x) { return a + (x.actualSec || 0); }, 0);
+                return { record: edited, extra: extra };
+            }
             // Séance saisie à la main : on ajoute les exercices un à un (le choix ouvre une fenêtre, puis ce récapitulatif se rouvre avec la saisie en cours).
-            function buildOut(keepZero) {
+            function buildOut(keepZero, copy) { // copy : travaille sur des copies des pas (un simple instantané ne doit rien changer à l'écran)
                 var out = cloneJson(record);
                 out.steps = [];
                 items.forEach(function (it) {
                     if (it.removed) return;
                     var sec = numVal(it.mi) * 60 + numVal(it.si);
                     if (sec <= 0 && !keepZero) return;
-                    var st = it.st, v = bpmOf(it);
+                    var st = copy ? cloneJson(it.st) : it.st, v = bpmOf(it);
                     st.actualSec = sec;
                     if (v) { st.bpmFirst = st.bpmFirst && st.bpmFirst <= v ? st.bpmFirst : v; st.bpmMax = v; st.bpmEnd = v; }
                     else { st.bpmFirst = null; st.bpmMax = null; st.bpmEnd = null; }
                     if (v !== it.origMax) delete st.bpmHow; // tempo corrigé à la main : plus de règle à citer
-                    delete st.bpmShort; delete st.bpmTarget; delete st.bpmStop;
+                    if (!(copy && it.ask && !it.answered)) { delete st.bpmShort; delete st.bpmTarget; delete st.bpmStop; } // instantané : la question « arrêté avant le seuil » reste posée tant qu'on n'y a pas répondu
                     out.steps.push(st);
                 });
                 out.totalSec = out.steps.reduce(function (a, x) { return a + x.actualSec; }, 0);
@@ -15753,7 +15780,35 @@
             var actions = document.createElement("div");
             actions.className = "gs-sync-actions";
             var no = document.createElement("button"); no.type = "button"; no.className = "btn-ghost"; no.textContent = opts.cancelLabel || "Ne pas enregistrer";
-            no.addEventListener("click", function () { resolved = true; close(); if (opts.onCancel) opts.onCancel(); });
+            function leave() { var edited = snapshot(); resolved = true; clearTimeout(progressTimer); close(); if (opts.onCancel) opts.onCancel(edited); }
+            // Quitter sans enregistrer : on demande d'abord (sauf modifications absentes d'une fenêtre qui n'est pas une fin de séance).
+            function askLeave() {
+                var dirty = sig() !== snap0, always = opts.confirmLeave === "always";
+                if (!dirty && !always) { leave(); return; }
+                if (dlgIsOpen()) return;
+                var dur = gsFmtDur(snapshot().record.totalSec);
+                dlgOpen({
+                    title: always ? "Ne pas enregistrer cette séance ?" : "Abandonner les modifications ?",
+                    message: always ? "« " + (nameIn && nameIn.value.trim() ? nameIn.value.trim() : record.name) + " » (" + dur + ") ne sera ajoutée ni à l'historique ni aux statistiques." : "Ce que tu viens de saisir ne sera pas enregistré.",
+                    note: always ? "Elle reste récupérable pendant 3 jours (Historique › Non enregistrées)" + (dirty ? ", avec les modifications déjà faites ici." : ".") : null,
+                    cancelLabel: always ? "Revenir à l'enregistrement" : "Revenir", cancelPrimary: true,
+                    buttons: [{ label: always ? "Ne pas enregistrer" : "Abandonner", kind: always ? "plain" : "danger", onClick: leave }]
+                });
+            }
+            no.addEventListener("click", askLeave);
+            var guardHintTimer = null, guardHint = document.createElement("div");
+            guardHint.className = "gs-rec-guard-hint"; guardHint.hidden = true;
+            guardHint.textContent = "Pour fermer cette fenêtre : « Enregistrer », ou « " + (opts.cancelLabel || "Ne pas enregistrer") + " ».";
+            guardImpl = function (how, pn) {
+                if (dlgIsOpen()) return false;
+                if (how === "backdrop") { // un clic à côté ne ferme rien : la fenêtre secoue un instant et rappelle comment la quitter
+                    pn.classList.remove("panel-nudge"); void pn.offsetWidth; pn.classList.add("panel-nudge");
+                    guardHint.hidden = false; clearTimeout(guardHintTimer); guardHintTimer = setTimeout(function () { guardHint.hidden = true; }, 3500);
+                    return false;
+                }
+                askLeave();
+                return false;
+            };
             yes = document.createElement("button"); yes.type = "button"; yes.className = "btn-accent gs-rec-save"; yes.textContent = "Enregistrer";
             yes.addEventListener("click", function () {
                 resolved = true;
@@ -15762,26 +15817,36 @@
                 opts.onSave(out);
             });
             actions.appendChild(no); actions.appendChild(yes);
+            panel.appendChild(guardHint);
             panel.appendChild(actions);
-            refresh();
-            return function () { if (!resolved) { resolved = true; if (opts.onDismiss) opts.onDismiss(); } };
-        });
+            snap0 = null; refresh(); snap0 = sig();
+            return function () {
+                clearTimeout(progressTimer); clearTimeout(guardHintTimer);
+                if (!resolved) { var edited = snapshot(); resolved = true; if (opts.onDismiss) opts.onDismiss(edited); } // fermée par l'appli : on garde ce qui était saisi
+            };
+        }, { guard: function (how, pn) { return guardImpl ? guardImpl(how, pn) : true; } });
     }
     // À la fin d'une session : on propose de l'enregistrer dans l'historique (durées et tempos relisibles avant de valider).
     // Si on ne l'enregistre pas (bouton « Ne pas enregistrer », clic à côté, Échap…), elle reste récupérable 3 jours.
     function gsAskSaveRun(record, extraSteps, title) {
         gsLiveWrite({ v: 1, kind: "record", savedAt: Date.now(), record: record, extraSteps: extraSteps || [] }); // gardée tant que rien n'est décidé
-        function park(why) { gsLiveClear(); if (recentRunsAdd(record, extraSteps, why)) recentRunsToast(); }
+        // « non enregistrée » : on garde la version MODIFIÉE (durées, tempos corrigés…) ; si elle devenait trop courte pour être gardée, l'originale
+        function park(why, edited) {
+            gsLiveClear();
+            if ((edited && recentRunsAdd(edited.record, edited.extra, why)) || recentRunsAdd(record, extraSteps, why)) recentRunsToast();
+        }
         openRunRecordEditor(record, {
             title: title,
             extraSteps: extraSteps || [],
+            confirmLeave: "always",
+            onProgress: function (edited) { gsLiveWrite({ v: 1, kind: "record", savedAt: Date.now(), record: edited.record, extraSteps: edited.extra }); }, // la trace de secours suit les modifications
             onSave: function (rec) {
                 var res = logAddMergingFree(rec), joined = rec.free && res !== rec;
                 save(); gsLiveClear();
                 showToast(joined ? "Ajouté à la session libre du jour (total " + gsFmtDur(res.totalSec) + ")" : rec.free ? "Entraînement enregistré dans l'historique" : "Session enregistrée dans l'historique", joined ? 5000 : undefined);
             },
-            onCancel: function () { park("Non enregistrée"); },
-            onDismiss: function () { park("Fenêtre fermée sans enregistrer"); }
+            onCancel: function (edited) { park("Non enregistrée", edited); },
+            onDismiss: function (edited) { park("Fenêtre fermée sans enregistrer", edited); }
         });
     }
     // ---------- séances non enregistrées : filet de sécurité de 3 jours ----------
