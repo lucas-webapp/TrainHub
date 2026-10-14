@@ -7412,7 +7412,8 @@
         window.addEventListener("keydown", onKey, true);
     }
 
-    document.getElementById("export-btn").addEventListener("click", function () {
+    // Sauvegarde de principe : plus de bouton dans la barre d'outils, elle se lance depuis Paramètres › Données › Exporter
+    function exportBackup() {
         var dateStr = new Date().toISOString().slice(0, 10);
         var images = collectExportImages();
         function run(withImages) {
@@ -7426,7 +7427,7 @@
                 { label: "Sans les images", kind: "plain", onClick: function () { run(false); } },
                 { label: "Avec les images", kind: "primary", onClick: function () { run(true); } }
             ] });
-    });
+    }
 
     // ---------- panneau des sauvegardes de secours ----------
     // (plus de bouton dans la barre d'outils : « Sauvegardes de secours » s'ouvre depuis Paramètres › Données)
@@ -7660,9 +7661,7 @@
     }
 
     var importInput = document.getElementById("import-input");
-    document.getElementById("import-btn").addEventListener("click", function () {
-        importInput.click();
-    });
+    function importBackupPick() { importInput.click(); } // appelée par Paramètres › Données › Importer
     importInput.addEventListener("change", function () {
         var file = importInput.files[0];
         if (!file) return;
@@ -12827,8 +12826,8 @@
             actionRow("Fichiers de l'application", "Audio, images, captures, PDF : taille, exercice, suppression pour faire de la place", openFilesPanel, "settings-files-btn");
             card("Sauvegarde");
             actionRow("Sauvegardes de secours", "Revenir à une version précédente de tes données", openBackupsPanel);
-            actionRow("Exporter", "Télécharger tout dans un fichier JSON", function () { var t = document.getElementById("export-btn"); if (t) t.click(); });
-            actionRow("Importer", "Remplacer tes données par un fichier JSON", function () { var t = document.getElementById("import-btn"); if (t) t.click(); });
+            actionRow("Exporter", "Télécharger tout dans un fichier JSON", exportBackup);
+            actionRow("Importer", "Remplacer tes données par un fichier JSON", importBackupPick);
             card("Images");
             var reFile = document.createElement("input");
             reFile.type = "file"; reFile.accept = "image/*"; reFile.multiple = true; reFile.hidden = true;
@@ -15698,17 +15697,17 @@
                 var rm = iconButton("✕", "Retirer cet exercice de la séance", function () { it.removed = true; box.hidden = true; refresh(); });
                 line.appendChild(nm); line.appendChild(dur); line.appendChild(bw); line.appendChild(rm);
                 box.appendChild(line);
-                if (st.chapterName) { // le thème retenu pour les statistiques : le dossier principal où l'exercice est ouvert
-                    nm.title += " · thème : " + st.chapterName;
+                if (st.chapterName) { // le chapitre retenu pour les statistiques : le dossier principal où l'exercice est ouvert
+                    nm.title += " · chapitre : " + st.chapterName;
                     if (record.free) { var thn = document.createElement("small"); thn.className = "gs-rec-name-theme"; thn.textContent = st.chapterName; nm.appendChild(thn); }
                 }
-                else { // exercice supprimé ou sans dossier : thème inconnu, on demande à quel thème (dossier principal) l'attribuer
+                else { // exercice supprimé ou sans dossier : chapitre inconnu, on demande à quel chapitre l'attribuer
                     var th = document.createElement("div"); th.className = "gs-rec-theme";
-                    var thl = document.createElement("span"); thl.textContent = "Thème (dossier principal) :";
-                    var ths = document.createElement("select"); ths.className = "gs-rec-theme-sel"; ths.setAttribute("aria-label", "Thème de l'exercice");
+                    var thl = document.createElement("span"); thl.textContent = "Chapitre :";
+                    var ths = document.createElement("select"); ths.className = "gs-rec-theme-sel"; ths.setAttribute("aria-label", "Chapitre de l'exercice");
                     var themeInst = state.instruments.filter(function (x) { return x.id === (record.instrumentId || state.activeInstrumentId); })[0] || getActiveInstrument();
                     var themes = themeInst ? themeInst.categories : [];
-                    ths.appendChild(new Option("Autre (sans thème)", ""));
+                    ths.appendChild(new Option("Autre (sans chapitre)", ""));
                     themes.forEach(function (c) { ths.appendChild(new Option(c.name, c.id)); });
                     ths.addEventListener("change", function () {
                         var c = themes.filter(function (x) { return x.id === ths.value; })[0];
@@ -16900,7 +16899,7 @@
                 else if (lost) issues.push({ kind: "orphan", key: key2, exId: id, title: last.frozenTitle, chapterName: last.frozenChapterName, count: o.rows.length, sec: o.sec });
             }
         });
-        // Deux exercices de même nom dans deux thèmes ne posent aucune question : chaque séance compte dans le thème où l'exercice était
+        // Deux exercices de même nom dans deux chapitres ne posent aucune question : chaque séance compte dans le chapitre où l'exercice était
         // ouvert quand elle a été faite (voir gsStepRecord). On ne demande qu'en cas de doute : exercice déplacé, supprimé ou recréé.
         return issues;
     }
@@ -16909,7 +16908,7 @@
         var log = logAll().filter(function (e) { return !e.instrumentId || e.instrumentId === state.activeInstrumentId; });
         return log.length ? statsIssues(statsRows(log, ctx), ctx).length : 0;
     }
-    // Bulle du logo Statistiques (liste des sessions) : nombre de séances à attribuer à un thème. Recalculée à chaque changement
+    // Bulle du logo Statistiques (liste des sessions) : nombre de séances à attribuer à un chapitre. Recalculée à chaque changement
     // (réponse donnée dans les statistiques, fermeture de la fenêtre…) pour disparaître dès que tout est réglé.
     function refreshStatsBadge(only) {
         var n = statsIssueCount(), btns = only && only.nodeType === 1 ? [only] : Array.prototype.slice.call(document.querySelectorAll(".gs-stats-btn"));
@@ -16918,7 +16917,7 @@
             if (!n) { if (hb) hb.remove(); btn.title = base; return; }
             if (!hb) { hb = document.createElement("span"); hb.className = "gs-tab-count st-issue-count gs-icon-badge"; btn.appendChild(hb); }
             hb.textContent = String(n);
-            btn.title = base + " — " + n + " exercice" + (n > 1 ? "s" : "") + " à attribuer à un thème";
+            btn.title = base + " — " + n + " exercice" + (n > 1 ? "s" : "") + " à attribuer à un chapitre";
         });
     }
 
@@ -16962,7 +16961,7 @@
         var chapSum = 0; Object.keys(chap).forEach(function (k) { chapSum += chap[k].sec; });
         var chapters = Object.keys(chap).map(function (k) { var c = chap[k]; c.pct = chapSum ? Math.round(c.sec * 100 / chapSum) : 0; return c; }).sort(function (a, b) { return b.sec - a.sec; });
         var top = Object.keys(byEx).map(function (k) { return byEx[k]; }).sort(function (a, b) { return b.sec - a.sec; });
-        var titleCount = {}; // deux exercices de même nom dans deux thèmes : on précise le thème pour les distinguer
+        var titleCount = {}; // deux exercices de même nom dans deux chapitres : on précise le chapitre pour les distinguer
         var sameKey = function (t) { return String(t || "").trim().toLowerCase(); };
         top.forEach(function (o) { var k = sameKey(o.title); titleCount[k] = (titleCount[k] || 0) + 1; });
         top.forEach(function (o) { o.label = titleCount[sameKey(o.title)] > 1 && o.chapterName ? o.title + " (" + o.chapterName + ")" : o.title; });
@@ -17134,10 +17133,10 @@
         }
         return out;
     }
-    // Périodes courtes (un jour, 3 jours) : l'écran montre le détail par thème et la liste des séances plutôt que des moyennes hebdomadaires.
+    // Périodes courtes (un jour, 3 jours) : l'écran montre le détail par chapitre et la liste des séances plutôt que des moyennes hebdomadaires.
     function statsIsShort(spec) { return spec === "d0" || spec === "d1" || spec === "3" || /^day:\d{4}-\d{2}-\d{2}$/.test(String(spec)); }
     function statsHour(ts) { var d = new Date(ts); return (d.getHours() < 10 ? "0" : "") + d.getHours() + ":" + (d.getMinutes() < 10 ? "0" : "") + d.getMinutes(); }
-    // Temps par thème (dossier principal) puis par premier sous-dossier, puis par exercice : le détail d'une journée ou de quelques jours.
+    // Temps par chapitre puis par premier sous-dossier, puis par exercice : le détail d'une journée ou de quelques jours.
     function statsThemeTree(rws) {
         var themes = {};
         rws.forEach(function (r) {
@@ -17152,7 +17151,7 @@
         var bySec = function (a, b) { return b.sec - a.sec; };
         return Object.keys(themes).map(function (k) {
             var t = themes[k];
-            t.subList = Object.keys(t.subs).map(function (sk) { var sb = t.subs[sk]; sb.exList = Object.keys(sb.exs).map(function (ek) { return sb.exs[ek]; }).sort(bySec); return sb; }).sort(function (a, b) { return (a.name ? 1 : 0) - (b.name ? 1 : 0) || b.sec - a.sec; }); // exercices posés directement dans le thème d'abord
+            t.subList = Object.keys(t.subs).map(function (sk) { var sb = t.subs[sk]; sb.exList = Object.keys(sb.exs).map(function (ek) { return sb.exs[ek]; }).sort(bySec); return sb; }).sort(function (a, b) { return (a.name ? 1 : 0) - (b.name ? 1 : 0) || b.sec - a.sec; }); // exercices posés directement dans le chapitre d'abord
             return t;
         }).sort(bySec);
     }
@@ -17205,7 +17204,7 @@
         rws.forEach(function (r) {
             if (chapterKey && r.chapterKey !== chapterKey) return;
             var key = r.subKey || "__none__";
-            var o = m[key] || (m[key] = { key: key, name: r.subKey ? r.subName : "Directement dans le thème", chapter: r.subKey ? r.chapterName : "", sec: 0 });
+            var o = m[key] || (m[key] = { key: key, name: r.subKey ? r.subName : "Directement dans le chapitre", chapter: r.subKey ? r.chapterName : "", sec: 0 });
             o.sec += r.sec; if (r.subKey) { o.name = r.subName; o.chapter = r.chapterName; }
         });
         return Object.keys(m).map(function (k) { return m[k]; });
@@ -17385,9 +17384,9 @@
                 s0.appendChild(cc);
             }
             if (isShort && st.sessions) {
-                // Détail par thème (dossier principal), premier sous-dossier et exercice : où est passé le temps de la journée
+                // Détail par chapitre, premier sous-dossier et exercice : où est passé le temps de la journée
                 var tree = statsThemeTree(rws), treeTotal = 0; tree.forEach(function (t) { treeTotal += t.sec; });
-                var sd = stSection(box, "Détail par thème");
+                var sd = stSection(box, "Détail par chapitre");
                 tree.forEach(function (t, ti) {
                     var tr = stRow(sd, t.name, gsFmtMin(t.sec) + " · " + (treeTotal ? Math.round(t.sec * 100 / treeTotal) : 0) + " %", treeTotal ? t.sec * 100 / treeTotal : 0, ti === 0);
                     tr.classList.add("st-tree-theme");
@@ -17423,7 +17422,7 @@
         function renderIssues() {
             // une seule ligne, dépliable : l'essentiel d'abord
             var tg = document.createElement("button"); tg.type = "button"; tg.className = "st-issues-toggle" + (statsIssuesOpen ? " open" : ""); tg.setAttribute("aria-expanded", statsIssuesOpen ? "true" : "false");
-            var tl = document.createElement("span"); tl.className = "st-issues-label"; tl.textContent = "Séances à attribuer à un thème";
+            var tl = document.createElement("span"); tl.className = "st-issues-label"; tl.textContent = "Séances à attribuer à un chapitre";
             var bubble = document.createElement("span"); bubble.className = "gs-tab-count st-issue-count"; bubble.textContent = String(issues.length);
             var chev = document.createElement("span"); chev.className = "st-issues-chev"; chev.textContent = statsIssuesOpen ? "Masquer ▴" : "Voir ▾";
             tg.appendChild(tl); tg.appendChild(bubble); tg.appendChild(chev);
@@ -17438,7 +17437,7 @@
                 var rules = statsRules();
                 var nSeances = function (n) { return n + " séance" + (n > 1 ? "s" : ""); };
                 if (it.kind === "moved") {
-                    tx.textContent = "« " + it.title + " » a changé de thème : il était dans « " + it.from.join(" », « ") + " », il est maintenant dans « " + it.to + " ». À quel thème attribuer ses " + nSeances(it.count) + " (" + gsFmtMin(it.sec) + ") ?";
+                    tx.textContent = "« " + it.title + " » a changé de chapitre : il était dans « " + it.from.join(" », « ") + " », il est maintenant dans « " + it.to + " ». À quel chapitre attribuer ses " + nSeances(it.count) + " (" + gsFmtMin(it.sec) + ") ?";
                     acts.appendChild(stBtn("Rester dans « " + it.from.join(" », « ") + " »", "btn-ghost", done(function () { rules.resolved[it.key] = "history"; })));
                     acts.appendChild(stBtn("Compter dans « " + it.to + " »", "btn-accent", done(function () { rules.chapterOf[it.exId] = it.toId; rules.resolved[it.key] = "follow"; })));
                 } else if (it.kind === "recreated") {
@@ -17446,14 +17445,14 @@
                     acts.appendChild(stBtn("Non, garder à part", "btn-ghost", done(function () { rules.resolved[it.key] = "separate"; })));
                     acts.appendChild(stBtn("Oui, compter avec lui", "btn-accent", done(function () { rules.alias[it.exId] = it.twinId; })));
                 } else if (it.kind === "orphan") {
-                    tx.textContent = "« " + it.title + " » a été supprimé, ainsi que son thème d'origine (« " + it.chapterName + " »). À quel thème attribuer ses " + nSeances(it.count) + " (" + gsFmtMin(it.sec) + ") ?";
-                    var sel = document.createElement("select"); sel.className = "st-issue-select"; sel.setAttribute("aria-label", "Thème");
+                    tx.textContent = "« " + it.title + " » a été supprimé, ainsi que son chapitre d'origine (« " + it.chapterName + " »). À quel chapitre attribuer ses " + nSeances(it.count) + " (" + gsFmtMin(it.sec) + ") ?";
+                    var sel = document.createElement("select"); sel.className = "st-issue-select"; sel.setAttribute("aria-label", "Chapitre");
                     var inst = getActiveInstrument();
                     (inst ? inst.categories : []).forEach(function (c) { var op = document.createElement("option"); op.value = c.id; op.textContent = c.name; sel.appendChild(op); });
                     acts.appendChild(sel);
-                    acts.appendChild(stBtn("Attribuer à ce thème", "btn-accent", done(function () { if (sel.value) rules.chapterOf[it.exId] = sel.value; })));
+                    acts.appendChild(stBtn("Attribuer à ce chapitre", "btn-accent", done(function () { if (sel.value) rules.chapterOf[it.exId] = sel.value; })));
                     acts.appendChild(stBtn("Ne pas compter", "btn-ghost", done(function () { rules.chapterOf[it.exId] = STATS_IGNORE; })));
-                    acts.appendChild(stBtn("Laisser sans thème", "btn-ghost", done(function () { rules.resolved[it.key] = "keep"; })));
+                    acts.appendChild(stBtn("Laisser sans chapitre", "btn-ghost", done(function () { rules.resolved[it.key] = "keep"; })));
                 }
                 card.appendChild(tx); card.appendChild(acts); rv.appendChild(card);
             });
@@ -17461,30 +17460,34 @@
             var movedAll = issues.filter(function (i) { return i.kind === "moved"; });
             if (movedAll.length >= 2) {
                 var bulk = document.createElement("div"); bulk.className = "st-issue-bulk";
-                var bl = document.createElement("span"); bl.textContent = "Pour les " + movedAll.length + " exercices qui ont changé de thème :";
+                var bl = document.createElement("span"); bl.textContent = "Pour les " + movedAll.length + " exercices qui ont changé de chapitre :";
                 bulk.appendChild(bl);
-                bulk.appendChild(stBtn("Tout laisser dans les anciens thèmes", "btn-ghost", done(function () { var r = statsRules(); movedAll.forEach(function (i) { r.resolved[i.key] = "history"; }); })));
-                bulk.appendChild(stBtn("Tout compter dans les thèmes actuels", "btn-accent", done(function () { var r = statsRules(); movedAll.forEach(function (i) { r.chapterOf[i.exId] = i.toId; r.resolved[i.key] = "follow"; }); })));
+                bulk.appendChild(stBtn("Tout laisser dans les anciens chapitres", "btn-ghost", done(function () { var r = statsRules(); movedAll.forEach(function (i) { r.resolved[i.key] = "history"; }); })));
+                bulk.appendChild(stBtn("Tout compter dans les chapitres actuels", "btn-accent", done(function () { var r = statsRules(); movedAll.forEach(function (i) { r.chapterOf[i.exId] = i.toId; r.resolved[i.key] = "follow"; }); })));
                 rv.appendChild(bulk);
             }
         }
 
         // ============ TEMPS ============
         function tabTime() {
-            var s1 = stSection(box, "Temps de pratique");
-            stRow(s1, "Sessions enregistrées", String(st.sessions));
-            stRow(s1, "Total", gsFmtMin(st.totalSec));
-            if (spec === "3") stRow(s1, "Moyenne par jour", gsFmtMin(st.totalSec / st.periodDays));
-            if (!isShort) {
-                stRow(s1, "Moyenne par jour (période entière)", gsFmtMin(st.totalSec / st.periodDays));
-                stRow(s1, "Moyenne par semaine", gsFmtMin(st.avgPerWeekSec));
+            // Sessions, temps total, jours pratiqués et moyenne par semaine sont déjà dans « Chiffres clés » (Aperçu) : ici, seulement ce qui n'y est pas
+            var any = false;
+            if (st.sessions && (!isShort || spec === "3")) {
+                var s1 = stSection(box, "Temps de pratique");
+                stRow(s1, "Moyenne par jour", gsFmtMin(st.totalSec / st.periodDays));
+                any = true;
             }
-            if (!isShort || spec === "3") stRow(s1, "Jours pratiqués", st.activeDays + " / " + st.periodDays);
             if (log.length && !isShort) {
                 var sh = stSection(box, "Régularité sur 12 mois");
                 var hw = document.createElement("div"); hw.className = "st-chart-wrap st-heat-wrap"; hw.appendChild(statsHeatmap(st.dayMap, now)); sh.appendChild(hw);
+                any = true;
             }
             var withPlan = st.recs.filter(function (r) { return r.plannedSec; }).slice(-10).reverse();
+            if (!any && !withPlan.length) {
+                var none = document.createElement("div"); none.className = "gs-empty";
+                none.textContent = st.sessions ? "Rien de plus sur cette période : tout est dans l'Aperçu." : "Pas encore de session enregistrée sur cette période.";
+                box.appendChild(none);
+            }
             if (withPlan.length) {
                 var s7 = stSection(box, "Réel contre prévu");
                 var scale = 1; withPlan.forEach(function (r) { scale = Math.max(scale, r.plannedSec, r.totalSec || 0); });
@@ -17503,12 +17506,12 @@
 
         // ============ RÉPARTITION ============
         function tabSplit() {
-            var s2 = stSection(box, "Thèmes (dossiers principaux)");
+            var s2 = stSection(box, "Chapitres");
             s2.appendChild(statsPie(st.chapters.map(function (c) { return { key: c.key, name: c.name, sec: c.sec }; })));
             var chapterNames = {}; st.chapters.forEach(function (c) { chapterNames[c.key] = c.name; });
             if (statsSubChapter && !chapterNames[statsSubChapter]) statsSubChapter = "";
-            var pick = document.createElement("select"); pick.className = "st-sub-pick"; pick.setAttribute("aria-label", "Thème");
-            var o0 = document.createElement("option"); o0.value = ""; o0.textContent = "Tous les thèmes"; pick.appendChild(o0);
+            var pick = document.createElement("select"); pick.className = "st-sub-pick"; pick.setAttribute("aria-label", "Chapitre");
+            var o0 = document.createElement("option"); o0.value = ""; o0.textContent = "Tous les chapitres"; pick.appendChild(o0);
             st.chapters.forEach(function (c) { var op = document.createElement("option"); op.value = c.key; op.textContent = c.name; if (statsSubChapter === c.key) op.selected = true; pick.appendChild(op); });
             pick.addEventListener("change", function () { statsSubChapter = pick.value; rerender(); });
             var s2b = stSection(box, "Premiers sous-dossiers");
@@ -17528,11 +17531,11 @@
             st.underused.slice(0, 8).forEach(function (x) { var ur = stRow(s5, x.title, x.last ? "dernier passage " + gsFmtAgo(x.last, now) : "jamais travaillé"); ur.title = x.path; bindExMenu(ur, x.id); });
             if (st.underused.length > 8) { var more = document.createElement("div"); more.className = "gs-empty"; more.textContent = "… et " + (st.underused.length - 8) + " autres"; s5.appendChild(more); }
             }
-            var sp2 = stSection(box, "Exercices qui changent de thème");
+            var sp2 = stSection(box, "Exercices qui changent de chapitre");
             var prow = document.createElement("label"); prow.className = "st-policy";
-            var pl = document.createElement("span"); pl.textContent = "Quand un exercice change de thème (dossier principal) :";
+            var pl = document.createElement("span"); pl.textContent = "Quand un exercice change de chapitre :";
             var ps = document.createElement("select"); ps.className = "st-policy-sel"; ps.setAttribute("aria-label", "Exercice déplacé");
-            [["ask", "me demander"], ["history", "garder les anciennes séances dans l'ancien thème"], ["follow", "tout compter dans son thème actuel"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if (statsRules().movePolicy === o[0]) op.selected = true; ps.appendChild(op); });
+            [["ask", "me demander"], ["history", "garder les anciennes séances dans l'ancien chapitre"], ["follow", "tout compter dans son chapitre actuel"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if (statsRules().movePolicy === o[0]) op.selected = true; ps.appendChild(op); });
             ps.addEventListener("change", function () { statsRules().movePolicy = ps.value; save(); rerender(); });
             prow.appendChild(pl); prow.appendChild(ps); sp2.appendChild(prow);
         }
@@ -17647,7 +17650,7 @@
             panel.appendChild(list);
             function markIssues(n) {
                 var old = title.querySelector(".st-issue-count"); if (old) old.remove();
-                if (n > 0) { var bub = document.createElement("span"); bub.className = "gs-tab-count st-issue-count"; bub.textContent = String(n); bub.title = n + " exercice(s) à attribuer à un thème"; tt.appendChild(bub); }
+                if (n > 0) { var bub = document.createElement("span"); bub.className = "gs-tab-count st-issue-count"; bub.textContent = String(n); bub.title = n + " exercice(s) à attribuer à un chapitre"; tt.appendChild(bub); }
             }
             function fill() {
                 requestAnimationFrame(function () { clampPanelToViewport(panel); });
