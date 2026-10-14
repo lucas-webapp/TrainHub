@@ -460,8 +460,8 @@
         inst.pinnedOrder = order;
     }
 
-    var METRO_SOUNDS = ["click", "wood", "clave", "bell"];
-    var METRO_SOUND_LABELS = { click: "Clic classique", wood: "Bois", clave: "Clave", bell: "Cloche douce" };
+    var METRO_SOUNDS = ["click", "wood", "clave", "marimba", "drop"];
+    var METRO_SOUND_LABELS = { click: "Clic classique", wood: "Bois", clave: "Clave", marimba: "Marimba", drop: "Goutte" };
     var METRO_POSITIONS = ["center", "top", "bottom", "corner"];
     var MAIN_LAYOUTS = ["vertical", "horizontal"];
     var DENSITIES = ["compact", "comfortable", "spacious"];
@@ -1518,9 +1518,22 @@
             var im = document.createElement("img");
             im.alt = meta.name || "Image";
             im.loading = "lazy";
+            // Taille d'affichage : à la hauteur choisie (comme avant), sans dépasser la largeur maximale — la hauteur suit alors la largeur,
+            // pour que le cadre épouse toujours l'image (pas de bandes vides).
+            im.addEventListener("load", function () {
+                if (!im.naturalWidth || !im.naturalHeight) return;
+                var capW = parseInt(getComputedStyle(strip).getPropertyValue("--img-cap"), 10) || 520;
+                im.style.width = Math.max(24, Math.round(Math.min(im.naturalWidth * (IMG_HEIGHTS[getImgSize(where)] / im.naturalHeight), capW))) + "px";
+            });
             loadImageInto(im, meta, function (why) { b.classList.add("img-missing"); b.textContent = why === "illisible" ? "Image illisible : format non pris en charge par ce navigateur" : "Image absente de cet appareil"; });
+            b.classList.add("img-loading"); // réserve un peu de place le temps du chargement (le cadre épouse ensuite l'image)
+            im.addEventListener("load", function () { b.classList.remove("img-loading"); });
+            im.addEventListener("error", function () { b.classList.remove("img-loading"); });
             b.appendChild(im);
-            b.addEventListener("click", function () { openImageViewer(list, i, false); });
+            b.addEventListener("click", function () {
+                if (suppressNextClick) { suppressNextClick = false; return; } // fin d'un glisser-déposer
+                openImageViewer(list, i, false);
+            });
             cell.appendChild(b);
             var fs = document.createElement("button");
             fs.type = "button";
@@ -1547,7 +1560,7 @@
                         cloudDeleteImage(meta.id);
                         delete imageUrlCache[meta.id];
                         save();
-                        render();
+                        refreshExerciseMedia(ex);
                     });
                 });
                 side.appendChild(rm);
@@ -1555,6 +1568,7 @@
             // Nom de la capture : sous la vignette, un clic permet de le modifier (Entrée enregistre, Échap annule).
             var fig = document.createElement("div");
             fig.className = "img-fig";
+            fig.dataset.reorderId = meta.id; // glisser-déposer (voir bindMediaReorder)
             fig.appendChild(cell);
             var cap = document.createElement("button");
             cap.type = "button";
@@ -1595,6 +1609,7 @@
             fig.appendChild(cap);
             strip.appendChild(fig);
         });
+        if (editable) bindMediaReorder(strip, ".img-fig", ex, "images", function () { return true; }, ".img-thumb-btn");
         return strip;
     }
 
@@ -1617,7 +1632,7 @@
             if (guidedSessionViewActive && gsScreen === "run") setImagesShownInSession(true); // collée pendant la session : on la voit aussitôt
             touchExercise(ex);
             save();
-            render();
+            if (guidedSessionViewActive && gsScreen === "run") render(); else refreshExerciseMedia(ex);
             added.forEach(function (m) { cloudUploadImage(m); });
         }).catch(function () {
             dlgAlert({ title: "Image non enregistrée", message: "Stockage plein, ou navigation privée activée sur cet appareil." });
@@ -1630,81 +1645,158 @@
     // `videoChips` : puces des liens YouTube (renommer / retirer) ; `resourcesList` : liens hors vidéo + fichiers (PDF, audio…).
     var VIDEO_TAB_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="4"/><path d="M10 9.4v5.2l4.6-2.6Z" fill="currentColor"/></svg>';
     var LINK_TAB_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>';
-    function buildMediaTabs(ex, videoChips, resourcesList, ytLinks) {
+    // La section se met à jour SUR PLACE (voir `wrap._sync`) : changer d'onglet, ajouter ou retirer un lien, un fichier, une image ou
+    // réordonner ne reconstruit pas la page. Les lecteurs YouTube (iframes) restent donc en vie — un iframe déplacé ou recréé
+    // repartirait de zéro, publicité comprise : au changement d'onglet la vidéo est seulement mise en pause, le volet masqué.
+    // `makeLists()` renvoie des listes de puces neuves : { videoChips, resourcesList, ytLinks }.
+    function buildMediaTabs(ex, makeLists) {
         var wrap = document.createElement("div");
         wrap.className = "media-section images-section";
-        var nImages = (ex.images || []).length;
-        var nLinks = resourcesList.querySelectorAll(".link-chip, .file-chip").length;
-        var tabs = [];
-        if (ytLinks.length) tabs.push({ key: "videos", label: "Vidéos", n: ytLinks.length });
-        if (nImages) tabs.push({ key: "images", label: "Images", n: nImages });
-        if (nLinks) tabs.push({ key: "links", label: "Liens et fichiers", n: nLinks });
-        if (!tabs.length) return wrap;
-        var cur = exerciseMediaTab[ex.id];
-        if (!tabs.some(function (t) { return t.key === cur; })) cur = ""; // l'onglet ouvert s'est vidé
-        var bar = document.createElement("div");
-        bar.className = "media-tabs";
-        bar.setAttribute("role", "tablist");
-        tabs.forEach(function (t) {
-            var b = document.createElement("button");
-            b.type = "button";
-            b.className = "media-tab" + (cur === t.key ? " active" : "");
-            b.dataset.tab = t.key;
-            b.setAttribute("role", "tab");
-            b.setAttribute("aria-selected", cur === t.key ? "true" : "false");
-            var ico = document.createElement("span"); // vignette-logo du type de média, sur le côté
-            ico.className = "media-tab-ico";
-            ico.innerHTML = t.key === "videos" ? VIDEO_TAB_ICON_SVG : t.key === "images" ? IMAGE_ICON_SVG : LINK_TAB_ICON_SVG;
-            b.appendChild(ico);
-            var lb = document.createElement("span");
-            lb.className = "media-tab-label";
-            if (t.key === "links") { // sur téléphone « Liens » suffit : le reste de l'étiquette est masqué (CSS)
-                lb.appendChild(document.createTextNode("Liens"));
-                var more = document.createElement("span");
-                more.className = "media-tab-label-more";
-                more.textContent = " et fichiers";
-                lb.appendChild(more);
-            } else lb.textContent = t.label;
-            b.appendChild(lb);
-            var c = document.createElement("span");
-            c.className = "media-tab-count";
-            c.textContent = String(t.n);
-            b.appendChild(c);
-            b.addEventListener("click", function () {
-                var next = cur === t.key ? "" : t.key;
-                exerciseMediaTab[ex.id] = next;
-                if (next === "videos") exerciseVideosOpen[ex.id] = true; // clic sur l'onglet : les lecteurs s'affichent
-                render();
-            });
-            bar.appendChild(b);
-        });
-        wrap.appendChild(bar);
-        if (!cur) return wrap;
-        var panel = document.createElement("div");
-        panel.className = "media-panel";
-        panel.setAttribute("role", "tabpanel");
-        if (cur === "videos") {
-            panel.appendChild(videoChips);
-            var playersOpen = !!exerciseVideosOpen[ex.id];
-            var tg = document.createElement("button");
-            tg.type = "button";
-            tg.className = "btn-ghost gs-yt-toggle gs-yt-toggle-ex";
-            tg.textContent = (playersOpen ? "▾ " : "▸ ") + "Lecteurs YouTube — " + (playersOpen ? "masquer" : "afficher");
-            tg.addEventListener("click", function () { exerciseVideosOpen[ex.id] = !playersOpen; render(); });
-            panel.appendChild(tg);
-            if (playersOpen) {
-                ytLinks.forEach(function (link) {
-                    var card = buildYouTubeCard(link, ex, youTubeVideoInfo(link.url), null);
-                    card.classList.add("gs-yt-small");
-                    panel.appendChild(card);
-                });
-            }
-        } else if (cur === "images") {
-            panel.appendChild(buildImageStrip(ex, "ex", true));
-        } else {
-            panel.appendChild(resourcesList);
+        var st = { bar: null, panels: {}, cur: "" };
+        function select(key) {
+            var next = st.cur === key ? "" : key;
+            exerciseMediaTab[ex.id] = next;
+            if (next === "videos") exerciseVideosOpen[ex.id] = true; // clic sur l'onglet : les lecteurs s'affichent
+            sync();
         }
-        wrap.appendChild(panel);
+        function buildBar(tabs, cur) {
+            var bar = document.createElement("div");
+            bar.className = "media-tabs";
+            bar.setAttribute("role", "tablist");
+            tabs.forEach(function (t) {
+                var b = document.createElement("button");
+                b.type = "button";
+                b.className = "media-tab" + (cur === t.key ? " active" : "");
+                b.dataset.tab = t.key;
+                b.setAttribute("role", "tab");
+                b.setAttribute("aria-selected", cur === t.key ? "true" : "false");
+                var ico = document.createElement("span"); // vignette-logo du type de média, sur le côté
+                ico.className = "media-tab-ico";
+                ico.innerHTML = t.key === "videos" ? VIDEO_TAB_ICON_SVG : t.key === "images" ? IMAGE_ICON_SVG : LINK_TAB_ICON_SVG;
+                b.appendChild(ico);
+                var lb = document.createElement("span");
+                lb.className = "media-tab-label";
+                if (t.key === "links") { // sur téléphone « Liens » suffit : le reste de l'étiquette est masqué (CSS)
+                    lb.appendChild(document.createTextNode("Liens"));
+                    var more = document.createElement("span");
+                    more.className = "media-tab-label-more";
+                    more.textContent = " et fichiers";
+                    lb.appendChild(more);
+                } else lb.textContent = t.label;
+                b.appendChild(lb);
+                var c = document.createElement("span");
+                c.className = "media-tab-count";
+                c.textContent = String(t.n);
+                b.appendChild(c);
+                b.addEventListener("click", function () { select(t.key); });
+                bar.appendChild(b);
+            });
+            return bar;
+        }
+        function ensurePanel(key) {
+            var p = st.panels[key];
+            if (p) return p;
+            var el = document.createElement("div");
+            el.className = "media-panel";
+            el.setAttribute("role", "tabpanel");
+            el.dataset.panel = key;
+            p = { el: el, sig: "" };
+            if (key === "videos") {
+                p.chips = document.createElement("div");
+                p.toggle = document.createElement("button");
+                p.toggle.type = "button";
+                p.toggle.className = "btn-ghost gs-yt-toggle gs-yt-toggle-ex";
+                p.toggle.addEventListener("click", function () { exerciseVideosOpen[ex.id] = !exerciseVideosOpen[ex.id]; sync(); });
+                p.cardsHost = document.createElement("div");
+                p.cardsHost.className = "media-cards";
+                p.cards = {}; p.order = [];
+                el.appendChild(p.chips); el.appendChild(p.toggle); el.appendChild(p.cardsHost);
+            } else {
+                p.body = document.createElement("div");
+                el.appendChild(p.body);
+            }
+            st.panels[key] = p;
+            wrap.appendChild(el);
+            return p;
+        }
+        function pauseCards(p) {
+            Object.keys(p.cards || {}).forEach(function (id) { var c = p.cards[id]; if (c && c._ytPause) c._ytPause(); });
+        }
+        // Les cartes déjà là (même lien, même adresse, même ordre relatif) ne sont jamais déplacées ni recréées : seules les nouvelles
+        // s'insèrent. Si l'ordre des vidéos a changé, toutes sont recréées dans le nouvel ordre (déplacer un iframe le recharge de toute façon).
+        function syncCards(p, ytLinks, show) {
+            var host = p.cardsHost;
+            if (!show) {
+                Object.keys(p.cards).forEach(function (id) { p.cards[id].remove(); });
+                p.cards = {}; p.order = [];
+                return;
+            }
+            var want = ytLinks.map(function (l) { return l.id; });
+            var urlOf = {}; ytLinks.forEach(function (l) { urlOf[l.id] = l.url; });
+            var keep = p.order.filter(function (id) { return urlOf[id] !== undefined && p.cards[id] && p.cards[id]._url === urlOf[id]; });
+            var keepInWantOrder = want.filter(function (id) { return keep.indexOf(id) !== -1; });
+            if (keep.join("|") !== keepInWantOrder.join("|")) keep = [];
+            Object.keys(p.cards).forEach(function (id) { if (keep.indexOf(id) === -1) { p.cards[id].remove(); delete p.cards[id]; } });
+            var prev = null;
+            ytLinks.forEach(function (link) {
+                var card = p.cards[link.id];
+                if (!card) {
+                    card = buildYouTubeCard(link, ex, youTubeVideoInfo(link.url), null);
+                    card.classList.add("gs-yt-small");
+                    card._url = link.url;
+                    p.cards[link.id] = card;
+                    host.insertBefore(card, prev ? prev.nextSibling : host.firstChild);
+                } else {
+                    var tt = card.querySelector(".gs-yt-title"), nm = link.label || "YouTube";
+                    if (tt && tt.textContent !== nm) tt.textContent = nm;
+                }
+                prev = card;
+            });
+            p.order = want;
+        }
+        function sync() {
+            var L = makeLists(), ytLinks = L.ytLinks;
+            var nImages = (ex.images || []).length;
+            var nLinks = L.resourcesList.querySelectorAll(".link-chip, .file-chip").length;
+            var tabs = [];
+            if (ytLinks.length) tabs.push({ key: "videos", label: "Vidéos", n: ytLinks.length });
+            if (nImages) tabs.push({ key: "images", label: "Images", n: nImages });
+            if (nLinks) tabs.push({ key: "links", label: "Liens et fichiers", n: nLinks });
+            if (!tabs.length) { // plus rien à montrer
+                Object.keys(st.panels).forEach(function (k) { pauseCards(st.panels[k]); });
+                wrap.innerHTML = ""; st.bar = null; st.panels = {}; st.cur = "";
+                return;
+            }
+            var cur = exerciseMediaTab[ex.id];
+            if (!tabs.some(function (t) { return t.key === cur; })) cur = ""; // l'onglet ouvert s'est vidé
+            st.cur = cur;
+            var bar = buildBar(tabs, cur);
+            if (st.bar && st.bar.parentNode === wrap) wrap.replaceChild(bar, st.bar); else wrap.insertBefore(bar, wrap.firstChild);
+            st.bar = bar;
+            ["videos", "images", "links"].forEach(function (key) {
+                var p = st.panels[key];
+                if (key === cur) {
+                    p = ensurePanel(key);
+                    if (key === "videos") {
+                        p.el.replaceChild(L.videoChips, p.chips); p.chips = L.videoChips;
+                        var open = !!exerciseVideosOpen[ex.id];
+                        p.toggle.textContent = (open ? "▾ " : "▸ ") + "Lecteurs YouTube — " + (open ? "masquer" : "afficher");
+                        syncCards(p, ytLinks, open);
+                    } else if (key === "images") {
+                        var sig = JSON.stringify((ex.images || []).map(function (m) { return [m.id, m.name || ""]; })) + getImgSize("ex");
+                        if (p.sig !== sig) { p.sig = sig; p.body.replaceWith(p.body = buildImageStrip(ex, "ex", true)); }
+                    } else {
+                        p.body.replaceWith(p.body = L.resourcesList);
+                    }
+                    p.el.hidden = false;
+                } else if (p) {
+                    if (key === "videos" && ytLinks.length) { pauseCards(p); p.el.hidden = true; } // vidéo laissée en pause, lecteurs gardés
+                    else { pauseCards(p); p.el.remove(); delete st.panels[key]; }
+                }
+            });
+        }
+        wrap._sync = sync;
+        sync();
         return wrap;
     }
 
@@ -3773,8 +3865,11 @@
 
         container.addEventListener("pointerdown", function (e) {
             if (e.button !== undefined && e.button !== 0) return; // clic droit : menu contextuel, pas de glisser
-            // Les boutons/champs internes (chevron, "+", saisie) gardent leur propre clic.
-            if (e.target.closest("button, input, textarea, select")) return;
+            if (opts && opts.mouseOnly && e.pointerType && e.pointerType !== "mouse") return; // au doigt, le glisser gênerait le défilement
+            // Les boutons/champs internes (chevron, "+", saisie) gardent leur propre clic — sauf ceux où le glisser est permis
+            // (opts.dragFromButton : la vignette d'une image, le nom d'un fichier…).
+            var innerBtn = e.target.closest("button, input, textarea, select");
+            if (innerBtn && !(opts && opts.dragFromButton && innerBtn.matches(opts.dragFromButton))) return;
             var item = e.target.closest(itemSelector);
             if (!item || item.parentNode !== container) return; // seuls les enfants directs de CE niveau sont concernés
             // Empêche la sélection de texte que la souris (ou le doigt) déclenche sinon dès qu'on
@@ -3799,7 +3894,7 @@
         function onMove(e) {
             if (!dragEl) return;
             if (!moved && e.buttons === 0 && e.pointerType === "mouse") { dragEl = null; window.removeEventListener("pointermove", onMove); return; } // relâché hors de la zone
-            var delta = axis === "x" ? (e.clientX - startX) : (e.clientY - startY);
+            var delta = axis === "x" ? (e.clientX - startX) : axis === "xy" ? Math.max(Math.abs(e.clientX - startX), Math.abs(e.clientY - startY)) : (e.clientY - startY);
             if (!moved && Math.abs(delta) < 10) return;
             if (!moved) {
                 try { dragEl.setPointerCapture(e.pointerId); } catch (err) {}
@@ -3840,6 +3935,21 @@
             var siblings = items.filter(function (el) { return el !== dragEl; });
             var before = captureRects(siblings);
             var nextItem = items[items.indexOf(dragEl) + 1] || null;
+            if (axis === "xy") { // éléments qui passent à la ligne (puces, vignettes) : on vise le plus proche, avant ou après selon l'ordre de lecture
+                var best = null, bestD = Infinity;
+                siblings.forEach(function (sb) {
+                    var rr = sb.getBoundingClientRect(), dx = e.clientX - (rr.left + rr.width / 2), dy = e.clientY - (rr.top + rr.height / 2), d = dx * dx + dy * dy;
+                    if (d < bestD) { bestD = d; best = sb; }
+                });
+                if (!best) return;
+                var br = best.getBoundingClientRect(), cx = br.left + br.width / 2, cy = br.top + br.height / 2;
+                var after = Math.abs(e.clientY - cy) > br.height / 2 ? e.clientY > cy : e.clientX > cx;
+                var ref = after ? (siblings[siblings.indexOf(best) + 1] || null) : best;
+                if (ref === nextItem) return;
+                if (ref) container.insertBefore(dragEl, ref); else container.appendChild(dragEl);
+                flipSiblings(before);
+                return;
+            }
             for (var i = 0; i < siblings.length; i++) {
                 var rect = siblings[i].getBoundingClientRect();
                 var mid = axis === "x" ? (rect.left + rect.width / 2) : (rect.top + rect.height / 2);
@@ -3883,6 +3993,16 @@
                 opts.onDropOnTarget(droppedEl, dropTarget.getAttribute((opts && opts.dropAttr) || "data-drop-folder-id"), r.right, r.top + r.height / 2);
                 return;
             }
+            if (dragEl && moved && opts && opts.onReorder) { // validation personnalisée (sans nouveau rendu de la page)
+                var ord = directChildren().map(function (el) { return el.dataset.reorderId; });
+                dragEl.classList.remove("dragging");
+                suppressNextClick = true;
+                setTimeout(function () { suppressNextClick = false; }, 120);
+                dragEl = null;
+                moved = false;
+                opts.onReorder(ord);
+                return;
+            }
             if (dragEl && moved) {
                 var arr = getArray();
                 var order = directChildren().map(function (el) { return el.dataset.reorderId; });
@@ -3907,6 +4027,48 @@
 
         container.addEventListener("pointerup", finish);
         container.addEventListener("pointercancel", finish);
+    }
+
+    // Glisser-déposer (souris) des médias d'un exercice : vidéos, liens, fichiers, images. `field` : "links" | "files" | "images" ;
+    // `isMember` : quels éléments de ce tableau sont dans CE groupe (les vidéos et les autres liens sont dans le même tableau mais
+    // s'affichent à part) — ils gardent leurs places dans le tableau et s'y réarrangent entre eux. Aucune page reconstruite :
+    // les lecteurs YouTube en cours ne sont pas perdus (sauf si l'ordre des vidéos elles-mêmes change).
+    function bindMediaReorder(container, itemSelector, ex, field, isMember, dragFromButton) {
+        setupDragReorder(container, itemSelector, function () { return ex[field] || []; }, "xy", {
+            mouseOnly: true,
+            dragFromButton: dragFromButton || "",
+            onReorder: function (order) {
+                var arr = ex[field] || [], slots = [], items = [];
+                arr.forEach(function (it, i) { if (isMember(it)) { slots.push(i); items.push(it); } });
+                var byId = {};
+                items.forEach(function (it) { byId[it.id] = it; });
+                var sorted = [];
+                order.forEach(function (id) { if (byId[id] && sorted.indexOf(byId[id]) === -1) sorted.push(byId[id]); });
+                items.forEach(function (it) { if (sorted.indexOf(it) === -1) sorted.push(it); });
+                if (sorted.every(function (it, k) { return it === items[k]; })) return; // même ordre qu'avant
+                slots.forEach(function (pos, k) { arr[pos] = sorted[k]; });
+                touchExercise(ex); // les exercices liés suivent
+                save();
+                refreshExerciseMedia(ex);
+            }
+        });
+    }
+    // Mise à jour d'un exercice affiché (liens, fichiers, images, ordre) SANS reconstruire la page : sinon les lecteurs YouTube en
+    // cours de lecture seraient détruits (et la publicité à revoir). Se rabat sur un rendu complet si l'exercice n'est pas affiché
+    // tel quel ou si une copie liée est affichée en même temps.
+    function refreshExerciseMedia(ex) {
+        var els = document.querySelectorAll('.exercise[data-ex-id="' + ex.id + '"]');
+        var el = els.length === 1 ? els[0] : null;
+        if (!el || typeof el._refreshMedia !== "function") { render(); return; }
+        if (ex.linkId) {
+            var others = Array.prototype.some.call(document.querySelectorAll(".exercise"), function (o) {
+                if (o === el) return false;
+                var f = findExerciseById(o.dataset.exId);
+                return !!f && f.ex.linkId === ex.linkId;
+            });
+            if (others) { render(); return; }
+        }
+        el._refreshMedia();
     }
 
     // ---------- rendering ----------
@@ -4873,6 +5035,7 @@
                     archived: false,
                     links: [],
                     files: [],
+                    tempoGoal: false, // un nouvel exercice n'a pas d'objectif tempo d'office : à cocher quand il en a un
                     collapsed: true,
                     updatedAt: Date.now()
                 });
@@ -4889,6 +5052,42 @@
         return wrap;
     }
 
+    // Pastilles et boutons de droite de la ligne d'un exercice (liens, audio, notes, images, tempo, ✕) : reconstruits tels quels quand les
+    // médias changent (voir refreshExerciseMedia).
+    function fillExerciseTools(tools, folder, ex) {
+        tools.innerHTML = "";
+        appendExerciseLinkButtons(tools, ex);
+        appendExerciseAudioButton(tools, ex);
+        if ((ex.notes && ex.notes.trim()) || (ex.fixedNotes && ex.fixedNotes.trim())) {
+            var noteMark = document.createElement("span");
+            noteMark.className = "exercise-note-mark";
+            noteMark.innerHTML = NOTE_BUBBLE_SVG;
+            noteMark.title = "Cet exercice a des notes";
+            tools.appendChild(noteMark);
+        }
+        appendExerciseImageButton(tools, ex);
+        appendExerciseLinkBadge(tools, ex);
+        var tempoChip = buildTempoChip({
+            title: ex.title,
+            exId: ex.id,
+            get: function () { return ex.metronome; },
+            set: function (p) { setExerciseMetronome(ex, p); }
+        }, false);
+        if (tempoChip) tools.appendChild(tempoChip);
+
+        if (ex.archived) {
+            var archBadge = document.createElement("span");
+            archBadge.className = "exercise-archived-badge";
+            archBadge.textContent = "Archivé";
+            tools.appendChild(archBadge);
+        }
+
+        var delBtn = iconButton("✕", "Supprimer l'exercice", function () {
+            deleteExerciseGuarded(ex, folder, getActiveInstrument());
+        });
+        tools.appendChild(delBtn);
+
+    }
     function renderExercise(folder, ex, orderingEnabled) {
         var el = document.createElement("div");
         el.className = "exercise" + (ex.collapsed ? " collapsed" : "") + (ex.id in exSel ? " selected" : "");
@@ -4967,38 +5166,14 @@
         var tools = document.createElement("div");
         tools.className = "exercise-row-tools";
         row.appendChild(tools);
-        appendExerciseLinkButtons(tools, ex);
-        appendExerciseAudioButton(tools, ex);
-        if ((ex.notes && ex.notes.trim()) || (ex.fixedNotes && ex.fixedNotes.trim())) {
-            var noteMark = document.createElement("span");
-            noteMark.className = "exercise-note-mark";
-            noteMark.innerHTML = NOTE_BUBBLE_SVG;
-            noteMark.title = "Cet exercice a des notes";
-            tools.appendChild(noteMark);
-        }
-        appendExerciseImageButton(tools, ex);
-        appendExerciseLinkBadge(tools, ex);
-        var tempoChip = buildTempoChip({
-            title: ex.title,
-            exId: ex.id,
-            get: function () { return ex.metronome; },
-            set: function (p) { setExerciseMetronome(ex, p); }
-        }, false);
-        if (tempoChip) tools.appendChild(tempoChip);
-
-        if (ex.archived) {
-            var archBadge = document.createElement("span");
-            archBadge.className = "exercise-archived-badge";
-            archBadge.textContent = "Archivé";
-            tools.appendChild(archBadge);
-        }
-
-        var delBtn = iconButton("✕", "Supprimer l'exercice", function () {
-            deleteExerciseGuarded(ex, folder, getActiveInstrument());
-        });
-        tools.appendChild(delBtn);
+        fillExerciseTools(tools, folder, ex);
 
         el.appendChild(row);
+        el._refreshMedia = function () { // médias modifiés : on met à jour la ligne et la section médias sur place (voir refreshExerciseMedia)
+            var d = el.querySelector(".exercise-details");
+            if (d && d._syncMedia) d._syncMedia();
+            fillExerciseTools(tools, folder, ex);
+        };
 
         if (!ex.collapsed) {
             el.appendChild(renderExerciseDetails(ex));
@@ -5345,122 +5520,136 @@
         details.appendChild(archiveBox);
 
         // Ordre de la fiche : notes · onglets Vidéos / Images / Liens et fichiers · barre d'ajout unique tout en bas.
-        var videoChips = document.createElement("div"); // puces des liens YouTube (renommer / retirer), toujours visibles
-        videoChips.className = "links-list";
-        var resourcesList = document.createElement("div"); // liens hors vidéo + fichiers
-        resourcesList.className = "links-list";
-        (ex.links || []).forEach(function (link, idx) {
-            var chip = document.createElement("a");
-            chip.className = "link-chip";
-            chip.href = link.url;
-            chip.target = "_blank";
-            chip.rel = "noopener noreferrer";
-            bindAudioLinkClick(chip, link, ex);
-            bindLinkMenu(chip, ex, link);
-            var iconSpan = document.createElement("span");
-            iconSpan.className = "link-icon";
-            iconSpan.innerHTML = linkIconSvg(link.label, link.url);
-            chip.appendChild(iconSpan);
-            var labelSpan = document.createElement("span");
-            labelSpan.className = "link-label";
-            labelSpan.textContent = link.label;
-            chip.appendChild(labelSpan);
+        // Les puces sont (re)construites à chaque mise à jour sur place de la section médias (voir buildMediaTabs).
+        function makeMediaLists() {
+            var videoChips = document.createElement("div"); // puces des liens YouTube (renommer / retirer), toujours visibles
+            videoChips.className = "links-list";
+            var resourcesList = document.createElement("div"); // liens hors vidéo + fichiers
+            resourcesList.className = "links-list";
+            var linksGroup = document.createElement("div"), filesGroup = document.createElement("div"); // deux groupes (display: contents) : on réordonne dans chacun
+            linksGroup.className = "links-group"; filesGroup.className = "links-group";
+            resourcesList.appendChild(linksGroup); resourcesList.appendChild(filesGroup);
+            (ex.links || []).forEach(function (link) {
+                var chip = document.createElement("a");
+                chip.className = "link-chip";
+                chip.href = link.url;
+                chip.target = "_blank";
+                chip.rel = "noopener noreferrer";
+                chip.dataset.reorderId = link.id; // glisser-déposer : réordonner (voir bindMediaReorder)
+                chip.addEventListener("click", function (e) { if (suppressNextClick) { e.preventDefault(); e.stopImmediatePropagation(); suppressNextClick = false; } }); // fin d'un glisser : pas d'ouverture du lien
+                bindAudioLinkClick(chip, link, ex);
+                bindLinkMenu(chip, ex, link);
+                var iconSpan = document.createElement("span");
+                iconSpan.className = "link-icon";
+                iconSpan.innerHTML = linkIconSvg(link.label, link.url);
+                chip.appendChild(iconSpan);
+                var labelSpan = document.createElement("span");
+                labelSpan.className = "link-label";
+                labelSpan.textContent = link.label;
+                chip.appendChild(labelSpan);
 
-            function startRenameLink() {
-                var input = document.createElement("input");
-                input.type = "text";
-                input.className = "link-label-input";
-                input.value = link.label;
-                labelSpan.replaceWith(input);
-                input.focus();
-                input.select();
-                var done = false;
-                var oldLabel = link.label;
-                var isNewLink = newLinkPropagateId === link.id;
-                function propagate() {
-                    var url = link.url, label = link.label;
-                    if (isNewLink) {
-                        newLinkPropagateId = null;
-                        askApplyToSameNamed(ex, "Ajouter aussi ce lien (« " + label + " ») ?",
-                            function (o) { return !hasLinkUrl(o, url); },
-                            function (o) { o.links = o.links || []; o.links.push({ id: uid(), label: label, url: url }); });
-                    } else if (label !== oldLabel) {
-                        askApplyToSameNamed(ex, "Renommer aussi ce lien en « " + label + " » ?",
-                            function (o) { return (o.links || []).some(function (l) { return l.url === url && l.label !== label; }); },
-                            function (o) { (o.links || []).forEach(function (l) { if (l.url === url) l.label = label; }); });
+                function startRenameLink() {
+                    var input = document.createElement("input");
+                    input.type = "text";
+                    input.className = "link-label-input";
+                    input.value = link.label;
+                    labelSpan.replaceWith(input);
+                    input.focus();
+                    input.select();
+                    var done = false;
+                    var oldLabel = link.label;
+                    var isNewLink = newLinkPropagateId === link.id;
+                    function propagate() {
+                        var url = link.url, label = link.label;
+                        if (isNewLink) {
+                            newLinkPropagateId = null;
+                            askApplyToSameNamed(ex, "Ajouter aussi ce lien (« " + label + " ») ?",
+                                function (o) { return !hasLinkUrl(o, url); },
+                                function (o) { o.links = o.links || []; o.links.push({ id: uid(), label: label, url: url }); });
+                        } else if (label !== oldLabel) {
+                            askApplyToSameNamed(ex, "Renommer aussi ce lien en « " + label + " » ?",
+                                function (o) { return (o.links || []).some(function (l) { return l.url === url && l.label !== label; }); },
+                                function (o) { (o.links || []).forEach(function (l) { if (l.url === url) l.label = label; }); });
+                        }
                     }
+                    function commit() {
+                        if (done) return;
+                        done = true;
+                        var name = input.value.trim();
+                        if (name) { link.label = name; labelSpan.textContent = name; }
+                        input.replaceWith(labelSpan);
+                        touchExercise(ex);
+                        save();
+                        propagate();
+                    }
+                    function cancel() {
+                        if (done) return;
+                        done = true;
+                        input.replaceWith(labelSpan);
+                        propagate();
+                    }
+                    input.addEventListener("keydown", function (e) {
+                        e.stopPropagation();
+                        if (e.key === "Enter") { e.preventDefault(); commit(); }
+                        if (e.key === "Escape") cancel();
+                    });
+                    input.addEventListener("blur", commit);
+                    input.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); });
                 }
-                function commit() {
-                    if (done) return;
-                    done = true;
-                    var name = input.value.trim();
-                    if (name) { link.label = name; labelSpan.textContent = name; }
-                    input.replaceWith(labelSpan);
+
+                // Lien tout juste ajouté : on passe directement en saisie du nom, sans cliquer sur le crayon.
+                if (pendingRenameKey === "link:" + link.id) {
+                    pendingRenameKey = null;
+                    setTimeout(startRenameLink, 0);
+                }
+
+                var editBtn = document.createElement("span");
+                editBtn.className = "link-edit";
+                editBtn.innerHTML = PENCIL_ICON_SVG;
+                editBtn.title = "Renommer ce lien";
+                editBtn.addEventListener("click", function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    startRenameLink();
+                });
+                chip.appendChild(editBtn);
+
+                var removeBtn = document.createElement("span");
+                removeBtn.className = "link-remove";
+                removeBtn.textContent = "✕";
+                removeBtn.title = "Retirer ce lien";
+                removeBtn.addEventListener("click", function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    var at = ex.links.indexOf(link);
+                    if (at !== -1) ex.links.splice(at, 1);
+                    if (ex.pinnedLinkId === link.id) ex.pinnedLinkId = null;
                     touchExercise(ex);
                     save();
-                    propagate();
-                }
-                function cancel() {
-                    if (done) return;
-                    done = true;
-                    input.replaceWith(labelSpan);
-                    propagate();
-                }
-                input.addEventListener("keydown", function (e) {
-                    e.stopPropagation();
-                    if (e.key === "Enter") { e.preventDefault(); commit(); }
-                    if (e.key === "Escape") cancel();
+                    refreshExerciseMedia(ex);
+                    askApplyToSameNamed(ex, "Retirer aussi ce lien (« " + link.label + " ») ?",
+                        function (o) { return hasLinkUrl(o, link.url); },
+                        function (o) {
+                            o.links = (o.links || []).filter(function (l) { return l.url !== link.url; });
+                            if (o.pinnedLinkId && !(o.links || []).some(function (l) { return l.id === o.pinnedLinkId; })) o.pinnedLinkId = null;
+                        });
                 });
-                input.addEventListener("blur", commit);
-                input.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); });
-            }
-
-            // Lien tout juste ajouté : on passe directement en saisie du nom, sans cliquer sur le crayon.
-            if (pendingRenameKey === "link:" + link.id) {
-                pendingRenameKey = null;
-                setTimeout(startRenameLink, 0);
-            }
-
-            var editBtn = document.createElement("span");
-            editBtn.className = "link-edit";
-            editBtn.innerHTML = PENCIL_ICON_SVG;
-            editBtn.title = "Renommer ce lien";
-            editBtn.addEventListener("click", function (e) {
-                e.preventDefault();
-                e.stopPropagation();
-                startRenameLink();
+                chip.appendChild(removeBtn);
+                (youTubeVideoInfo(link.url) ? videoChips : linksGroup).appendChild(chip);
             });
-            chip.appendChild(editBtn);
-
-            var removeBtn = document.createElement("span");
-            removeBtn.className = "link-remove";
-            removeBtn.textContent = "✕";
-            removeBtn.title = "Retirer ce lien";
-            removeBtn.addEventListener("click", function (e) {
-                e.preventDefault();
-                e.stopPropagation();
-                ex.links.splice(idx, 1);
-                if (ex.pinnedLinkId === link.id) ex.pinnedLinkId = null;
-                touchExercise(ex);
-                save();
-                render();
-                askApplyToSameNamed(ex, "Retirer aussi ce lien (« " + link.label + " ») ?",
-                    function (o) { return hasLinkUrl(o, link.url); },
-                    function (o) {
-                        o.links = (o.links || []).filter(function (l) { return l.url !== link.url; });
-                        if (o.pinnedLinkId && !(o.links || []).some(function (l) { return l.id === o.pinnedLinkId; })) o.pinnedLinkId = null;
-                    });
-            });
-            chip.appendChild(removeBtn);
-            (youTubeVideoInfo(link.url) ? videoChips : resourcesList).appendChild(chip);
-        });
-        appendFileChips(resourcesList, ex);
-
+            appendFileChips(filesGroup, ex);
+            // Glisser-déposer à la souris : vidéos entre elles, liens entre eux, fichiers entre eux.
+            bindMediaReorder(videoChips, ".link-chip", ex, "links", function (l) { return !!youTubeVideoInfo(l.url); });
+            bindMediaReorder(linksGroup, ".link-chip", ex, "links", function (l) { return !youTubeVideoInfo(l.url); });
+            bindMediaReorder(filesGroup, ".file-chip", ex, "files", function () { return true; }, ".file-open");
+            return { videoChips: videoChips, resourcesList: resourcesList, ytLinks: (ex.links || []).filter(function (l) { return !!youTubeVideoInfo(l.url); }) };
+        }
         // Vidéos YouTube de l'exercice : masquées de base (un lecteur intégré est lourd : rien n'est chargé tant qu'on n'a pas
         // ouvert l'onglet « Vidéos »), en petit, et seulement dans l'exercice déplié. Replier l'exercice referme aussi les lecteurs
         // (voir renderExercise).
-        var exYtLinks = (ex.links || []).filter(function (l) { return !!youTubeVideoInfo(l.url); });
-        details.appendChild(buildMediaTabs(ex, videoChips, resourcesList, exYtLinks));
+        var mediaWrap = buildMediaTabs(ex, makeMediaLists);
+        details._syncMedia = mediaWrap._sync;
+        details.appendChild(mediaWrap);
 
         var addLinkRow = document.createElement("div");
         addLinkRow.className = "add-link-row";
@@ -5482,7 +5671,7 @@
             urlInput.value = "";
             touchExercise(ex);
             save();
-            render();
+            refreshExerciseMedia(ex); // sur place : une vidéo en cours dans la fiche n'est pas perdue
         }
         var addLinkBtn = iconButton("+", "Ajouter ce lien", commitLink);
         addLinkBtn.className = "btn-accent icon-btn";
@@ -5638,7 +5827,7 @@
                     exerciseMediaTab[ex.id] = "links";
                     touchExercise(ex);
                     save();
-                    render();
+                    refreshExerciseMedia(ex);
                     showToast("Fichier ajouté à l'exercice : « " + meta.name + " »", 4000);
                     if (isAudioFile(meta)) openAudioWindow(meta);
                 }, function () {
@@ -6446,10 +6635,12 @@
             function fileCaption() { return meta.name + (meta.size ? " · " + humanFileSize(meta.size) : ""); }
             openBtn.textContent = fileCaption();
             openBtn.addEventListener("click", function () {
+                if (suppressNextClick) { suppressNextClick = false; return; } // fin d'un glisser-déposer
                 if (isAudioFile(meta)) { openAudioWindow(meta); return; }
                 fileOpenInTab(meta);
             });
             chip.appendChild(openBtn);
+            chip.dataset.reorderId = meta.id; // glisser-déposer (voir bindMediaReorder)
             bindContextGesture(chip, function (x, y) { openFileMenu(x, y, meta, list); });
 
             // Renommer le fichier (PDF, MP3…) : seul le nom affiché change, pas le fichier stocké.
@@ -6507,7 +6698,7 @@
                     deleteFileBlob(meta.id);
                     cloudDeleteFile(meta);
                     save();
-                    render();
+                    refreshExerciseMedia(ex);
                 });
             });
             chip.appendChild(removeBtn);
@@ -6542,7 +6733,7 @@
                 if (files.length === 1) pendingRenameKey = "file:" + ex.files[ex.files.length - 1].id;
                 touchExercise(ex);
                 save();
-                render();
+                refreshExerciseMedia(ex);
             }).catch(function () {
                 dlgAlert({ title: "Fichier non enregistré", message: "Stockage plein, ou navigation privée activée sur cet appareil." });
             });
@@ -8087,6 +8278,7 @@
         if (typeof m.bpm !== "number" || isNaN(m.bpm) || m.bpm < 30 || m.bpm > 300) m.bpm = 100;
         m.bpm = Math.round(m.bpm);
         if (typeof m.volume !== "number" || isNaN(m.volume) || m.volume < 0 || m.volume > 1) m.volume = 0.8;
+        if (m.sound === "bell") m.sound = "marimba"; // l'ancienne « cloche douce » est remplacée par la marimba
         if (METRO_SOUNDS.indexOf(m.sound) === -1) m.sound = "click"; // timbre du clic (réglage général, voir Paramètres)
         // Réglages de tempo progressif enregistrés (à retrouver d'un clic) : [{ id, name, progressive }].
         if (!Array.isArray(m.progPresets)) m.progPresets = [];
@@ -8336,36 +8528,56 @@
             src.buffer = metroNoiseBuffer(ctx);
             bp.type = "bandpass"; bp.frequency.value = accent ? 1250 : 880; bp.Q.value = 2.4;
             g.gain.setValueAtTime(0.0001, time);
-            g.gain.linearRampToValueAtTime(accent ? 3.1 : 2.1, time + 0.002);
+            g.gain.linearRampToValueAtTime(accent ? 3.9 : 2.0, time + 0.002); // temps 1 net : environ 6 dB au-dessus d'un temps normal
             g.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
             src.connect(bp); bp.connect(g); g.connect(metroMasterGain);
             src.start(time); src.stop(time + 0.06);
             var body = ctx.createOscillator(), bg = ctx.createGain();
             body.type = "sine"; body.frequency.setValueAtTime(accent ? 420 : 320, time);
-            bg.gain.setValueAtTime(0.0001, time); bg.gain.linearRampToValueAtTime(accent ? 0.28 : 0.2, time + 0.002); bg.gain.exponentialRampToValueAtTime(0.001, time + 0.045);
+            bg.gain.setValueAtTime(0.0001, time); bg.gain.linearRampToValueAtTime(accent ? 0.4 : 0.2, time + 0.002); bg.gain.exponentialRampToValueAtTime(0.001, time + 0.045);
             body.connect(bg); bg.connect(metroMasterGain); body.start(time); body.stop(time + 0.05);
             return;
         }
-        if (kind === "clave") { // claves : deux résonances aiguës très brèves, non harmoniques
-            [[1, 1], [2.47, 0.32]].forEach(function (p) {
+        if (kind === "clave") { // claves : deux résonances aiguës très brèves, non harmoniques ; le temps 1 est plus fort, plus aigu et un peu plus plein
+            var cv = accent ? [[1, 1], [2.47, 0.32], [0.5, 0.42]] : [[1, 1], [2.47, 0.32]];
+            cv.forEach(function (p) {
                 var o = ctx.createOscillator(), g2 = ctx.createGain();
-                o.type = "sine"; o.frequency.value = (accent ? 2750 : 2250) * p[0];
+                o.type = "sine"; o.frequency.value = (accent ? 2900 : 2200) * p[0];
                 g2.gain.setValueAtTime(0.0001, time);
-                g2.gain.linearRampToValueAtTime((accent ? 0.62 : 0.42) * p[1], time + 0.001);
-                g2.gain.exponentialRampToValueAtTime(0.001, time + 0.07);
-                o.connect(g2); g2.connect(metroMasterGain); o.start(time); o.stop(time + 0.08);
+                g2.gain.linearRampToValueAtTime((accent ? 0.92 : 0.4) * p[1], time + 0.001);
+                g2.gain.exponentialRampToValueAtTime(0.001, time + (p[0] < 1 ? 0.09 : 0.07));
+                o.connect(g2); g2.connect(metroMasterGain); o.start(time); o.stop(time + 0.1);
             });
             return;
         }
-        if (kind === "bell") { // cloche douce : fondamentale + partiels inharmoniques qui s'éteignent plus vite
-            var f0 = accent ? 1046.5 : 784;
-            [[1, 0.32, 0.42], [2.76, 0.085, 0.22], [5.4, 0.03, 0.1]].forEach(function (p) {
-                var o = ctx.createOscillator(), g3 = ctx.createGain();
-                o.type = "sine"; o.frequency.value = f0 * p[0];
-                g3.gain.setValueAtTime(0.0001, time);
-                g3.gain.linearRampToValueAtTime(p[1] * (accent ? 1.25 : 1), time + 0.006);
-                g3.gain.exponentialRampToValueAtTime(0.001, time + p[2]);
-                o.connect(g3); g3.connect(metroMasterGain); o.start(time); o.stop(time + p[2] + 0.02);
+        if (kind === "marimba") { // marimba : lame de bois frappée par un maillet doux — fondamentale chaude, 4e partiel bref, petit « toc » d'attaque
+            var mf = accent ? 784 : 523.25; // sol / do : le temps 1 sonne une quinte plus haut
+            [[1, accent ? 0.8 : 0.5, 0.3], [4, accent ? 0.2 : 0.13, 0.07], [10, 0.035, 0.03]].forEach(function (p) {
+                var o = ctx.createOscillator(), g4 = ctx.createGain();
+                o.type = "sine"; o.frequency.value = mf * p[0];
+                g4.gain.setValueAtTime(0.0001, time);
+                g4.gain.linearRampToValueAtTime(p[1], time + 0.0025);
+                g4.gain.exponentialRampToValueAtTime(0.001, time + p[2]);
+                o.connect(g4); g4.connect(metroMasterGain); o.start(time); o.stop(time + p[2] + 0.02);
+            });
+            var tk = ctx.createBufferSource(), tkf = ctx.createBiquadFilter(), tkg = ctx.createGain();
+            tk.buffer = metroNoiseBuffer(ctx);
+            tkf.type = "bandpass"; tkf.frequency.value = mf * 3; tkf.Q.value = 1.2;
+            tkg.gain.setValueAtTime(0.0001, time); tkg.gain.linearRampToValueAtTime(accent ? 0.5 : 0.32, time + 0.001); tkg.gain.exponentialRampToValueAtTime(0.001, time + 0.014);
+            tk.connect(tkf); tkf.connect(tkg); tkg.connect(metroMasterGain); tk.start(time); tk.stop(time + 0.02);
+            return;
+        }
+        if (kind === "drop") { // goutte : un son pur qui monte vite en hauteur puis s'éteint — rond et discret
+            var df = accent ? 700 : 500;
+            [[1, accent ? 0.78 : 0.5, 0.15], [2, accent ? 0.14 : 0.08, 0.07]].forEach(function (p) {
+                var o = ctx.createOscillator(), g5 = ctx.createGain();
+                o.type = "sine";
+                o.frequency.setValueAtTime(df * p[0], time);
+                o.frequency.exponentialRampToValueAtTime(df * p[0] * 1.9, time + 0.05);
+                g5.gain.setValueAtTime(0.0001, time);
+                g5.gain.linearRampToValueAtTime(p[1], time + 0.004);
+                g5.gain.exponentialRampToValueAtTime(0.001, time + p[2]);
+                o.connect(g5); g5.connect(metroMasterGain); o.start(time); o.stop(time + p[2] + 0.02);
             });
             return;
         }
@@ -8479,7 +8691,7 @@
                     if (idx < 0) { // seuil atteint : le tempo reste là
                         metroProgNextAt = null; metroProgIdx = -1;
                         if (m.progressive.stopAtLimit && metroProgRan) {
-                            if (metroProgHoldUntil === null) metroProgHoldUntil = metroNextNoteTime + stages[stages.length - 1].every;
+                            if (metroProgHoldUntil === null) metroProgHoldUntil = metroNextNoteTime + Math.max(BPM_HOLD_MS / 1000, stages[stages.length - 1].every); // au moins 15 s au seuil : le tempo atteint compte
                             else if (metroNextNoteTime >= metroProgHoldUntil) { metroProgStopNow = true; }
                         }
                         break;
@@ -8624,6 +8836,14 @@
         if (metroLinkRefresh) metroLinkRefresh();
     }
     var metroLinkRefresh = null; // posé par le panneau ouvert
+    // Exercice dont le métronome joue le tempo : celui du réglage chargé (▶), sinon l'exercice en cours d'une session, sinon celui de l'entraînement libre.
+    // Sert au petit bouton « Objectif tempo » du volet (voir buildTempoGoalToggle).
+    function metroGoalExercise() {
+        var f = metroLink ? findExerciseById(metroLink.exId) : null;
+        if (!f && gsRunSession && gsRunSession.steps[gsRunStepIndex]) f = findExerciseById(gsRunSession.steps[gsRunStepIndex].exerciseId);
+        if (!f && freeRun && freeRun.cur) f = findExerciseById(freeRun.cur);
+        return f;
+    }
     function metroCurrentAsPreset() {
         var p = snapshotMetronome();
         p.bpm = Math.min(300, Math.max(30, p.bpm - metroAutoDelta));
@@ -8908,22 +9128,49 @@
             function (o) { return tempoGoalOn(o) !== on; },
             function (o) { o.tempoGoal = on; });
     }
-    // Bouton à bascule « Objectif tempo » ; `mini` : icône seule (ligne d'un pas de session).
-    function buildTempoGoalToggle(ex, mini) {
-        var b = document.createElement("button");
-        b.type = "button";
-        b.className = "tempo-goal-btn" + (mini ? " tempo-goal-mini" : "");
+    // « Objectif tempo » : une vraie case à cocher + le logo de la cible ; `mini` : sans texte (ligne d'un pas de session, relecture d'une séance).
+    // `opts.guard` (volet du métronome, où un clic de travers est vite arrivé) : pas de bascule au clic simple — clic droit (ou appui long) puis
+    // confirmation, dans les deux sens (retirer ou ajouter l'objectif).
+    function buildTempoGoalToggle(ex, mini, opts) {
+        opts = opts || {};
+        var guard = !!opts.guard, cb = null, box = null;
+        var b = document.createElement(guard ? "button" : "label");
+        if (guard) b.type = "button";
+        b.className = "tempo-goal-btn" + (mini ? " tempo-goal-mini" : "") + (guard ? " tempo-goal-guard" : "");
+        if (guard) { box = document.createElement("span"); box.className = "tempo-goal-box"; box.setAttribute("aria-hidden", "true"); }
+        else { cb = document.createElement("input"); cb.type = "checkbox"; cb.className = "tempo-goal-cb"; }
+        var icon = document.createElement("span"); icon.className = "tempo-goal-ico"; icon.innerHTML = TARGET_ICON_SVG;
+        var txt = null;
+        if (!mini) { txt = document.createElement("span"); txt.className = "tempo-goal-txt"; txt.textContent = "Objectif tempo"; }
+        b.appendChild(guard ? box : cb); b.appendChild(icon); if (txt) b.appendChild(txt);
         function paint() {
             var on = tempoGoalOn(ex);
             b.classList.toggle("tempo-goal-on", on);
-            b.setAttribute("aria-pressed", on ? "true" : "false");
-            b.innerHTML = TARGET_ICON_SVG + (mini ? "" : "<span>Objectif tempo</span>");
-            b.title = on ? "Objectif tempo : les tempos de cet exercice sont suivis dans les statistiques — cliquer pour l'exclure"
-                : "Pas d'objectif tempo : cet exercice est exclu des statistiques de tempo — cliquer pour le suivre";
-            b.setAttribute("aria-label", "Objectif tempo");
+            if (cb) cb.checked = on;
+            if (guard) b.setAttribute("aria-pressed", on ? "true" : "false");
+            b.title = guard
+                ? (on ? "Objectif tempo : les tempos de cet exercice comptent dans les statistiques — clic droit pour le retirer" : "Pas d'objectif tempo pour cet exercice — clic droit pour l'ajouter")
+                : on ? "Objectif tempo : les tempos de cet exercice sont suivis dans les statistiques — décocher pour l'exclure"
+                : "Pas d'objectif tempo : cet exercice est exclu des statistiques de tempo — cocher pour le suivre";
+            b.setAttribute("aria-label", "Objectif tempo" + (on ? " (activé)" : " (désactivé)"));
         }
         paint();
-        b.addEventListener("click", function (e) { e.stopPropagation(); setTempoGoal(ex, !tempoGoalOn(ex)); paint(); });
+        b.addEventListener("click", function (e) {
+            e.stopPropagation();
+            if (guard) { showToast("Clic droit (ou appui long) pour " + (tempoGoalOn(ex) ? "retirer" : "ajouter") + " l'objectif tempo de « " + ex.title + " ».", 3500); }
+        });
+        if (cb) cb.addEventListener("change", function () { setTempoGoal(ex, cb.checked); paint(); });
+        if (guard) {
+            bindContextGesture(b, function () {
+                var on = tempoGoalOn(ex);
+                dlgConfirm({
+                    title: on ? "Retirer l'objectif tempo ?" : "Ajouter l'objectif tempo ?",
+                    message: "« " + ex.title + " » — " + (on ? "ses tempos ne seront plus suivis dans les statistiques." : "ses tempos seront suivis dans les statistiques."),
+                    note: "Valable dans toutes les sessions qui contiennent cet exercice et dans ses copies liées.",
+                    confirmLabel: on ? "Retirer" : "Ajouter", danger: on
+                }, function () { setTempoGoal(ex, !on); paint(); });
+            }, { selfButton: true });
+        }
         function onChange() { if (!document.body.contains(b)) { document.removeEventListener("trainhub-tempogoal", onChange); return; } paint(); }
         document.addEventListener("trainhub-tempogoal", onChange);
         return b;
@@ -8976,7 +9223,19 @@
             linkSave.hidden = true;
             linkSave.innerHTML = SAVE_ICON_SVG;
             linkSave.addEventListener("click", function () { saveMetroToLinkedExercise(); });
+            // Petit bouton « Objectif tempo » de l'exercice concerné (clic droit + confirmation pour le retirer ou l'ajouter).
+            var goalSlot = document.createElement("span");
+            goalSlot.className = "metro-goal-slot";
+            var goalShownId = null;
+            function refreshGoalBtn() {
+                var gf = metroEdit ? null : metroGoalExercise(), id = gf ? gf.ex.id : null;
+                if (id === goalShownId) return;
+                goalShownId = id;
+                goalSlot.innerHTML = "";
+                if (gf) goalSlot.appendChild(buildTempoGoalToggle(gf.ex, true, { guard: true }));
+            }
             function refreshLinkBar() {
+                refreshGoalBtn();
                 if (!metroLink || metroEdit) { linkSave.hidden = true; return; }
                 var dirty = metroLinkDirty();
                 linkSave.hidden = false;
@@ -9701,11 +9960,25 @@
             });
 
             refreshRhythmMode();
+            // À chaque clic, la case du pas qui sonne scintille (éclat bref puis retour au calme) et garde un contour jusqu'au pas suivant ;
+            // à l'arrêt du métronome le contour s'efface de lui-même. La durée de l'éclat suit celle d'un pas.
+            var padClearTimer = null;
+            function padClearCurrent() { var cs = padRow.querySelectorAll(".metro-step-current"); for (var c = 0; c < cs.length; c++) cs[c].classList.remove("metro-step-current"); }
             metroBeatCallback = function (step) {
                 dialFlashStart();
-                var steps = padRow.querySelectorAll(".metro-step");
-                for (var i = 0; i < steps.length; i++) steps[i].classList.toggle("metro-step-current", i === step);
+                var steps = padRow.querySelectorAll(".metro-step"), stepSec = 60 / Math.max(30, m.bpm) / Math.max(0.25, metroActiveLayer(m).subdivision);
+                padRow.style.setProperty("--flash-dur", Math.max(0.14, Math.min(0.42, stepSec * 0.9)).toFixed(3) + "s");
+                for (var i = 0; i < steps.length; i++) {
+                    var on = i === step;
+                    steps[i].classList.toggle("metro-step-current", on);
+                    if (on) { // l'animation repart à chaque clic, même sur la même case (une seule case par mesure, par exemple)
+                        steps[i].classList.remove("metro-step-flash"); void steps[i].offsetWidth; steps[i].classList.add("metro-step-flash");
+                    }
+                }
+                if (padClearTimer) clearTimeout(padClearTimer);
+                padClearTimer = setTimeout(padClearCurrent, stepSec * 1000 * 1.6 + 200);
             };
+            padRow.addEventListener("animationend", function (e) { if (e.target.classList) e.target.classList.remove("metro-step-flash"); });
 
             // ---------- chronomètre ----------
             // Purement visuel (pas persisté) : mesure la durée de la lecture en cours. Il se fige à
@@ -9727,6 +10000,8 @@
             chronoRow.appendChild(chronoValue);
             chronoRow.appendChild(chronoResetBtn);
             footerRow.appendChild(chronoRow);
+            footerRow.appendChild(goalSlot); // petit bouton « objectif tempo » de l'exercice en cours (à côté du chronomètre : la ligne du haut est réservée au volume)
+            refreshGoalBtn();
 
             var chronoElapsedMs = 0;
             var chronoStartTs = null;
@@ -14026,6 +14301,7 @@
         session.lastRunAt = Date.now();
         persist();
         if (gsAutoAdvanceOn()) { try { ensureMetroAudio(true); } catch (e) {} } // le clic de lancement autorise le son du carillon
+        gsLiveArchiveStale(); // la trace d'une session interrompue, laissée en attente, ne doit pas être écrasée par celle-ci
         gsRunSession = session;
         gsRunStepIndex = 0;
         gsDiceDrawn = {}; gsDiceMem = {};
@@ -14042,14 +14318,51 @@
     var GS_MIN_RECORD_SEC = 600; // en dessous de 10 min de pratique, on ne propose pas d'enregistrer la session
     // Tempo réellement joué pendant chaque exercice (pour la progression) : alimenté à chaque temps du métronome.
     var gsRunBpm = {};
+    // Règle du « tempo maximum atteint » : un tempo ne compte que s'il a été TENU au moins 15 secondes d'affilée.
+    //  - tempo progressif (avec ou sans seuil) : on retient le tempo en vigueur 15 s avant l'arrêt ; si la montée est si rapide que
+    //    cela ferait reculer de plus de 5 % par rapport au dernier tempo atteint (un changement toutes les 3 s, par exemple), on retient
+    //    95 % du dernier tempo ;
+    //  - dans tous les cas, un tempo réellement tenu 15 s ou plus compte tel quel.
+    // Le suivi garde, pour chaque exercice, les derniers paliers de tempo { b : BPM, f : début, to : fin } (une interruption du métronome
+    // ouvre un nouveau palier) et le plus haut tempo déjà validé (ok).
+    var BPM_HOLD_MS = 15000, BPM_SEGS_KEEP = 24;
+    function bpmNewTracker(bpm) { return { first: bpm, max: bpm, end: bpm, playedMs: 0, segs: [], ok: 0, prog: 0 }; }
+    function bpmTrackBeat(t, bpm, now, isBeat) {
+        var m = state.settings.metronome, tg = m.progressive && m.progressive.enabled ? metroProgressiveTarget(m) : null;
+        t.prog = m.progressive && m.progressive.enabled ? (tg && tg.limit > 0 ? 1 : 2) : 0; // 0 : tempo manuel · 1 : progressif vers un seuil · 2 : progressif sans seuil
+        if (bpm > t.max) t.max = bpm;
+        t.end = bpm;
+        if (isBeat) t.playedMs += 60000 / bpm;
+        var segs = t.segs || (t.segs = []), seg = segs[segs.length - 1], beatMs = 60000 / bpm;
+        if (seg && seg.b === bpm && now - seg.to <= Math.max(1200, beatMs * 1.6)) seg.to = now + beatMs;
+        else {
+            if (seg && seg.to - seg.f >= BPM_HOLD_MS && seg.b > (t.ok || 0)) t.ok = seg.b; // le palier qui se termine a tenu 15 s
+            segs.push({ b: bpm, f: now, to: now + beatMs });
+            if (segs.length > BPM_SEGS_KEEP) segs.shift();
+        }
+    }
+    // Tempo maximum retenu d'un exercice (voir la règle ci-dessus). null : aucun tempo tenu assez longtemps.
+    function bpmResult(t) {
+        if (!t || !(t.playedMs > 0)) return null;
+        var segs = t.segs;
+        if (!segs || !segs.length) return { first: t.first, max: t.max, end: t.end, how: "" }; // trace d'avant la règle des 15 s
+        var last = segs[segs.length - 1], held = t.ok || 0, max = 0, how = "";
+        if (last.to - last.f >= BPM_HOLD_MS && last.b > held) held = last.b;
+        if (held) { max = held; how = "tenu"; }
+        if (t.prog) {
+            var ref = last.to - BPM_HOLD_MS, back = segs[0].b;
+            segs.forEach(function (sg) { if (sg.f <= ref) back = sg.b; }); // tempo en vigueur 15 s avant l'arrêt
+            var floor95 = Math.round(last.b * 0.95), cand = Math.min(last.b, Math.max(back, floor95));
+            if (cand > max) { max = cand; how = back < floor95 ? "-5%" : "-15s"; }
+        }
+        return { first: t.first, max: max || null, end: t.end, how: how };
+    }
     function gsBpmBeat(stepIdx, isBeat) {
         if (!gsRunSession || !gsRunCurrentStepId) return;
         var bpm = state.settings.metronome.bpm;
-        var t = gsRunBpm[gsRunCurrentStepId] || (gsRunBpm[gsRunCurrentStepId] = { first: bpm, max: bpm, end: bpm, playedMs: 0 });
-        if (bpm > t.max) t.max = bpm;
-        t.end = bpm;
+        var t = gsRunBpm[gsRunCurrentStepId] || (gsRunBpm[gsRunCurrentStepId] = bpmNewTracker(bpm));
+        bpmTrackBeat(t, bpm, Date.now(), isBeat);
         t.stopped = false; // le métronome tourne : un éventuel arrêt précédent n'est plus d'actualité
-        if (isBeat) t.playedMs += 60000 / bpm;
     }
     // Arrêt du métronome pendant un exercice : si le tempo était progressif vers un seuil et qu'on coupe avant de
     // l'atteindre, on le note (le tempo réglé n'est pas forcément celui qu'on a réussi à tenir) : confirmation à l'enregistrement.
@@ -14074,7 +14387,7 @@
     // chaque exercice garde son identifiant, son chapitre, le temps réellement passé et le tempo joué.
     // Un pas de la séance enregistrée (ms = temps passé dessus). `bpmShort` : on a coupé avant le seuil visé.
     function gsStepRecord(st, ms, bpmMap) {
-        var f = findExerciseById(st.exerciseId), t = (bpmMap || gsRunBpm)[st.id], played = t && t.playedMs > 0;
+        var f = findExerciseById(st.exerciseId), t = (bpmMap || gsRunBpm)[st.id], played = t && t.playedMs > 0, res = played ? bpmResult(t) : null;
         var o = {
             sid: st.id,
             exerciseId: st.exerciseId,
@@ -14086,11 +14399,12 @@
             plannedMin: st.minutes,
             actualSec: Math.round(ms / 1000),
             bpmFirst: played ? t.first : null,
-            bpmMax: played ? t.max : null,
+            bpmMax: res ? res.max : null, // tempo tenu au moins 15 s (voir bpmResult)
             bpmEnd: played ? t.end : null,
             playedSec: t ? Math.round(t.playedMs / 1000) : 0
         };
-        if (played && t.stopped && t.target && t.stopBpm < t.target) { o.bpmShort = true; o.bpmTarget = t.target; o.bpmStop = t.stopBpm; }
+        if (res && res.max && res.how) o.bpmHow = res.how; // comment le tempo retenu a été déterminé (info-bulle de la relecture)
+        if (played && res && res.max && t.stopped && t.target && t.stopBpm < t.target) { o.bpmShort = true; o.bpmTarget = t.target; o.bpmStop = res.max; } // coupé avant le seuil visé : à confirmer
         return o;
     }
     // Exercices de la session sans temps enregistré (chrono oublié) : proposés à 0 min dans la fenêtre d'enregistrement.
@@ -14098,7 +14412,7 @@
         var have = {}; record.steps.forEach(function (x) { if (x.sid) have[x.sid] = true; });
         return gsRunSession ? gsRunSession.steps.filter(function (st) { return !have[st.id]; }).map(function (st) { return gsStepRecord(st, 0); }) : [];
     }
-    function gsBuildRunRecord() {
+    function gsBuildRunRecord(minSec) {
         if (!gsRunSession) return null;
         gsAccumulateStep();
         var steps = [], total = 0, plannedTotal = 0;
@@ -14109,7 +14423,7 @@
             total += ms;
             plannedTotal += st.minutes * 60;
         });
-        if (total < GS_MIN_RECORD_SEC * 1000) return null; // moins de 10 min de pratique : rien à enregistrer
+        if (total < (minSec === undefined ? GS_MIN_RECORD_SEC : minSec) * 1000) return null; // moins de 10 min de pratique : rien à enregistrer
         var rec = { v: 2, id: uid(), sessionId: gsRunSession.id, name: gsRunSession.name, instrumentId: gsRunSession.instrumentId, date: gsRunStartedAt || Date.now(), endedAt: Date.now(), totalSec: Math.round(total / 1000), plannedSec: plannedTotal, steps: steps }
         if (gsRunSession.ephemeral) rec.ephemeral = true;
         return rec;
@@ -14122,6 +14436,7 @@
     function openRunRecordEditor(record, opts) {
         opts = opts || {};
         var items = record.steps.concat(opts.extraSteps || []).map(function (st) { var c = cloneJson(st); return { st: c, ask: !!c.bpmShort, answered: false, extra: (record.steps.indexOf(st) === -1) }; });
+        var resolved = false; // un bouton a tranché ; sinon la fenêtre a été fermée d'un clic à côté, d'Échap… (opts.onDismiss)
         openModal("gs-save-run-panel", function (panel, close) {
             var title = document.createElement("div");
             title.className = "backups-title";
@@ -14162,6 +14477,8 @@
                 mi.value = String(Math.floor((st.actualSec || 0) / 60)); si.value = String((st.actualSec || 0) % 60);
                 var bi = num(300, "—", "Tempo atteint (BPM)"); bi.min = "30"; bi.className += " gs-rec-bpm";
                 bi.value = st.bpmMax ? String(st.bpmMax) : "";
+                it.origMax = st.bpmMax || 0;
+                if (st.bpmHow) bi.title = { "tenu": "Tempo tenu au moins 15 s d'affilée", "-15s": "Tempo en vigueur 15 s avant l'arrêt", "-5%": "Montée rapide : 95 % du dernier tempo atteint" }[st.bpmHow] || "";
                 it.mi = mi; it.si = si; it.bi = bi;
                 [mi, si, bi].forEach(function (i) { i.addEventListener("input", refresh); bindScrubInput(i, 0, i === bi ? 300 : (i === si ? 59 : 600), { emptyStart: i === bi ? 80 : 0 }); });
                 var dur = document.createElement("span"); dur.className = "gs-rec-dur";
@@ -14171,7 +14488,7 @@
                 if (recFound) { // objectif tempo modifiable ici aussi : sans objectif, le tempo n'entre pas dans les statistiques
                     var goalBtn = buildTempoGoalToggle(recFound.ex, true);
                     var paintGoal = function () { bi.classList.toggle("gs-rec-bpm-off", !tempoGoalOn(recFound.ex)); };
-                    goalBtn.addEventListener("click", paintGoal);
+                    goalBtn.addEventListener("change", paintGoal); // après la bascule de la case (voir buildTempoGoalToggle)
                     paintGoal();
                     bw.appendChild(goalBtn);
                 }
@@ -14180,7 +14497,7 @@
                 box.appendChild(line);
                 if (it.ask) { // coupé avant le seuil : « est-ce bien ce tempo qu'il faut retenir ? »
                     var q = document.createElement("div"); q.className = "gs-rec-ask";
-                    var qt = document.createElement("span"); qt.textContent = "Arrêté à " + st.bpmStop + " BPM (visé : " + st.bpmTarget + ")";
+                    var qt = document.createElement("span"); qt.textContent = "Arrêté avant le seuil visé (" + st.bpmTarget + " BPM) — tempo retenu : " + st.bpmStop + " BPM";
                     var keep = document.createElement("button"); keep.type = "button"; keep.className = "btn-accent gs-rec-keep"; keep.textContent = "Retenir " + st.bpmStop;
                     var none = document.createElement("button"); none.type = "button"; none.className = "btn-ghost gs-rec-none"; none.textContent = "Sans BPM";
                     function answer(v) { it.answered = true; bi.value = v ? String(v) : ""; q.classList.add("gs-rec-answered"); keep.classList.toggle("active", v === st.bpmStop); none.classList.toggle("active", !v); refresh(); }
@@ -14195,9 +14512,10 @@
             var actions = document.createElement("div");
             actions.className = "gs-sync-actions";
             var no = document.createElement("button"); no.type = "button"; no.className = "btn-ghost"; no.textContent = opts.cancelLabel || "Ne pas enregistrer";
-            no.addEventListener("click", function () { close(); if (opts.onCancel) opts.onCancel(); });
+            no.addEventListener("click", function () { resolved = true; close(); if (opts.onCancel) opts.onCancel(); });
             yes = document.createElement("button"); yes.type = "button"; yes.className = "btn-accent gs-rec-save"; yes.textContent = "Enregistrer";
             yes.addEventListener("click", function () {
+                resolved = true;
                 var out = cloneJson(record);
                 out.steps = [];
                 items.forEach(function (it) {
@@ -14208,6 +14526,7 @@
                     st.actualSec = sec;
                     if (v) { st.bpmFirst = st.bpmFirst && st.bpmFirst <= v ? st.bpmFirst : v; st.bpmMax = v; st.bpmEnd = v; }
                     else { st.bpmFirst = null; st.bpmMax = null; st.bpmEnd = null; }
+                    if (v !== it.origMax) delete st.bpmHow; // tempo corrigé à la main : plus de règle à citer
                     delete st.bpmShort; delete st.bpmTarget; delete st.bpmStop;
                     out.steps.push(st);
                 });
@@ -14219,11 +14538,14 @@
             actions.appendChild(no); actions.appendChild(yes);
             panel.appendChild(actions);
             refresh();
+            return function () { if (!resolved) { resolved = true; if (opts.onDismiss) opts.onDismiss(); } };
         });
     }
     // À la fin d'une session : on propose de l'enregistrer dans l'historique (durées et tempos relisibles avant de valider).
+    // Si on ne l'enregistre pas (bouton « Ne pas enregistrer », clic à côté, Échap…), elle reste récupérable 3 jours.
     function gsAskSaveRun(record, extraSteps, title) {
         gsLiveWrite({ v: 1, kind: "record", savedAt: Date.now(), record: record, extraSteps: extraSteps || [] }); // gardée tant que rien n'est décidé
+        function park(why) { gsLiveClear(); if (recentRunsAdd(record, extraSteps, why)) recentRunsToast(); }
         openRunRecordEditor(record, {
             title: title,
             extraSteps: extraSteps || [],
@@ -14232,8 +14554,48 @@
                 save(); gsLiveClear();
                 showToast(joined ? "Ajouté à la session libre du jour (total " + gsFmtDur(res.totalSec) + ")" : rec.free ? "Entraînement enregistré dans l'historique" : "Session enregistrée dans l'historique", joined ? 5000 : undefined);
             },
-            onCancel: function () { gsLiveClear(); }
+            onCancel: function () { park("Non enregistrée"); },
+            onDismiss: function () { park("Fenêtre fermée sans enregistrer"); }
         });
+    }
+    // ---------- séances non enregistrées : filet de sécurité de 3 jours ----------
+    // Toute séance qui n'entre pas dans l'historique (« Ne pas enregistrer », fenêtre fermée par erreur, « Abandonner »,
+    // session trop courte, trace d'une session interrompue remplacée par une nouvelle) est gardée ici 3 jours, sur cet
+    // appareil, puis disparaît. On la retrouve dans Historique › Non enregistrées pour l'enregistrer ou la supprimer.
+    var RECENT_RUNS_KEY = "trainhub.recentRuns.v1", RECENT_RUNS_TTL_MS = 3 * 86400000, RECENT_RUNS_MIN_SEC = 60, RECENT_RUNS_MAX = 30;
+    function recentRunsRead() {
+        try {
+            var arr = JSON.parse(localStorage.getItem(RECENT_RUNS_KEY));
+            if (!Array.isArray(arr)) return [];
+            var limit = Date.now() - RECENT_RUNS_TTL_MS;
+            return arr.filter(function (e) { return e && e.record && e.record.steps && e.at >= limit; });
+        } catch (e) { return []; }
+    }
+    function recentRunsWrite(list) {
+        try { if (list.length) localStorage.setItem(RECENT_RUNS_KEY, JSON.stringify(list)); else localStorage.removeItem(RECENT_RUNS_KEY); } catch (e) {}
+    }
+    function recentRunsAdd(record, extraSteps, why) {
+        if (!record || !record.steps || !(record.totalSec >= RECENT_RUNS_MIN_SEC)) return false; // moins d'une minute : rien à garder
+        var list = recentRunsRead().filter(function (e) { return e.record.id !== record.id; });
+        list.push({ id: uid(), at: Date.now(), why: why || "", record: cloneJson(record), extra: cloneJson(extraSteps || []) });
+        recentRunsWrite(list.slice(-RECENT_RUNS_MAX));
+        return true;
+    }
+    function recentRunsRemove(id) { recentRunsWrite(recentRunsRead().filter(function (e) { return e.id !== id; })); }
+    function recentRunsLeftLabel(e) {
+        var left = e.at + RECENT_RUNS_TTL_MS - Date.now(), h = Math.max(1, Math.round(left / 3600000));
+        return h >= 48 ? "encore " + Math.round(h / 24) + " jours" : h >= 24 ? "encore 1 jour" : "encore " + h + " h";
+    }
+    function recentRunsToast() {
+        showToast("Séance non enregistrée : tu la retrouves pendant 3 jours dans Historique › Non enregistrées.", 9000, { label: "Voir", run: function () { openSessionHistory("recent"); } });
+    }
+    // Une trace de session interrompue (fermeture brutale) est remplacée par le départ d'une nouvelle : on la met de côté.
+    function gsLiveArchiveStale() {
+        var snap = gsLiveRead();
+        if (!snap) return;
+        var rec = snap.kind === "record" ? snap.record : gsRecordFromSnap(snap, RECENT_RUNS_MIN_SEC * 1000);
+        if (rec) recentRunsAdd(rec, snap.kind === "record" ? snap.extraSteps : [], "Session interrompue");
+        gsLiveClear();
     }
     // ---------- session en cours : sauvegarde continue, reprise après une fermeture brutale ----------
     // Propre à cet appareil (localStorage) : l'état de la session (ou de l'entraînement libre) en cours est recopié
@@ -14312,13 +14674,14 @@
         var canResume = snap.kind === "free" || (snap.kind === "session" && session && session.steps.length > 0);
         var buttons = [
             { label: "Abandonner…", kind: "danger", left: true, cls: "gs-live-drop", onClick: function () {
-                dlgConfirm({ title: "Abandonner cette séance ?", message: "Elle sera supprimée sans être enregistrée.", confirmLabel: "Abandonner", danger: true }, gsLiveClear, gsLiveCheck);
+                dlgConfirm({ title: "Abandonner cette séance ?", message: "Elle ne sera pas enregistrée, mais tu pourras la retrouver pendant 3 jours dans Historique › Non enregistrées.", confirmLabel: "Abandonner", danger: true },
+                    function () { recentRunsAdd(rec, extra, "Abandonnée"); gsLiveClear(); }, gsLiveCheck);
             } },
             { label: "Enregistrer", kind: canResume ? "plain" : "primary", cls: "gs-live-save", onClick: function () {
                 openRunRecordEditor(rec, {
                     title: "Enregistrer cette séance ?", extraSteps: extra,
                     onSave: function (out) { logAdd(out); save(); gsLiveClear(); showToast("Séance enregistrée dans l'historique"); },
-                    onCancel: function () { gsLiveClear(); }
+                    onCancel: function () { recentRunsAdd(rec, extra, "Non enregistrée"); gsLiveClear(); recentRunsToast(); }
                 });
             } }
         ];
@@ -14403,10 +14766,8 @@
         fr.active = now; // un métronome qui joue vaut activité
         if (!fr.cur || fr.manual || fr.auto || now < fr.countFrom) return;
         var id = freeStepId(fr.cur), bpm = state.settings.metronome.bpm;
-        var t = fr.bpm[id] || (fr.bpm[id] = { first: bpm, max: bpm, end: bpm, playedMs: 0 });
-        if (bpm > t.max) t.max = bpm;
-        t.end = bpm;
-        if (isBeat) t.playedMs += 60000 / bpm;
+        var t = fr.bpm[id] || (fr.bpm[id] = bpmNewTracker(bpm));
+        bpmTrackBeat(t, bpm, now, isBeat);
     }
     // Passage régulier (et à chaque retour au premier plan) : on crédite le temps écoulé depuis le dernier passage à l'exercice
     // qui était affiché, puis on regarde quel exercice l'est maintenant. Au premier plan un trou de plus de 2 s (veille, page
@@ -14430,7 +14791,7 @@
         }
         if (!hid) { // au premier plan : l'exercice affiché a peut-être changé (en arrière-plan on garde celui laissé à l'écran)
             var cur = freeVisibleExercise();
-            if (cur !== fr.cur) { fr.cur = cur; fr.countFrom = now + freeStartDelayMs(); }
+            if (cur !== fr.cur) { fr.cur = cur; fr.countFrom = now + freeStartDelayMs(); if (metroLinkRefresh) metroLinkRefresh(); }
         }
         fr.counting = !!fr.cur && !fr.manual && !fr.auto && now >= fr.countFrom;
         freeRefreshBar();
@@ -14567,6 +14928,7 @@
         if (freeRun) { freeLeaveSessionsView(); return; }
         if (gsRunSession) { showToast("Termine d'abord la session en cours.", 3500); return; }
         var now = Date.now();
+        gsLiveArchiveStale();
         freeAttach({ startedAt: now, instrumentId: state.activeInstrumentId, spent: {}, lastAt: {}, bpm: {}, totalMs: 0, cur: null, countFrom: 0, counting: false, manual: false, auto: false, active: now, wasHidden: false, last: now });
         freeLeaveSessionsView();
         gsLiveSave();
@@ -15925,21 +16287,31 @@
             var tabs = document.createElement("div");
             tabs.className = "gs-history-tabs";
             tabs.setAttribute("role", "tablist");
-            var mode = histViewLoad(), tabEls = {};
-            HIST_VIEWS.forEach(function (v) {
-                var b = document.createElement("button"); b.type = "button"; b.className = "gs-hist-tab"; b.dataset.view = v[0]; b.textContent = v[1]; b.title = v[2];
-                b.setAttribute("role", "tab");
-                b.addEventListener("click", function () { mode = v[0]; histViewSave(mode); fill(); });
-                tabs.appendChild(b); tabEls[v[0]] = b;
-            });
+            var mode = startTab === "recent" ? "recent" : histViewLoad(), tabEls = {};
+            // « Non enregistrées » : séances mises de côté 3 jours (onglet présent seulement s'il y en a)
+            function recentCount() { return recentRunsRead().length; }
+            function buildTabs() {
+                tabs.innerHTML = ""; tabEls = {};
+                var views = HIST_VIEWS.slice(), n = recentCount();
+                if (n) views.push(["recent", "Non enregistrées (" + n + ")", "Séances arrêtées sans être enregistrées, gardées 3 jours"]);
+                views.forEach(function (v) {
+                    var b = document.createElement("button"); b.type = "button"; b.className = "gs-hist-tab" + (v[0] === "recent" ? " gs-hist-tab-recent" : ""); b.dataset.view = v[0]; b.textContent = v[1]; b.title = v[2];
+                    b.setAttribute("role", "tab");
+                    b.addEventListener("click", function () { mode = v[0]; if (mode !== "recent") histViewSave(mode); fill(); });
+                    tabs.appendChild(b); tabEls[v[0]] = b;
+                });
+            }
             panel.appendChild(tabs);
             var list = document.createElement("div");
             list.className = "gs-sync-list gs-history-list";
             panel.appendChild(list);
             function myLog() { return logAll().filter(function (e) { return !e.instrumentId || e.instrumentId === state.activeInstrumentId; }); }
             function fill() {
-                HIST_VIEWS.forEach(function (v) { tabEls[v[0]].classList.toggle("active", mode === v[0]); tabEls[v[0]].setAttribute("aria-selected", mode === v[0] ? "true" : "false"); });
+                if (mode === "recent" && !recentCount()) mode = histViewLoad();
+                buildTabs();
+                Object.keys(tabEls).forEach(function (k) { tabEls[k].classList.toggle("active", mode === k); tabEls[k].setAttribute("aria-selected", mode === k ? "true" : "false"); });
                 list.innerHTML = "";
+                if (mode === "recent") { fillRecent(); return; }
                 if (mode !== "log") { fillGrouped(); return; }
                 var log = myLog().slice().reverse();
                 if (!log.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Aucune session enregistrée pour l'instant. À la fin d'une session d'au moins 10 min, on te propose de l'enregistrer."; list.appendChild(none); return; }
@@ -15972,6 +16344,43 @@
                             { label: g.ephemeral ? "Enregistrer dans mes sessions…" : "Renommer la session…", open: function () { gsRenameSession(g, fill); } }
                         ]);
                     });
+                    list.appendChild(box);
+                });
+            }
+            // Séances mises de côté : on peut les enregistrer (récapitulatif modifiable) ou les supprimer ; sinon elles s'effacent seules au bout de 3 jours.
+            function fillRecent() {
+                var intro = document.createElement("div"); intro.className = "gs-recent-intro";
+                intro.textContent = "Séances arrêtées sans être enregistrées. Elles sont gardées 3 jours sur cet appareil, puis effacées.";
+                list.appendChild(intro);
+                recentRunsRead().slice().reverse().forEach(function (e) {
+                    var rec = e.record, box = document.createElement("div");
+                    box.className = "gs-history-entry gs-recent-entry"; box.dataset.id = e.id;
+                    var head = document.createElement("div"); head.className = "gs-sync-row";
+                    var nm = document.createElement("span"); nm.className = "gs-sync-name"; nm.textContent = logRecName(rec);
+                    var du = document.createElement("span"); du.className = "gs-sync-dur"; du.textContent = gsFmtDate(rec.date) + " · " + gsFmtDur(rec.totalSec);
+                    var saveBtn = document.createElement("button"); saveBtn.type = "button"; saveBtn.className = "btn-accent gs-recent-save"; saveBtn.textContent = "Enregistrer…";
+                    saveBtn.title = "Relire la séance, puis l'enregistrer dans l'historique";
+                    saveBtn.addEventListener("click", function () {
+                        openRunRecordEditor(rec, {
+                            title: "Retrouver cette séance", cancelLabel: "Annuler", extraSteps: e.extra || [],
+                            onSave: function (out) {
+                                var res = logAddMergingFree(out), joined = out.free && res !== out;
+                                recentRunsRemove(e.id); save();
+                                showToast(joined ? "Ajouté à la session libre du jour (total " + gsFmtDur(res.totalSec) + ")" : "Séance enregistrée dans l'historique");
+                                openSessionHistory();
+                            },
+                            onCancel: function () { openSessionHistory("recent"); }
+                        });
+                    });
+                    var del = iconButton("✕", "Supprimer cette séance", function () {
+                        dlgConfirm({ title: "Supprimer cette séance ?", message: logRecName(rec) + " · " + gsFmtDate(rec.date) + " · " + gsFmtDur(rec.totalSec) + ". Elle ne sera plus récupérable.", confirmLabel: "Supprimer", danger: true }, function () { recentRunsRemove(e.id); fill(); });
+                    });
+                    head.appendChild(nm); head.appendChild(du); head.appendChild(saveBtn); head.appendChild(del);
+                    var why =document.createElement("div"); why.className = "gs-recent-why";
+                    why.textContent = (e.why ? e.why + " · " : "") + recentRunsLeftLabel(e);
+                    var det = document.createElement("div"); det.className = "gs-history-steps";
+                    det.textContent = rec.steps.map(function (st) { return logStepTitle(st) + " (" + gsFmtDur(st.actualSec) + ")"; }).join(" · ");
+                    box.appendChild(head); box.appendChild(why); box.appendChild(det);
                     list.appendChild(box);
                 });
             }
@@ -16059,7 +16468,8 @@
     }
 
     function gsEndRun() {
-        var runRecord = gsBuildRunRecord();
+        var runRecord = gsBuildRunRecord(RECENT_RUNS_MIN_SEC), shortRecord = null; // entre 1 et 10 min : pas proposée, mais gardée 3 jours
+        if (runRecord && runRecord.totalSec < GS_MIN_RECORD_SEC) { shortRecord = runRecord; runRecord = null; }
         var extraSteps = runRecord ? gsRunMissingSteps(runRecord) : [];
         if (gsRunInterval) { clearInterval(gsRunInterval); gsRunInterval = null; }
         if (miniWinOpen()) closeMiniWindow();
@@ -16068,7 +16478,11 @@
         gsRunSession = null;
         gsScreen = "list";
         render();
-        if (runRecord) gsAskSaveRun(runRecord, extraSteps); else gsLiveClear();
+        if (runRecord) gsAskSaveRun(runRecord, extraSteps);
+        else {
+            gsLiveClear();
+            if (shortRecord && recentRunsAdd(shortRecord, [], "Moins de 10 min")) recentRunsToast();
+        }
     }
 
     // ---------- lecteurs YouTube intégrés (sous la session) ----------
@@ -16393,6 +16807,7 @@
             msg.appendChild(a);
             msg.hidden = false;
         }
+        card._ytPause = function () { try { if (ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo(); } catch (e) {} }; // vidéo laissée en pause quand on quitte l'onglet
         loadYouTubeApi().then(function () {
             ytPlayer = new window.YT.Player(target, {
                 width: "100%", height: "100%",

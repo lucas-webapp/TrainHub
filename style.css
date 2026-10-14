@@ -1894,7 +1894,7 @@ button.media-tab.active .media-tab-count { background: color-mix(in srgb, var(--
 .img-strip { display: flex; flex-wrap: wrap; gap: 8px; }
 .img-thumb { position: relative; }
 button.img-thumb-btn { padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--card-bg-2); cursor: zoom-in; display: block; }
-.img-thumb-btn img { display: block; height: var(--img-h, 150px); max-width: min(100%, 520px); width: auto; object-fit: contain; }
+.img-thumb-btn img { display: block; width: auto; height: auto; max-width: 100%; }
 .img-thumb-btn.img-missing { height: 60px; padding: 0 12px; font-size: var(--fs-2xs); color: var(--text-muted); cursor: default; }
 button.img-thumb-remove { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; padding: 0; border-radius: 6px; background: rgba(0,0,0,.6); border-color: transparent; color: #fff; font-size: 11px; }
 .images-add-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -1937,7 +1937,7 @@ button.gs-run-auto-on, button.gs-run-bell-btn.gs-run-auto-on { color: var(--acce
     /* Bandeau masqué : la colonne de session, les vidéos et les images gagnent de la place. */
     html.sidebar-hidden .gs-main { max-width: 760px; }
     html.sidebar-hidden .gs-main.gs-main-wide { max-width: 1080px; }
-    html.sidebar-hidden .img-thumb-btn img { max-width: min(100%, 860px); }
+    html.sidebar-hidden { --img-cap: 860px; }
 }
 button.sidebar-toggle-btn[aria-pressed="true"] { color: var(--accent); }
 
@@ -3870,14 +3870,6 @@ input.img-caption-input { align-self: stretch; box-sizing: border-box; width: mi
 html[data-glass="1"] button.img-caption { box-shadow: none; }
 
 /* ---------- objectif tempo et exercices liés (v172) ---------- */
-button.tempo-goal-btn { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; margin-left: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: transparent; color: var(--text-muted); font-size: var(--fs-xs); font-weight: 700; cursor: pointer; white-space: nowrap; }
-button.tempo-goal-btn .icon { width: 16px; height: 16px; }
-button.tempo-goal-btn:hover { color: var(--text-main); border-color: var(--text-muted); }
-button.tempo-goal-btn.tempo-goal-on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 11%, transparent); }
-button.tempo-goal-btn:not(.tempo-goal-on) { text-decoration: line-through; text-decoration-thickness: 1px; opacity: .85; }
-button.tempo-goal-btn:not(.tempo-goal-on) .icon { opacity: .6; }
-button.tempo-goal-btn.tempo-goal-mini { width: 30px; height: 30px; padding: 0; margin-left: 0; justify-content: center; }
-html[data-glass="1"] button.tempo-goal-btn { box-shadow: none; }
 input.gs-rec-bpm.gs-rec-bpm-off { opacity: .45; }
 .gs-rec-bw { display: inline-flex; align-items: center; gap: 4px; }
 .gs-step-goal { display: flex; align-items: center; gap: 8px; margin: 2px 0 8px; font-size: var(--fs-sm); color: var(--text-muted); cursor: pointer; }
@@ -3908,10 +3900,6 @@ button.link-dlg-open { flex: none; height: 26px; padding: 0 10px; font-size: var
 .link-plan-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-main); }
 .link-plan-from { flex: none; max-width: 38%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-2xs); color: var(--text-muted); }
 .link-plan-warn[hidden] { display: none; }
-.metro-preset-row > button.tempo-goal-btn { width: auto; height: 28px; padding: 0 10px; margin-left: auto; }
-.metro-preset-row > button.tempo-goal-btn.tempo-goal-mini { width: 30px; height: 30px; padding: 0; margin-left: 0; }
-button.tempo-goal-btn.tempo-goal-mini:not(.tempo-goal-on) { position: relative; }
-button.tempo-goal-btn.tempo-goal-mini:not(.tempo-goal-on)::after { content: ""; position: absolute; left: 6px; right: 6px; top: 50%; height: 2px; margin-top: -1px; border-radius: 1px; background: currentColor; opacity: .75; transform: rotate(-40deg); pointer-events: none; }
 
 /* ---------- v173 ---------- */
 /* Bandeau de gauche : nombre d'exercices, à droite de la ligne de chaque sous-dossier (pas des grands chapitres) */
@@ -3947,3 +3935,62 @@ button.gs-hist-tab { padding: 0 12px; }
 .gs-hist-extempo.gs-hist-gain { color: var(--accent); }
 .gs-hist-extempo.gs-hist-loss { color: var(--status-en-cours); }
 @media (max-width: 520px) { .gs-hist-exrow { flex-wrap: wrap; row-gap: 0; } .gs-hist-exname { flex-basis: 100%; } .gs-hist-extempo { margin-left: auto; min-width: 0; } }
+
+/* ---------- v174 ---------- */
+/* Historique › Non enregistrées : séances mises de côté 3 jours */
+button.gs-hist-tab.gs-hist-tab-recent { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent); }
+button.gs-hist-tab.gs-hist-tab-recent.active { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.gs-recent-intro { font-size: var(--fs-xs); color: var(--text-muted); padding: 0 2px 6px; }
+.gs-recent-entry .gs-sync-row { cursor: default; flex-wrap: wrap; }
+.gs-recent-entry button.gs-recent-save { height: 28px; padding: 0 12px; font-size: var(--fs-xs); }
+.gs-recent-why { padding: 0 10px; font-size: var(--fs-2xs); font-weight: 600; letter-spacing: .02em; color: var(--text-muted); }
+.gs-recent-entry .gs-history-steps { padding-top: 2px; }
+/* Pavé du métronome : la case du pas qui sonne scintille à chaque clic (éclat clair, léger gonflement, halo), puis garde un contour */
+.metro-step-current { box-shadow: 0 0 0 2px var(--accent); }
+.metro-step.metro-step-flash { animation: metro-step-flash var(--flash-dur, .22s) ease-out; position: relative; z-index: 1; }
+@keyframes metro-step-flash {
+    0%   { transform: scale(1.28); filter: brightness(1.9) saturate(1.2); box-shadow: 0 0 0 2px #fff, 0 0 14px 4px var(--accent); }
+    55%  { transform: scale(1.1); filter: brightness(1.35); box-shadow: 0 0 0 2px var(--accent), 0 0 9px 2px color-mix(in srgb, var(--accent) 55%, transparent); }
+    100% { transform: scale(1); filter: none; box-shadow: 0 0 0 2px var(--accent); }
+}
+.metro-step-0.metro-step-flash { background: color-mix(in srgb, var(--accent) 38%, transparent); border-color: var(--accent); }
+@media (prefers-reduced-motion: reduce) {
+    .metro-step.metro-step-flash { animation-name: metro-step-flash-calm; }
+    @keyframes metro-step-flash-calm { 0% { filter: brightness(1.8); box-shadow: 0 0 0 2px #fff; } 100% { filter: none; box-shadow: 0 0 0 2px var(--accent); } }
+}
+/* Objectif tempo : vraie case à cocher + logo de la cible (plus de texte barré). Dans le volet du métronome : bouton à clic droit confirmé. */
+.tempo-goal-btn { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; margin-left: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: transparent; color: var(--text-muted); font: inherit; font-size: var(--fs-xs); font-weight: 700; cursor: pointer; white-space: nowrap; user-select: none; -webkit-user-select: none; }
+.tempo-goal-btn .tempo-goal-ico { display: inline-flex; }
+.tempo-goal-btn .tempo-goal-ico .icon { width: 16px; height: 16px; }
+.tempo-goal-btn:hover { color: var(--text-main); border-color: var(--text-muted); }
+.tempo-goal-btn.tempo-goal-on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 11%, transparent); }
+.tempo-goal-btn:not(.tempo-goal-on) .tempo-goal-ico { opacity: .7; }
+.tempo-goal-btn.tempo-goal-mini { min-width: 30px; height: 30px; padding: 0 8px; margin-left: 0; justify-content: center; }
+.tempo-goal-cb, .tempo-goal-box { flex: none; box-sizing: border-box; width: 15px; height: 15px; margin: 0; border: 1.5px solid currentColor; border-radius: 4px; background: transparent; cursor: pointer; -webkit-appearance: none; appearance: none; }
+.tempo-goal-cb:checked, .tempo-goal-on .tempo-goal-box { background-color: var(--accent); border-color: var(--accent); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.4 6.4l2.4 2.4 4.8-5.2'/%3E%3C/svg%3E"); background-size: 11px 11px; background-position: center; background-repeat: no-repeat; }
+.tempo-goal-cb:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.metro-preset-row > .tempo-goal-btn { width: auto; height: 28px; padding: 0 10px; margin-left: auto; }
+.metro-preset-row > .tempo-goal-btn.tempo-goal-mini { height: 30px; padding: 0 8px; margin-left: 0; }
+html[data-glass="1"] .tempo-goal-btn { box-shadow: none; }
+.metro-goal-slot { flex: none; display: inline-flex; align-items: center; }
+.metro-goal-slot:empty { display: none; }
+.metro-footer-row .metro-goal-slot button.tempo-goal-btn.tempo-goal-mini { height: 28px; min-width: 28px; padding: 0 7px; gap: 5px; }
+/* Images : le cadre épouse l'image (taille de l'image bornée par la hauteur choisie et par 520 px de large). Le plafond de largeur est posé
+   sur le bouton en pixels — un pourcentage ne compte pas dans le calcul de la largeur naturelle : le cadre restait alors plus large que l'image
+   (jusqu'à 200 px de vide) et décalait les boutons voisins d'une image à l'autre. */
+button.img-thumb-btn { flex: 0 1 auto; min-width: 0; max-width: calc(var(--img-cap, 520px) + 4px); }
+.img-thumb { min-width: 0; max-width: 100%; }
+button.img-thumb-btn.img-loading { min-width: 120px; min-height: 64px; }
+.media-panel[hidden] { display: none; }
+.media-cards { display: flex; flex-direction: column; gap: 8px; }
+.media-cards:empty { display: none; }
+.links-group { display: contents; }
+/* Glisser-déposer des médias */
+.link-chip.dragging, .file-chip.dragging, .img-fig.dragging { opacity: .35; }
+.link-chip, .file-chip { cursor: grab; }
+.link-chip:active, .file-chip:active { cursor: grabbing; }
+.img-fig { cursor: default; }
+button.img-thumb-btn { cursor: zoom-in; }
+.drag-ghost.link-chip, .drag-ghost.file-chip, .drag-ghost.img-fig { z-index: 990; box-shadow: 0 8px 22px rgba(0,0,0,calc(.4 * var(--sh-k, 1))); opacity: .95; }
+
+:root { --img-cap: 520px; }
