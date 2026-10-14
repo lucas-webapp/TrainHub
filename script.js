@@ -108,21 +108,17 @@
     // Surfaces translucides avec flou sur un fond « aurore » : tout le rendu est dans le bloc « Effet verre » de style.css,
     // activé par data-glass sur <html> (lu aussi par le script d'index.html avant le premier affichage). Réglages propres à
     // l'appareil : désactivé par défaut ; l'intensité du flou (léger / moyen / fort) est une option avancée.
-    var GLASS_KEY = "trainhub.glass.v1", GLASS_BLUR_KEY = "trainhub.glassBlur.v1", GLASS_BG_KEY = "trainhub.glassBg.v1";
-    var GLASS_BLURS = ["light", "medium", "strong"];
+    var GLASS_KEY = "trainhub.glass.v1", GLASS_BG_KEY = "trainhub.glassBg.v1"; // flou du verre : niveau moyen, fixe (le réglage a disparu, l'écart ne se voyait pas)
     // Couleur du fond (en verre) : « aurore » = le dégradé multicolore d'origine, les autres = une seule teinte.
     var GLASS_BGS = [["aurora", "Aurore"], ["blue", "Bleu"], ["green", "Vert"], ["violet", "Violet"], ["rose", "Rose"], ["amber", "Ambre"], ["grey", "Gris"]];
     function glassOn() { try { return localStorage.getItem(GLASS_KEY) === "1"; } catch (e) { return false; } }
-    function glassBlur() { try { var v = localStorage.getItem(GLASS_BLUR_KEY); return GLASS_BLURS.indexOf(v) !== -1 ? v : "medium"; } catch (e) { return "medium"; } }
     function glassBg() { try { var v = localStorage.getItem(GLASS_BG_KEY); return GLASS_BGS.some(function (b) { return b[0] === v; }) ? v : "aurora"; } catch (e) { return "aurora"; } }
     function applyGlass() {
         var r = document.documentElement;
         if (glassOn()) r.setAttribute("data-glass", "1"); else r.removeAttribute("data-glass");
-        r.setAttribute("data-glass-blur", glassBlur());
         r.setAttribute("data-glass-bg", glassBg());
     }
     function setGlass(on) { try { localStorage.setItem(GLASS_KEY, on ? "1" : "0"); } catch (e) {} applyGlass(); }
-    function setGlassBlur(v) { if (GLASS_BLURS.indexOf(v) === -1) return; try { localStorage.setItem(GLASS_BLUR_KEY, v); } catch (e) {} applyGlass(); }
     function setGlassBg(v) { if (!GLASS_BGS.some(function (b) { return b[0] === v; })) return; try { localStorage.setItem(GLASS_BG_KEY, v); } catch (e) {} applyGlass(); }
     applyGlass();
     // ---------- halo de couleur (par appareil) : diffus (défaut) / net / aucun — profils dans style.css (section « Halos de couleur ») ----------
@@ -541,9 +537,9 @@
                 // liens/fichiers de l'exercice à NE PAS montrer pendant cette session (clés "link:<id>"/"file:<id>").
                 if (typeof step.note !== "string") step.note = "";
                 if (!Array.isArray(step.hidden)) step.hidden = [];
-                // Dé de gamme du pas (voir gsNewStepDice) : { rand } ou absent. Ses réglages sont normalisés à l'usage.
+                // Ancien dé propre au pas (avant qu'il ne soit réglé sur l'exercice) : { cfg } (ou l'ancien { rand }), normalisé à l'usage (diceHolderCfg).
                 if (!step.dice || typeof step.dice !== "object") delete step.dice;
-                else if (!step.dice.rand || typeof step.dice.rand !== "object") step.dice.rand = {};
+                else if ((!step.dice.cfg || typeof step.dice.cfg !== "object") && (!step.dice.rand || typeof step.dice.rand !== "object")) step.dice.cfg = {};
             });
             // Session éphémère (programmée depuis le calendrier pour UN jour, absente de la liste des sessions) :
             // sans date valide elle devient une session ordinaire (rien ne se perd).
@@ -3507,7 +3503,7 @@
         body.className = "link-dlg-body";
         var intro = document.createElement("div");
         intro.className = "link-dlg-intro";
-        intro.textContent = "Pièces jointes (liens, fichiers, images) et réglages (métronome prédéfini, objectif tempo, dé de gamme, notes fixes) sont communs avec :";
+        intro.textContent = "Pièces jointes (liens, fichiers, images) et réglages (métronome prédéfini, objectif tempo, dé (tirage au sort), notes fixes) sont communs avec :";
         body.appendChild(intro);
         var list = document.createElement("div");
         list.className = "link-dlg-list";
@@ -3634,7 +3630,7 @@
         } else para("link-dlg-note", "Aucun des deux n'a de pièce jointe pour l'instant.");
         function presetText(e) { return (e.metronome ? "♩ " + e.metronome.bpm + " BPM" : "pas de métronome prédéfini") + (e.dice ? " · dé réglé" : ""); }
         var preferB = !(a.metronome || a.fixedNotes || a.dice) && (b.metronome || b.fixedNotes || b.dice);
-        para("link-plan-h", "Réglages communs (métronome prédéfini, objectif tempo, dé de gamme, notes fixes)");
+        para("link-plan-h", "Réglages communs (métronome prédéfini, objectif tempo, dé (tirage au sort), notes fixes)");
         radioGroup("par", [
             { value: "a", text: "Ceux de « " + a.title + " » (" + presetText(a) + ")" },
             { value: "b", text: "Ceux de « " + b.title + " » (" + presetText(b) + ")" }
@@ -10679,15 +10675,8 @@
     }
     function scaleDefByKey(key) { return SCALE_DEFS.filter(function (d) { return d.key === key; })[0]; }
     var SCALE_RAND_ALT_MAX = 7;
-    // Altérations d'une gamme sur une tonique : nombre de ses notes qui portent un ♯ (touches noires) — c'est ce que l'on voit dans
-    // le récapitulatif (Do majeur 0, Sol majeur 1, Ré♭ = Do♯ majeur 5…). Sert de « difficulté » du tirage.
-    function scaleAltCount(key, root) {
-        var d = scaleDefByKey(key);
-        if (!d) return 0;
-        return d.semis.filter(function (st) { return SCALE_RAND_NATURALS.indexOf((root + st) % 12) === -1; }).length;
-    }
-    // Réglages du tirage : { families, exclude, include, roots, altMin, altMax, avoid } ; `noMem` : sans historique (pas d'une session :
-    // l'historique et les dernières gammes tirées restent en mémoire, voir gsDiceMemFor).
+    // ANCIEN réglage du dé (une seule gamme tirée) : { families, exclude, include, roots, altMin, altMax, avoid }. Ne sert plus qu'à
+    // convertir les réglages d'avant vers les dés indépendants (voir diceFromLegacy).
     function normalizeScaleRand(r, noMem) {
         r = r && typeof r === "object" ? r : {};
         var fam = {}, roots = [], rf = r.families || {};
@@ -10718,42 +10707,6 @@
         rand.include.forEach(function (k) { if (keys.indexOf(k) === -1 && scaleDefByKey(k)) keys.push(k); });
         return keys;
     }
-    // Chaque gamme candidate avec les toniques cochées qui respectent la plage d'altérations ; celles sans aucune tonique tombent.
-    function scaleRandCandidates(rand) {
-        return scaleRandKeys(rand).map(function (k) {
-            var roots = [];
-            rand.roots.forEach(function (on, pc) { if (on) { var a = scaleAltCount(k, pc); if (a >= rand.altMin && a <= rand.altMax) roots.push(pc); } });
-            return { key: k, roots: roots };
-        }).filter(function (c) { return c.roots.length; });
-    }
-    // Historique des tirages (le plus récent en premier, sans doublon) : un tirage déjà fait remonte en tête.
-    function scaleRandRecord(mem, pick) {
-        mem.history = [{ key: pick.key, root: pick.root }].concat(mem.history.filter(function (h) { return h.key !== pick.key || h.root !== pick.root; })).slice(0, SCALE_RAND_HISTORY_MAX);
-    }
-    // Tire { key, root } : d'abord la gamme (à égalité entre gammes, sans favoriser les grandes familles), en évitant les
-    // dernières tirées si demandé, puis la tonique parmi celles qui conviennent (pas deux fois la même de suite quand on peut).
-    // `mem` : { history, recent } (les réglages eux-mêmes pour l'outil Gammes).
-    function scaleRandomPick(rand, lastRoot, mem) {
-        mem = mem || rand;
-        var cands = scaleRandCandidates(rand);
-        if (!cands.length) return null;
-        var pool = cands;
-        if (rand.avoid) { var fresh = cands.filter(function (c) { return mem.recent.indexOf(c.key) === -1; }); if (fresh.length) pool = fresh; }
-        var c = pool[Math.floor(Math.random() * pool.length)];
-        var rp = c.roots.length > 1 ? c.roots.filter(function (pc) { return pc !== lastRoot; }) : c.roots;
-        var root = rp[Math.floor(Math.random() * rp.length)];
-        mem.recent.push(c.key);
-        var keep = Math.max(1, Math.min(8, cands.length - 1));
-        while (mem.recent.length > keep) mem.recent.shift();
-        return { key: c.key, root: root };
-    }
-    // Un tirage complet : choisit, puis l'inscrit à l'historique.
-    function scaleRandDraw(rand, mem) {
-        mem = mem || rand;
-        var pick = scaleRandomPick(rand, mem.history[0] ? mem.history[0].root : -1, mem);
-        if (pick) scaleRandRecord(mem, pick);
-        return pick;
-    }
     var SCALES_PREFS_KEY = "trainhub.scalesPrefs.v1";
     var SIZE_MIN = 0.7, SIZE_MAX = 1.6, SIZE_STEP = 0.1;
     function loadScalesPrefs() {
@@ -10767,7 +10720,8 @@
             instrument: SCALES_INSTRUMENTS.some(function (i) { return i.key === p.instrument; }) ? p.instrument : "bass4",
             labelMode: p.labelMode === "notes" ? "notes" : "degrees",
             frets: p.frets === 24 ? 24 : 12,
-            rand: normalizeScaleRand(p.rand),
+            dice: diceToolNorm(p.dice, p.rand), // réglage du dé de l'outil (l'ancien `rand` est converti une fois)
+            diceMem: diceMemOk(p.diceMem),
             zoom: isPhone ? 0.85 : 1.2, // échelle de base selon l'écran (plus de réglage global : voir sizes)
             // Largeur / hauteur du diagramme, retenues pour chaque instrument : { bass4: { w: 1, h: 1 }, … }
             sizes: (function (src) {
@@ -10832,252 +10786,741 @@
         window.addEventListener("keydown", onKey, true);
     }
 
-    // ---------- fenêtre « Tirage de gamme » (le dé) ----------
-    // Une vraie fenêtre flottante, déplaçable et redimensionnable (taille et place retenues), avec toutes les options du tirage :
-    // altérations (difficulté), familles, gammes une à une, toniques, historique. Elle sert à l'outil Gammes et aux pas d'une session.
-    // cfg : { title, rand (réglages), mem (historique : { history, recent } ; par défaut rand), persist() après chaque réglage,
-    //         onPick(pick) pour appliquer un tirage, current() -> { key, root } | null (le tirage affiché ailleurs),
-    //         onView() facultatif (bouton « Voir sur le manche »), onRemove() + removeLabel facultatifs, onClose() facultatif }
-    var SCALE_RAND_GROUPS = [
-        { title: "Gammes", ids: ["simples", "penta", "modes", "melodique", "harmonique", "complexes", "exotiques"] },
-        { title: "Arpèges", ids: ["triades", "tetrades", "extensions"] }
+    // ---------- dé de gamme : plusieurs dés indépendants (Tonalité, Gamme, Mode, Nombre de notes) ----------
+    // Un réglage du dé (cfg) dit quels dés lancer et, pour chacun, quelles faces il porte. Les dés sont indépendants : la tonalité est
+    // tirée une fois, chaque autre dé actif tire une de ses faces, et le résumé les met bout à bout (« D · Locrien · Tétrade (4 notes) »).
+    // cfg = { on: { key, scale, mode, notes }, key: [12 booléens], scale: [clés de gamme], mode: [clés de mode], notes: [ids] }
+    var DICE_KEY_NAMES = ROOT_MENU_NAMES.map(function (n) { return n.replace(" / ", "/"); });
+    var DICE_MODE_LABELS = { major: "Ionien", aeolian: "Éolien" };
+    var DICE_NOTES = [["scale", "Gamme complète", "7 notes"], ["blues", "Gamme blues", "6 notes"], ["penta", "Pentatonique", "5 notes"], ["tetrad", "Tétrade", "4 notes"], ["triad", "Triade", "3 notes"]];
+    var DICE_DICE = [
+        { id: "key", name: "Tonalité" },
+        { id: "scale", name: "Gamme", moreLabel: "Plus de gammes", groups: [
+            { title: "Gammes de base", keys: ["major", "aeolian", "harmonicMinor", "melodicMinor"] },
+            { title: "Pentatoniques et blues", more: true, keys: ["majorPenta", "minorPenta", "blues", "bluesMajor"] },
+            { title: "Autres gammes", more: true, keys: SCALE_MENU[7].keys.filter(function (k) { return k !== "bluesMajor"; }) },
+            { title: "Gammes du monde", more: true, keys: SCALE_MENU[8].keys }] },
+        { id: "mode", name: "Mode", moreLabel: "Modes du mineur mélodique et harmonique", groups: [
+            { title: "Modes du majeur", keys: ["major", "dorian", "phrygian", "lydian", "mixolydian", "aeolian", "locrian"] },
+            { title: "Modes du mineur mélodique", more: true, keys: ["melodicMinor"].concat(SCALE_MENU[5].keys) },
+            { title: "Modes du mineur harmonique", more: true, keys: ["harmonicMinor"].concat(SCALE_MENU[6].keys) }] },
+        { id: "notes", name: "Nombre de notes" }
     ];
-    var SCALE_RAND_HINTS = { simples: "majeure, mineures", penta: "pentatoniques, blues", modes: "dorien, lydien, mixolydien…",
-        triades: "majeure, mineure, dim., aug.", tetrades: "maj7, 7, m7, m7♭5, dim7…", extensions: "9, 7sus4, 7♯5, 7♭5…",
-        melodique: "lydien dominant, altéré…", harmonique: "phrygien dominant…", complexes: "tons, diminuées, bebop…", exotiques: "hongroise, japonaises…" };
-    var SCALE_RAND_ALT_PRESETS = [["Toutes", 0, 7], ["Faciles", 0, 2], ["Moyennes", 2, 4], ["Difficiles", 4, 7]];
-    // Choix rapides du dé : chaque case coche d'un coup une ou plusieurs familles (le détail reste dans « Réglages avancés »).
-    var SCALE_RAND_QUICK = [
-        { group: "Gammes", items: [["Gammes", ["simples"], "majeure, mineures"], ["Pentatoniques", ["penta"], "pentatoniques, blues"], ["Modes", ["modes"], "dorien, lydien, mixolydien…"], ["Gammes spéciales", ["melodique", "harmonique", "complexes", "exotiques"], "altérée, phrygien dominant, bebop…"]] },
-        { group: "Arpèges", items: [["Triades", ["triades"], "majeure, mineure, dim., aug."], ["Tétrades", ["tetrades"], "maj7, 7, m7, m7♭5…"], ["Arpèges étendus", ["extensions"], "9, 7sus4, 7♯5…"]] }
-    ];
-    var diceAdvOpen = false; // « Réglages avancés » : replié d'office, l'état est retenu d'une ouverture à l'autre
-    // Résumé d'un tirage réglé, en quelques mots (ex. « Triades · Modes · faciles ») : sert à montrer le réglage d'un exercice d'un coup d'œil.
-    function scaleRandSummary(rand) {
-        rand = normalizeScaleRand(rand, true);
-        var parts = [];
-        SCALE_RAND_QUICK.forEach(function (g) { g.items.forEach(function (it) { if (it[1].some(function (id) { return rand.families[id]; })) parts.push(it[0]); }); });
-        if (rand.include.length) parts.push("+" + rand.include.length + " gamme" + (rand.include.length > 1 ? "s" : ""));
-        var diff = SCALE_RAND_ALT_PRESETS.filter(function (pr) { return pr[1] === rand.altMin && pr[2] === rand.altMax; })[0];
-        if (!diff) parts.push("♯ " + rand.altMin + "–" + rand.altMax);
-        else if (diff[1] !== 0 || diff[2] !== SCALE_RAND_ALT_MAX) parts.push(diff[0].toLowerCase());
-        return parts.length ? parts.join(" · ") : "rien de coché";
+    var DICE_DEFAULT_ON = { key: true, scale: true, mode: false, notes: false };
+    function diceDie(id) { return DICE_DICE.filter(function (d) { return d.id === id; })[0]; }
+    // Faces possibles d'un dé, dans l'ordre d'affichage.
+    function diceCatalog(id) {
+        if (id === "key") return [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+        if (id === "notes") return DICE_NOTES.map(function (n) { return n[0]; });
+        var out = [];
+        diceDie(id).groups.forEach(function (g) { g.keys.forEach(function (k) { if (out.indexOf(k) === -1 && scaleDefByKey(k)) out.push(k); }); });
+        return out;
     }
+    function diceDefaultFaces(id) {
+        if (id === "notes") return diceCatalog("notes");
+        return diceDie(id).groups[0].keys.filter(function (k) { return !!scaleDefByKey(k); });
+    }
+    // Réglage complet et valide. `into` : l'objet à remettre d'aplomb sur place (la fenêtre du dé modifie le réglage en place).
+    function diceNormCfg(c, into) {
+        c = c && typeof c === "object" ? c : {};
+        var out = into || {}, on = c.on && typeof c.on === "object" ? c.on : {}, newOn = {}, keys = [];
+        DICE_DICE.forEach(function (d) { newOn[d.id] = typeof on[d.id] === "boolean" ? on[d.id] : DICE_DEFAULT_ON[d.id]; });
+        for (var i = 0; i < 12; i++) keys.push(Array.isArray(c.key) && typeof c.key[i] === "boolean" ? c.key[i] : true);
+        var faces = {};
+        ["scale", "mode", "notes"].forEach(function (id) {
+            var cat = diceCatalog(id);
+            faces[id] = Array.isArray(c[id]) ? c[id].filter(function (k, j, a) { return cat.indexOf(k) !== -1 && a.indexOf(k) === j; }) : diceDefaultFaces(id);
+        });
+        Object.keys(out).forEach(function (k) { if (["on", "key", "scale", "mode", "notes"].indexOf(k) === -1) delete out[k]; });
+        out.on = newOn; out.key = keys; out.scale = faces.scale; out.mode = faces.mode; out.notes = faces.notes;
+        return out;
+    }
+    function diceFaces(cfg, id) {
+        if (id === "key") return cfg.key.map(function (on, pc) { return on ? pc : -1; }).filter(function (pc) { return pc >= 0; });
+        return cfg[id];
+    }
+    function diceActiveIds(cfg) { return DICE_DICE.filter(function (d) { return cfg.on[d.id]; }).map(function (d) { return d.id; }); }
+    function diceEmptyDice(cfg) { return diceActiveIds(cfg).filter(function (id) { return !diceFaces(cfg, id).length; }); }
+    function diceFaceLabel(id, f) {
+        if (id === "key") return DICE_KEY_NAMES[f] || "?";
+        if (id === "notes") { var n = DICE_NOTES.filter(function (x) { return x[0] === f; })[0]; return n ? n[1] + " (" + n[2] + ")" : String(f); }
+        var d = scaleDefByKey(f);
+        if (!d) return String(f);
+        return id === "mode" && DICE_MODE_LABELS[f] ? DICE_MODE_LABELS[f] : d.label;
+    }
+    // Nombre de tirages différents (produit des faces des dés actifs).
+    function diceCombos(cfg) {
+        var ids = diceActiveIds(cfg), n = ids.length ? 1 : 0;
+        ids.forEach(function (id) { n *= diceFaces(cfg, id).length; });
+        return n;
+    }
+    // Le réglage en quelques mots : « Tonalité · Mode (7) · Tétrade (4 notes) ». Un dé à une seule face donne directement cette face.
+    function diceSummary(cfg) {
+        var parts = [];
+        diceActiveIds(cfg).forEach(function (id) {
+            var f = diceFaces(cfg, id), d = diceDie(id);
+            if (f.length === 1) parts.push(diceFaceLabel(id, f[0]));
+            else if (id === "key" && f.length === 12) parts.push("Tonalité");
+            else parts.push(d.name + " (" + f.length + ")");
+        });
+        return parts.length ? parts.join(" · ") : "aucun dé";
+    }
+    // Ancien réglage { families, include, exclude, roots, … } (une seule gamme tirée) → nouveaux dés. La difficulté disparaît.
+    function diceFromLegacy(r) {
+        var rand = normalizeScaleRand(r, true), keys = scaleRandKeys(rand);
+        var catScale = diceCatalog("scale"), catMode = diceCatalog("mode"), modeFam = {};
+        ["modes", "melodique", "harmonique"].forEach(function (id) { SCALE_RAND_FAMILIES.filter(function (f) { return f[0] === id; })[0][2].forEach(function (k) { modeFam[k] = true; }); });
+        var scale = [], mode = [], notes = [];
+        function add(arr, v) { if (arr.indexOf(v) === -1) arr.push(v); }
+        keys.forEach(function (k) {
+            var d = scaleDefByKey(k);
+            if (!d) return;
+            if (d.kind === "Arpèges") { var n = d.semis.length; if (n === 3) add(notes, "triad"); else if (n === 4) add(notes, "tetrad"); return; }
+            if (modeFam[k] && catMode.indexOf(k) !== -1) add(mode, k);
+            else if (catScale.indexOf(k) !== -1) add(scale, k);
+        });
+        return diceNormCfg({ on: { key: true, scale: scale.length > 0, mode: mode.length > 0, notes: notes.length > 0 }, key: rand.roots,
+            scale: scale.length ? scale : undefined, mode: mode.length ? mode : undefined, notes: notes.length ? notes : undefined });
+    }
+    function diceNewMem() { return { history: [], recent: {} }; }
+    function diceMemOk(m) {
+        m = m && typeof m === "object" ? m : {};
+        var out = diceNewMem();
+        if (Array.isArray(m.history)) out.history = m.history.filter(function (h) { return h && typeof h === "object" && Object.keys(h).some(function (k) { return !!diceDie(k); }); }).slice(0, 20);
+        return out;
+    }
+    // Un tirage : { key: 0-11, scale: clé, mode: clé, notes: id } (seulement les dés actifs). Chaque dé évite ses dernières faces ;
+    // un dé actif sans face coché bloque le tirage (le réglage est à corriger, on ne tire pas en silence sans lui).
+    function diceDraw(cfg, mem) {
+        mem = mem || diceNewMem();
+        if (!mem.recent) mem.recent = {};
+        if (!mem.history) mem.history = [];
+        var ids = diceActiveIds(cfg);
+        if (!ids.length || diceEmptyDice(cfg).length) return null;
+        var pick = {};
+        ids.forEach(function (id) {
+            var faces = diceFaces(cfg, id), rec = mem.recent[id] || (mem.recent[id] = []);
+            var pool = faces.filter(function (f) { return rec.indexOf(f) === -1; });
+            if (!pool.length) pool = faces;
+            var f = pool[Math.floor(Math.random() * pool.length)];
+            rec.push(f);
+            var keep = Math.max(0, Math.min(id === "key" ? 4 : 3, faces.length - 1));
+            while (rec.length > keep) rec.shift();
+            pick[id] = f;
+        });
+        mem.history.unshift(pick);
+        if (mem.history.length > 20) mem.history.length = 20;
+        return pick;
+    }
+    // Lignes d'un tirage, dans l'ordre des dés : { die, name, label, view: { key, root } | null, notes }. Gamme et mode se voient sur le manche
+    // (dans la tonalité tirée, sinon en C).
+    function dicePickLines(pick) {
+        var out = [];
+        if (!pick) return out;
+        var root = typeof pick.key === "number" ? pick.key : null;
+        DICE_DICE.forEach(function (d) {
+            var f = pick[d.id];
+            if (f === undefined || f === null) return;
+            var line = { die: d.id, name: d.name, label: diceFaceLabel(d.id, f), view: null, notes: "" };
+            if (d.id === "scale" || d.id === "mode") {
+                var def = scaleDefByKey(f);
+                if (def) {
+                    line.view = { key: f, root: root === null ? 0 : root };
+                    if (root !== null) line.notes = def.semis.map(function (st) { return NOTE_NAMES_SHARP[(root + st) % 12]; }).join(" ");
+                }
+            }
+            out.push(line);
+        });
+        return out;
+    }
+    function dicePickText(pick) { return dicePickLines(pick).map(function (l) { return l.label; }).join(" · "); }
+    function dicePickView(pick) { var l = dicePickLines(pick).filter(function (x) { return !!x.view; })[0]; return l ? l.view : null; }
+
+    // ---- préréglages : rangés dans des onglets (state.settings.dicePresets = { tabs: [{ id, name }], list: [{ id, name, tab, cfg }] }) ----
+    function dicePresetsDefault() {
+        var tab = { id: uid(), name: "Mes préréglages" };
+        function mk(name, on, faces) { var c = { on: on }; Object.keys(faces || {}).forEach(function (k) { c[k] = faces[k]; }); return { id: uid(), name: name, tab: tab.id, cfg: diceNormCfg(c) }; }
+        return { tabs: [tab], list: [
+            mk("Gammes de base", { key: true, scale: true, mode: false, notes: false }),
+            mk("Modes du majeur", { key: true, scale: false, mode: true, notes: false }),
+            mk("Tétrades modes", { key: true, scale: false, mode: true, notes: true }, { notes: ["tetrad"] }),
+            mk("Mineur harmonique", { key: true, scale: true, mode: false, notes: false }, { scale: ["harmonicMinor"] }),
+            mk("Routine complète", { key: true, scale: true, mode: true, notes: true })
+        ] };
+    }
+    function dicePresetsStore() {
+        var s = state.settings;
+        if (!s.dicePresets || typeof s.dicePresets !== "object") { s.dicePresets = dicePresetsDefault(); saveSoon(); }
+        var p = s.dicePresets;
+        if (!Array.isArray(p.tabs)) p.tabs = [];
+        p.tabs = p.tabs.filter(function (t) { return t && typeof t.id === "string"; });
+        p.tabs.forEach(function (t) { if (typeof t.name !== "string" || !t.name.trim()) t.name = "Onglet"; });
+        if (!p.tabs.length) p.tabs.push({ id: uid(), name: "Mes préréglages" });
+        if (!Array.isArray(p.list)) p.list = [];
+        p.list = p.list.filter(function (x) { return x && typeof x.id === "string"; });
+        p.list.forEach(function (x) {
+            if (!p.tabs.some(function (t) { return t.id === x.tab; })) x.tab = p.tabs[0].id;
+            if (typeof x.name !== "string" || !x.name.trim()) x.name = "Préréglage";
+        });
+        return p;
+    }
+    function dicePresetById(id) { if (!id) return null; return dicePresetsStore().list.filter(function (p) { return p.id === id; })[0] || null; }
+    var diceCfgChecked = typeof WeakSet === "function" ? new WeakSet() : null;
+    function diceCheckedCfg(holder) { // remet d'aplomb holder.cfg une fois (puis l'objet reste le même : la fenêtre le modifie en place)
+        if (!holder.cfg || typeof holder.cfg !== "object") holder.cfg = diceNormCfg(null);
+        else if (!diceCfgChecked || !diceCfgChecked.has(holder.cfg)) diceNormCfg(holder.cfg, holder.cfg);
+        if (diceCfgChecked) diceCfgChecked.add(holder.cfg);
+        return holder.cfg;
+    }
+    function diceCfgOfPreset(p) { return diceCheckedCfg(p); }
+    // Dé d'un exercice (ex.dice) ou d'un ancien pas de session (step.dice) : { cfg, name, presetId }. Avec presetId, il SUIT le préréglage
+    // (modifier le préréglage le modifie) ; modifié depuis l'exercice, il s'en détache (copie propre « … (modifié) »). L'ancien { rand } est converti.
+    function diceHolderCfg(holder) {
+        if (!holder || typeof holder !== "object") return null;
+        if (!holder.cfg && holder.rand) { holder.cfg = diceFromLegacy(holder.rand); }
+        if (holder.rand) delete holder.rand;
+        if (holder.presetId) {
+            var p = dicePresetById(holder.presetId);
+            if (p) return diceCfgOfPreset(p);
+            delete holder.presetId; // préréglage disparu : la copie gardée avec l'exercice prend le relais
+        }
+        return diceCheckedCfg(holder);
+    }
+    function diceHolderPreset(holder) { return holder && holder.presetId ? dicePresetById(holder.presetId) : null; }
+    // Nom affiché du réglage d'un exercice : le préréglage suivi, sinon son nom propre, sinon le résumé des dés.
+    function diceHolderLabel(holder) {
+        var p = diceHolderPreset(holder);
+        if (p) return p.name;
+        return holder && holder.name ? holder.name : diceSummary(diceHolderCfg(holder));
+    }
+    function diceHolderDetach(holder) {
+        var p = diceHolderPreset(holder);
+        if (!p) return false;
+        holder.cfg = cloneJson(diceCfgOfPreset(p));
+        holder.name = p.name + " (modifié)";
+        delete holder.presetId;
+        return true;
+    }
+    function diceLinkTo(p) { return { presetId: p.id, name: p.name, cfg: cloneJson(diceCfgOfPreset(p)) }; }
+    // Exercices (tous les espaces) qui ont un dé : [{ ex, inst, pathNames }].
+    function diceExerciseHolders() {
+        var out = [];
+        state.instruments.forEach(function (inst) {
+            collectExercises(inst, function (ex) { return !!(ex.dice && typeof ex.dice === "object"); }).forEach(function (r) { out.push({ ex: r.ex, inst: inst, pathNames: r.pathNames }); });
+        });
+        return out;
+    }
+    function diceUsersOf(presetId) { return diceExerciseHolders().filter(function (r) { return r.ex.dice.presetId === presetId; }); }
+    function diceUniqueName(base) {
+        var names = dicePresetsStore().list.map(function (p) { return p.name.toLowerCase(); }), n = base, i = 2;
+        while (names.indexOf(n.toLowerCase()) !== -1) n = base + " (" + i++ + ")";
+        return n;
+    }
+    // Réglage de l'outil Gammes (propre à l'appareil) : { cfg, presetId (préréglage chargé), dirty (modifié depuis), src (d'où vient un réglage non enregistré) }.
+    function diceToolNorm(d, legacyRand) {
+        d = d && typeof d === "object" ? d : null;
+        var cfg = d && d.cfg ? diceNormCfg(d.cfg) : legacyRand ? diceFromLegacy(legacyRand) : diceNormCfg(null);
+        return { cfg: cfg, presetId: d && typeof d.presetId === "string" ? d.presetId : null, dirty: !!(d && d.dirty), src: d && typeof d.src === "string" ? d.src : "" };
+    }
+    // Un dé neuf (case « Dé » d'un exercice, dé ajouté dans une session) : le réglage courant de l'outil Gammes — lié au préréglage s'il en est un tel quel.
+    function diceNewHolder() {
+        var t = loadScalesPrefs().dice, p = t.presetId && !t.dirty ? dicePresetById(t.presetId) : null;
+        return p ? diceLinkTo(p) : { cfg: cloneJson(t.cfg) };
+    }
+
+    // ---------- fenêtre du dé ----------
+    // Fenêtre flottante (déplaçable, redimensionnable) : en haut le tirage (cartes par dé + résumé), puis les dés à lancer, les préréglages
+    // (onglets à soi + onglet « Exercices »), le contenu de chaque dé et l'historique. Deux usages :
+    //   ctx.kind "tool"   : l'outil Gammes — ctx.tool = { dice: { cfg, presetId, dirty, src } } (préférences de l'appareil) ;
+    //   ctx.kind "holder" : le dé d'un exercice (ou d'un ancien pas de session) — ctx.get() / ctx.set(holder), ctx.ex (l'exercice, s'il y en a un).
+    // Communs : title, persist() après chaque changement, mem ({ history, recent }), onPick(pick), current(), onView(view), onRemove + removeLabel, onClose.
     var diceWin = null;
+    var diceUi = { tab: null, more: {} }; // onglet de préréglages affiché, groupes « Plus de… » ouverts (retenus le temps de la visite)
     function closeDiceWindow() { if (diceWin) { var c = diceWin.close; diceWin = null; c(); } }
-    function openDiceWindow(cfg) {
+    function openDiceWindow(ctx) {
         closeDiceWindow();
-        var rand = cfg.rand, mem = cfg.mem || cfg.rand, win = {}, lastPick = cfg.current ? cfg.current() : null;
-        function persist() { if (cfg.persist) cfg.persist(); }
+        var win = {}, mem = ctx.mem || diceNewMem(), lastPick = ctx.current ? ctx.current() : null;
+        var isTool = ctx.kind === "tool";
         function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
-        function famLabel(id) { return SCALE_RAND_FAMILIES.filter(function (f) { return f[0] === id; })[0][1]; }
-        function famKeys(id) { return SCALE_RAND_FAMILIES.filter(function (f) { return f[0] === id; })[0][2].filter(function (k) { return !!scaleDefByKey(k); }); }
-        function without(arr, k) { return arr.filter(function (x) { return x !== k; }); }
+        function btn(cls, text, title, fn) { var b = el("button", cls, text); b.type = "button"; if (title) b.title = title; if (fn) b.addEventListener("click", fn); return b; }
+        function store() { return dicePresetsStore(); }
+        function holder() { return ctx.get(); }
+        function cfg() { return isTool ? ctx.tool.dice.cfg : diceHolderCfg(holder()); }
+        function exTitle() { return ctx.ex ? ctx.ex.title : "cet exercice"; }
         win.close = openModal("dice-panel", function (panel, close) {
-            var painters = []; // fonctions qui remettent chaque case à jour
-            function repaint() { painters.forEach(function (fn) { fn(); }); summary(); }
-            function change() { persist(); repaint(); }
-            // Case à cocher en bouton : carré qui se remplit quand c'est coché.
-            function opt(label, hint, isOn, flip, extraClass) {
-                var b = el("button", "dice-opt" + (extraClass ? " " + extraClass : "")); b.type = "button";
-                b.appendChild(el("span", "dice-box", "✓"));
-                b.appendChild(el("span", "dice-name", label));
-                if (hint) b.appendChild(el("span", "dice-hint", hint));
-                function paint() { var on = isOn(); b.classList.toggle("dice-opt-on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); }
-                b.addEventListener("click", function () { flip(); change(); });
-                painters.push(paint); paint();
-                return b;
-            }
-            function section(title, note, into) {
-                var s = el("section", "dice-sec"), h = el("div", "dice-sec-head");
-                h.appendChild(el("div", "dice-sec-title", title));
-                s.appendChild(h);
-                if (note) s.appendChild(el("div", "dice-sec-note", note));
-                (into || body).appendChild(s);
-                return { box: s, head: h };
-            }
-            function links(head, defs) {
-                var lk = el("span", "dice-links");
-                defs.forEach(function (d) { var b = el("button", null, d[0]); b.type = "button"; b.addEventListener("click", function () { d[1](); change(); }); lk.appendChild(b); });
-                head.appendChild(lk);
+            var painters = [];
+            function repaint() { painters.forEach(function (fn) { fn(); }); }
+            // Toute modification passe par ici : pour un exercice lié à un préréglage, elle le détache d'abord (le préréglage, lui, ne bouge pas).
+            function edit(fn) {
+                if (isTool) { fn(ctx.tool.dice.cfg); if (ctx.tool.dice.presetId) ctx.tool.dice.dirty = true; }
+                else {
+                    var h = holder(), p = diceHolderPreset(h);
+                    if (diceHolderDetach(h)) showToast("Réglage propre à « " + exTitle() + " » : le préréglage « " + p.name + " » n'est pas modifié.", 5000);
+                    fn(diceHolderCfg(h));
+                }
+                ctx.persist();
+                repaint();
             }
 
-            // -- en-tête : titre, fermeture
+            // -- en-tête
             var head = el("div", "dice-head");
-            head.appendChild(el("div", "backups-title dice-title", cfg.title));
-            var closeBtn = el("button", "btn-ghost dice-close", "✕"); closeBtn.type = "button"; closeBtn.title = "Fermer"; closeBtn.setAttribute("aria-label", "Fermer");
-            closeBtn.addEventListener("click", close);
+            head.appendChild(el("div", "backups-title dice-title", ctx.title));
+            var closeBtn = btn("btn-ghost dice-close", "✕", "Fermer", close); closeBtn.setAttribute("aria-label", "Fermer");
             head.appendChild(closeBtn);
             panel.appendChild(head);
 
-            // -- résultat + bouton « Tirer » (toujours visibles, au-dessus des réglages qui défilent)
+            // -- tirage (toujours visible, au-dessus de ce qui défile)
             var result = el("div", "dice-result");
-            var resMain = el("div", "dice-result-main"), resNotes = el("div", "dice-result-notes");
-            result.appendChild(resMain); result.appendChild(resNotes);
             var goRow = el("div", "dice-go-row");
-            var go = el("button", "btn-accent dice-go"); go.type = "button"; go.innerHTML = SCALES_DICE_SVG; go.appendChild(document.createTextNode(" Tirer au hasard"));
+            var go = btn("btn-accent dice-go", null, null); go.innerHTML = SCALES_DICE_SVG; go.appendChild(document.createTextNode(" Tirer au sort"));
             goRow.appendChild(go);
-            if (cfg.onView) { var view = el("button", "btn-ghost dice-view", "Voir sur le manche"); view.type = "button"; view.addEventListener("click", function () { if (lastPick) cfg.onView(lastPick); }); goRow.appendChild(view); win.view = view; }
             result.appendChild(goRow);
+            var cards = el("div", "dice-cards"); result.appendChild(cards);
+            var sumRow = el("div", "dice-sum-row");
+            var sumText = el("div", "dice-sum");
+            var copyBtn = btn("btn-ghost dice-mini", "Copier", "Copier le résumé du tirage");
+            var viewBtn = ctx.onView ? btn("btn-ghost dice-mini dice-view", "Voir sur le manche", "Afficher la gamme (ou le mode) tirée dans l'outil Gammes") : null;
+            sumRow.appendChild(sumText); sumRow.appendChild(copyBtn); if (viewBtn) sumRow.appendChild(viewBtn);
+            result.appendChild(sumRow);
             var count = el("div", "dice-count"); result.appendChild(count);
             panel.appendChild(result);
             var body = el("div", "dice-body"); panel.appendChild(body);
-
-            // -- l'essentiel : ce qu'on tire (quelques cases) et la difficulté (quatre boutons)
-            var quick = section("Que tirer au sort ?");
-            SCALE_RAND_QUICK.forEach(function (g) {
-                quick.box.appendChild(el("div", "dice-group", g.group));
-                var grid = el("div", "dice-grid");
-                g.items.forEach(function (it) {
-                    function allOn() { return it[1].every(function (id) { return rand.families[id]; }); }
-                    var b = opt(it[0], it[2], allOn, function () { var on = !allOn(); it[1].forEach(function (id) { setFamily(id, on); }); }, "dice-opt-quick");
-                    painters.push(function () { b.classList.toggle("dice-opt-part", !allOn() && it[1].some(function (id) { return rand.families[id]; })); });
-                    grid.appendChild(b);
-                });
-                quick.box.appendChild(grid);
-            });
-            var diff = section("Difficulté", "Selon le nombre de ♯ de la gamme tirée (Do majeur : 0, Mi majeur : 4).");
-            // -- tout le reste, replié : altérations précises, familles, gammes une à une, toniques, répétitions
-            var advDet = el("details", "dice-adv");
-            advDet.open = diceAdvOpen;
-            advDet.appendChild(el("summary", null, "Réglages avancés"));
-            var advBody = el("div", "dice-adv-body"); advDet.appendChild(advBody);
-            body.appendChild(advDet);
-            advDet.addEventListener("toggle", function () { diceAdvOpen = advDet.open; });
-
-            // -- altérations précises (de … à …)
-            var alt = section("Altérations précises", "Nombre de notes avec ♯ dans la gamme tirée (ex. : Do majeur 0 · Sol majeur 1 · Ré majeur 2 · Mi majeur 4).", advBody);
-            var altRow = el("div", "dice-alt-row");
-            function altSelect(label, get, set) {
-                var w = el("label", "dice-alt-sel"); w.appendChild(el("span", null, label));
-                var sel = el("select"); for (var i = 0; i <= SCALE_RAND_ALT_MAX; i++) { var o = el("option", null, String(i)); o.value = String(i); sel.appendChild(o); }
-                sel.addEventListener("change", function () { set(parseInt(sel.value, 10)); change(); });
-                w.appendChild(sel); altRow.appendChild(w);
-                painters.push(function () { sel.value = String(get()); });
+            function section(title, cls) {
+                var s = el("section", "dice-sec" + (cls ? " " + cls : "")), h = el("div", "dice-sec-head");
+                h.appendChild(el("div", "dice-sec-title", title));
+                s.appendChild(h); body.appendChild(s);
+                return { box: s, head: h };
             }
-            altSelect("de", function () { return rand.altMin; }, function (v) { rand.altMin = v; if (rand.altMax < v) rand.altMax = v; });
-            altSelect("à", function () { return rand.altMax; }, function (v) { rand.altMax = v; if (rand.altMin > v) rand.altMin = v; });
-            alt.box.appendChild(altRow);
-            var presets = el("div", "dice-presets");
-            SCALE_RAND_ALT_PRESETS.forEach(function (p) {
-                var b = el("button", "dice-preset", p[0] + " (" + (p[1] === 0 && p[2] === SCALE_RAND_ALT_MAX ? "0–" + p[2] : p[1] + "–" + p[2]) + ")"); b.type = "button";
-                b.addEventListener("click", function () { rand.altMin = p[1]; rand.altMax = p[2]; change(); });
-                painters.push(function () { b.classList.toggle("dice-preset-on", rand.altMin === p[1] && rand.altMax === p[2]); });
-                presets.appendChild(b);
-            });
-            diff.box.appendChild(presets);
-
-            // -- familles
-            var fam = section("Familles (détail)", null, advBody);
-            links(fam.head, [["Tout", function () { SCALE_RAND_FAMILIES.forEach(function (f) { setFamily(f[0], true); }); }], ["Aucune", function () { SCALE_RAND_FAMILIES.forEach(function (f) { setFamily(f[0], false); }); }]]);
-            function setFamily(id, on) { rand.families[id] = on; var ks = famKeys(id); rand.exclude = rand.exclude.filter(function (k) { return ks.indexOf(k) === -1; }); rand.include = rand.include.filter(function (k) { return ks.indexOf(k) === -1; }); }
-            SCALE_RAND_GROUPS.forEach(function (g) {
-                fam.box.appendChild(el("div", "dice-group", g.title));
-                var grid = el("div", "dice-grid");
-                g.ids.forEach(function (id) { grid.appendChild(opt(famLabel(id), SCALE_RAND_HINTS[id], function () { return rand.families[id]; }, function () { setFamily(id, !rand.families[id]); })); });
-                fam.box.appendChild(grid);
-            });
-
-            // -- gammes une à une : enlever (ou ajouter) une gamme précise sans toucher aux familles
-            var one = section("Gammes une à une", "Décocher une gamme la retire du tirage ; cocher une gamme d'une famille non choisie l'ajoute.", advBody);
-            var oneCount = el("span", "dice-one-count");
-            one.head.appendChild(oneCount);
-            links(one.head, [["Tout réactiver", function () { rand.exclude = []; rand.include = []; }]]);
-            function famOnFor(key) { return SCALE_RAND_FAMILIES.some(function (f) { return rand.families[f[0]] && f[2].indexOf(key) !== -1; }); }
-            function keyOn(key) { return scaleRandKeys(rand).indexOf(key) !== -1; }
-            function flipKey(key) {
-                var famOn = famOnFor(key);
-                if (keyOn(key)) { if (famOn) { if (rand.exclude.indexOf(key) === -1) rand.exclude.push(key); } rand.include = without(rand.include, key); }
-                else { if (famOn) rand.exclude = without(rand.exclude, key); else if (rand.include.indexOf(key) === -1) rand.include.push(key); }
+            function links(headEl, defs) {
+                var lk = el("span", "dice-links");
+                defs.forEach(function (d) { lk.appendChild(btn(null, d[0], null, d[1])); });
+                headEl.appendChild(lk);
+                return lk;
             }
-            SCALE_RAND_GROUPS.forEach(function (g) {
-                g.ids.forEach(function (id) {
-                    var ks = famKeys(id);
-                    one.box.appendChild(el("div", "dice-group", famLabel(id)));
-                    var grid = el("div", "dice-grid dice-grid-scales");
-                    ks.forEach(function (k) { var d = scaleDefByKey(k); grid.appendChild(opt(d.label, "", function () { return keyOn(k); }, function () { flipKey(k); }, "dice-opt-small")); });
-                    one.box.appendChild(grid);
-                });
+            function showResult() {
+                cards.innerHTML = "";
+                var lines = dicePickLines(lastPick);
+                if (!lines.length) {
+                    cards.appendChild(el("div", "dice-empty", "Pas encore de tirage"));
+                    sumRow.hidden = true;
+                } else {
+                    lines.forEach(function (l) {
+                        var c = el(l.view && ctx.onView ? "button" : "div", "dice-card dice-card-" + l.die);
+                        if (l.view && ctx.onView) { c.type = "button"; c.title = "Voir sur le manche"; c.addEventListener("click", function () { ctx.onView(l.view); }); }
+                        c.appendChild(el("span", "dice-card-name", l.name));
+                        c.appendChild(el("span", "dice-card-val", l.label));
+                        if (l.notes) c.appendChild(el("span", "dice-card-notes", l.notes));
+                        cards.appendChild(c);
+                    });
+                    sumRow.hidden = false;
+                    sumText.textContent = dicePickText(lastPick);
+                    if (viewBtn) viewBtn.disabled = !dicePickView(lastPick);
+                }
+            }
+            copyBtn.addEventListener("click", function () {
+                var t = dicePickText(lastPick);
+                if (!t) return;
+                function done() { showToast("Résumé copié : " + t, 2500); }
+                try { navigator.clipboard.writeText(t).then(done, function () { showToast(t, 4000); }); } catch (e) { showToast(t, 4000); }
             });
+            if (viewBtn) viewBtn.addEventListener("click", function () { var v = dicePickView(lastPick); if (v) ctx.onView(v); });
             painters.push(function () {
-                var n = rand.exclude.length + rand.include.length;
-                oneCount.textContent = n ? n + " réglage" + (n > 1 ? "s" : "") + " à la main" : "";
+                var c = cfg(), empty = diceEmptyDice(c), n = diceCombos(c), ids = diceActiveIds(c);
+                if (!ids.length) count.textContent = "Aucun dé à lancer : allume au moins un dé ci-dessous.";
+                else if (empty.length) count.textContent = "Le dé « " + empty.map(function (id) { return diceDie(id).name; }).join(" », « ") + " » n'a aucune face cochée.";
+                else count.textContent = ids.length + " dé" + (ids.length > 1 ? "s" : "") + " · " + n.toLocaleString("fr-FR") + " tirage" + (n > 1 ? "s" : "") + " différent" + (n > 1 ? "s" : "");
+                count.classList.toggle("dice-count-bad", !ids.length || empty.length > 0);
+                go.disabled = !ids.length || empty.length > 0;
+            });
+            go.addEventListener("click", function () {
+                var pick = diceDraw(cfg(), mem);
+                if (!pick) { repaint(); return; }
+                lastPick = pick;
+                if (ctx.onPick) ctx.onPick(pick);
+                ctx.persist();
+                showResult(); renderHist();
             });
 
-            // -- toniques : disposition de clavier (naturelles en bas, dièses entre elles)
-            var roots = section("Toniques", null, advBody);
-            links(roots.head, [["Toutes", function () { rand.roots = rand.roots.map(function () { return true; }); }], ["Naturelles", function () { rand.roots = rand.roots.map(function (_, pc) { return SCALE_RAND_NATURALS.indexOf(pc) !== -1; }); }], ["Aucune", function () { rand.roots = rand.roots.map(function () { return false; }); }]]);
-            var kb = el("div", "dice-keys");
-            function rootKey(col, row, pc) {
-                var o = opt(NOTE_NAMES_SHARP[pc], "", function () { return rand.roots[pc]; }, function () { rand.roots[pc] = !rand.roots[pc]; }, "dice-key");
-                o.style.gridColumn = col + " / span 2"; o.style.gridRow = String(row + 1);
-                kb.appendChild(o);
-            }
-            [[2, 0, 1], [4, 0, 3], [8, 0, 6], [10, 0, 8], [12, 0, 10]].forEach(function (k) { rootKey(k[0], k[1], k[2]); });
-            [[1, 0], [3, 2], [5, 4], [7, 5], [9, 7], [11, 9], [13, 11]].forEach(function (k) { rootKey(k[0], 1, k[1]); });
-            roots.box.appendChild(kb);
+            // -- les dés à lancer (tuiles)
+            var tilesSec = section("Dés à lancer");
+            var tiles = el("div", "dice-tiles"); tilesSec.box.appendChild(tiles);
+            DICE_DICE.forEach(function (d) {
+                var t = btn("dice-tile dice-tile-" + d.id, null, null, function () { edit(function (c) { c.on[d.id] = !c.on[d.id]; }); });
+                var nm = el("span", "dice-tile-name", d.name), ct = el("span", "dice-tile-count");
+                t.appendChild(nm); t.appendChild(ct);
+                tiles.appendChild(t);
+                painters.push(function () {
+                    var c = cfg(), on = !!c.on[d.id], n = diceFaces(c, d.id).length;
+                    t.classList.toggle("dice-tile-on", on);
+                    t.classList.toggle("dice-tile-bad", on && !n);
+                    t.setAttribute("aria-pressed", on ? "true" : "false");
+                    ct.textContent = n + " face" + (n > 1 ? "s" : "");
+                    t.title = (on ? "Dé lancé — cliquer pour ne plus le lancer" : "Cliquer pour lancer aussi ce dé") + " (" + n + " face" + (n > 1 ? "s" : "") + " cochée" + (n > 1 ? "s" : "") + ")";
+                });
+            });
 
-            // -- éviter les répétitions
-            var avoidSec = section("Tirage", null, advBody);
-            avoidSec.box.appendChild(opt("Éviter les dernières gammes tirées", "", function () { return rand.avoid; }, function () { rand.avoid = !rand.avoid; }));
+            // -- préréglages : réglage en cours, onglets, puces (ou liste des exercices)
+            var presSec = section("Préréglages", "dice-presets-sec");
+            var curLine = el("div", "dp-current"); presSec.box.appendChild(curLine);
+            var tabsBar = el("div", "dp-tabs"); presSec.box.appendChild(tabsBar);
+            var listBox = el("div", "dp-list"); presSec.box.appendChild(listBox);
+            function curTab() { var t = diceUi.tab, s = store(); if (t === "__ex__" || s.tabs.some(function (x) { return x.id === t; })) return t; return s.tabs[0].id; }
+            function userTab() { var t = curTab(); return t === "__ex__" ? store().tabs[0].id : t; }
+            function tabName(id) { var t = store().tabs.filter(function (x) { return x.id === id; })[0]; return t ? t.name : ""; }
+            function usersText(p) { var n = diceUsersOf(p.id).length; return n ? " — suivi par " + n + " exercice" + (n > 1 ? "s" : "") : ""; }
+            function renderCurrent() {
+                curLine.innerHTML = "";
+                var lab = el("span", "dp-current-label");
+                if (isTool) {
+                    var t = ctx.tool.dice, p = t.presetId ? dicePresetById(t.presetId) : null;
+                    if (t.presetId && !p) { t.presetId = null; t.dirty = false; }
+                    if (p) { lab.appendChild(document.createTextNode("Réglage : ")); lab.appendChild(el("strong", null, "« " + p.name + " »")); if (t.dirty) lab.appendChild(el("span", "dp-badge", "modifié")); }
+                    else lab.appendChild(document.createTextNode(t.src ? "Réglage : " + t.src + " (non enregistré)" : "Réglage non enregistré"));
+                    curLine.appendChild(lab);
+                    var acts = el("span", "dp-current-acts");
+                    if (p && t.dirty) acts.appendChild(btn("btn-ghost dice-mini dp-save", "Enregistrer", "Remplacer le préréglage « " + p.name + " » par le réglage actuel" + usersText(p), saveOverwrite));
+                    acts.appendChild(btn("btn-ghost dice-mini dp-save-as", "Enregistrer sous…", "Enregistrer le réglage actuel comme nouveau préréglage", saveAs));
+                    acts.appendChild(btn("btn-ghost dice-mini dp-assign", "Affecter à un exercice…", "Donner ce réglage au dé d'un exercice", function () { assignToExercise(p && !t.dirty ? p : null); }));
+                    curLine.appendChild(acts);
+                } else {
+                    var h = holder(), hp = diceHolderPreset(h);
+                    if (hp) { lab.appendChild(document.createTextNode("Préréglage ")); lab.appendChild(el("strong", null, "« " + hp.name + " »")); lab.title = "Modifier les dés ici crée un réglage propre à l'exercice : le préréglage ne change pas."; }
+                    else { lab.appendChild(document.createTextNode("Réglage propre à l'exercice" + (h.name ? " : " : ""))); if (h.name) lab.appendChild(el("strong", null, "« " + h.name + " »")); }
+                    curLine.appendChild(lab);
+                    var acts2 = el("span", "dp-current-acts");
+                    if (!hp) acts2.appendChild(btn("btn-ghost dice-mini dp-rename-own", "Renommer…", "Nommer le réglage de cet exercice", function () { renameHolder(h, exTitle()); }));
+                    if (!hp) acts2.appendChild(btn("btn-ghost dice-mini dp-to-presets", "Ajouter aux préréglages…", "Garder ce réglage parmi les préréglages (onglet « " + tabName(userTab()) + " »)", function () { holderToPresets(h, ctx.ex, function (np) { ctx.persist(); }); }));
+                    curLine.appendChild(acts2);
+                }
+            }
+            function renderTabs() {
+                tabsBar.innerHTML = "";
+                var s = store(), cur = curTab();
+                s.tabs.forEach(function (t) {
+                    var b = btn("dp-tab dp-tab-user" + (t.id === cur ? " dp-tab-on" : ""), t.name, "Onglet « " + t.name + " » — clic droit (ou appui long) : renommer, supprimer ; glisser pour le déplacer");
+                    b.dataset.reorderId = t.id; b.setAttribute("data-drop-dice-tab", t.id);
+                    b.addEventListener("click", function () { if (suppressNextClick) { suppressNextClick = false; return; } diceUi.tab = t.id; renderPresets(); });
+                    bindContextGesture(b, function (x, y) { openLinksQuickMenu(x, y, [
+                        { label: "Renommer l'onglet…", open: function () { renameTab(t); } },
+                        { label: "Supprimer l'onglet…", open: function () { deleteTab(t); } }]); }, { selfButton: true });
+                    tabsBar.appendChild(b);
+                });
+                var exN = diceExerciseHolders().length;
+                var exTab = btn("dp-tab dp-tab-ex" + (cur === "__ex__" ? " dp-tab-on" : ""), "Exercices" + (exN ? " (" + exN + ")" : ""), "Les réglages définis dans chaque exercice");
+                exTab.addEventListener("click", function () { diceUi.tab = "__ex__"; renderPresets(); });
+                tabsBar.appendChild(exTab);
+                tabsBar.appendChild(btn("dp-tab dp-tab-add", "＋", "Nouvel onglet", newTab));
+            }
+            function presetMenu(p, x, y) {
+                var items = [];
+                items.push({ label: isTool ? "Charger ce préréglage" : "Appliquer à « " + exTitle() + " »", open: function () { applyPreset(p); } });
+                items.push({ label: "Renommer…", open: function () { renamePreset(p); } });
+                items.push({ label: "Dupliquer", open: function () { duplicatePreset(p); } });
+                store().tabs.forEach(function (t) { if (t.id !== p.tab) items.push({ label: "Déplacer vers « " + t.name + " »", open: function () { movePreset(p, t.id); } }); });
+                items.push({ label: "Affecter à un exercice…", open: function () { assignToExercise(p); } });
+                items.push({ label: "✕ Supprimer…", open: function () { deletePreset(p); } });
+                openLinksQuickMenu(x, y, items);
+            }
+            function renderList() {
+                listBox.innerHTML = "";
+                var tab = curTab();
+                listBox.classList.toggle("dp-list-ex", tab === "__ex__");
+                if (tab === "__ex__") { renderExerciseList(); return; }
+                var s = store(), items = s.list.filter(function (p) { return p.tab === tab; });
+                var activeId = isTool ? ctx.tool.dice.presetId : holder().presetId;
+                items.forEach(function (p) {
+                    var b = btn("dp-chip" + (p.id === activeId ? " dp-chip-on" : ""), p.name, diceSummary(diceCfgOfPreset(p)) + usersText(p) + " — clic droit (ou appui long) : renommer, déplacer, affecter, supprimer…");
+                    b.dataset.reorderId = p.id;
+                    b.addEventListener("click", function () { if (suppressNextClick) { suppressNextClick = false; return; } applyPreset(p); });
+                    bindContextGesture(b, function (x, y) { presetMenu(p, x, y); }, { selfButton: true });
+                    listBox.appendChild(b);
+                });
+                if (!items.length) listBox.appendChild(el("div", "dp-empty", "Aucun préréglage dans cet onglet : « Enregistrer sous… » y range le réglage actuel" + (isTool ? "." : " (depuis l'outil Gammes), et « Ajouter aux préréglages… » celui d'un exercice.")));
+            }
+            function renderExerciseList() {
+                var rows = diceExerciseHolders(), multi = state.instruments.length > 1;
+                if (!rows.length) { listBox.appendChild(el("div", "dp-empty", "Aucun exercice n'a encore de dé : coche « Dé » dans la fiche d'un exercice, ou affecte-lui un préréglage (clic droit sur un préréglage).")); return; }
+                rows.forEach(function (r) {
+                    var h = r.ex.dice, p = diceHolderPreset(h), self = !isTool && ctx.ex && ctx.ex.id === r.ex.id;
+                    var row = el("div", "dp-ex-row" + (self ? " dp-ex-self" : ""));
+                    var info = el("div", "dp-ex-info");
+                    info.appendChild(el("span", "dp-ex-title", r.ex.title + (self ? " (cet exercice)" : "")));
+                    info.appendChild(el("span", "dp-ex-path", (multi ? r.inst.name + " › " : "") + r.pathNames.join(" › ")));
+                    var set = el("span", "dp-ex-set", p ? "Préréglage « " + p.name + " »" : (h.name ? "« " + h.name + " »" : "Réglage propre") + " · " + diceSummary(diceHolderCfg(h)));
+                    info.appendChild(set);
+                    row.appendChild(info);
+                    var acts = el("div", "dp-ex-acts");
+                    if (!self) acts.appendChild(btn("btn-ghost dice-mini dp-ex-use", isTool ? "Charger" : "Reprendre", isTool ? "Charger ce réglage dans le dé" : "Donner ce réglage à « " + exTitle() + " »", function () { useExerciseSetting(r); }));
+                    if (!p) acts.appendChild(btn("btn-ghost dice-mini dp-ex-add", "＋ Préréglage", "Ajouter ce réglage aux préréglages (onglet « " + tabName(userTab()) + " »)", function () { holderToPresets(h, r.ex); }));
+                    row.appendChild(acts);
+                    bindContextGesture(row, function (x, y) {
+                        var items = [];
+                        if (!self) items.push({ label: isTool ? "Charger ce réglage" : "Donner ce réglage à « " + exTitle() + " »", open: function () { useExerciseSetting(r); } });
+                        if (!p) items.push({ label: "Ajouter aux préréglages…", open: function () { holderToPresets(h, r.ex); } });
+                        if (!p) items.push({ label: "Renommer le réglage…", open: function () { renameHolder(h, r.ex.title, r.ex); } });
+                        items.push({ label: "Ouvrir l'exercice", open: function () { revealExercise(r.ex.id); } });
+                        items.push({ label: "✕ Retirer le dé de l'exercice", open: function () { removeExerciseDice(r.ex); } });
+                        openLinksQuickMenu(x, y, items);
+                    });
+                    listBox.appendChild(row);
+                });
+            }
+            function renderPresets() { renderCurrent(); renderTabs(); renderList(); }
+            painters.push(renderPresets);
+            // glisser : réordonner les onglets ; réordonner les préréglages ou les déposer sur un autre onglet
+            setupDragReorder(tabsBar, ".dp-tab-user", function () { return store().tabs; }, "x", { mouseOnly: true, dragFromButton: ".dp-tab-user",
+                onReorder: function (order) {
+                    var s = store(), byId = {};
+                    s.tabs.forEach(function (t) { byId[t.id] = t; });
+                    var sorted = order.map(function (id) { return byId[id]; }).filter(Boolean);
+                    s.tabs.forEach(function (t) { if (sorted.indexOf(t) === -1) sorted.push(t); });
+                    s.tabs = sorted; save(); renderPresets();
+                } });
+            setupDragReorder(listBox, ".dp-chip", function () { return store().list; }, "xy", { mouseOnly: true, dragFromButton: ".dp-chip", dropAttr: "data-drop-dice-tab",
+                onDropOnTarget: function (elx, tabId) { var p = dicePresetById(elx.dataset.reorderId); if (p) movePreset(p, tabId); else renderPresets(); },
+                onReorder: function (order) {
+                    var s = store(), tab = curTab(), slots = [], items = [];
+                    s.list.forEach(function (p, i) { if (p.tab === tab) { slots.push(i); items.push(p); } });
+                    var byId = {}; items.forEach(function (p) { byId[p.id] = p; });
+                    var sorted = order.map(function (id) { return byId[id]; }).filter(Boolean);
+                    items.forEach(function (p) { if (sorted.indexOf(p) === -1) sorted.push(p); });
+                    slots.forEach(function (pos, k) { s.list[pos] = sorted[k]; });
+                    save(); renderPresets();
+                } });
+
+            // -- actions sur les préréglages
+            function applyPreset(p) {
+                if (isTool) {
+                    ctx.tool.dice = { cfg: cloneJson(diceCfgOfPreset(p)), presetId: p.id, dirty: false, src: "" };
+                    ctx.persist(); repaint();
+                    return;
+                }
+                var h = holder(), old = cloneJson(h);
+                if (h.presetId === p.id) return;
+                ctx.set(diceLinkTo(p)); ctx.persist(); repaint();
+                showToast("Préréglage « " + p.name + " » appliqué à « " + exTitle() + " ».", 6000, { label: "Annuler", run: function () { ctx.set(old); ctx.persist(); repaint(); } });
+            }
+            function saveOverwrite() {
+                var t = ctx.tool.dice, p = dicePresetById(t.presetId);
+                if (!p) return;
+                p.cfg = cloneJson(t.cfg); t.dirty = false;
+                var n = diceUsersOf(p.id).length;
+                save(); ctx.persist(); repaint();
+                showToast("Préréglage « " + p.name + " » enregistré" + (n ? " — les " + n + " exercice" + (n > 1 ? "s" : "") + " qui le suivent sont à jour." : "."), 5000);
+            }
+            function saveAs() {
+                var t = ctx.tool.dice, p = t.presetId ? dicePresetById(t.presetId) : null;
+                dlgPrompt({ title: "Enregistrer le préréglage", message: "Rangé dans l'onglet « " + tabName(userTab()) + " ».", value: diceUniqueName(p ? p.name : "Mon préréglage"), placeholder: "Nom du préréglage", confirmLabel: "Enregistrer" }, function (name) {
+                    var np = { id: uid(), name: name.trim().slice(0, 60), tab: userTab(), cfg: cloneJson(t.cfg) };
+                    store().list.push(np);
+                    ctx.tool.dice = { cfg: cloneJson(np.cfg), presetId: np.id, dirty: false, src: "" };
+                    diceUi.tab = np.tab;
+                    save(); ctx.persist(); repaint();
+                    showToast("Préréglage « " + np.name + " » enregistré dans « " + tabName(np.tab) + " ».", 4000);
+                });
+            }
+            // Donne un réglage au dé d'un exercice choisi : lié au préréglage `p` s'il est donné, sinon une copie du réglage actuel.
+            function assignToExercise(p) {
+                var label = p ? p.name : (isTool ? (ctx.tool.dice.presetId && dicePresetById(ctx.tool.dice.presetId) ? dicePresetById(ctx.tool.dice.presetId).name + " (modifié)" : "le réglage actuel") : diceHolderLabel(holder()));
+                openExercisePickerModal("Affecter « " + label + " » à…", { floating: true }, function (ex) {
+                    var old = ex.dice ? cloneJson(ex.dice) : null;
+                    if (p) ex.dice = diceLinkTo(p);
+                    else if (isTool) { var tp = ctx.tool.dice.presetId ? dicePresetById(ctx.tool.dice.presetId) : null; ex.dice = { cfg: cloneJson(ctx.tool.dice.cfg), name: tp ? tp.name + " (modifié)" : "" }; if (!ex.dice.name) delete ex.dice.name; }
+                    else ex.dice = cloneJson(holder());
+                    touchExercise(ex); save(); repaint();
+                    showToast("« " + label + " » affecté au dé de « " + ex.title + " »" + (old ? " (son ancien réglage est remplacé)" : "") + ".", 7000, { label: "Annuler", run: function () {
+                        if (old) ex.dice = old; else delete ex.dice;
+                        touchExercise(ex); save(); repaint();
+                    } });
+                });
+            }
+            function renamePreset(p) {
+                dlgPrompt({ title: "Renommer le préréglage", value: p.name, confirmLabel: "Renommer", mustChange: true }, function (name) { p.name = name.trim().slice(0, 60); save(); repaint(); });
+            }
+            function duplicatePreset(p) {
+                var s = store(), np = { id: uid(), name: diceUniqueName(p.name + " (copie)"), tab: p.tab, cfg: cloneJson(diceCfgOfPreset(p)) };
+                s.list.splice(s.list.indexOf(p) + 1, 0, np);
+                save(); repaint();
+            }
+            function movePreset(p, tabId) {
+                if (p.tab === tabId) { renderPresets(); return; }
+                var s = store();
+                s.list.splice(s.list.indexOf(p), 1);
+                p.tab = tabId;
+                s.list.push(p);
+                save(); repaint();
+                showToast("« " + p.name + " » rangé dans « " + tabName(tabId) + " ».", 3000);
+            }
+            function dropPreset(p) { // supprimé : les exercices qui le suivaient en gardent une copie (rien ne change pour eux)
+                diceUsersOf(p.id).forEach(function (r) { r.ex.dice = { cfg: cloneJson(diceCfgOfPreset(p)), name: p.name }; touchExercise(r.ex); });
+                var s = store();
+                s.list.splice(s.list.indexOf(p), 1);
+                if (isTool && ctx.tool.dice.presetId === p.id) { ctx.tool.dice.presetId = null; ctx.tool.dice.dirty = false; ctx.tool.dice.src = "« " + p.name + " » (préréglage supprimé)"; ctx.persist(); }
+            }
+            function deletePreset(p) {
+                var n = diceUsersOf(p.id).length;
+                dlgConfirm({ title: "Supprimer « " + p.name + " » ?", message: n ? n + " exercice" + (n > 1 ? "s le suivent : ils gardent" : " le suit : il garde") + " ce réglage (comme réglage propre)." : "Aucun exercice ne le suit.", confirmLabel: "Supprimer", danger: true }, function () {
+                    dropPreset(p); save(); repaint();
+                    toastUndo("Préréglage « " + p.name + " » supprimé");
+                });
+            }
+            function newTab() {
+                dlgPrompt({ title: "Nouvel onglet", placeholder: "ex. Modes, Arpèges, Routine…", confirmLabel: "Créer" }, function (name) {
+                    var t = { id: uid(), name: name.trim().slice(0, 40) };
+                    store().tabs.push(t); diceUi.tab = t.id; save(); repaint();
+                });
+            }
+            function renameTab(t) {
+                dlgPrompt({ title: "Renommer l'onglet", value: t.name, confirmLabel: "Renommer", mustChange: true }, function (name) { t.name = name.trim().slice(0, 40); save(); repaint(); });
+            }
+            function deleteTab(t) {
+                var s = store(), others = s.tabs.filter(function (x) { return x.id !== t.id; }), inTab = s.list.filter(function (p) { return p.tab === t.id; });
+                if (!others.length) { showToast("Il faut garder au moins un onglet : renomme-le plutôt.", 4000); return; }
+                function drop(moveTo) {
+                    inTab.forEach(function (p) { if (moveTo) p.tab = moveTo; else dropPreset(p); });
+                    s.tabs.splice(s.tabs.indexOf(t), 1);
+                    if (diceUi.tab === t.id) diceUi.tab = moveTo || others[0].id;
+                    save(); repaint();
+                    toastUndo("Onglet « " + t.name + " » supprimé");
+                }
+                if (!inTab.length) { drop(null); return; }
+                dlgChoice({ title: "Supprimer l'onglet « " + t.name + " » ?", message: "Il contient " + inTab.length + " préréglage" + (inTab.length > 1 ? "s" : "") + ".",
+                    buttons: [{ label: "Tout supprimer", kind: "danger", left: true, onClick: function () { drop(null); } },
+                        { label: "Garder les préréglages (vers « " + others[0].name + " »)", kind: "primary", onClick: function () { drop(others[0].id); } }] });
+            }
+            // -- réglages définis dans les exercices
+            function useExerciseSetting(r) {
+                var h = r.ex.dice, p = diceHolderPreset(h);
+                if (isTool) {
+                    ctx.tool.dice = p ? { cfg: cloneJson(diceCfgOfPreset(p)), presetId: p.id, dirty: false, src: "" } : { cfg: cloneJson(diceHolderCfg(h)), presetId: null, dirty: false, src: "celui de « " + r.ex.title + " »" };
+                    ctx.persist(); repaint();
+                    return;
+                }
+                var old = cloneJson(holder());
+                ctx.set(p ? diceLinkTo(p) : { cfg: cloneJson(diceHolderCfg(h)), name: h.name || ("Comme « " + r.ex.title + " »") });
+                ctx.persist(); repaint();
+                showToast("« " + exTitle() + " » reprend le réglage de « " + r.ex.title + " ».", 6000, { label: "Annuler", run: function () { ctx.set(old); ctx.persist(); repaint(); } });
+            }
+            function holderToPresets(h, ex, after) {
+                var tabId = userTab();
+                dlgPrompt({ title: "Ajouter aux préréglages", message: "Rangé dans l'onglet « " + tabName(tabId) + " »" + (ex ? ", et « " + ex.title + " » le suivra." : "."), value: diceUniqueName(h.name || (ex ? ex.title : "Mon préréglage")), placeholder: "Nom du préréglage", confirmLabel: "Ajouter" }, function (name) {
+                    var np = { id: uid(), name: name.trim().slice(0, 60), tab: tabId, cfg: cloneJson(diceHolderCfg(h)) };
+                    store().list.push(np);
+                    h.presetId = np.id; h.name = np.name; h.cfg = cloneJson(np.cfg);
+                    if (ex) touchExercise(ex);
+                    save(); if (after) after(np); repaint();
+                    showToast("« " + np.name + " » ajouté aux préréglages (onglet « " + tabName(tabId) + " »).", 4500);
+                });
+            }
+            function renameHolder(h, exName, ex) {
+                dlgPrompt({ title: "Nommer le réglage de « " + exName + " »", value: h.name || "", placeholder: "ex. Tétrades lentes", confirmLabel: "Renommer" }, function (name) {
+                    h.name = name.trim().slice(0, 60);
+                    if (ex) touchExercise(ex); else ctx.persist();
+                    save(); repaint();
+                });
+            }
+            function removeExerciseDice(ex) {
+                var old = cloneJson(ex.dice);
+                delete ex.dice; touchExercise(ex); save();
+                if (!isTool && ctx.ex && ctx.ex.id === ex.id) { close(); if (ctx.onRemove) ctx.onRemove(true); }
+                else repaint();
+                showToast("Dé retiré de « " + ex.title + " ».", 6000, { label: "Annuler", run: function () { ex.dice = old; touchExercise(ex); save(); } });
+            }
+
+            // -- contenu des dés (faces), pour les dés allumés
+            var facesWrap = el("div", "dice-faces"); body.appendChild(facesWrap);
+            function opt(label, isOn, flip, extraClass) {
+                var b = btn("dice-opt" + (extraClass ? " " + extraClass : ""), null, null);
+                b.appendChild(el("span", "dice-box", "✓"));
+                b.appendChild(el("span", "dice-name", label));
+                var on = isOn();
+                b.classList.toggle("dice-opt-on", on); b.setAttribute("aria-pressed", on ? "true" : "false");
+                b.addEventListener("click", function () { edit(flip); });
+                return b;
+            }
+            function toggleIn(arr, k) { var i = arr.indexOf(k); if (i === -1) arr.push(k); else arr.splice(i, 1); }
+            function renderFaces() {
+                facesWrap.innerHTML = "";
+                var c = cfg();
+                diceActiveIds(c).forEach(function (id) {
+                    var d = diceDie(id), s = el("section", "dice-sec dice-face-sec dice-face-" + id), h = el("div", "dice-sec-head");
+                    var n = diceFaces(c, id).length;
+                    h.appendChild(el("div", "dice-sec-title", "Faces du dé « " + d.name + " » (" + n + ")"));
+                    s.appendChild(h);
+                    if (id === "key") {
+                        links(h, [["Toutes", function () { edit(function (cc) { cc.key = cc.key.map(function () { return true; }); }); }],
+                            ["Naturelles", function () { edit(function (cc) { cc.key = cc.key.map(function (_, pc) { return SCALE_RAND_NATURALS.indexOf(pc) !== -1; }); }); }],
+                            ["Aucune", function () { edit(function (cc) { cc.key = cc.key.map(function () { return false; }); }); }]]);
+                        var kb = el("div", "dice-keys");
+                        function rootKey(col, row, pc) {
+                            var o = opt(DICE_KEY_NAMES[pc], function () { return c.key[pc]; }, function (cc) { cc.key[pc] = !cc.key[pc]; }, "dice-key");
+                            o.style.gridColumn = col + " / span 2"; o.style.gridRow = String(row + 1);
+                            kb.appendChild(o);
+                        }
+                        [[2, 0, 1], [4, 0, 3], [8, 0, 6], [10, 0, 8], [12, 0, 10]].forEach(function (k) { rootKey(k[0], k[1], k[2]); });
+                        [[1, 0], [3, 2], [5, 4], [7, 5], [9, 7], [11, 9], [13, 11]].forEach(function (k) { rootKey(k[0], 1, k[1]); });
+                        s.appendChild(kb);
+                    } else if (id === "notes") {
+                        links(h, [["Toutes", function () { edit(function (cc) { cc.notes = diceCatalog("notes"); }); }], ["Aucune", function () { edit(function (cc) { cc.notes = []; }); }]]);
+                        var g0 = el("div", "dice-grid");
+                        DICE_NOTES.forEach(function (nt) { g0.appendChild(opt(nt[1] + " · " + nt[2], function () { return c.notes.indexOf(nt[0]) !== -1; }, function (cc) { toggleIn(cc.notes, nt[0]); })); });
+                        s.appendChild(g0);
+                    } else {
+                        var showMore = !!diceUi.more[id];
+                        function visibleKeys() { var out = []; d.groups.forEach(function (g) { if (!g.more || showMore) g.keys.forEach(function (k) { if (scaleDefByKey(k) && out.indexOf(k) === -1) out.push(k); }); }); return out; }
+                        links(h, [["Tout", function () { edit(function (cc) { visibleKeys().forEach(function (k) { if (cc[id].indexOf(k) === -1) cc[id].push(k); }); }); }], ["Aucun", function () { edit(function (cc) { cc[id] = []; }); }]]);
+                        d.groups.forEach(function (g) {
+                            if (g.more && !showMore) return;
+                            if (d.groups.length > 1) s.appendChild(el("div", "dice-group", g.title));
+                            var grid = el("div", "dice-grid");
+                            g.keys.forEach(function (k) {
+                                if (!scaleDefByKey(k)) return;
+                                grid.appendChild(opt(diceFaceLabel(id, k), function () { return c[id].indexOf(k) !== -1; }, function (cc) { toggleIn(cc[id], k); }));
+                            });
+                            s.appendChild(grid);
+                        });
+                        var hiddenOn = 0;
+                        d.groups.forEach(function (g) { if (g.more) g.keys.forEach(function (k) { if (c[id].indexOf(k) !== -1) hiddenOn++; }); });
+                        var more = btn("dice-more" + (showMore ? " dice-more-open" : ""), (showMore ? "▾ " : "▸ ") + d.moreLabel + (!showMore && hiddenOn ? " (" + hiddenOn + " cochée" + (hiddenOn > 1 ? "s" : "") + ")" : ""), null,
+                            function () { diceUi.more[id] = !diceUi.more[id]; renderFaces(); });
+                        s.appendChild(more);
+                    }
+                    facesWrap.appendChild(s);
+                });
+                if (!diceActiveIds(c).length) facesWrap.appendChild(el("div", "dp-empty", "Allume un dé ci-dessus pour choisir ses faces."));
+            }
+            painters.push(renderFaces);
 
             // -- historique
             var hist = el("section", "dice-sec dice-hist"); body.appendChild(hist);
-            function pickLabel(h) { return NOTE_NAMES_SHARP[h.root] + " " + scaleDefByKey(h.key).label; }
             function renderHist() {
-                var items = mem.history.slice(lastPick && mem.history[0] && mem.history[0].key === lastPick.key && mem.history[0].root === lastPick.root ? 1 : 0);
+                var items = mem.history.filter(function (h) { return h !== lastPick; }).slice(0, 12);
                 hist.innerHTML = ""; hist.hidden = !items.length;
                 if (!items.length) return;
-                var h = el("div", "dice-sec-head"); h.appendChild(el("div", "dice-sec-title", "Historique"));
-                var clr = el("button", null, "Effacer"); clr.type = "button"; clr.className = "dice-links-solo";
-                clr.addEventListener("click", function () { mem.history = []; persist(); renderHist(); });
+                var h = el("div", "dice-sec-head"); h.appendChild(el("div", "dice-sec-title", "Derniers tirages"));
+                var clr = btn("dice-links-solo", "Effacer", null, function () { mem.history = lastPick ? [lastPick] : []; ctx.persist(); renderHist(); });
                 h.appendChild(clr); hist.appendChild(h);
                 var list = el("div", "dice-hist-list");
                 items.forEach(function (h2) {
-                    var d = scaleDefByKey(h2.key), ki = scaleKindInfo(d);
-                    var b = el("button", "dice-hist-item"); b.type = "button"; b.title = pickLabel(h2) + " · " + ki.name + ", " + ki.count + " notes";
-                    b.appendChild(el("span", "dice-hist-name", pickLabel(h2))); b.appendChild(el("span", "dice-hist-kind", ki.name + " · " + ki.count));
-                    b.addEventListener("click", function () { lastPick = { key: h2.key, root: h2.root }; cfg.onPick(lastPick); showResult(); renderHist(); });
+                    var b = btn("dice-hist-item", null, "Reprendre ce tirage");
+                    b.appendChild(el("span", "dice-hist-name", dicePickText(h2)));
+                    b.addEventListener("click", function () { lastPick = h2; if (ctx.onPick) ctx.onPick(h2); showResult(); renderHist(); });
                     list.appendChild(b);
                 });
                 hist.appendChild(list);
             }
 
-            // -- retirer le dé (pas d'une session)
-            if (cfg.onRemove) {
-                var rm = el("button", "dice-remove", cfg.removeLabel || "Retirer le dé"); rm.type = "button";
-                rm.addEventListener("click", function () { cfg.onRemove(); close(); });
+            // -- retirer le dé (exercice)
+            if (ctx.onRemove) {
+                var rm = btn("dice-remove", ctx.removeLabel || "Retirer le dé", null, function () { ctx.onRemove(); close(); });
                 body.appendChild(rm);
             }
 
-            function summary() {
-                var cands = scaleRandCandidates(rand), nPairs = 0;
-                cands.forEach(function (c) { nPairs += c.roots.length; });
-                count.textContent = cands.length ? cands.length + " gamme" + (cands.length > 1 ? "s" : "") + " possible" + (cands.length > 1 ? "s" : "") + " · " + nPairs + " tirage" + (nPairs > 1 ? "s" : "") + " différent" + (nPairs > 1 ? "s" : "") : "Aucune gamme ne correspond : élargis les choix (altérations, familles, toniques).";
-                count.classList.toggle("dice-count-bad", !cands.length);
-                go.disabled = !cands.length;
-            }
-            function showResult() {
-                if (!lastPick || !scaleDefByKey(lastPick.key)) { resMain.textContent = "Pas encore de tirage"; resMain.classList.add("dice-result-empty"); resNotes.textContent = ""; if (win.view) win.view.disabled = true; return; }
-                var d = scaleDefByKey(lastPick.key), ki = scaleKindInfo(d);
-                resMain.classList.remove("dice-result-empty");
-                resMain.textContent = pickLabel(lastPick);
-                resNotes.textContent = ki.name + " · " + ki.count + " notes — " + d.semis.map(function (st) { return NOTE_NAMES_SHARP[(lastPick.root + st) % 12]; }).join(" ");
-                if (win.view) win.view.disabled = false;
-            }
-            go.addEventListener("click", function () {
-                var pick = scaleRandDraw(rand, mem);
-                if (!pick) { summary(); return; }
-                lastPick = pick;
-                cfg.onPick(pick);
-                persist();
-                showResult(); renderHist();
-            });
             // Échap ferme la fenêtre du dé (et elle seule : l'outil dessous reste ouvert).
-            function onKey(e) { if (e.key === "Escape" && !dlgIsOpen() && !document.querySelector(".ctx-menu")) { e.stopImmediatePropagation(); close(); } }
+            function onKey(e) { if (e.key === "Escape" && !dlgIsOpen() && !document.querySelector(".ctx-menu") && !document.querySelector(".exercise-picker-panel")) { e.stopImmediatePropagation(); close(); } }
             window.addEventListener("keydown", onKey, true);
             repaint(); showResult(); renderHist();
-            return function () { window.removeEventListener("keydown", onKey, true); if (diceWin === win) diceWin = null; if (cfg.onClose) cfg.onClose(); };
+            return function () { window.removeEventListener("keydown", onKey, true); if (diceWin === win) diceWin = null; if (ctx.onClose) ctx.onClose(); };
         }, { floating: true });
         diceWin = win;
         return win;
@@ -11161,19 +11604,26 @@
             var moreBtn = chip(controls, "…", "Afficher aussi les gammes peu utilisées ou complexes", function () { prefs.showAll = !prefs.showAll; update(); });
             moreBtn.classList.add("scales-more-btn");
             typeBtn.addEventListener("click", function () { openScalePicker(typeBtn, prefs, function (key) { prefs.type = key; update(); }); });
-            // Mode hasard : le dé ouvre les options (familles, nombre de notes, toniques) et le tirage.
-            // Le dernier tirage est mémorisé (prefs.rand.history) : le dé reste « allumé » tant que la gamme affichée est ce tirage.
-            function drawnNow() { var h = prefs.rand.history[0]; return !!h && h.key === prefs.type && h.root === prefs.root; }
-            function applyRandomPick(pick) {
-                prefs.root = pick.root; prefs.type = pick.key;
-                if (scaleIsExtra(pick.key)) prefs.showAll = true;
+            // Mode hasard : le dé ouvre sa fenêtre (dés, préréglages, tirage). Le dernier tirage est mémorisé (prefs.diceMem.history) :
+            // le dé reste « allumé » tant que la gamme affichée est celle de ce tirage.
+            function lastDraw() { return prefs.diceMem.history[0] || null; }
+            function drawnNow() { var v = dicePickView(lastDraw()); return !!v && v.key === prefs.type && v.root === prefs.root; }
+            function showView(v) {
+                if (!v) return;
+                prefs.root = v.root; prefs.type = v.key;
+                if (scaleIsExtra(v.key)) prefs.showAll = true;
                 update();
             }
-            // Le dé ouvre sa propre fenêtre (réglages complets) ; un second clic la referme.
+            function applyRandomPick(pick) {
+                var v = dicePickView(pick);
+                if (v) showView(v);
+                else { if (typeof pick.key === "number") prefs.root = pick.key; update(); }
+            }
+            // Le dé ouvre sa propre fenêtre ; un second clic la referme.
             function toggleDiceWindow() {
                 if (diceWin && diceWin.owner === prefs) { closeDiceWindow(); return; }
-                var w = openDiceWindow({ title: "Tirage de gamme", rand: prefs.rand, persist: function () { saveScalesPrefs(prefs); }, onPick: applyRandomPick,
-                    current: function () { return drawnNow() ? { key: prefs.type, root: prefs.root } : null; } });
+                var w = openDiceWindow({ kind: "tool", title: "Tirage au sort", tool: prefs, mem: prefs.diceMem, persist: function () { saveScalesPrefs(prefs); }, onPick: applyRandomPick,
+                    current: lastDraw, onView: showView });
                 w.owner = prefs;
             }
             var diceBtn = chip(controls, "", "Gamme au hasard (réglages et tirage)", toggleDiceWindow);
@@ -11276,11 +11726,15 @@
                 strong.textContent = NOTE_NAMES_SHARP[prefs.root] + " " + def.label;
                 summary.appendChild(strong);
                 summary.appendChild(document.createTextNode(" · " + notes.join(" ")));
-                if (drawnNow()) { // re-tirage en un clic, avec les mêmes options
+                if (drawnNow()) { // re-tirage en un clic, avec les mêmes dés ; le tirage complet (tous les dés) est rappelé à côté
+                    var drawTxt = document.createElement("span");
+                    drawTxt.className = "scales-draw-text";
+                    drawTxt.textContent = "Tirage : " + dicePickText(lastDraw());
+                    summary.appendChild(drawTxt);
                     var again = document.createElement("button");
-                    again.type = "button"; again.className = "scales-rand-again"; again.title = "Tirer une autre gamme"; again.setAttribute("aria-label", "Tirer une autre gamme");
+                    again.type = "button"; again.className = "scales-rand-again"; again.title = "Nouveau tirage (mêmes dés)"; again.setAttribute("aria-label", "Nouveau tirage");
                     again.innerHTML = SCALES_DICE_SVG;
-                    again.addEventListener("click", function () { var pick = scaleRandDraw(prefs.rand); if (pick) { applyRandomPick(pick); saveScalesPrefs(prefs); } });
+                    again.addEventListener("click", function () { var pick = diceDraw(prefs.dice.cfg, prefs.diceMem); if (pick) { applyRandomPick(pick); saveScalesPrefs(prefs); } else showToast("Le dé n'a rien à tirer : ouvre sa fenêtre pour régler les dés.", 4000); });
                     summary.appendChild(again);
                 }
 
@@ -12845,8 +13299,6 @@
             card("Chrono libre", "Hors session, le chrono suit l'exercice affiché.");
             field("Départ du décompte", selectControl(PREF_FREE_START_SEC.map(function (n) { return [String(n), n ? n + " s" : "Immédiat"]; }), String(prefs().freeStartSec), function (v) { setPref("freeStartSec", parseInt(v, 10)); }), "Attente avant de compter");
             field("Pause automatique", selectControl(PREF_FREE_IDLE_MIN.map(function (n) { return [String(n), n >= 60 ? "1 h" : n + " min"]; }), String(prefs().freeIdleMin), function (v) { setPref("freeIdleMin", parseInt(v, 10)); }), "Sans geste ni métronome");
-            card("Effet verre", "Le flou demande de la puissance graphique : le réduire si l'affichage saccade. Réglage propre à cet appareil.");
-            field("Intensité du flou", segControl([["light", "Léger"], ["medium", "Moyen"], ["strong", "Fort"]], glassBlur(), function (v) { setGlassBlur(v); }), "Sans effet si le verre est désactivé");
             card("Écran", "Réglage propre à cet appareil.");
             var awakeSwitch = switchControl(keepAwakeOn() && wakeLockSupported(), function (on) { setKeepAwake(on); });
             if (!wakeLockSupported()) { awakeSwitch.disabled = true; awakeSwitch.title = "Non pris en charge par ce navigateur"; }
@@ -12887,53 +13339,47 @@
     var gsPickCallback = null;
     var gsPickMulti = null; // choix de plusieurs exercices d'un coup (seulement quand on AJOUTE des exercices à une session)
     var gsRunSession = null, gsRunStepIndex = 0;
-    // Dé de gamme d'un pas de session : ses réglages vivent dans step.dice = { rand } (avec la session) ; l'historique et le tirage en
-    // cours restent en mémoire (ils n'ont pas à s'écrire dans la session à chaque tirage).
+    // Dé d'un pas de session : celui de l'exercice (ex.dice, voir diceHolderCfg), sinon l'ancien réglage propre au pas (step.dice). L'historique
+    // et le tirage en cours restent en mémoire (ils n'ont pas à s'écrire dans la session à chaque tirage).
     var gsDiceMem = {};     // id de pas -> { history, recent }
-    var gsDiceDrawn = {};   // id de pas -> tirage { key, root } du guidage en cours
-    function gsDiceMemFor(step) { return gsDiceMem[step.id] || (gsDiceMem[step.id] = { history: [], recent: [] }); }
-    // Un dé neuf reprend les réglages habituels de l'outil Gammes (familles, toniques, altérations…), sans son historique.
-    function gsNewStepDice() { return { rand: normalizeScaleRand(cloneJson(loadScalesPrefs().rand), true) }; }
+    var gsDiceDrawn = {};   // id de pas -> tirage du guidage en cours
+    function gsDiceMemFor(step) { return gsDiceMem[step.id] || (gsDiceMem[step.id] = diceNewMem()); }
     function gsNewStep(ex, extra) {
         var st = { id: uid(), exerciseId: ex.id, minutes: gsDefaultMinutes(ex) };
         if (extra) Object.keys(extra).forEach(function (k) { st[k] = extra[k]; });
         return st;
     }
-    // Dé effectif d'un pas de session : celui de l'exercice (réglé une fois pour toutes sur sa fiche), sinon l'ancien réglage propre au pas
-    // (sessions d'avant). Renvoie { rand, own } ou null. Le pas SUIT l'exercice : régler le dé de l'exercice règle toutes ses sessions.
+    // Dé effectif d'un pas : { holder, own } ou null. Le pas SUIT l'exercice : régler le dé de l'exercice règle toutes ses sessions.
     function gsStepDice(step, ex) {
-        if (step.dice && typeof step.dice === "object") return { rand: diceRandOf(step.dice), own: true };
-        var r = ex ? exDiceRand(ex) : null;
-        return r ? { rand: r, own: false } : null;
+        if (step.dice && typeof step.dice === "object") return { holder: step.dice, own: true };
+        return ex && ex.dice && typeof ex.dice === "object" ? { holder: ex.dice, own: false } : null;
     }
-    // ---- dé réglé sur l'exercice (ex.dice = { rand }) : le tirage se prépare à l'avance, une fois pour toutes ----
+    // ---- dé réglé sur l'exercice (ex.dice = { cfg, name, presetId }) : préparé à l'avance, repris dans chaque session ----
     var exDiceMem = {};   // id d'exercice -> { history, recent } (en mémoire : pas écrits dans l'exercice à chaque tirage)
-    var exDiceDrawn = {}; // id d'exercice -> dernier tirage { key, root }
-    function exDiceMemFor(ex) { return exDiceMem[ex.id] || (exDiceMem[ex.id] = { history: [], recent: [] }); }
-    // Réglages d'un dé (ex.dice ou step.dice), normalisés UNE fois : l'objet reste le même ensuite, car la fenêtre du dé le modifie en place.
-    var diceRandChecked = typeof WeakSet === "function" ? new WeakSet() : null;
-    function diceRandOf(holder) {
-        if (!holder || typeof holder !== "object") return null;
-        if (!holder.rand || !diceRandChecked || !diceRandChecked.has(holder.rand)) {
-            holder.rand = normalizeScaleRand(holder.rand, true);
-            if (diceRandChecked) diceRandChecked.add(holder.rand);
-        }
-        return holder.rand;
-    }
-    function exDiceRand(ex) { return diceRandOf(ex.dice); }
-    function openExerciseDiceWindow(ex, onChange) {
-        if (!exDiceRand(ex)) return null;
-        var w = openDiceWindow({ title: "Dé de gamme · " + ex.title, rand: ex.dice.rand, mem: exDiceMemFor(ex),
-            persist: function () { touchExercise(ex); saveSoon(); if (onChange) onChange(); },
-            onPick: function (pick) { exDiceDrawn[ex.id] = pick; if (onChange) onChange(); },
-            current: function () { return exDiceDrawn[ex.id] || null; },
-            onView: showScaleInViewer,
-            onRemove: function () { delete ex.dice; delete exDiceDrawn[ex.id]; touchExercise(ex); saveSoon(); if (onChange) onChange(); }, removeLabel: "Retirer le dé de cet exercice" });
-        w.owner = ex;
+    var exDiceDrawn = {}; // id d'exercice -> dernier tirage
+    function exDiceMemFor(ex) { return exDiceMem[ex.id] || (exDiceMem[ex.id] = diceNewMem()); }
+    // Fenêtre du dé d'un exercice (fiche, éditeur de session, guidage). `o` : { onChange, mem, onPick, current } facultatifs (le guidage
+    // a son propre tirage en cours) ; `step` : ancien dé propre à un pas (sans exercice).
+    function openExerciseDiceWindow(ex, onChange, o) {
+        o = o || {};
+        var holderOf = o.step ? function () { return o.step.dice; } : function () { return ex.dice; };
+        if (!holderOf()) return null;
+        var w = openDiceWindow({ kind: "holder", title: "Dé · " + (ex ? ex.title : "exercice"), ex: o.step ? null : ex,
+            get: holderOf,
+            set: function (h) { if (o.step) { if (h) o.step.dice = h; else delete o.step.dice; } else { if (h) ex.dice = h; else delete ex.dice; } },
+            persist: function () { if (!o.step && ex) { touchExercise(ex); saveSoon(); } if (o.persist) o.persist(); if (onChange) onChange(); },
+            mem: o.mem || exDiceMemFor(ex), onPick: o.onPick || function (pick) { exDiceDrawn[ex.id] = pick; if (onChange) onChange(); },
+            current: o.current || function () { return exDiceDrawn[ex.id] || null; }, onView: showScaleInViewer,
+            onRemove: function () {
+                if (o.step) delete o.step.dice; else { delete ex.dice; delete exDiceDrawn[ex.id]; touchExercise(ex); saveSoon(); }
+                if (o.persist) o.persist();
+                if (onChange) onChange();
+            }, removeLabel: o.step ? "Retirer le dé de ce pas" : "Retirer le dé de cet exercice" });
+        w.owner = o.step || ex;
         return w;
     }
-    // Ligne de la fiche d'un exercice : case « Dé de gamme » (cocher propose aussitôt de régler le tirage), résumé du réglage,
-    // bouton pour le modifier, et un tirage direct (utile hors session, en entraînement libre).
+    // Ligne de la fiche d'un exercice : case « Dé » (cocher propose aussitôt de régler les dés), nom du réglage (préréglage suivi, nom propre
+    // ou résumé), bouton pour le modifier, et un tirage direct (utile hors session, en entraînement libre).
     function buildExerciseDiceRow(ex) {
         var row = document.createElement("div");
         row.className = "dice-ex-row";
@@ -12941,30 +13387,32 @@
         lab.className = "dice-ex-toggle";
         var cb = document.createElement("input"); cb.type = "checkbox"; cb.className = "dice-ex-cb";
         var ico = document.createElement("span"); ico.className = "dice-ex-ico"; ico.innerHTML = SCALES_DICE_SVG;
-        var txt = document.createElement("span"); txt.className = "dice-ex-txt"; txt.textContent = "Dé de gamme";
+        var txt = document.createElement("span"); txt.className = "dice-ex-txt"; txt.textContent = "Dé";
         lab.appendChild(cb); lab.appendChild(ico); lab.appendChild(txt);
         var sum = document.createElement("button"); sum.type = "button"; sum.className = "dice-ex-sum";
         var go = document.createElement("button"); go.type = "button"; go.className = "btn-ghost dice-ex-go"; go.textContent = "Tirer";
         var res = document.createElement("span"); res.className = "dice-ex-res";
         row.appendChild(lab); row.appendChild(sum); row.appendChild(go); row.appendChild(res);
         function paint() {
-            var on = !!exDiceRand(ex);
+            var on = !!(ex.dice && typeof ex.dice === "object");
             cb.checked = on;
             lab.classList.toggle("dice-ex-on", on);
-            lab.title = on ? "Un dé choisit la gamme à travailler : le réglage est repris dans chaque session qui contient cet exercice — décocher pour le retirer" : "Cocher pour tirer au sort la gamme à travailler (et régler le tirage dès maintenant : triades, modes…)";
+            lab.title = on ? "Un dé tire au sort ce qu'il faut travailler (tonalité, gamme, mode, nombre de notes) : repris dans chaque session qui contient cet exercice — décocher pour le retirer" : "Cocher pour tirer au sort ce qu'il faut travailler (et régler les dés dès maintenant)";
             sum.hidden = go.hidden = !on;
             res.hidden = !on;
             if (!on) return;
-            sum.textContent = scaleRandSummary(ex.dice.rand);
-            sum.title = "Modifier le tirage de cet exercice";
-            var pick = exDiceDrawn[ex.id], d = pick && scaleDefByKey(pick.key);
-            res.textContent = d ? NOTE_NAMES_SHARP[pick.root] + " " + d.label : "";
+            var p = diceHolderPreset(ex.dice);
+            sum.textContent = diceHolderLabel(ex.dice);
+            sum.title = (p ? "Préréglage « " + p.name + " » : " : "") + diceSummary(diceHolderCfg(ex.dice)) + " — modifier le dé de cet exercice";
+            var pick = exDiceDrawn[ex.id];
+            res.textContent = pick ? dicePickText(pick) : "";
+            res.title = pick && dicePickView(pick) ? "Voir sur le manche" : "";
         }
         cb.addEventListener("change", function () {
             if (cb.checked) {
-                ex.dice = gsNewStepDice();
+                ex.dice = diceNewHolder();
                 touchExercise(ex); saveSoon(); paint();
-                openExerciseDiceWindow(ex, paint); // on propose tout de suite de régler le tirage
+                openExerciseDiceWindow(ex, paint); // on propose tout de suite de régler les dés
             } else {
                 var old = ex.dice;
                 if (old) {
@@ -12977,13 +13425,12 @@
         });
         sum.addEventListener("click", function () { openExerciseDiceWindow(ex, paint); });
         go.addEventListener("click", function () {
-            var rand = exDiceRand(ex); if (!rand) return;
-            var pick = scaleRandDraw(rand, exDiceMemFor(ex));
-            if (!pick) { showToast("Aucune gamme ne correspond au réglage du dé : modifie le tirage.", 4500); return; }
+            if (!ex.dice) return;
+            var pick = diceDraw(diceHolderCfg(ex.dice), exDiceMemFor(ex));
+            if (!pick) { showToast("Le dé n'a rien à tirer : allume un dé et coche au moins une face (bouton du réglage).", 4500); return; }
             exDiceDrawn[ex.id] = pick; paint();
         });
-        res.addEventListener("click", function () { var pick = exDiceDrawn[ex.id]; if (pick) showScaleInViewer(pick); });
-        res.title = "Voir cette gamme sur le manche";
+        res.addEventListener("click", function () { var v = dicePickView(exDiceDrawn[ex.id]); if (v) showScaleInViewer(v); });
         paint();
         return row;
     }
@@ -13889,11 +14336,20 @@
     function openExercisePickerModal(titleText, opts, onPick) {
         opts = opts || {};
         var inst = opts.inst || getActiveInstrument(), exclude = opts.exclude || [];
+        // `opts.floating` : fenêtre flottante (ouverte depuis une autre fenêtre flottante, ex. le dé) — l'outil ouvert dessous reste ouvert.
         openModal("exercise-picker-panel", function (panel, close) {
             var title = document.createElement("div");
             title.className = "backups-title";
             title.textContent = titleText;
-            panel.appendChild(title);
+            if (opts.floating) {
+                var head = document.createElement("div"); head.className = "dice-head";
+                title.classList.add("dice-title");
+                var x = document.createElement("button"); x.type = "button"; x.className = "btn-ghost dice-close"; x.textContent = "✕"; x.title = "Fermer"; x.setAttribute("aria-label", "Fermer");
+                x.addEventListener("click", function () { close(); });
+                head.appendChild(title); head.appendChild(x); panel.appendChild(head);
+                var onEsc = function (e) { if (e.key === "Escape" && !dlgIsOpen()) { e.stopImmediatePropagation(); close(); } };
+                window.addEventListener("keydown", onEsc, true);
+            } else panel.appendChild(title);
             var search = document.createElement("input");
             search.type = "search"; search.className = "gs-pick-search"; search.placeholder = "Rechercher un exercice…"; search.setAttribute("aria-label", "Rechercher un exercice");
             panel.appendChild(search);
@@ -13945,8 +14401,8 @@
             search.addEventListener("input", refresh);
             refresh();
             setTimeout(function () { try { search.focus(); } catch (e) {} }, 30);
-            return function () { if (!chosen && opts.onCancel) opts.onCancel(); }; // fermé sans choisir (clic à côté, Échap)
-        });
+            return function () { if (onEsc) window.removeEventListener("keydown", onEsc, true); if (!chosen && opts.onCancel) opts.onCancel(); }; // fermé sans choisir (clic à côté, Échap)
+        }, opts.floating ? { floating: true } : undefined);
     }
 
     // Remplace un exercice par un autre dans TOUTES les sessions (brouillons ouverts compris). Chaque pas garde sa
@@ -15077,22 +15533,19 @@
                 function refreshDiceBtn() {
                     var sd = gsStepDice(step, found ? found.ex : null);
                     diceBtn.classList.toggle("gs-step-dice-on", !!sd);
-                    diceBtn.title = sd ? "Un dé choisit la gamme de cet exercice (" + scaleRandSummary(sd.rand) + ") — cliquer pour régler le tirage" : "Ajouter un dé : tirer au sort la gamme à travailler (réglé une fois, repris dans toutes les sessions de cet exercice)";
+                    diceBtn.title = sd ? "Dé de cet exercice : " + (function () { var l = diceHolderLabel(sd.holder), m = diceSummary(diceHolderCfg(sd.holder)); return l === m ? l : l + " (" + m + ")"; })() + " — cliquer pour régler les dés" : "Ajouter un dé : tirer au sort la gamme à travailler (réglé une fois, repris dans toutes les sessions de cet exercice)";
                     diceBtn.setAttribute("aria-label", diceBtn.title);
                 }
                 refreshDiceBtn();
                 diceBtn.addEventListener("click", function () {
                     var sd = gsStepDice(step, found ? found.ex : null);
                     if (!sd && found) { // pas encore de dé : il se règle sur l'exercice (donc aussi pour ses autres sessions) et on propose de le régler tout de suite
-                        found.ex.dice = gsNewStepDice(); touchExercise(found.ex); saveSoon();
+                        found.ex.dice = diceNewHolder(); touchExercise(found.ex); saveSoon();
                         sd = gsStepDice(step, found.ex);
-                    } else if (!sd) { step.dice = gsNewStepDice(); sd = gsStepDice(step, null); }
+                    } else if (!sd) { step.dice = diceNewHolder(); sd = gsStepDice(step, null); }
                     refreshDiceBtn(); refreshDirty();
-                    var w = openDiceWindow({ title: "Dé de gamme · " + (found ? found.ex.title : "exercice"), rand: sd.rand, mem: gsDiceMemFor(step),
-                        persist: function () { if (!sd.own && found) { touchExercise(found.ex); saveSoon(); } refreshDirty(); refreshDiceBtn(); }, onPick: function () {},
-                        onRemove: function () { if (sd.own) delete step.dice; else if (found) { delete found.ex.dice; touchExercise(found.ex); saveSoon(); } refreshDiceBtn(); refreshDirty(); },
-                        removeLabel: sd.own ? "Retirer le dé de ce pas" : "Retirer le dé de cet exercice" });
-                    w.owner = step;
+                    openExerciseDiceWindow(found ? found.ex : null, function () { refreshDiceBtn(); refreshDirty(); },
+                        { step: sd.own ? step : null, mem: gsDiceMemFor(step), onPick: function () {}, current: function () { return null; } });
                 });
                 tempoSlot.appendChild(diceBtn);
                 if (found) tempoSlot.appendChild(buildTempoGoalToggle(found.ex, true));
@@ -18912,23 +19365,29 @@
             timerRow.appendChild(diceGo);
             var refreshDiceLine = function () {
                 diceLine.innerHTML = "";
-                var pick = gsDiceDrawn[step.id], d = pick && scaleDefByKey(pick.key);
+                var pick = gsDiceDrawn[step.id], lines = dicePickLines(pick);
                 var main = document.createElement("span");
-                if (d) {
+                if (lines.length) {
                     main.className = "gs-run-dice-result";
-                    main.textContent = NOTE_NAMES_SHARP[pick.root] + " " + d.label;
+                    main.textContent = dicePickText(pick);
                     diceLine.appendChild(main);
-                    var ki = scaleKindInfo(d), nt = document.createElement("span");
-                    nt.className = "gs-run-dice-notes";
-                    nt.textContent = ki.name + " · " + d.semis.map(function (st) { return NOTE_NAMES_SHARP[(pick.root + st) % 12]; }).join(" ");
-                    diceLine.appendChild(nt);
-                    var viewBtn = document.createElement("button");
-                    viewBtn.type = "button"; viewBtn.className = "btn-ghost gs-run-dice-mini"; viewBtn.textContent = "Voir sur le manche";
-                    viewBtn.addEventListener("click", function () { showScaleInViewer(pick); });
-                    diceLine.appendChild(viewBtn);
+                    var withNotes = lines.filter(function (l) { return l.notes; })[0];
+                    if (withNotes) {
+                        var nt = document.createElement("span");
+                        nt.className = "gs-run-dice-notes";
+                        nt.textContent = withNotes.label + " : " + withNotes.notes;
+                        diceLine.appendChild(nt);
+                    }
+                    var v = dicePickView(pick);
+                    if (v) {
+                        var viewBtn = document.createElement("button");
+                        viewBtn.type = "button"; viewBtn.className = "btn-ghost gs-run-dice-mini"; viewBtn.textContent = "Voir sur le manche";
+                        viewBtn.addEventListener("click", function () { showScaleInViewer(v); });
+                        diceLine.appendChild(viewBtn);
+                    }
                 } else {
                     main.className = "gs-run-dice-empty";
-                    main.textContent = "Gamme à tirer au sort";
+                    main.textContent = "À tirer au sort : " + diceHolderLabel(sdice.holder);
                     diceLine.appendChild(main);
                 }
                 var cfgBtn = document.createElement("button");
@@ -18937,17 +19396,16 @@
                 diceLine.appendChild(cfgBtn);
             };
             var openDiceCfg = function () {
-                var w = openDiceWindow({ title: "Dé de gamme · " + (found ? found.ex.title : "exercice"), rand: sdice.rand, mem: gsDiceMemFor(step),
-                    persist: function () { if (!sdice.own && found) touchExercise(found.ex); save(); },
+                openExerciseDiceWindow(found ? found.ex : null, function () {
+                    if (!gsStepDice(step, found ? found.ex : null)) { delete gsDiceDrawn[step.id]; save(); render(); return; } // dé retiré
+                    refreshDiceLine();
+                }, { step: sdice.own ? step : null, mem: gsDiceMemFor(step), persist: function () { save(); },
                     onPick: function (pick) { gsDiceDrawn[step.id] = pick; refreshDiceLine(); },
-                    current: function () { return gsDiceDrawn[step.id] || null; },
-                    onView: showScaleInViewer,
-                    onRemove: function () { if (sdice.own) delete step.dice; else if (found) { delete found.ex.dice; touchExercise(found.ex); } delete gsDiceDrawn[step.id]; save(); render(); }, removeLabel: sdice.own ? "Retirer le dé de ce pas" : "Retirer le dé de cet exercice" });
-                w.owner = step;
+                    current: function () { return gsDiceDrawn[step.id] || null; } });
             };
             diceGo.addEventListener("click", function () {
-                var pick = scaleRandDraw(sdice.rand, gsDiceMemFor(step));
-                if (!pick) { showToast("Aucune gamme ne correspond aux réglages du dé : ouvre « Réglages du dé ».", 4500); return; }
+                var pick = diceDraw(diceHolderCfg(sdice.holder), gsDiceMemFor(step));
+                if (!pick) { showToast("Le dé n'a rien à tirer : ouvre « Réglages du dé ».", 4500); return; }
                 gsDiceDrawn[step.id] = pick;
                 refreshDiceLine();
             });
@@ -19101,10 +19559,10 @@
             addDiceBtn.title = "Ajouter un dé à cet exercice : tirer au sort la gamme à travailler";
             addDiceBtn.setAttribute("aria-label", addDiceBtn.title);
             addDiceBtn.addEventListener("click", function () {
-                if (found) { found.ex.dice = gsNewStepDice(); touchExercise(found.ex); } else step.dice = gsNewStepDice(); // réglé sur l'exercice : repris dans ses autres sessions
+                if (found) { found.ex.dice = diceNewHolder(); touchExercise(found.ex); } else step.dice = diceNewHolder(); // réglé sur l'exercice : repris dans ses autres sessions
                 save();
                 render();
-                showToast("Dé ajouté : un clic sur le dé tire une gamme, « Réglages du dé » ajuste le tirage.", 5000);
+                showToast("Dé ajouté : un clic sur le dé fait un tirage, « Réglages du dé » choisit les dés et les préréglages.", 5000);
             });
             toolsRow.appendChild(addDiceBtn);
         }
