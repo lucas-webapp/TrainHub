@@ -3150,6 +3150,25 @@
             if (move) exSelMove(fresh.length ? fresh : items, dest); else exSelCopy(fresh.length ? fresh : items, dest);
         });
     }
+    // Dé de plusieurs exercices sélectionnés : un préréglage au choix (rangés par onglet), ou retirer leur dé.
+    function openDiceAssignMenu(x, y, exs) {
+        var s = dicePresetsStore(), items = [], n = exs.length, plural = n > 1 ? "s" : "";
+        s.tabs.forEach(function (t) {
+            s.list.filter(function (p) { return p.tab === t.id; }).forEach(function (p) {
+                items.push({ label: (s.tabs.length > 1 ? t.name + " › " : "") + p.name, open: function () {
+                    diceAssignMany(exs, function () { return diceLinkTo(p); }, p.name, function () { exSel = {}; exSelAnchor = null; render(); });
+                } });
+            });
+        });
+        if (!items.length) items.push({ label: "Aucun préréglage : crée-en dans l'outil Gammes (dé)", open: function () {} });
+        if (exs.some(function (ex) { return !!ex.dice; })) items.push({ label: "✕ Retirer le dé de ces exercices", open: function () {
+            var olds = exs.map(function (ex) { return ex.dice ? cloneJson(ex.dice) : null; });
+            exs.forEach(function (ex) { delete ex.dice; delete exDiceDrawn[ex.id]; touchExercise(ex); });
+            exSel = {}; exSelAnchor = null; save(); render();
+            showToast("Dé retiré de " + n + " exercice" + plural + ".", 7000, { label: "Annuler", run: function () { exs.forEach(function (ex, k) { if (olds[k]) { ex.dice = olds[k]; touchExercise(ex); } }); save(); render(); } });
+        } });
+        openLinksQuickMenu(x, y, items, true);
+    }
     // Les actions groupées (barre du bas et clic droit sur une sélection).
     function exSelActions() {
         var items = exSelItems(), n = items.length, acts = [];
@@ -3166,6 +3185,7 @@
         } else {
             acts.push({ text: "＋ Session…", run: function (btn) { var r = btn.getBoundingClientRect(); openAddToSessionMenu(r.left, r.top, exSelItems().map(function (it) { return it.ex; }), true); } });
         }
+        acts.push({ text: "Dé…", run: function (btn) { var r = btn.getBoundingClientRect(); openDiceAssignMenu(r.left, r.top, exSelItems().map(function (it) { return it.ex; })); } });
         acts.push({ text: "Déplacer vers…", run: function () { exSelPlace(exSelItems(), true); } });
         acts.push({ text: "Copier vers…", run: function () { exSelPlace(exSelItems(), false); } });
         acts.push({ text: items.every(function (it) { return it.ex.favorite; }) ? "★ Retirer des favoris" : "☆ Favori", run: function () { exSelFlag(exSelItems(), "favorite", "ajouté" + plural + " aux favoris", "retiré" + plural + " des favoris"); } });
@@ -10786,7 +10806,7 @@
         window.addEventListener("keydown", onKey, true);
     }
 
-    // ---------- dé de gamme : plusieurs dés indépendants (Tonalité, Gamme, Mode, Nombre de notes) ----------
+    // ---------- dé de gamme : plusieurs dés indépendants (Tonalité, Gamme, Mode, Exercice) ----------
     // Un réglage du dé (cfg) dit quels dés lancer et, pour chacun, quelles faces il porte. Les dés sont indépendants : la tonalité est
     // tirée une fois, chaque autre dé actif tire une de ses faces, et le résumé les met bout à bout (« D · Locrien · Tétrade (4 notes) »).
     // cfg = { on: { key, scale, mode, notes }, key: [12 booléens], scale: [clés de gamme], mode: [clés de mode], notes: [ids] }
@@ -10804,7 +10824,7 @@
             { title: "Modes du majeur", keys: ["major", "dorian", "phrygian", "lydian", "mixolydian", "aeolian", "locrian"] },
             { title: "Modes du mineur mélodique", more: true, keys: ["melodicMinor"].concat(SCALE_MENU[5].keys) },
             { title: "Modes du mineur harmonique", more: true, keys: ["harmonicMinor"].concat(SCALE_MENU[6].keys) }] },
-        { id: "notes", name: "Nombre de notes" }
+        { id: "notes", name: "Exercice" }
     ];
     var DICE_DEFAULT_ON = { key: true, scale: true, mode: false, notes: false };
     function diceDie(id) { return DICE_DICE.filter(function (d) { return d.id === id; })[0]; }
@@ -11022,6 +11042,17 @@
         var cfg = d && d.cfg ? diceNormCfg(d.cfg) : legacyRand ? diceFromLegacy(legacyRand) : diceNormCfg(null);
         return { cfg: cfg, presetId: d && typeof d.presetId === "string" ? d.presetId : null, dirty: !!(d && d.dirty), src: d && typeof d.src === "string" ? d.src : "" };
     }
+    // Donne un réglage de dé à plusieurs exercices d'un coup, annulable. make(ex) -> { presetId?, name?, cfg } ; after() : réaffichage.
+    function diceAssignMany(exs, make, label, after) {
+        var olds = exs.map(function (ex) { return ex.dice ? cloneJson(ex.dice) : null; }), replaced = olds.filter(Boolean).length;
+        exs.forEach(function (ex) { ex.dice = make(ex); delete exDiceDrawn[ex.id]; touchExercise(ex); });
+        save();
+        if (after) after();
+        showToast("« " + label + " » affecté à " + exs.length + " exercice" + (exs.length > 1 ? "s" : "") + (replaced ? " (" + replaced + " avai" + (replaced > 1 ? "ent" : "t") + " déjà un dé : réglage remplacé)" : "") + ".", 8000, { label: "Annuler", run: function () {
+            exs.forEach(function (ex, k) { if (olds[k]) ex.dice = olds[k]; else delete ex.dice; delete exDiceDrawn[ex.id]; touchExercise(ex); });
+            save(); if (after) after();
+        } });
+    }
     // Un dé neuf (case « Dé » d'un exercice, dé ajouté dans une session) : le réglage courant de l'outil Gammes — lié au préréglage s'il en est un tel quel.
     function diceNewHolder() {
         var t = loadScalesPrefs().dice, p = t.presetId && !t.dirty ? dicePresetById(t.presetId) : null;
@@ -11029,8 +11060,9 @@
     }
 
     // ---------- fenêtre du dé ----------
-    // Fenêtre flottante (déplaçable, redimensionnable) : en haut le tirage (cartes par dé + résumé), puis les dés à lancer, les préréglages
-    // (onglets à soi + onglet « Exercices »), le contenu de chaque dé et l'historique. Deux usages :
+    // Fenêtre flottante (déplaçable, redimensionnable) à trois vues : « Tirage » (le préréglage, le résultat, l'historique), « Réglages »
+    // (ce qu'on tire au sort et les faces de chaque dé) et « Préréglages » (onglets à soi + onglet « Exercices »). Le bouton « Tirer au sort »
+    // reste en bas, quelle que soit la vue. Deux usages :
     //   ctx.kind "tool"   : l'outil Gammes — ctx.tool = { dice: { cfg, presetId, dirty, src } } (préférences de l'appareil) ;
     //   ctx.kind "holder" : le dé d'un exercice (ou d'un ancien pas de session) — ctx.get() / ctx.set(holder), ctx.ex (l'exercice, s'il y en a un).
     // Communs : title, persist() après chaque changement, mem ({ history, recent }), onPick(pick), current(), onView(view), onRemove + removeLabel, onClose.
@@ -11040,7 +11072,7 @@
     function openDiceWindow(ctx) {
         closeDiceWindow();
         var win = {}, mem = ctx.mem || diceNewMem(), lastPick = ctx.current ? ctx.current() : null;
-        var isTool = ctx.kind === "tool";
+        var isTool = ctx.kind === "tool", view = ctx.view || "draw";
         function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
         function btn(cls, text, title, fn) { var b = el("button", cls, text); b.type = "button"; if (title) b.title = title; if (fn) b.addEventListener("click", fn); return b; }
         function store() { return dicePresetsStore(); }
@@ -11062,33 +11094,44 @@
                 repaint();
             }
 
-            // -- en-tête
+            // -- en-tête et vues
             var head = el("div", "dice-head");
             head.appendChild(el("div", "backups-title dice-title", ctx.title));
             var closeBtn = btn("btn-ghost dice-close", "✕", "Fermer", close); closeBtn.setAttribute("aria-label", "Fermer");
             head.appendChild(closeBtn);
             panel.appendChild(head);
-
-            // -- tirage (toujours visible, au-dessus de ce qui défile)
-            var result = el("div", "dice-result");
-            var goRow = el("div", "dice-go-row");
-            var go = btn("btn-accent dice-go", null, null); go.innerHTML = SCALES_DICE_SVG; go.appendChild(document.createTextNode(" Tirer au sort"));
-            goRow.appendChild(go);
-            result.appendChild(goRow);
-            var cards = el("div", "dice-cards"); result.appendChild(cards);
-            var sumRow = el("div", "dice-sum-row");
-            var sumText = el("div", "dice-sum");
-            var copyBtn = btn("btn-ghost dice-mini", "Copier", "Copier le résumé du tirage");
-            var viewBtn = ctx.onView ? btn("btn-ghost dice-mini dice-view", "Voir sur le manche", "Afficher la gamme (ou le mode) tirée dans l'outil Gammes") : null;
-            sumRow.appendChild(sumText); sumRow.appendChild(copyBtn); if (viewBtn) sumRow.appendChild(viewBtn);
-            result.appendChild(sumRow);
-            var count = el("div", "dice-count"); result.appendChild(count);
-            panel.appendChild(result);
+            var viewsBar = el("div", "dice-views"); viewsBar.setAttribute("role", "tablist");
+            var viewBtns = {};
+            [["draw", "Tirage"], ["set", "Réglages"], ["pres", "Préréglages"]].forEach(function (v) {
+                var b = btn("dice-view-btn", v[1], null, function () { showView(v[0]); });
+                b.setAttribute("role", "tab"); b.dataset.view = v[0];
+                viewBtns[v[0]] = b; viewsBar.appendChild(b);
+            });
+            panel.appendChild(viewsBar);
             var body = el("div", "dice-body"); panel.appendChild(body);
-            function section(title, cls) {
+            var views = { draw: el("div", "dice-view dice-view-draw"), set: el("div", "dice-view dice-view-set"), pres: el("div", "dice-view dice-view-pres") };
+            Object.keys(views).forEach(function (k) { body.appendChild(views[k]); });
+            // -- pied : « Tirer au sort » toujours à portée du pouce, avec le nombre de tirages possibles
+            var foot = el("div", "dice-foot");
+            var go = btn("btn-accent dice-go", null, null); go.innerHTML = SCALES_DICE_SVG; go.appendChild(document.createTextNode(" Tirer au sort"));
+            var count = el("div", "dice-count");
+            var footSum = el("div", "dice-foot-sum");
+            foot.appendChild(go); foot.appendChild(count); foot.appendChild(footSum);
+            panel.appendChild(foot);
+            function showView(v) {
+                view = v;
+                Object.keys(views).forEach(function (k) {
+                    views[k].hidden = k !== v;
+                    viewBtns[k].classList.toggle("dice-view-on", k === v);
+                    viewBtns[k].setAttribute("aria-selected", k === v ? "true" : "false");
+                });
+                footSum.hidden = v === "draw" || !dicePickText(lastPick);
+                body.scrollTop = 0;
+            }
+            function section(title, into, cls) {
                 var s = el("section", "dice-sec" + (cls ? " " + cls : "")), h = el("div", "dice-sec-head");
                 h.appendChild(el("div", "dice-sec-title", title));
-                s.appendChild(h); body.appendChild(s);
+                s.appendChild(h); into.appendChild(s);
                 return { box: s, head: h };
             }
             function links(headEl, defs) {
@@ -11097,25 +11140,68 @@
                 headEl.appendChild(lk);
                 return lk;
             }
+
+            // ============ vue « Tirage » ============
+            var presRow = el("div", "dice-preset-row");
+            presRow.appendChild(el("span", "dice-preset-label", "Préréglage"));
+            var presSel = el("select", "dice-preset-sel"); presSel.setAttribute("aria-label", "Préréglage");
+            var presBadge = el("span", "dp-badge", "modifié");
+            presRow.appendChild(presSel); presRow.appendChild(presBadge);
+            views.draw.appendChild(presRow);
+            presSel.addEventListener("change", function () { var p = dicePresetById(presSel.value); if (p) applyPreset(p); else paintSelect(); }); // charger ne tire pas
+            function paintSelect() {
+                presSel.innerHTML = "";
+                var s = store(), cur = isTool ? ctx.tool.dice : holder();
+                var curP = isTool ? (cur.presetId ? dicePresetById(cur.presetId) : null) : diceHolderPreset(cur);
+                var dirty = !!(isTool && curP && cur.dirty);
+                if (!curP) {
+                    var o0 = el("option", null, isTool ? (cur.src ? cur.src + " (non enregistré)" : "Réglage non enregistré") : (cur.name ? cur.name + " (propre à l'exercice)" : "Réglage propre à l'exercice"));
+                    o0.value = ""; presSel.appendChild(o0);
+                }
+                s.tabs.forEach(function (t) {
+                    var items = s.list.filter(function (p) { return p.tab === t.id; });
+                    if (!items.length) return;
+                    var parent = presSel;
+                    if (s.tabs.length > 1) { parent = el("optgroup"); parent.label = t.name; presSel.appendChild(parent); }
+                    items.forEach(function (p) { var o = el("option", null, p.name + (dirty && p.id === curP.id ? " (modifié)" : "")); o.value = p.id; parent.appendChild(o); });
+                });
+                presSel.value = curP ? curP.id : "";
+                presBadge.hidden = !dirty;
+            }
+            painters.push(paintSelect);
+            // résultat : le résumé en grand, les cartes (une par dé, avec les notes) en petit
+            var resBox = el("div", "dice-res");
+            var sumBig = el("div", "dice-sum dice-sum-big");
+            var actRow = el("div", "dice-res-acts");
+            var copyBtn = btn("btn-ghost dice-mini", "Copier", "Copier le résumé du tirage");
+            var viewBtn = ctx.onView ? btn("btn-ghost dice-mini dice-view", "Voir sur le manche", "Afficher la gamme (ou le mode) tirée dans l'outil Gammes") : null;
+            actRow.appendChild(copyBtn); if (viewBtn) actRow.appendChild(viewBtn);
+            var cards = el("div", "dice-cards");
+            resBox.appendChild(sumBig); resBox.appendChild(actRow); resBox.appendChild(cards);
+            views.draw.appendChild(resBox);
+            var hist = el("section", "dice-sec dice-hist"); views.draw.appendChild(hist);
             function showResult() {
                 cards.innerHTML = "";
                 var lines = dicePickLines(lastPick);
                 if (!lines.length) {
-                    cards.appendChild(el("div", "dice-empty", "Pas encore de tirage"));
-                    sumRow.hidden = true;
-                } else {
-                    lines.forEach(function (l) {
-                        var c = el(l.view && ctx.onView ? "button" : "div", "dice-card dice-card-" + l.die);
-                        if (l.view && ctx.onView) { c.type = "button"; c.title = "Voir sur le manche"; c.addEventListener("click", function () { ctx.onView(l.view); }); }
-                        c.appendChild(el("span", "dice-card-name", l.name));
-                        c.appendChild(el("span", "dice-card-val", l.label));
-                        if (l.notes) c.appendChild(el("span", "dice-card-notes", l.notes));
-                        cards.appendChild(c);
-                    });
-                    sumRow.hidden = false;
-                    sumText.textContent = dicePickText(lastPick);
-                    if (viewBtn) viewBtn.disabled = !dicePickView(lastPick);
+                    sumBig.textContent = "Pas encore de tirage"; sumBig.classList.add("dice-sum-empty");
+                    actRow.hidden = true; cards.hidden = true; footSum.hidden = true;
+                    return;
                 }
+                sumBig.classList.remove("dice-sum-empty");
+                sumBig.textContent = dicePickText(lastPick);
+                actRow.hidden = false; cards.hidden = false;
+                lines.forEach(function (l) {
+                    var c = el(l.view && ctx.onView ? "button" : "div", "dice-card dice-card-" + l.die);
+                    if (l.view && ctx.onView) { c.type = "button"; c.title = "Voir sur le manche"; c.addEventListener("click", function () { ctx.onView(l.view); }); }
+                    c.appendChild(el("span", "dice-card-name", l.name));
+                    c.appendChild(el("span", "dice-card-val", l.label));
+                    if (l.notes) c.appendChild(el("span", "dice-card-notes", l.notes));
+                    cards.appendChild(c);
+                });
+                if (viewBtn) viewBtn.disabled = !dicePickView(lastPick);
+                footSum.textContent = "Dernier tirage : " + dicePickText(lastPick);
+                footSum.hidden = view === "draw";
             }
             copyBtn.addEventListener("click", function () {
                 var t = dicePickText(lastPick);
@@ -11124,10 +11210,26 @@
                 try { navigator.clipboard.writeText(t).then(done, function () { showToast(t, 4000); }); } catch (e) { showToast(t, 4000); }
             });
             if (viewBtn) viewBtn.addEventListener("click", function () { var v = dicePickView(lastPick); if (v) ctx.onView(v); });
+            function renderHist() {
+                var items = mem.history.filter(function (h) { return h !== lastPick; }).slice(0, 12);
+                hist.innerHTML = ""; hist.hidden = !items.length;
+                if (!items.length) return;
+                var h = el("div", "dice-sec-head"); h.appendChild(el("div", "dice-sec-title", "Derniers tirages"));
+                var clr = btn("dice-links-solo", "Effacer", null, function () { mem.history = lastPick ? [lastPick] : []; ctx.persist(); renderHist(); });
+                h.appendChild(clr); hist.appendChild(h);
+                var list = el("div", "dice-hist-list");
+                items.forEach(function (h2) {
+                    var b = btn("dice-hist-item", null, "Reprendre ce tirage");
+                    b.appendChild(el("span", "dice-hist-name", dicePickText(h2)));
+                    b.addEventListener("click", function () { lastPick = h2; if (ctx.onPick) ctx.onPick(h2); showResult(); renderHist(); });
+                    list.appendChild(b);
+                });
+                hist.appendChild(list);
+            }
             painters.push(function () {
                 var c = cfg(), empty = diceEmptyDice(c), n = diceCombos(c), ids = diceActiveIds(c);
-                if (!ids.length) count.textContent = "Aucun dé à lancer : allume au moins un dé ci-dessous.";
-                else if (empty.length) count.textContent = "Le dé « " + empty.map(function (id) { return diceDie(id).name; }).join(" », « ") + " » n'a aucune face cochée.";
+                if (!ids.length) count.textContent = "Aucun dé allumé : coche au moins une case dans « Réglages ».";
+                else if (empty.length) count.textContent = "Le dé « " + empty.map(function (id) { return diceDie(id).name; }).join(" », « ") + " » n'a aucune face cochée (voir « Réglages »).";
                 else count.textContent = ids.length + " dé" + (ids.length > 1 ? "s" : "") + " · " + n.toLocaleString("fr-FR") + " tirage" + (n > 1 ? "s" : "") + " différent" + (n > 1 ? "s" : "");
                 count.classList.toggle("dice-count-bad", !ids.length || empty.length > 0);
                 go.disabled = !ids.length || empty.length > 0;
@@ -11141,13 +11243,17 @@
                 showResult(); renderHist();
             });
 
-            // -- les dés à lancer (tuiles)
-            var tilesSec = section("Dés à lancer");
+            // ============ vue « Réglages » ============
+            var curLine = el("div", "dp-current"); views.set.appendChild(curLine);
+            var tilesSec = section("Ce qu'on tire au sort", views.set);
             var tiles = el("div", "dice-tiles"); tilesSec.box.appendChild(tiles);
             DICE_DICE.forEach(function (d) {
                 var t = btn("dice-tile dice-tile-" + d.id, null, null, function () { edit(function (c) { c.on[d.id] = !c.on[d.id]; }); });
-                var nm = el("span", "dice-tile-name", d.name), ct = el("span", "dice-tile-count");
-                t.appendChild(nm); t.appendChild(ct);
+                t.appendChild(el("span", "dice-box", "✓"));
+                var tx = el("span", "dice-tile-txt");
+                var ct = el("span", "dice-tile-count");
+                tx.appendChild(el("span", "dice-tile-name", d.name)); tx.appendChild(ct);
+                t.appendChild(tx);
                 tiles.appendChild(t);
                 painters.push(function () {
                     var c = cfg(), on = !!c.on[d.id], n = diceFaces(c, d.id).length;
@@ -11155,15 +11261,82 @@
                     t.classList.toggle("dice-tile-bad", on && !n);
                     t.setAttribute("aria-pressed", on ? "true" : "false");
                     ct.textContent = n + " face" + (n > 1 ? "s" : "");
-                    t.title = (on ? "Dé lancé — cliquer pour ne plus le lancer" : "Cliquer pour lancer aussi ce dé") + " (" + n + " face" + (n > 1 ? "s" : "") + " cochée" + (n > 1 ? "s" : "") + ")";
+                    t.title = (on ? "Dé tiré au sort — cliquer pour ne plus le tirer" : "Cliquer pour tirer aussi ce dé") + " (" + n + " face" + (n > 1 ? "s" : "") + " cochée" + (n > 1 ? "s" : "") + ")";
                 });
             });
+            var facesWrap = el("div", "dice-faces"); views.set.appendChild(facesWrap);
+            function opt(label, isOn, flip, extraClass) {
+                var b = btn("dice-opt" + (extraClass ? " " + extraClass : ""), null, null);
+                b.appendChild(el("span", "dice-box", "✓"));
+                b.appendChild(el("span", "dice-name", label));
+                var on = isOn();
+                b.classList.toggle("dice-opt-on", on); b.setAttribute("aria-pressed", on ? "true" : "false");
+                b.addEventListener("click", function () { edit(flip); });
+                return b;
+            }
+            function toggleIn(arr, k) { var i = arr.indexOf(k); if (i === -1) arr.push(k); else arr.splice(i, 1); }
+            function renderFaces() {
+                facesWrap.innerHTML = "";
+                var c = cfg();
+                diceActiveIds(c).forEach(function (id) {
+                    var d = diceDie(id), s = el("section", "dice-sec dice-face-sec dice-face-" + id), h = el("div", "dice-sec-head");
+                    var n = diceFaces(c, id).length;
+                    h.appendChild(el("div", "dice-sec-title", "Faces du dé « " + d.name + " » (" + n + ")"));
+                    s.appendChild(h);
+                    if (id === "key") {
+                        links(h, [["Toutes", function () { edit(function (cc) { cc.key = cc.key.map(function () { return true; }); }); }],
+                            ["Naturelles", function () { edit(function (cc) { cc.key = cc.key.map(function (_, pc) { return SCALE_RAND_NATURALS.indexOf(pc) !== -1; }); }); }],
+                            ["Aucune", function () { edit(function (cc) { cc.key = cc.key.map(function () { return false; }); }); }]]);
+                        var kb = el("div", "dice-keys");
+                        function rootKey(col, row, pc) {
+                            var o = opt(DICE_KEY_NAMES[pc], function () { return c.key[pc]; }, function (cc) { cc.key[pc] = !cc.key[pc]; }, "dice-key");
+                            o.style.gridColumn = col + " / span 2"; o.style.gridRow = String(row + 1);
+                            kb.appendChild(o);
+                        }
+                        [[2, 0, 1], [4, 0, 3], [8, 0, 6], [10, 0, 8], [12, 0, 10]].forEach(function (k) { rootKey(k[0], k[1], k[2]); });
+                        [[1, 0], [3, 2], [5, 4], [7, 5], [9, 7], [11, 9], [13, 11]].forEach(function (k) { rootKey(k[0], 1, k[1]); });
+                        s.appendChild(kb);
+                    } else if (id === "notes") {
+                        links(h, [["Toutes", function () { edit(function (cc) { cc.notes = diceCatalog("notes"); }); }], ["Aucune", function () { edit(function (cc) { cc.notes = []; }); }]]);
+                        var g0 = el("div", "dice-grid");
+                        DICE_NOTES.forEach(function (nt) { g0.appendChild(opt(nt[1] + " · " + nt[2], function () { return c.notes.indexOf(nt[0]) !== -1; }, function (cc) { toggleIn(cc.notes, nt[0]); })); });
+                        s.appendChild(g0);
+                    } else {
+                        var showMore = !!diceUi.more[id];
+                        function visibleKeys() { var out = []; d.groups.forEach(function (g) { if (!g.more || showMore) g.keys.forEach(function (k) { if (scaleDefByKey(k) && out.indexOf(k) === -1) out.push(k); }); }); return out; }
+                        links(h, [["Tout", function () { edit(function (cc) { visibleKeys().forEach(function (k) { if (cc[id].indexOf(k) === -1) cc[id].push(k); }); }); }], ["Aucun", function () { edit(function (cc) { cc[id] = []; }); }]]);
+                        d.groups.forEach(function (g) {
+                            if (g.more && !showMore) return;
+                            if (d.groups.length > 1) s.appendChild(el("div", "dice-group", g.title));
+                            var grid = el("div", "dice-grid");
+                            g.keys.forEach(function (k) {
+                                if (!scaleDefByKey(k)) return;
+                                grid.appendChild(opt(diceFaceLabel(id, k), function () { return c[id].indexOf(k) !== -1; }, function (cc) { toggleIn(cc[id], k); }));
+                            });
+                            s.appendChild(grid);
+                        });
+                        var hiddenOn = 0;
+                        d.groups.forEach(function (g) { if (g.more) g.keys.forEach(function (k) { if (c[id].indexOf(k) !== -1) hiddenOn++; }); });
+                        var more = btn("dice-more" + (showMore ? " dice-more-open" : ""), (showMore ? "▾ " : "▸ ") + d.moreLabel + (!showMore && hiddenOn ? " (" + hiddenOn + " cochée" + (hiddenOn > 1 ? "s" : "") + ")" : ""), null,
+                            function () { diceUi.more[id] = !diceUi.more[id]; renderFaces(); });
+                        s.appendChild(more);
+                    }
+                    facesWrap.appendChild(s);
+                });
+                if (!diceActiveIds(c).length) facesWrap.appendChild(el("div", "dp-empty", "Coche un dé ci-dessus pour choisir ses faces."));
+            }
+            painters.push(renderFaces);
+            // retirer le dé (exercice)
+            if (ctx.onRemove) {
+                var rm = btn("dice-remove", ctx.removeLabel || "Retirer le dé", null, function () { ctx.onRemove(); close(); });
+                views.set.appendChild(rm);
+            }
 
-            // -- préréglages : réglage en cours, onglets, puces (ou liste des exercices)
-            var presSec = section("Préréglages", "dice-presets-sec");
-            var curLine = el("div", "dp-current"); presSec.box.appendChild(curLine);
-            var tabsBar = el("div", "dp-tabs"); presSec.box.appendChild(tabsBar);
-            var listBox = el("div", "dp-list"); presSec.box.appendChild(listBox);
+            // ============ vue « Préréglages » ============
+            var presHint = el("div", "dp-hint", "Cliquer sur un préréglage le charge (sans tirer). Clic droit ou appui long : renommer, déplacer, affecter à des exercices…");
+            views.pres.appendChild(presHint);
+            var tabsBar = el("div", "dp-tabs"); views.pres.appendChild(tabsBar);
+            var listBox = el("div", "dp-list"); views.pres.appendChild(listBox);
             function curTab() { var t = diceUi.tab, s = store(); if (t === "__ex__" || s.tabs.some(function (x) { return x.id === t; })) return t; return s.tabs[0].id; }
             function userTab() { var t = curTab(); return t === "__ex__" ? store().tabs[0].id : t; }
             function tabName(id) { var t = store().tabs.filter(function (x) { return x.id === id; })[0]; return t ? t.name : ""; }
@@ -11180,7 +11353,7 @@
                     var acts = el("span", "dp-current-acts");
                     if (p && t.dirty) acts.appendChild(btn("btn-ghost dice-mini dp-save", "Enregistrer", "Remplacer le préréglage « " + p.name + " » par le réglage actuel" + usersText(p), saveOverwrite));
                     acts.appendChild(btn("btn-ghost dice-mini dp-save-as", "Enregistrer sous…", "Enregistrer le réglage actuel comme nouveau préréglage", saveAs));
-                    acts.appendChild(btn("btn-ghost dice-mini dp-assign", "Affecter à un exercice…", "Donner ce réglage au dé d'un exercice", function () { assignToExercise(p && !t.dirty ? p : null); }));
+                    acts.appendChild(btn("btn-ghost dice-mini dp-assign", "Affecter à des exercices…", "Donner ce réglage au dé de plusieurs exercices d'un coup", function () { assignToExercises(p && !t.dirty ? p : null); }));
                     curLine.appendChild(acts);
                 } else {
                     var h = holder(), hp = diceHolderPreset(h);
@@ -11189,7 +11362,8 @@
                     curLine.appendChild(lab);
                     var acts2 = el("span", "dp-current-acts");
                     if (!hp) acts2.appendChild(btn("btn-ghost dice-mini dp-rename-own", "Renommer…", "Nommer le réglage de cet exercice", function () { renameHolder(h, exTitle()); }));
-                    if (!hp) acts2.appendChild(btn("btn-ghost dice-mini dp-to-presets", "Ajouter aux préréglages…", "Garder ce réglage parmi les préréglages (onglet « " + tabName(userTab()) + " »)", function () { holderToPresets(h, ctx.ex, function (np) { ctx.persist(); }); }));
+                    if (!hp) acts2.appendChild(btn("btn-ghost dice-mini dp-to-presets", "Ajouter aux préréglages…", "Garder ce réglage parmi les préréglages (onglet « " + tabName(userTab()) + " »)", function () { holderToPresets(h, ctx.ex, function () { ctx.persist(); }); }));
+                    acts2.appendChild(btn("btn-ghost dice-mini dp-assign", "Copier vers d'autres exercices…", "Donner ce réglage au dé d'autres exercices", function () { assignToExercises(hp || null); }));
                     curLine.appendChild(acts2);
                 }
             }
@@ -11214,10 +11388,10 @@
             function presetMenu(p, x, y) {
                 var items = [];
                 items.push({ label: isTool ? "Charger ce préréglage" : "Appliquer à « " + exTitle() + " »", open: function () { applyPreset(p); } });
+                items.push({ label: "Affecter à des exercices…", open: function () { assignToExercises(p); } });
                 items.push({ label: "Renommer…", open: function () { renamePreset(p); } });
                 items.push({ label: "Dupliquer", open: function () { duplicatePreset(p); } });
                 store().tabs.forEach(function (t) { if (t.id !== p.tab) items.push({ label: "Déplacer vers « " + t.name + " »", open: function () { movePreset(p, t.id); } }); });
-                items.push({ label: "Affecter à un exercice…", open: function () { assignToExercise(p); } });
                 items.push({ label: "✕ Supprimer…", open: function () { deletePreset(p); } });
                 openLinksQuickMenu(x, y, items);
             }
@@ -11225,6 +11399,7 @@
                 listBox.innerHTML = "";
                 var tab = curTab();
                 listBox.classList.toggle("dp-list-ex", tab === "__ex__");
+                presHint.hidden = tab === "__ex__";
                 if (tab === "__ex__") { renderExerciseList(); return; }
                 var s = store(), items = s.list.filter(function (p) { return p.tab === tab; });
                 var activeId = isTool ? ctx.tool.dice.presetId : holder().presetId;
@@ -11235,7 +11410,7 @@
                     bindContextGesture(b, function (x, y) { presetMenu(p, x, y); }, { selfButton: true });
                     listBox.appendChild(b);
                 });
-                if (!items.length) listBox.appendChild(el("div", "dp-empty", "Aucun préréglage dans cet onglet : « Enregistrer sous… » y range le réglage actuel" + (isTool ? "." : " (depuis l'outil Gammes), et « Ajouter aux préréglages… » celui d'un exercice.")));
+                if (!items.length) listBox.appendChild(el("div", "dp-empty", "Aucun préréglage dans cet onglet : « Enregistrer sous… » (vue « Réglages ») y range le réglage actuel" + (isTool ? "." : ", et « Ajouter aux préréglages… » celui d'un exercice.")));
             }
             function renderExerciseList() {
                 var rows = diceExerciseHolders(), multi = state.instruments.length > 1;
@@ -11246,8 +11421,7 @@
                     var info = el("div", "dp-ex-info");
                     info.appendChild(el("span", "dp-ex-title", r.ex.title + (self ? " (cet exercice)" : "")));
                     info.appendChild(el("span", "dp-ex-path", (multi ? r.inst.name + " › " : "") + r.pathNames.join(" › ")));
-                    var set = el("span", "dp-ex-set", p ? "Préréglage « " + p.name + " »" : (h.name ? "« " + h.name + " »" : "Réglage propre") + " · " + diceSummary(diceHolderCfg(h)));
-                    info.appendChild(set);
+                    info.appendChild(el("span", "dp-ex-set", p ? "Préréglage « " + p.name + " »" : (h.name ? "« " + h.name + " »" : "Réglage propre") + " · " + diceSummary(diceHolderCfg(h))));
                     row.appendChild(info);
                     var acts = el("div", "dp-ex-acts");
                     if (!self) acts.appendChild(btn("btn-ghost dice-mini dp-ex-use", isTool ? "Charger" : "Reprendre", isTool ? "Charger ce réglage dans le dé" : "Donner ce réglage à « " + exTitle() + " »", function () { useExerciseSetting(r); }));
@@ -11289,7 +11463,7 @@
                 } });
 
             // -- actions sur les préréglages
-            function applyPreset(p) {
+            function applyPreset(p) { // charger un préréglage ne tire rien
                 if (isTool) {
                     ctx.tool.dice = { cfg: cloneJson(diceCfgOfPreset(p)), presetId: p.id, dirty: false, src: "" };
                     ctx.persist(); repaint();
@@ -11319,19 +11493,21 @@
                     showToast("Préréglage « " + np.name + " » enregistré dans « " + tabName(np.tab) + " ».", 4000);
                 });
             }
-            // Donne un réglage au dé d'un exercice choisi : lié au préréglage `p` s'il est donné, sinon une copie du réglage actuel.
-            function assignToExercise(p) {
-                var label = p ? p.name : (isTool ? (ctx.tool.dice.presetId && dicePresetById(ctx.tool.dice.presetId) ? dicePresetById(ctx.tool.dice.presetId).name + " (modifié)" : "le réglage actuel") : diceHolderLabel(holder()));
-                openExercisePickerModal("Affecter « " + label + " » à…", { floating: true }, function (ex) {
-                    var old = ex.dice ? cloneJson(ex.dice) : null;
-                    if (p) ex.dice = diceLinkTo(p);
-                    else if (isTool) { var tp = ctx.tool.dice.presetId ? dicePresetById(ctx.tool.dice.presetId) : null; ex.dice = { cfg: cloneJson(ctx.tool.dice.cfg), name: tp ? tp.name + " (modifié)" : "" }; if (!ex.dice.name) delete ex.dice.name; }
-                    else ex.dice = cloneJson(holder());
-                    touchExercise(ex); save(); repaint();
-                    showToast("« " + label + " » affecté au dé de « " + ex.title + " »" + (old ? " (son ancien réglage est remplacé)" : "") + ".", 7000, { label: "Annuler", run: function () {
-                        if (old) ex.dice = old; else delete ex.dice;
-                        touchExercise(ex); save(); repaint();
-                    } });
+            // Donne un réglage au dé de plusieurs exercices choisis : lié au préréglage `p` s'il est donné, sinon une copie du réglage actuel.
+            function copyOfCurrent() {
+                if (isTool) {
+                    var tp = ctx.tool.dice.presetId ? dicePresetById(ctx.tool.dice.presetId) : null, o = { cfg: cloneJson(ctx.tool.dice.cfg) };
+                    if (tp) o.name = tp.name + " (modifié)";
+                    return o;
+                }
+                return cloneJson(holder());
+            }
+            function assignToExercises(p) {
+                var tp = isTool && ctx.tool.dice.presetId ? dicePresetById(ctx.tool.dice.presetId) : null;
+                var label = p ? p.name : (isTool ? (tp ? tp.name + " (modifié)" : "le réglage actuel") : diceHolderLabel(holder()));
+                openExercisePickerModal("Affecter « " + label + " » à…", { floating: true, exclude: ctx.ex ? [ctx.ex.id] : [],
+                    multi: { label: function (n) { return n ? "Affecter à " + n + " exercice" + (n > 1 ? "s" : "") : "Choisis des exercices"; } } }, function (list) {
+                    diceAssignMany(list, function () { return p ? diceLinkTo(p) : copyOfCurrent(); }, label, repaint);
                 });
             }
             function renamePreset(p) {
@@ -11427,99 +11603,10 @@
                 showToast("Dé retiré de « " + ex.title + " ».", 6000, { label: "Annuler", run: function () { ex.dice = old; touchExercise(ex); save(); } });
             }
 
-            // -- contenu des dés (faces), pour les dés allumés
-            var facesWrap = el("div", "dice-faces"); body.appendChild(facesWrap);
-            function opt(label, isOn, flip, extraClass) {
-                var b = btn("dice-opt" + (extraClass ? " " + extraClass : ""), null, null);
-                b.appendChild(el("span", "dice-box", "✓"));
-                b.appendChild(el("span", "dice-name", label));
-                var on = isOn();
-                b.classList.toggle("dice-opt-on", on); b.setAttribute("aria-pressed", on ? "true" : "false");
-                b.addEventListener("click", function () { edit(flip); });
-                return b;
-            }
-            function toggleIn(arr, k) { var i = arr.indexOf(k); if (i === -1) arr.push(k); else arr.splice(i, 1); }
-            function renderFaces() {
-                facesWrap.innerHTML = "";
-                var c = cfg();
-                diceActiveIds(c).forEach(function (id) {
-                    var d = diceDie(id), s = el("section", "dice-sec dice-face-sec dice-face-" + id), h = el("div", "dice-sec-head");
-                    var n = diceFaces(c, id).length;
-                    h.appendChild(el("div", "dice-sec-title", "Faces du dé « " + d.name + " » (" + n + ")"));
-                    s.appendChild(h);
-                    if (id === "key") {
-                        links(h, [["Toutes", function () { edit(function (cc) { cc.key = cc.key.map(function () { return true; }); }); }],
-                            ["Naturelles", function () { edit(function (cc) { cc.key = cc.key.map(function (_, pc) { return SCALE_RAND_NATURALS.indexOf(pc) !== -1; }); }); }],
-                            ["Aucune", function () { edit(function (cc) { cc.key = cc.key.map(function () { return false; }); }); }]]);
-                        var kb = el("div", "dice-keys");
-                        function rootKey(col, row, pc) {
-                            var o = opt(DICE_KEY_NAMES[pc], function () { return c.key[pc]; }, function (cc) { cc.key[pc] = !cc.key[pc]; }, "dice-key");
-                            o.style.gridColumn = col + " / span 2"; o.style.gridRow = String(row + 1);
-                            kb.appendChild(o);
-                        }
-                        [[2, 0, 1], [4, 0, 3], [8, 0, 6], [10, 0, 8], [12, 0, 10]].forEach(function (k) { rootKey(k[0], k[1], k[2]); });
-                        [[1, 0], [3, 2], [5, 4], [7, 5], [9, 7], [11, 9], [13, 11]].forEach(function (k) { rootKey(k[0], 1, k[1]); });
-                        s.appendChild(kb);
-                    } else if (id === "notes") {
-                        links(h, [["Toutes", function () { edit(function (cc) { cc.notes = diceCatalog("notes"); }); }], ["Aucune", function () { edit(function (cc) { cc.notes = []; }); }]]);
-                        var g0 = el("div", "dice-grid");
-                        DICE_NOTES.forEach(function (nt) { g0.appendChild(opt(nt[1] + " · " + nt[2], function () { return c.notes.indexOf(nt[0]) !== -1; }, function (cc) { toggleIn(cc.notes, nt[0]); })); });
-                        s.appendChild(g0);
-                    } else {
-                        var showMore = !!diceUi.more[id];
-                        function visibleKeys() { var out = []; d.groups.forEach(function (g) { if (!g.more || showMore) g.keys.forEach(function (k) { if (scaleDefByKey(k) && out.indexOf(k) === -1) out.push(k); }); }); return out; }
-                        links(h, [["Tout", function () { edit(function (cc) { visibleKeys().forEach(function (k) { if (cc[id].indexOf(k) === -1) cc[id].push(k); }); }); }], ["Aucun", function () { edit(function (cc) { cc[id] = []; }); }]]);
-                        d.groups.forEach(function (g) {
-                            if (g.more && !showMore) return;
-                            if (d.groups.length > 1) s.appendChild(el("div", "dice-group", g.title));
-                            var grid = el("div", "dice-grid");
-                            g.keys.forEach(function (k) {
-                                if (!scaleDefByKey(k)) return;
-                                grid.appendChild(opt(diceFaceLabel(id, k), function () { return c[id].indexOf(k) !== -1; }, function (cc) { toggleIn(cc[id], k); }));
-                            });
-                            s.appendChild(grid);
-                        });
-                        var hiddenOn = 0;
-                        d.groups.forEach(function (g) { if (g.more) g.keys.forEach(function (k) { if (c[id].indexOf(k) !== -1) hiddenOn++; }); });
-                        var more = btn("dice-more" + (showMore ? " dice-more-open" : ""), (showMore ? "▾ " : "▸ ") + d.moreLabel + (!showMore && hiddenOn ? " (" + hiddenOn + " cochée" + (hiddenOn > 1 ? "s" : "") + ")" : ""), null,
-                            function () { diceUi.more[id] = !diceUi.more[id]; renderFaces(); });
-                        s.appendChild(more);
-                    }
-                    facesWrap.appendChild(s);
-                });
-                if (!diceActiveIds(c).length) facesWrap.appendChild(el("div", "dp-empty", "Allume un dé ci-dessus pour choisir ses faces."));
-            }
-            painters.push(renderFaces);
-
-            // -- historique
-            var hist = el("section", "dice-sec dice-hist"); body.appendChild(hist);
-            function renderHist() {
-                var items = mem.history.filter(function (h) { return h !== lastPick; }).slice(0, 12);
-                hist.innerHTML = ""; hist.hidden = !items.length;
-                if (!items.length) return;
-                var h = el("div", "dice-sec-head"); h.appendChild(el("div", "dice-sec-title", "Derniers tirages"));
-                var clr = btn("dice-links-solo", "Effacer", null, function () { mem.history = lastPick ? [lastPick] : []; ctx.persist(); renderHist(); });
-                h.appendChild(clr); hist.appendChild(h);
-                var list = el("div", "dice-hist-list");
-                items.forEach(function (h2) {
-                    var b = btn("dice-hist-item", null, "Reprendre ce tirage");
-                    b.appendChild(el("span", "dice-hist-name", dicePickText(h2)));
-                    b.addEventListener("click", function () { lastPick = h2; if (ctx.onPick) ctx.onPick(h2); showResult(); renderHist(); });
-                    list.appendChild(b);
-                });
-                hist.appendChild(list);
-            }
-
-            // -- retirer le dé (exercice)
-            if (ctx.onRemove) {
-                var rm = btn("dice-remove", ctx.removeLabel || "Retirer le dé", null, function () { ctx.onRemove(); close(); });
-                body.appendChild(rm);
-            }
-
             // Échap ferme la fenêtre du dé (et elle seule : l'outil dessous reste ouvert).
             function onKey(e) { if (e.key === "Escape" && !dlgIsOpen() && !document.querySelector(".ctx-menu") && !document.querySelector(".exercise-picker-panel")) { e.stopImmediatePropagation(); close(); } }
             window.addEventListener("keydown", onKey, true);
-            repaint(); showResult(); renderHist();
+            repaint(); showResult(); renderHist(); showView(view);
             return function () { window.removeEventListener("keydown", onKey, true); if (diceWin === win) diceWin = null; if (ctx.onClose) ctx.onClose(); };
         }, { floating: true });
         diceWin = win;
@@ -11757,10 +11844,14 @@
                 // Plus de place que la taille réglée (fenêtre agrandie) : le dessin s'étire à la largeur disponible, proportions gardées.
                 var natW = parseFloat(svg.getAttribute("width")), natH = parseFloat(svg.getAttribute("height"));
                 if (fretFitObs) { fretFitObs.disconnect(); fretFitObs = null; }
+                var isPiano = inst.type === "piano";
                 function stretchToFit() {
-                    var avail = scroll.clientWidth - 8, w = Math.min(Math.max(natW, avail), natW * 2.6);
+                    var avail = scroll.clientWidth - 8;
+                    // Manche : jamais plus étroit que sa taille réglée (il défile). Clavier : il s'adapte à la largeur disponible, même plus étroite
+                    // (les touches se resserrent, la hauteur reste) — sinon les dernières touches dépassaient sur téléphone.
+                    var w = isPiano ? Math.min(avail, natW * 2.6) : Math.min(Math.max(natW, avail), natW * 2.6);
                     if (!(natW > 0 && natH > 0 && avail > 0)) return;
-                    svg.style.width = Math.round(w) + "px"; svg.style.height = Math.round(natH * w / natW) + "px";
+                    svg.style.width = Math.round(w) + "px"; svg.style.height = Math.round(isPiano && w < natW ? natH : natH * w / natW) + "px";
                 }
                 stretchToFit();
                 if (typeof ResizeObserver !== "undefined") { fretFitObs = new ResizeObserver(stretchToFit); fretFitObs.observe(scroll); }
@@ -14359,13 +14450,33 @@
             panel.appendChild(wrap);
             var chosen = false;
             function choose(ex) { chosen = true; close(); onPick(ex); }
+            // `opts.multi` : choix de PLUSIEURS exercices (cases à cocher, « Tout » sur un dossier) puis un bouton de validation qui rend la liste.
+            var multi = opts.multi || null, picked = {}, rowEls = [], footCount = null, footOk = null;
+            function pickedList() { return Object.keys(picked).map(function (id) { return picked[id]; }); }
+            function paintPicked() {
+                rowEls.forEach(function (r) { r.el.classList.toggle("picked", !!picked[r.ex.id]); r.el.setAttribute("aria-pressed", picked[r.ex.id] ? "true" : "false"); });
+                var n = pickedList().length;
+                if (footCount) footCount.textContent = n ? n + " exercice" + (n > 1 ? "s" : "") + " choisi" + (n > 1 ? "s" : "") : "Aucun exercice choisi";
+                if (footOk) { footOk.textContent = multi.label ? multi.label(n) : "Valider"; footOk.disabled = !n; }
+            }
+            function exercisesUnder(folder) {
+                var out = [];
+                (function walk(f) { f.exercises.forEach(function (ex) { if (!ex.archived && exclude.indexOf(ex.id) === -1) out.push(ex); }); f.folders.forEach(walk); })(folder);
+                return out;
+            }
             function exButton(ex, pathNames, color) {
                 var b = document.createElement("button");
                 b.type = "button"; b.className = "gs-pick-exercise-row"; b.dataset.exId = ex.id;
+                if (multi) { b.classList.add("gs-pick-multi-row"); var ck = document.createElement("span"); ck.className = "gs-pick-check"; ck.textContent = "✓"; b.appendChild(ck); rowEls.push({ el: b, ex: ex }); }
                 if (pathNames) { b.appendChild(gsThemeBadge(pathNames, color)); }
                 var t = document.createElement("span"); t.className = "gs-pick-ex-title"; t.textContent = ex.title; b.appendChild(t);
+                if (multi && ex.dice) { var hd = document.createElement("span"); hd.className = "gs-pick-has-dice"; hd.textContent = "a déjà un dé"; hd.title = "Son réglage sera remplacé"; b.appendChild(hd); }
                 var prev = gsNotePreview(ex); if (prev) b.appendChild(prev);
-                b.addEventListener("click", function () { choose(ex); });
+                b.addEventListener("click", function () {
+                    if (!multi) { choose(ex); return; }
+                    if (picked[ex.id]) delete picked[ex.id]; else picked[ex.id] = ex;
+                    paintPicked();
+                });
                 return b;
             }
             function node(container, folders, depth, rootColor) {
@@ -14379,6 +14490,17 @@
                     var tw = document.createElement("button"); tw.type = "button"; tw.className = "tree-twisty" + (hasContent ? "" : " tree-twisty-empty") + (open ? " expanded" : ""); tw.innerHTML = CHEVRON_ICON_SVG;
                     var lb = document.createElement("span"); lb.className = "tree-label"; lb.textContent = folder.name;
                     row.appendChild(tw); row.appendChild(lb);
+                    if (multi && hasContent) {
+                        var all = document.createElement("button"); all.type = "button"; all.className = "gs-pick-folder-all"; all.textContent = "Tout";
+                        all.title = "Choisir (ou retirer) tous les exercices de « " + folder.name + " », sous-dossiers compris";
+                        all.addEventListener("click", function (e) {
+                            e.stopPropagation();
+                            var list = exercisesUnder(folder), every = list.length > 0 && list.every(function (ex) { return !!picked[ex.id]; });
+                            list.forEach(function (ex) { if (every) delete picked[ex.id]; else picked[ex.id] = ex; });
+                            paintPicked();
+                        });
+                        row.appendChild(all);
+                    }
                     if (hasContent) row.addEventListener("click", function () { treeExpanded["xpick:" + folder.id] = !open; refresh(); });
                     n.appendChild(row);
                     if (open && hasContent) {
@@ -14391,14 +14513,22 @@
                 });
             }
             function refresh() {
-                wrap.innerHTML = "";
+                wrap.innerHTML = ""; rowEls = [];
                 var q = search.value.trim().toLowerCase();
-                if (!q && pickTabMem === "all") { node(wrap, inst.categories, 0, null); return; }
+                if (!q && pickTabMem === "all") { node(wrap, inst.categories, 0, null); paintPicked(); return; }
                 var res = collectExercises(inst, function (ex) { return !ex.archived && exclude.indexOf(ex.id) === -1 && (pickTabMem !== "fav" || !!ex.favorite) && (!q || ex.title.toLowerCase().indexOf(q) !== -1); });
                 if (!res.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = pickTabMem === "fav" && !q ? "Aucun favori : marque un exercice d'une étoile (clic droit › Marquer en favori)." : "Aucun exercice ne correspond."; wrap.appendChild(none); return; }
                 res.forEach(function (r) { var root = findById(inst.categories, r.pathIds[0]); wrap.appendChild(exButton(r.ex, r.pathNames, (root && root.color) || "#00e676")); });
+                paintPicked();
             }
             search.addEventListener("input", refresh);
+            if (multi) { // pied : combien d'exercices, et la validation
+                var foot = document.createElement("div"); foot.className = "gs-pick-foot";
+                footCount = document.createElement("span"); footCount.className = "gs-pick-count";
+                footOk = document.createElement("button"); footOk.type = "button"; footOk.className = "btn-accent gs-pick-ok";
+                footOk.addEventListener("click", function () { var list = pickedList(); if (!list.length) return; chosen = true; close(); onPick(list); });
+                foot.appendChild(footCount); foot.appendChild(footOk); panel.appendChild(foot);
+            }
             refresh();
             setTimeout(function () { try { search.focus(); } catch (e) {} }, 30);
             return function () { if (onEsc) window.removeEventListener("keydown", onEsc, true); if (!chosen && opts.onCancel) opts.onCancel(); }; // fermé sans choisir (clic à côté, Échap)
