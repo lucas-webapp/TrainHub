@@ -1,4 +1,4 @@
-const CACHE_NAME = "trainhub-v176";
+const CACHE_NAME = "trainhub-v177";
 const ASSETS = [
     "./",
     "index.html",
@@ -6,6 +6,7 @@ const ASSETS = [
     "script.js",
     "firebase-config.js",
     "jspdf.umd.min.js",
+    "lamejs.iife.js",
     "manifest.json",
     "icons/favicon.svg",
     "icons/icon-192.png",

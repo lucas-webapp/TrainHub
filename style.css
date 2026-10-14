@@ -3689,7 +3689,7 @@ button.metro-play-btn-big { height: 44px; margin-top: 10px; font-size: var(--fs-
 /* ---------- horloge de la barre du haut (en session) ---------- */
 
 /* ---------- fenêtre « Tirage de gamme » (le dé) : outil Gammes et pas d'une session ---------- */
-.backups-panel.dice-panel { width: min(680px, calc(100vw - 24px)); height: min(740px, calc(100vh - 24px)); max-height: calc(100vh - 16px); padding: 12px 16px 14px; gap: 10px; overflow: hidden; text-align: left; }
+.backups-panel.dice-panel { width: min(540px, calc(100vw - 24px)); height: min(640px, calc(100vh - 24px)); max-height: calc(100vh - 16px); padding: 12px 16px 14px; gap: 10px; overflow: hidden; text-align: left; }
 .dice-head { flex: none; display: flex; align-items: center; gap: 10px; }
 .dice-title { flex: 1; min-width: 0; }
 button.dice-close { flex: none; width: 28px; height: 28px; padding: 0; color: var(--text-muted); }
@@ -4102,3 +4102,52 @@ input.rec-name { height: 34px; padding: 0 8px; font-weight: 600; }
 /* Barre du haut : icônes un peu plus serrées (6 px au lieu de 8) pour que l'horloge tienne sur la même ligne, y compris sur un écran de portable (1440 px) */
 @media (min-width: 761px) { .top-bar { gap: 8px; } .top-actions { gap: 6px; } .logo { margin-right: 4px; } }
 .gs-rec-name-theme { display: block; margin-top: 1px; font-size: var(--fs-2xs); font-weight: 500; letter-spacing: .02em; color: var(--text-muted); }
+/* Dé de gamme : l'essentiel d'abord, le détail dans « Réglages avancés » (replié) */
+.dice-opt.dice-opt-part .dice-box { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); font-size: 0; }
+.dice-opt.dice-opt-part .dice-box::after { content: "–"; font-size: 14px; font-weight: 900; line-height: 1; color: var(--accent); }
+.dice-adv { border: 1px solid var(--border); border-radius: var(--radius); background: rgba(var(--ov), .03); }
+.dice-adv > summary { cursor: pointer; padding: 9px 12px; font-size: var(--fs-sm); font-weight: 700; color: var(--text-dim); list-style: none; display: flex; align-items: center; gap: 8px; }
+.dice-adv > summary::-webkit-details-marker { display: none; }
+.dice-adv > summary::before { content: "▸"; font-size: var(--fs-xs); transition: transform .15s ease; }
+.dice-adv[open] > summary::before { transform: rotate(90deg); }
+.dice-adv-body { display: flex; flex-direction: column; gap: 16px; padding: 4px 12px 12px; }
+/* Fiche d'un exercice : ligne « Dé de gamme » */
+.dice-ex-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 6px 0 2px; }
+.dice-ex-toggle { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--fs-sm); font-weight: 700; color: var(--text-dim); cursor: pointer; user-select: none; -webkit-user-select: none; }
+.dice-ex-toggle.dice-ex-on { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.dice-ex-cb { margin: 0; width: 16px; height: 16px; accent-color: var(--accent); }
+.dice-ex-ico .icon { width: 18px; height: 18px; display: block; }
+button.dice-ex-sum { height: 32px; max-width: 100%; min-width: 0; padding: 0 10px; border: 1px dashed var(--border); border-radius: var(--radius-sm); background: transparent; font-size: var(--fs-sm); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.dice-ex-sum:hover { color: var(--accent); border-color: var(--accent); }
+button.dice-ex-go { height: 32px; padding: 0 12px; font-size: var(--fs-sm); font-weight: 700; }
+.dice-ex-res { font-size: var(--fs-md); font-weight: 800; color: var(--accent); cursor: pointer; }
+.dice-ex-res:empty { display: none; }
+.dice-ex-row [hidden] { display: none; }
+/* Choix rapides du dé : nom puis, dessous, ce que la case contient (rien ne se chevauche sur téléphone) */
+button.dice-opt.dice-opt-quick { display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 8px; row-gap: 1px; align-items: start; text-align: left; }
+button.dice-opt-quick .dice-box { grid-row: 1 / span 2; margin-top: 1px; }
+button.dice-opt-quick .dice-name { grid-column: 2; }
+button.dice-opt-quick .dice-hint { grid-column: 2; max-width: none; margin: 0; white-space: normal; overflow: visible; line-height: 1.25; }
+/* Enregistreur : forme d'onde en direct, éditeur de prise, liste « Mes enregistrements » */
+.backups-panel.recorder-panel { width: min(380px, calc(100vw - 16px)); }
+.rec-live-wave { padding: 4px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: rgba(var(--ov), .04); }
+.rec-live-wave[hidden], .rec-wave[hidden], .rec-lib[hidden] { display: none; }
+canvas.rec-live-cv { display: block; width: 100%; height: 72px; }
+.rec-wave { display: flex; flex-direction: column; gap: 8px; }
+canvas.rec-wave-cv { display: block; width: 100%; height: 100px; box-sizing: border-box; border: 1px solid var(--border); border-radius: var(--radius-sm); background: rgba(var(--ov), .04); touch-action: none; cursor: crosshair; }
+.rec-wave-rng { min-height: 1.3em; font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.rec-wave-tools { display: flex; flex-wrap: wrap; gap: 6px; }
+button.rec-wave-btn { height: 30px; padding: 0 10px; font-size: var(--fs-sm); font-weight: 700; }
+button.rec-wave-btn:disabled { opacity: .4; cursor: not-allowed; }
+.rec-wave-vol { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rec-wave-vol .rec-lab { width: auto; }
+input.rec-wave-vrange { flex: 1 1 120px; min-width: 90px; accent-color: var(--accent); }
+.rec-wave-vval { min-width: 54px; text-align: right; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; color: var(--text-dim); }
+.rec-wave-fade { align-self: flex-start; }
+.rec-wave-load { padding: 22px 0; text-align: center; font-size: var(--fs-sm); color: var(--text-muted); }
+.rec-lib { border: 1px solid var(--border); border-radius: var(--radius-sm); background: rgba(var(--ov), .03); }
+.rec-lib > summary { cursor: pointer; padding: 8px 10px; font-size: var(--fs-sm); font-weight: 700; color: var(--text-dim); }
+.rec-lib-list { display: flex; flex-direction: column; gap: 4px; padding: 2px 8px 8px; max-height: 220px; overflow-y: auto; }
+.rec-lib-row { display: flex; align-items: center; gap: 6px; }
+input.rec-lib-name { flex: 1; min-width: 0; height: 30px; padding: 0 8px; font-size: var(--fs-sm); font-weight: 600; }
+button.rec-lib-play, button.rec-lib-go { flex: none; width: 30px; height: 30px; padding: 0; }

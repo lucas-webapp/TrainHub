@@ -2283,7 +2283,7 @@
     }
     function linkedOthers(ex) { return linkedMembers(ex).filter(function (m) { return m.ex !== ex; }); }
     function sharedSig(ex) {
-        return JSON.stringify([ex.links || [], ex.files || [], ex.images || [], ex.metronome || null, ex.tempoGoal === undefined ? null : ex.tempoGoal, ex.fixedNotes || "", ex.pinnedLinkId || null]);
+        return JSON.stringify([ex.links || [], ex.files || [], ex.images || [], ex.metronome || null, ex.tempoGoal === undefined ? null : ex.tempoGoal, ex.fixedNotes || "", ex.pinnedLinkId || null, ex.dice || null]);
     }
     function copySharedFields(from, to) {
         to.links = cloneJson(from.links || []);
@@ -2293,6 +2293,7 @@
         if (from.tempoGoal === undefined) delete to.tempoGoal; else to.tempoGoal = from.tempoGoal;
         to.fixedNotes = from.fixedNotes || "";
         to.pinnedLinkId = from.pinnedLinkId || null;
+        if (from.dice) to.dice = cloneJson(from.dice); else delete to.dice;
         to.updatedAt = Date.now();
     }
     function syncLinked(ex) {
@@ -3022,6 +3023,7 @@
             ifNameFree(!!folder && exerciseTitleTaken(folder.exercises, n, ex), "exercice", n, "Renommer quand même", function () {
                 var old = ex.title;
                 ex.title = n;
+                recSyncAudioName(ex, old);
                 touchExercise(ex);
                 save();
                 render();
@@ -3036,7 +3038,7 @@
         exs = Array.isArray(exs) ? exs : [exs];
         var de = gsDrafts[session.id], clean = de ? !gsDraftDirty(session.id) : true, total = 0;
         exs.forEach(function (ex) {
-            var step = { id: uid(), exerciseId: ex.id, minutes: gsDefaultMinutes(ex) };
+            var step = gsNewStep(ex);
             session.steps.push(step);
             if (de) de.draft.steps.push(cloneJson(step));
             total += step.minutes;
@@ -5180,7 +5182,9 @@
             var newTitle = title.value.trim();
             if (!newTitle || newTitle === ex.title) { title.value = ex.title; return; }
             ifNameFree(exerciseTitleTaken(folder.exercises, newTitle, ex), "exercice", newTitle, "Renommer quand même", function () {
+                var oldTitle = ex.title;
                 ex.title = newTitle;
+                recSyncAudioName(ex, oldTitle);
                 touchExercise(ex);
                 save();
             }, function () { title.value = ex.title; }); // Annuler : on remet l'ancien nom, rien ne change
@@ -5440,6 +5444,8 @@
             get: function () { return ex.metronome; },
             set: function (p) { setExerciseMetronome(ex, p); }
         }));
+        // Dé de gamme : le tirage se règle ici, une fois (triades, modes…), et se retrouve dans chaque session.
+        details.appendChild(buildExerciseDiceRow(ex));
 
         // Notes fixes : consignes importantes, sans date, toujours visibles (aussi exercice replié et en session).
         var fixedLabel = document.createElement("div");
@@ -8506,28 +8512,43 @@
     // resume() lancé pendant un geste le réveille, et il arrive qu'il reste mort. Dans ce cas on en reconstruit un
     // neuf au prochain geste (lancer le métronome) plutôt que de laisser un son muet jusqu'au redémarrage de l'appli.
     var metroCtxLost = false;       // la page a quitté l'avant-plan : le contexte est peut-être mort
+    var metroLastTickAt = 0;        // dernier passage du planificateur (Worker ou repli) : repère un Worker mort ou gelé
+    var metroDogTimer = null;       // chien de garde, actif seulement pendant la lecture
+    var metroClockProbe = null;     // { ctx, c, w } : l'horloge audio avance-t-elle vraiment ?
+    var metroRecoverAt = 0, metroRecoverTries = 0;
     function metroBuildAudio() {
         var old = metroAudioCtx;
-        metroAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        // L'ancien contexte est fermé AVANT d'en créer un neuf : les navigateurs plafonnent le nombre de contextes ouverts
+        // (Safari, Chrome), et un plafond atteint donnerait un métronome muet jusqu'au redémarrage de l'appli.
+        if (old) { try { old.onstatechange = null; old.close(); } catch (e) {} metroAudioCtx = null; }
+        var Ctor = window.AudioContext || window.webkitAudioContext;
+        metroAudioCtx = new Ctor();
         metroMasterGain = metroAudioCtx.createGain();
         metroMasterGain.gain.value = state.settings.metronome.volume;
         metroMasterGain.connect(metroAudioCtx.destination);
         metroCtxLost = false;
+        metroClockProbe = null;
         var built = metroAudioCtx;
         built.onstatechange = function () { // coupé puis rendu (vidéo plein écran, appel, autre appli) : on relance le son tout seul
             if (built !== metroAudioCtx || !metroPlaying) return;
             if (built.state === "running") metroNextNoteTime = Math.max(metroNextNoteTime, built.currentTime + 0.05);
             else metroReviveAudio();
         };
-        if (old) { try { old.close(); } catch (e) {} }
         try { // note muette : « débloque » la sortie son sur iOS dès ce geste
             var b = metroAudioCtx.createBuffer(1, 1, 22050), src = metroAudioCtx.createBufferSource();
             src.buffer = b; src.connect(metroAudioCtx.destination); src.start(0);
         } catch (e) {}
     }
+    // Contexte prêt à jouer. Il est reconstruit (au lieu d'être réveillé) s'il n'existe plus, s'il est fermé, si la page a quitté l'avant-plan
+    // depuis sa création, ou s'il n'est pas en marche : un contexte neuf, créé pendant un geste, est toujours autorisé à jouer.
     function ensureMetroAudio(fromGesture) {
         var ctx = metroAudioCtx;
-        if (!ctx || ctx.state === "closed" || (fromGesture && metroCtxLost && !metroPlaying)) metroBuildAudio();
+        if (!ctx || ctx.state === "closed" || (fromGesture && !metroPlaying && (metroCtxLost || ctx.state !== "running"))) {
+            try { metroBuildAudio(); }
+            catch (e) {
+                if (!metroAudioCtx) { showToast("Le son n'est pas disponible : ferme les autres onglets ou applis qui jouent du son, puis réessaie.", 6000); throw e; }
+            }
+        }
         if (metroAudioCtx.state !== "running") {
             try { var pr = metroAudioCtx.resume(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {}
         }
@@ -8550,9 +8571,50 @@
     // Le contexte avance-t-il vraiment ? (une horloge figée = sortie morte)
     function metroAudioAlive() { return !!metroAudioCtx && metroAudioCtx.state === "running"; }
 
-    // Retour sur la page : le métronome qui « jouait » a pu être coupé par le système. On tente de réveiller le son ;
-    // si le contexte ne repart pas, on arrête proprement le métronome (le bouton repasse sur « Jouer ») : un appui
-    // suffit alors pour repartir, avec un contexte neuf.
+    // Contexte mort pendant la lecture (sortie son perdue, horloge figée, contexte fermé par le système) : on en construit un neuf et on
+    // repart de SON horloge (elle repart de zéro). Au bout de trois tentatives sans succès, on arrête proprement et on le dit.
+    function metroRecover() {
+        var now = Date.now();
+        if (now - metroRecoverAt < 1500) return;
+        metroRecoverAt = now;
+        if (++metroRecoverTries > 3) {
+            metroRecoverTries = 0;
+            if (metroPanelApi) metroPanelApi.toggle(); else stopMetronome();
+            showToast("Le son du métronome ne repart pas : appuie sur Jouer pour le relancer.", 6000);
+            return;
+        }
+        try { metroBuildAudio(); } catch (e) { return; }
+        try { var pr = metroAudioCtx.resume(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {}
+        metroNextNoteTime = metroAudioCtx.currentTime + 0.05;
+        metroBeatLog.length = 0;
+    }
+    // Chien de garde (toutes les 300 ms pendant la lecture) : (1) le planificateur tourne-t-il encore ? un Web Worker peut mourir ou geler
+    // après un long passage en arrière-plan, sans erreur ; (2) le contexte audio est-il en marche et son horloge avance-t-elle ?
+    function metroWatch() {
+        if (!metroPlaying) { metroStopDog(); return; }
+        var now = performance.now();
+        if (now - metroLastTickAt > 400) { // le planificateur ne passe plus : Worker neuf + passage immédiat sur le fil principal
+            metroLastTickAt = now;
+            metroStartTicker();
+            try { metroScheduler(); } catch (e) {}
+        }
+        var ctx = metroAudioCtx;
+        if (!ctx || ctx.state === "closed") { metroRecover(); return; }
+        if (ctx.state !== "running") { metroClockProbe = null; metroReviveAudio(); return; }
+        if (document.hidden) { metroClockProbe = null; return; }
+        if (!metroClockProbe || metroClockProbe.ctx !== ctx) { metroClockProbe = { ctx: ctx, c: ctx.currentTime, w: now }; return; }
+        var wall = (now - metroClockProbe.w) / 1000;
+        if (wall < 1.2) return;
+        if (ctx.currentTime - metroClockProbe.c < wall * 0.3) { metroClockProbe = null; metroRecover(); return; } // horloge figée
+        metroClockProbe = { ctx: ctx, c: ctx.currentTime, w: now };
+        metroRecoverTries = 0; // tout va bien
+    }
+    function metroStartDog() { metroStopDog(); metroLastTickAt = performance.now(); metroClockProbe = null; metroRecoverTries = 0; metroDogTimer = setInterval(metroWatch, 300); }
+    function metroStopDog() { if (metroDogTimer) { clearInterval(metroDogTimer); metroDogTimer = null; } metroClockProbe = null; }
+
+    // Retour sur la page : le métronome qui « jouait » a pu être coupé par le système. On tente de réveiller le son (puis de reconstruire le
+    // contexte) ; si le son ne repart pas malgré tout, on arrête proprement le métronome (le bouton repasse sur « Jouer ») : un appui suffit
+    // alors pour repartir, avec un contexte neuf.
     function metroOnReturn() {
         if (!metroAudioCtx) return;
         if (metroAudioCtx.state !== "running") { try { var pr = metroAudioCtx.resume(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {} }
@@ -8561,9 +8623,12 @@
             if (!metroPlaying || document.hidden) return;
             if (metroAudioAlive()) { metroNextNoteTime = Math.max(metroNextNoteTime, metroAudioCtx.currentTime + 0.05); return; }
             if (!metroCtxLost) return; // simple retour de focus, sans passage en arrière-plan : on ne coupe rien
-            metroCtxLost = true;
-            if (metroPanelApi) metroPanelApi.toggle(); else stopMetronome();
-            showToast("Le son du métronome a été coupé par le système : appuie sur Jouer pour le relancer.", 5000);
+            metroRecoverAt = 0; metroRecover(); // d'abord un contexte neuf (suffit sur Chrome) ; Safari en exige un pendant un geste
+            setTimeout(function () {
+                if (!metroPlaying || document.hidden || metroAudioAlive()) return;
+                if (metroPanelApi) metroPanelApi.toggle(); else stopMetronome();
+                showToast("Le son du métronome a été coupé par le système : appuie sur Jouer pour le relancer.", 5000);
+            }, 600);
         }, 450);
     }
     document.addEventListener("visibilitychange", function () {
@@ -8571,6 +8636,15 @@
     });
     window.addEventListener("pageshow", function () { metroOnReturn(); });
     window.addEventListener("focus", function () { if (metroAudioCtx && metroAudioCtx.state !== "running") metroOnReturn(); });
+    // Sortie son changée (casque branché, haut-parleur Bluetooth…) : le contexte en cours n'est plus fiable, on en reconstruira un au prochain « Jouer ».
+    try { if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener("devicechange", function () { metroCtxLost = true; }); } catch (e) {}
+    // Premier geste après un passage en arrière-plan (clic, touche) : seul moment où Safari accepte de réveiller un contexte « interrupted ».
+    ["pointerdown", "keydown", "touchend"].forEach(function (ev) {
+        window.addEventListener(ev, function () {
+            if (!metroPlaying || !metroAudioCtx || metroAudioCtx.state === "running") return;
+            try { var pr = metroAudioCtx.resume(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {}
+        }, { capture: true, passive: true });
+    });
 
     function setMetroVolume(v) {
         state.settings.metronome.volume = v;
@@ -8725,6 +8799,8 @@
     var metroBeatLog = []; // derniers temps programmés { t : instant (horloge audio), d : durée du temps (s), a : accent } — sert à l'anneau lumineux du cadran
     var metroBeatListeners = []; // fonctions (pas, estUnTemps, force) appelées à chaque clic — ex. la fenêtre flottante
     function metroScheduler() {
+        metroLastTickAt = performance.now();
+        if (!metroAudioCtx) return;
         var m = state.settings.metronome;
         // Minuteur ralenti (onglet en arrière-plan) : si l'on a pris plus de 0,25 s de retard, on repart de
         // maintenant plutôt que de rattraper d'un coup une rafale de clics.
@@ -8741,7 +8817,7 @@
                 metroBeatLog.push({ t: metroNextNoteTime, d: layer.subdivision < 1 ? 60 / m.bpm / layer.subdivision : 60 / m.bpm, a: layer.pattern[metroCurrentStep] >= 2 });
                 if (metroBeatLog.length > 6) metroBeatLog.shift();
             }
-            if (!metroTrainMuted(m, metroCurrentStep, layer.subdivision)) metroClick(metroNextNoteTime, layer.pattern[metroCurrentStep]);
+            if (!metroTrainMuted(m, metroCurrentStep, layer.subdivision)) { try { metroClick(metroNextNoteTime, layer.pattern[metroCurrentStep]); } catch (e) { /* un clic raté ne doit pas figer toute la suite */ } }
             if (metroBeatCallback || metroBeatListeners.length) {
                 var step = metroCurrentStep, delayMs = Math.max(0, (metroNextNoteTime - metroAudioCtx.currentTime) * 1000);
                 var isBeat = step % Math.max(1, layer.subdivision) === 0, strength = layer.pattern[step];
@@ -8791,30 +8867,37 @@
             if (metroPanelApi) metroPanelApi.toggle(); else stopMetronome();
             return;
         }
-        if (!metroWorker) metroTimer = setTimeout(metroScheduler, METRO_LOOKAHEAD_MS);
+        if (!metroWorker) { if (metroTimer) clearTimeout(metroTimer); metroTimer = setTimeout(metroScheduler, METRO_LOOKAHEAD_MS); }
     }
 
     // Cadence du planificateur : un Web Worker (ses minuteries ne sont pas ralenties quand la page est en arrière-plan,
     // masquée ou recouverte par une vidéo en plein écran, contrairement à setTimeout). Repli sur setTimeout sans Worker.
     var metroWorker = null, metroWorkerUrl = null;
+    function metroKillWorker() { if (metroWorker) { try { metroWorker.onmessage = null; metroWorker.onerror = null; metroWorker.terminate(); } catch (e) {} metroWorker = null; } }
+    // Un Worker neuf à chaque lancement (et à chaque relance du chien de garde) : un Worker resté longtemps en arrière-plan peut être mort
+    // sans qu'aucune erreur ne soit signalée — le métronome « jouerait » alors sans plus rien programmer.
     function metroStartTicker() {
-        if (typeof Worker !== "function" || typeof Blob !== "function" || !window.URL || !URL.createObjectURL) return;
-        try {
-            if (!metroWorker) {
-                var src = "var t=null;onmessage=function(e){if(e.data==='start'){if(t)clearInterval(t);t=setInterval(function(){postMessage(1)}," + METRO_LOOKAHEAD_MS + ")}else if(e.data==='stop'){if(t){clearInterval(t);t=null}}};";
-                metroWorkerUrl = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
-                metroWorker = new Worker(metroWorkerUrl);
-                metroWorker.onmessage = function () { if (metroPlaying) metroScheduler(); };
-                metroWorker.onerror = function () { metroWorker = null; if (metroPlaying && !metroTimer) metroTimer = setTimeout(metroScheduler, METRO_LOOKAHEAD_MS); };
-            }
-            metroWorker.postMessage("start");
-        } catch (e) { metroWorker = null; }
+        metroKillWorker();
+        if (typeof Worker === "function" && typeof Blob === "function" && window.URL && URL.createObjectURL) {
+            try {
+                if (!metroWorkerUrl) {
+                    var src = "var t=null;onmessage=function(e){if(e.data==='start'){if(t)clearInterval(t);t=setInterval(function(){postMessage(1)}," + METRO_LOOKAHEAD_MS + ")}else if(e.data==='stop'){if(t){clearInterval(t);t=null}}};";
+                    metroWorkerUrl = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
+                }
+                var w = new Worker(metroWorkerUrl);
+                metroWorker = w;
+                w.onmessage = function () { if (metroPlaying && w === metroWorker) metroScheduler(); };
+                w.onerror = function () { if (w !== metroWorker) return; metroWorker = null; if (metroPlaying && !metroTimer) metroTimer = setTimeout(metroScheduler, METRO_LOOKAHEAD_MS); };
+                w.postMessage("start");
+            } catch (e) { metroWorker = null; }
+        }
+        if (!metroWorker && metroPlaying && !metroTimer) metroTimer = setTimeout(metroScheduler, METRO_LOOKAHEAD_MS); // sans Worker : repli sur setTimeout
     }
-    function metroStopTicker() { if (metroWorker) { try { metroWorker.postMessage("stop"); } catch (e) {} } }
+    function metroStopTicker() { metroKillWorker(); }
 
     function startMetronome() {
         if (metroPlaying) return;
-        ensureMetroAudio(true);
+        try { ensureMetroAudio(true); } catch (e) { return; }
         metroPlaying = true;
         metroCurrentStep = 0;
         metroProgNextAt = null; // le décompte du tempo progressif repart à chaque lancement
@@ -8824,6 +8907,7 @@
         var pm = state.settings.metronome.progressive;
         metroProgStartBpm = (pm.enabled && pm.restoreOnStop) ? state.settings.metronome.bpm : null;
         metroNextNoteTime = metroAudioCtx.currentTime + 0.05;
+        metroStartDog();
         metroStartTicker();
         metroScheduler();
     }
@@ -8833,6 +8917,7 @@
         if (metroPlaying) metroStopListeners.forEach(function (fn) { try { fn(); } catch (e) {} });
         metroPlaying = false;
         metroStopTicker();
+        metroStopDog();
         if (metroTimer) { clearTimeout(metroTimer); metroTimer = null; }
         if (metroReviveTimer) { clearTimeout(metroReviveTimer); metroReviveTimer = null; }
         // "Revenir au tempo de départ" : le prochain lancement repart du tempo d'origine.
@@ -10132,7 +10217,7 @@
             // Aussi appelée par le raccourci Espace (voir metroPanelApi) : un seul chemin pour lancer
             // ou arrêter, que ce soit au clic ou au clavier.
             function toggleMetroPlayback() {
-                if (metroPlaying) { stopMetronome(); stopChrono(); } else { startMetronome(); startChrono(); }
+                if (metroPlaying) { stopMetronome(); stopChrono(); } else { startMetronome(); if (metroPlaying) startChrono(); }
                 refreshPlayBtn();
                 transportLastTouched = "metro";
             }
@@ -10756,6 +10841,23 @@
         triades: "majeure, mineure, dim., aug.", tetrades: "maj7, 7, m7, m7♭5, dim7…", extensions: "9, 7sus4, 7♯5, 7♭5…",
         melodique: "lydien dominant, altéré…", harmonique: "phrygien dominant…", complexes: "tons, diminuées, bebop…", exotiques: "hongroise, japonaises…" };
     var SCALE_RAND_ALT_PRESETS = [["Toutes", 0, 7], ["Faciles", 0, 2], ["Moyennes", 2, 4], ["Difficiles", 4, 7]];
+    // Choix rapides du dé : chaque case coche d'un coup une ou plusieurs familles (le détail reste dans « Réglages avancés »).
+    var SCALE_RAND_QUICK = [
+        { group: "Gammes", items: [["Gammes", ["simples"], "majeure, mineures"], ["Pentatoniques", ["penta"], "pentatoniques, blues"], ["Modes", ["modes"], "dorien, lydien, mixolydien…"], ["Gammes spéciales", ["melodique", "harmonique", "complexes", "exotiques"], "altérée, phrygien dominant, bebop…"]] },
+        { group: "Arpèges", items: [["Triades", ["triades"], "majeure, mineure, dim., aug."], ["Tétrades", ["tetrades"], "maj7, 7, m7, m7♭5…"], ["Arpèges étendus", ["extensions"], "9, 7sus4, 7♯5…"]] }
+    ];
+    var diceAdvOpen = false; // « Réglages avancés » : replié d'office, l'état est retenu d'une ouverture à l'autre
+    // Résumé d'un tirage réglé, en quelques mots (ex. « Triades · Modes · faciles ») : sert à montrer le réglage d'un exercice d'un coup d'œil.
+    function scaleRandSummary(rand) {
+        rand = normalizeScaleRand(rand, true);
+        var parts = [];
+        SCALE_RAND_QUICK.forEach(function (g) { g.items.forEach(function (it) { if (it[1].some(function (id) { return rand.families[id]; })) parts.push(it[0]); }); });
+        if (rand.include.length) parts.push("+" + rand.include.length + " gamme" + (rand.include.length > 1 ? "s" : ""));
+        var diff = SCALE_RAND_ALT_PRESETS.filter(function (pr) { return pr[1] === rand.altMin && pr[2] === rand.altMax; })[0];
+        if (!diff) parts.push("♯ " + rand.altMin + "–" + rand.altMax);
+        else if (diff[1] !== 0 || diff[2] !== SCALE_RAND_ALT_MAX) parts.push(diff[0].toLowerCase());
+        return parts.length ? parts.join(" · ") : "rien de coché";
+    }
     var diceWin = null;
     function closeDiceWindow() { if (diceWin) { var c = diceWin.close; diceWin = null; c(); } }
     function openDiceWindow(cfg) {
@@ -10781,12 +10883,12 @@
                 painters.push(paint); paint();
                 return b;
             }
-            function section(title, note) {
+            function section(title, note, into) {
                 var s = el("section", "dice-sec"), h = el("div", "dice-sec-head");
                 h.appendChild(el("div", "dice-sec-title", title));
                 s.appendChild(h);
                 if (note) s.appendChild(el("div", "dice-sec-note", note));
-                body.appendChild(s);
+                (into || body).appendChild(s);
                 return { box: s, head: h };
             }
             function links(head, defs) {
@@ -10816,8 +10918,30 @@
             panel.appendChild(result);
             var body = el("div", "dice-body"); panel.appendChild(body);
 
-            // -- altérations (difficulté)
-            var alt = section("Altérations", "Nombre de notes avec ♯ dans la gamme tirée (ex. : Do majeur 0 · Sol majeur 1 · Ré majeur 2 · Mi majeur 4).");
+            // -- l'essentiel : ce qu'on tire (quelques cases) et la difficulté (quatre boutons)
+            var quick = section("Que tirer au sort ?");
+            SCALE_RAND_QUICK.forEach(function (g) {
+                quick.box.appendChild(el("div", "dice-group", g.group));
+                var grid = el("div", "dice-grid");
+                g.items.forEach(function (it) {
+                    function allOn() { return it[1].every(function (id) { return rand.families[id]; }); }
+                    var b = opt(it[0], it[2], allOn, function () { var on = !allOn(); it[1].forEach(function (id) { setFamily(id, on); }); }, "dice-opt-quick");
+                    painters.push(function () { b.classList.toggle("dice-opt-part", !allOn() && it[1].some(function (id) { return rand.families[id]; })); });
+                    grid.appendChild(b);
+                });
+                quick.box.appendChild(grid);
+            });
+            var diff = section("Difficulté", "Selon le nombre de ♯ de la gamme tirée (Do majeur : 0, Mi majeur : 4).");
+            // -- tout le reste, replié : altérations précises, familles, gammes une à une, toniques, répétitions
+            var advDet = el("details", "dice-adv");
+            advDet.open = diceAdvOpen;
+            advDet.appendChild(el("summary", null, "Réglages avancés"));
+            var advBody = el("div", "dice-adv-body"); advDet.appendChild(advBody);
+            body.appendChild(advDet);
+            advDet.addEventListener("toggle", function () { diceAdvOpen = advDet.open; });
+
+            // -- altérations précises (de … à …)
+            var alt = section("Altérations précises", "Nombre de notes avec ♯ dans la gamme tirée (ex. : Do majeur 0 · Sol majeur 1 · Ré majeur 2 · Mi majeur 4).", advBody);
             var altRow = el("div", "dice-alt-row");
             function altSelect(label, get, set) {
                 var w = el("label", "dice-alt-sel"); w.appendChild(el("span", null, label));
@@ -10836,10 +10960,10 @@
                 painters.push(function () { b.classList.toggle("dice-preset-on", rand.altMin === p[1] && rand.altMax === p[2]); });
                 presets.appendChild(b);
             });
-            alt.box.appendChild(presets);
+            diff.box.appendChild(presets);
 
             // -- familles
-            var fam = section("Familles");
+            var fam = section("Familles (détail)", null, advBody);
             links(fam.head, [["Tout", function () { SCALE_RAND_FAMILIES.forEach(function (f) { setFamily(f[0], true); }); }], ["Aucune", function () { SCALE_RAND_FAMILIES.forEach(function (f) { setFamily(f[0], false); }); }]]);
             function setFamily(id, on) { rand.families[id] = on; var ks = famKeys(id); rand.exclude = rand.exclude.filter(function (k) { return ks.indexOf(k) === -1; }); rand.include = rand.include.filter(function (k) { return ks.indexOf(k) === -1; }); }
             SCALE_RAND_GROUPS.forEach(function (g) {
@@ -10850,7 +10974,7 @@
             });
 
             // -- gammes une à une : enlever (ou ajouter) une gamme précise sans toucher aux familles
-            var one = section("Gammes une à une", "Décocher une gamme la retire du tirage ; cocher une gamme d'une famille non choisie l'ajoute.");
+            var one = section("Gammes une à une", "Décocher une gamme la retire du tirage ; cocher une gamme d'une famille non choisie l'ajoute.", advBody);
             var oneCount = el("span", "dice-one-count");
             one.head.appendChild(oneCount);
             links(one.head, [["Tout réactiver", function () { rand.exclude = []; rand.include = []; }]]);
@@ -10876,7 +11000,7 @@
             });
 
             // -- toniques : disposition de clavier (naturelles en bas, dièses entre elles)
-            var roots = section("Toniques");
+            var roots = section("Toniques", null, advBody);
             links(roots.head, [["Toutes", function () { rand.roots = rand.roots.map(function () { return true; }); }], ["Naturelles", function () { rand.roots = rand.roots.map(function (_, pc) { return SCALE_RAND_NATURALS.indexOf(pc) !== -1; }); }], ["Aucune", function () { rand.roots = rand.roots.map(function () { return false; }); }]]);
             var kb = el("div", "dice-keys");
             function rootKey(col, row, pc) {
@@ -10889,7 +11013,7 @@
             roots.box.appendChild(kb);
 
             // -- éviter les répétitions
-            var avoidSec = section("Tirage");
+            var avoidSec = section("Tirage", null, advBody);
             avoidSec.box.appendChild(opt("Éviter les dernières gammes tirées", "", function () { return rand.avoid; }, function () { rand.avoid = !rand.avoid; }));
 
             // -- historique
@@ -11450,13 +11574,13 @@
     // ouvert à l'écran : sans rien chercher dans les dossiers), dans un autre exercice, ou dans un NOUVEL exercice d'un dossier au choix.
     // L'enregistrement continue même fenêtre fermée (le bouton de la barre clignote) ; une prise non rangée est gardée, même si l'appli se
     // ferme, jusqu'à ce qu'on la range ou la supprime. Le fichier est une pièce jointe audio comme les autres (lecteur, renommer, cloud).
-    var REC_KEYS = { device: "trainhub.recDevice.v1", dest: "trainhub.recDest.v1", auto: "trainhub.recAuto.v1", metro: "trainhub.recMetro.v1", click: "trainhub.recClick.v1", pending: "trainhub.recPending.v1" };
+    var REC_KEYS = { device: "trainhub.recDevice.v1", dest: "trainhub.recDest.v1", auto: "trainhub.recAuto.v1", metro: "trainhub.recMetro.v1", click: "trainhub.recClick.v1", pending: "trainhub.recPending.v1", fmt: "trainhub.recFmt.v1" };
     function recPref(k, d) { try { var v = localStorage.getItem(REC_KEYS[k]); return v === null ? d : v; } catch (e) { return d; } }
     function recSetPref(k, v) { try { localStorage.setItem(REC_KEYS[k], v); } catch (e) {} }
     var REC_PENDING_BLOB = "rec-pending";
     var REC_MIC_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8.5" y="2.5" width="6" height="11" rx="3"/><path d="M4.5 11a7 7 0 0 0 13 3.6"/><path d="M11.5 18v3.5"/><path d="M8.5 21.5h6"/><circle cx="19" cy="5.5" r="2.3" fill="#ff5252" stroke="none"/></svg>';
     var rec = { phase: "idle", stream: null, ctx: null, analyser: null, src: null, mr: null, chunks: [], startedAt: 0, ms: 0, timer: null, mime: "", take: null, startedMetro: false, clickDest: null,
-        dest: { mode: "", exId: null, folderId: null }, destAtStart: null, error: "", listeners: [], panelClose: null, meterRaf: null };
+        dest: { mode: "", exId: null, folderId: null }, destAtStart: null, error: "", listeners: [], panelClose: null, meterRaf: null, peaks: [], peakTimer: null, saving: false, stopPlay: null };
     function recEmit() {
         var b = document.getElementById("rec-btn");
         if (b) { b.classList.toggle("rec-live", rec.phase === "recording"); b.classList.toggle("active", !!rec.panelClose); b.classList.toggle("rec-pending", rec.phase === "review"); }
@@ -11470,6 +11594,189 @@
     }
     function recExt(mime) { return /mp4/.test(mime) ? ".m4a" : /ogg/.test(mime) ? ".ogg" : ".webm"; }
     function recFmtTime(ms) { var t = Math.floor(ms / 1000), m = Math.floor(t / 60), sc = t % 60; return (m < 10 ? "0" : "") + m + ":" + (sc < 10 ? "0" : "") + sc; }
+    // ---------- bande audio : forme d'onde en direct, puis édition de la prise ----------
+    // Pendant la prise : une barre par ~40 ms (niveau crête), dessinée comme sur GarageBand. Ensuite la prise est décodée et s'édite :
+    // sélection à la souris ou au doigt, « garder » / « supprimer » la sélection, annuler, volume, normaliser, fondus. Export en MP3
+    // (encodeur lamejs, chargé à la demande) ou, à défaut, en WAV ; ou format d'origine si rien n'a été touché.
+    var REC_PEAK_MS = 40;
+    var REC_EDIT_MAX_MS = 20 * 60 * 1000;  // au-delà, la prise décodée serait trop lourde en mémoire : pas d'édition
+    var REC_HIST_MAX = 8;
+    var REC_FADE_S = 0.25;
+    var recLamePromise = null;
+    function recLoadLame() {
+        if (window.lamejs && window.lamejs.Mp3Encoder) return Promise.resolve(window.lamejs);
+        if (!recLamePromise) recLamePromise = loadScriptOnce("lamejs.iife.js").then(function () {
+            if (!(window.lamejs && window.lamejs.Mp3Encoder)) throw new Error("encodeur MP3 absent");
+            return window.lamejs;
+        }, function (e) { recLamePromise = null; throw e; });
+        return recLamePromise;
+    }
+    function recReadBlob(blob) {
+        return new Promise(function (res, rej) { var fr = new FileReader(); fr.onload = function () { res(fr.result); }; fr.onerror = function () { rej(fr.error || new Error("lecture impossible")); }; fr.readAsArrayBuffer(blob); });
+    }
+    // Décode une prise en PCM { sr, chans:[Float32Array…] } — avec un contexte « hors ligne » (aucune carte son sollicitée).
+    function recDecode(blob) {
+        return recReadBlob(blob).then(function (ab) {
+            return new Promise(function (resolve, reject) {
+                var Off = window.OfflineAudioContext || window.webkitOfflineAudioContext, done = false;
+                if (!Off) { reject(new Error("décodage indisponible")); return; }
+                var ok = function (buf) { if (!done) { done = true; resolve(buf); } }, ko = function (e) { if (!done) { done = true; reject(e || new Error("décodage impossible")); } };
+                try { var pr = new Off(1, 1, 44100).decodeAudioData(ab, ok, ko); if (pr && pr.then) pr.then(ok, ko); } catch (e) { ko(e); }
+            });
+        }).then(function (buf) {
+            var chans = [];
+            for (var i = 0; i < buf.numberOfChannels; i++) chans.push(new Float32Array(buf.getChannelData(i)));
+            if (!chans.length || !chans[0].length) throw new Error("prise vide");
+            return { sr: buf.sampleRate, chans: chans };
+        });
+    }
+    function recSlicePcm(pcm, a, b) { return { sr: pcm.sr, chans: pcm.chans.map(function (c) { return c.slice(a, b); }) }; }
+    function recCutPcm(pcm, a, b) {
+        return { sr: pcm.sr, chans: pcm.chans.map(function (c) { var o = new Float32Array(c.length - (b - a)); o.set(c.subarray(0, a), 0); o.set(c.subarray(b), a); return o; }) };
+    }
+    // Crêtes (0…1) de pcm entre les échantillons a et b, réparties en n colonnes : sert au dessin de la forme d'onde.
+    function recWaveCols(pcm, n, a, b) {
+        var out = new Float32Array(n), len = b - a, step = len / n;
+        for (var i = 0; i < n; i++) {
+            var from = a + Math.floor(i * step), to = Math.max(from + 1, a + Math.floor((i + 1) * step)), pk = 0;
+            for (var c = 0; c < pcm.chans.length; c++) {
+                var ch = pcm.chans[c], inc = Math.max(1, Math.floor((to - from) / 64)); // au plus ~64 échantillons lus par colonne
+                for (var j = from; j < to; j += inc) { var v = ch[j] < 0 ? -ch[j] : ch[j]; if (v > pk) pk = v; }
+            }
+            out[i] = pk > 1 ? 1 : pk;
+        }
+        return out;
+    }
+    function recPeakOf(pcm) { var pk = 0; pcm.chans.forEach(function (ch) { for (var i = 0; i < ch.length; i += 1) { var v = ch[i] < 0 ? -ch[i] : ch[i]; if (v > pk) pk = v; } }); return pk; }
+    // Gain (dB → linéaire) et fondus appliqués à un échantillon i d'une prise de n échantillons.
+    function recSampleFactor(i, n, lin, fadeN) { var g = lin; if (fadeN) { if (i < fadeN) g *= i / fadeN; else if (i >= n - fadeN) g *= (n - 1 - i) / fadeN; } return g; }
+    function recToWav(pcm, lin, fade) {
+        var n = pcm.chans[0].length, nch = pcm.chans.length, sr = pcm.sr, fadeN = fade ? Math.min(Math.floor(sr * REC_FADE_S), Math.floor(n / 2)) : 0;
+        var buf = new ArrayBuffer(44 + n * nch * 2), dv = new DataView(buf);
+        function str(o, t) { for (var i = 0; i < t.length; i++) dv.setUint8(o + i, t.charCodeAt(i)); }
+        str(0, "RIFF"); dv.setUint32(4, 36 + n * nch * 2, true); str(8, "WAVE"); str(12, "fmt "); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, nch, true);
+        dv.setUint32(24, sr, true); dv.setUint32(28, sr * nch * 2, true); dv.setUint16(32, nch * 2, true); dv.setUint16(34, 16, true); str(36, "data"); dv.setUint32(40, n * nch * 2, true);
+        var o = 44;
+        for (var i = 0; i < n; i++) {
+            var g = recSampleFactor(i, n, lin, fadeN);
+            for (var c = 0; c < nch; c++) { var v = pcm.chans[c][i] * g; v = v < -1 ? -1 : v > 1 ? 1 : v; dv.setInt16(o, v < 0 ? v * 0x8000 : v * 0x7FFF, true); o += 2; }
+        }
+        return new Blob([buf], { type: "audio/wav" });
+    }
+    function recResample(pcm, to) {
+        if (pcm.sr === to) return pcm;
+        var ratio = pcm.sr / to, n = Math.floor(pcm.chans[0].length / ratio);
+        return { sr: to, chans: pcm.chans.map(function (c) { var o = new Float32Array(n); for (var i = 0; i < n; i++) { var x = i * ratio, k = Math.floor(x), f = x - k; o[i] = c[k] * (1 - f) + (c[Math.min(k + 1, c.length - 1)]) * f; } return o; }) };
+    }
+    // MP3 (128 kbit/s, mono ou stéréo) : encodé par petits blocs pour ne pas figer l'écran ; onProgress(0…1).
+    function recEncodeMp3(pcm, lin, fade, onProgress) {
+        return recLoadLame().then(function (lame) {
+            var OKRATES = [8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000];
+            if (OKRATES.indexOf(pcm.sr) === -1) pcm = recResample(pcm, 44100);
+            var n = pcm.chans[0].length, nch = pcm.chans.length >= 2 ? 2 : 1, sr = pcm.sr, fadeN = fade ? Math.min(Math.floor(sr * REC_FADE_S), Math.floor(n / 2)) : 0;
+            var enc = new lame.Mp3Encoder(nch, sr, 128), parts = [], BLOCK = 1152 * 16, pos = 0;
+            function conv(ch, from, to) {
+                var a = new Int16Array(to - from);
+                for (var i = from; i < to; i++) { var v = ch[i] * recSampleFactor(i, n, lin, fadeN); v = v < -1 ? -1 : v > 1 ? 1 : v; a[i - from] = v < 0 ? v * 0x8000 : v * 0x7FFF; }
+                return a;
+            }
+            return new Promise(function (resolve, reject) {
+                (function step() {
+                    try {
+                        var t0 = performance.now();
+                        while (pos < n && performance.now() - t0 < 24) {
+                            var to = Math.min(n, pos + BLOCK), l = conv(pcm.chans[0], pos, to);
+                            var chunk = nch === 2 ? enc.encodeBuffer(l, conv(pcm.chans[1], pos, to)) : enc.encodeBuffer(l);
+                            if (chunk.length) parts.push(chunk.slice());
+                            pos = to;
+                        }
+                        if (onProgress) onProgress(pos / n);
+                        if (pos < n) { setTimeout(step, 0); return; }
+                        var end = enc.flush();
+                        if (end.length) parts.push(end.slice());
+                        resolve(new Blob(parts, { type: "audio/mpeg" }));
+                    } catch (e) { reject(e); }
+                })();
+            });
+        });
+    }
+    // Modèle d'édition d'une prise (sans interface) : PCM courant, sélection, repère de lecture, historique pour annuler, volume et fondus.
+    function makeRecEditor(pcm) {
+        var ed = { pcm: pcm, sel: null, head: 0, hist: [], gainDb: 0, fade: false, listeners: [] };
+        ed.len = function () { return ed.pcm.chans[0].length; };
+        ed.dur = function () { return ed.len() / ed.pcm.sr; };
+        ed.emit = function () { ed.listeners.slice().forEach(function (fn) { try { fn(); } catch (e) {} }); };
+        ed.lin = function () { return Math.pow(10, ed.gainDb / 20); };
+        ed.dirty = function () { return ed.hist.length > 0 || ed.gainDb !== 0 || ed.fade || !!ed.sel; };
+        function push() { ed.hist.push({ pcm: ed.pcm, sel: ed.sel, head: ed.head }); if (ed.hist.length > REC_HIST_MAX) ed.hist.shift(); }
+        ed.setSel = function (a, b) {
+            var n = ed.len();
+            a = Math.max(0, Math.min(n, Math.round(a))); b = Math.max(0, Math.min(n, Math.round(b)));
+            if (b < a) { var t = a; a = b; b = t; }
+            ed.sel = b > a ? { a: a, b: b } : null;
+            ed.emit();
+        };
+        ed.clearSel = function () { ed.sel = null; ed.emit(); };
+        ed.keep = function () { if (!ed.sel) return; push(); ed.pcm = recSlicePcm(ed.pcm, ed.sel.a, ed.sel.b); ed.sel = null; ed.head = 0; ed.emit(); };
+        ed.cut = function () { if (!ed.sel || (ed.sel.b - ed.sel.a >= ed.len())) return; push(); var at = ed.sel.a; ed.pcm = recCutPcm(ed.pcm, ed.sel.a, ed.sel.b); ed.sel = null; ed.head = Math.min(at, ed.len()); ed.emit(); };
+        ed.undo = function () { var h = ed.hist.pop(); if (!h) return; ed.pcm = h.pcm; ed.sel = h.sel; ed.head = h.head; ed.emit(); };
+        ed.exportPcm = function () { return ed.sel ? recSlicePcm(ed.pcm, ed.sel.a, ed.sel.b) : ed.pcm; };
+        // Normaliser : amène la crête de ce qui sera exporté à −1 dB (dans la limite de −12…+24 dB de gain).
+        ed.normalize = function () {
+            var pk = recPeakOf(ed.exportPcm());
+            if (pk <= 0.0001) return;
+            ed.gainDb = Math.max(-12, Math.min(24, Math.round(-1 - 20 * Math.log10(pk))));
+            ed.emit();
+        };
+        return ed;
+    }
+    // Aperçu : joue la sélection (ou depuis le repère jusqu'à la fin) avec le volume et les fondus choisis. Un contexte audio le temps de la lecture.
+    function recPlayPreview(ed, onTick, onEnd) {
+        var Ctor = window.AudioContext || window.webkitAudioContext, ctx, src, stopped = false, raf = null;
+        var n = ed.len(), sr = ed.pcm.sr, a = ed.sel ? ed.sel.a : (ed.head >= n - sr * 0.05 ? 0 : ed.head), b = ed.sel ? ed.sel.b : n;
+        function stop(fromEnd) {
+            if (stopped) return; stopped = true;
+            if (raf) cancelAnimationFrame(raf);
+            try { src.onended = null; src.stop(); } catch (e) {}
+            try { ctx.close(); } catch (e) {}
+            if (rec.stopPlay === stop) rec.stopPlay = null;
+            if (onEnd) onEnd(fromEnd === true);
+        }
+        try {
+            ctx = new Ctor();
+            try { ctx.resume(); } catch (e) {}
+            var buf = ctx.createBuffer(ed.pcm.chans.length, n, sr);
+            ed.pcm.chans.forEach(function (c, i) { if (buf.copyToChannel) buf.copyToChannel(c, i); else buf.getChannelData(i).set(c); });
+            src = ctx.createBufferSource(); src.buffer = buf;
+            var g = ctx.createGain(), lin = ed.lin(), t0 = ctx.currentTime + 0.05, dur = (b - a) / sr;
+            g.gain.setValueAtTime(lin, t0);
+            if (ed.fade) { var f = Math.min(REC_FADE_S, dur / 2); g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(lin, t0 + f); g.gain.setValueAtTime(lin, t0 + dur - f); g.gain.linearRampToValueAtTime(0, t0 + dur); }
+            src.connect(g); g.connect(ctx.destination);
+            src.onended = function () { stop(true); };
+            src.start(t0, a / sr, dur);
+            (function tick() { if (stopped) return; var el = Math.max(0, ctx.currentTime - t0); if (onTick) onTick(Math.min(b, a + Math.round(el * sr))); raf = requestAnimationFrame(tick); })();
+        } catch (e) { stop(false); return null; }
+        rec.stopPlay = stop;
+        return stop;
+    }
+    // Dessin de la prise en cours : une barre par colonne, la plus grande valeur du paquet ; tout tient toujours dans la largeur.
+    function recCanvasPrep(cv) {
+        var r = cv.getBoundingClientRect(), dpr = Math.min(3, window.devicePixelRatio || 1), w = Math.max(40, Math.round(r.width)), h = Math.max(30, Math.round(r.height));
+        if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+        var g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+        var cs = getComputedStyle(cv);
+        return { g: g, w: w, h: h, accent: (cs.getPropertyValue("--accent") || "#00e676").trim(), muted: (cs.getPropertyValue("--text-muted") || "#888").trim(), red: "#ff5252" };
+    }
+    function recBar(g, x, w, h, a, color) { var bh = Math.max(2, Math.pow(a, 0.6) * (h - 6)), y = (h - bh) / 2; g.fillStyle = color; g.fillRect(x, y, w, bh); }
+    function recDrawLive(cv, peaks) {
+        var c = recCanvasPrep(cv), g = c.g, step = 3, cap = Math.max(1, Math.floor(c.w / step));
+        g.fillStyle = c.muted; g.globalAlpha = 0.25; g.fillRect(0, c.h / 2 - 0.5, c.w, 1); g.globalAlpha = 1;
+        var n = peaks.length; if (!n) return;
+        var per = Math.max(1, Math.ceil(n / cap)), cols = Math.ceil(n / per);
+        for (var i = 0; i < cols; i++) { var pk = 0; for (var j = i * per; j < Math.min(n, (i + 1) * per); j++) if (peaks[j] > pk) pk = peaks[j]; recBar(g, i * step, 2, c.h, pk, pk > 0.92 ? c.red : c.accent); }
+    }
+    function recFmtT(sec) { sec = Math.max(0, sec); var m = Math.floor(sec / 60), s = sec - m * 60; return m + ":" + (s < 10 ? "0" : "") + s.toFixed(1); }
+
     function recDevices() {
         if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return Promise.resolve([]);
         return navigator.mediaDevices.enumerateDevices().then(function (list) {
@@ -11486,13 +11793,57 @@
         if (!f && lastTouchedExerciseId) { var g = findExerciseById(lastTouchedExerciseId); if (g && !g.ex.collapsed) f = g; }
         return f;
     }
-    // Où la prise sera rangée d'après le choix courant : { kind: "ex", f } | { kind: "folder", folder } | null (« me demander »).
+    // Dossier « Mes enregistrements » : un chapitre de l'espace actif, créé à la première prise rangée là. Chaque prise y devient un exercice
+    // (au nom de la prise, avec son audio), donc se renomme comme n'importe quel exercice — et depuis la liste de l'enregistreur.
+    var REC_LIB_NAME = "Mes enregistrements";
+    var recLibOpen = false; // liste des prises de « Mes enregistrements » : repliée d'office, le choix est retenu
+    function recLibFolder(create) {
+        var inst = getActiveInstrument();
+        if (!inst) return null;
+        var map = state.settings.recLib && typeof state.settings.recLib === "object" ? state.settings.recLib : null;
+        var f = map && map[inst.id] ? findFolderById(inst, map[inst.id]) : null;
+        if (!f) f = inst.categories.filter(function (c) { return (c.name || "").trim().toLowerCase() === REC_LIB_NAME.toLowerCase(); })[0] || null;
+        if (!f && create) {
+            var pal = currentPalette();
+            f = makeFolder(REC_LIB_NAME, pal[inst.categories.length % pal.length]);
+            inst.categories.push(f);
+        }
+        if (f && create) { if (!state.settings.recLib || typeof state.settings.recLib !== "object") state.settings.recLib = {}; state.settings.recLib[inst.id] = f.id; }
+        return f;
+    }
+    // Les prises rangées dans « Mes enregistrements » : [{ ex, meta }] (l'exercice et son fichier audio), la plus récente en premier.
+    function recLibItems() {
+        var f = recLibFolder(false), out = [];
+        if (!f) return out;
+        (f.exercises || []).forEach(function (ex) {
+            var meta = (ex.files || []).filter(function (m) { return isAudioFile(m); })[0];
+            if (meta) out.push({ ex: ex, meta: meta });
+        });
+        return out.sort(function (a, b) { return (b.meta.addedAt || 0) - (a.meta.addedAt || 0); });
+    }
+    // Une prise de « Mes enregistrements » renommée comme n'importe quel exercice (titre dans la liste, menu « Renommer ») : son fichier audio suit,
+    // s'il portait encore le nom d'origine.
+    function recSyncAudioName(ex, oldTitle) {
+        var f = recLibFolder(false);
+        if (!f || (f.exercises || []).indexOf(ex) === -1) return;
+        (ex.files || []).forEach(function (m) { if (isAudioFile(m) && m.name === oldTitle) m.name = ex.title; });
+    }
+    // Renomme une prise : le titre de l'exercice ET le nom du fichier audio (un seul geste).
+    function recRenameItem(it, name) {
+        name = (name || "").trim().slice(0, 80);
+        if (!name || (it.ex.title === name && it.meta.name === name)) return false;
+        it.ex.title = name; it.meta.name = name;
+        touchExercise(it.ex); save(); render();
+        return true;
+    }
+    // Où la prise sera rangée d'après le choix courant : { kind: "ex", f } | { kind: "folder", folder } | { kind: "lib" } (dossier « Mes enregistrements »,
+    // créé au moment de ranger). Sans exercice à viser (aucun d'ouvert, ou disparu), la prise va dans « Mes enregistrements » plutôt que d'être refusée.
     function recResolveTarget(dest) {
         dest = dest || rec.dest;
-        if (dest.mode === "ctx") { var c = (dest.ctx && findExerciseById(dest.ctx)) || recContextExercise(); return c ? { kind: "ex", f: c } : null; } // dest.ctx : l'exercice en cours AU DÉPART de la prise
-        if (dest.mode === "pick" && dest.exId) { var f = findExerciseById(dest.exId); return f ? { kind: "ex", f: f } : null; }
-        if (dest.mode === "folder" && dest.folderId) { var fo = findFolderById(getActiveInstrument(), dest.folderId); return fo ? { kind: "folder", folder: fo } : null; }
-        return null;
+        if (dest.mode === "ctx") { var c = (dest.ctx && findExerciseById(dest.ctx)) || recContextExercise(); if (c) return { kind: "ex", f: c }; } // dest.ctx : l'exercice en cours AU DÉPART de la prise
+        else if (dest.mode === "pick" && dest.exId) { var f = findExerciseById(dest.exId); if (f) return { kind: "ex", f: f }; }
+        else if (dest.mode === "folder" && dest.folderId) { var fo = findFolderById(getActiveInstrument(), dest.folderId); if (fo) return { kind: "folder", folder: fo }; }
+        return { kind: "lib" };
     }
     function recCloseStream() {
         if (rec.meterRaf) { cancelAnimationFrame(rec.meterRaf); rec.meterRaf = null; }
@@ -11513,7 +11864,7 @@
             rec.ctx = new (window.AudioContext || window.webkitAudioContext)();
             try { rec.ctx.resume(); } catch (e) {}
             rec.src = rec.ctx.createMediaStreamSource(stream);
-            rec.analyser = rec.ctx.createAnalyser(); rec.analyser.fftSize = 1024;
+            rec.analyser = rec.ctx.createAnalyser(); rec.analyser.fftSize = 2048; // ~45 ms : couvre l'intervalle des barres de la forme d'onde
             rec.src.connect(rec.analyser);
             if (rec.phase !== "review" && rec.phase !== "recording") rec.phase = "armed";
             recEmit();
@@ -11552,6 +11903,14 @@
         rec.startedAt = Date.now(); rec.ms = 0;
         rec.mr.start(1000);
         rec.phase = "recording";
+        rec.peaks = [];
+        var pbuf = new Uint8Array(rec.analyser ? rec.analyser.fftSize : 2048);
+        rec.peakTimer = setInterval(function () { // une barre de la forme d'onde toutes les 40 ms, même fenêtre fermée
+            if (!rec.analyser) return;
+            rec.analyser.getByteTimeDomainData(pbuf);
+            var pk = 0; for (var i = 0; i < pbuf.length; i++) { var v = Math.abs(pbuf[i] - 128) / 128; if (v > pk) pk = v; }
+            rec.peaks.push(pk);
+        }, REC_PEAK_MS);
         rec.timer = setInterval(function () { rec.ms = Date.now() - rec.startedAt; recEmit(); }, 250);
         recEmit();
     }
@@ -11559,6 +11918,7 @@
         if (rec.phase !== "recording" || !rec.mr) return;
         rec.ms = Date.now() - rec.startedAt;
         clearInterval(rec.timer); rec.timer = null;
+        if (rec.peakTimer) { clearInterval(rec.peakTimer); rec.peakTimer = null; }
         rec.phase = "finishing";
         try { rec.mr.stop(); } catch (e) { recFinish(); }
         if (rec.startedMetro && metroPlaying) { if (metroPanelApi && metroPanelApi.toggle) metroPanelApi.toggle(); else stopMetronome(); }
@@ -11582,6 +11942,7 @@
     }
     function recClearPending() { recSetPref("pending", ""); try { localStorage.removeItem(REC_KEYS.pending); } catch (e) {} deleteFileBlob(REC_PENDING_BLOB); }
     function recDiscard() {
+        if (rec.stopPlay) rec.stopPlay();
         rec.take = null;
         rec.phase = rec.stream ? "armed" : "idle";
         recClearPending();
@@ -11599,29 +11960,47 @@
             rec.phase = "review"; recEmit();
         }, function () {});
     }
-    // Range la prise : pièce jointe audio de l'exercice visé, ou d'un nouvel exercice créé dans le dossier visé.
+    // Fichier à ranger : MP3 d'office (ou le format d'origine si on l'a demandé et que rien n'a été touché), avec les coupes, le volume et les fondus
+    // choisis. Encodeur MP3 absent : WAV. Décodage impossible : la prise d'origine, telle quelle.
+    function recPrepareOutput(take, onProgress) {
+        var fmt = recPref("fmt", "mp3"), ed = take.ed, edited = !!(ed && ed.dirty());
+        var orig = { blob: take.blob, mime: take.mime, ext: recExt(take.mime), how: "orig" };
+        if (!edited && fmt !== "mp3") return Promise.resolve(orig);
+        var pcmP = ed ? Promise.resolve(ed.exportPcm()) : (take.ms <= REC_EDIT_MAX_MS ? recDecode(take.blob) : Promise.reject(new Error("prise trop longue")));
+        var lin = ed ? ed.lin() : 1, fade = ed ? ed.fade : false;
+        return pcmP.then(function (pcm) {
+            if (fmt === "mp3") return recEncodeMp3(pcm, lin, fade, onProgress).then(function (b) { return { blob: b, mime: "audio/mpeg", ext: ".mp3", how: "mp3" }; }, function () { return { blob: recToWav(pcm, lin, fade), mime: "audio/wav", ext: ".wav", how: "wav" }; });
+            return { blob: recToWav(pcm, lin, fade), mime: "audio/wav", ext: ".wav", how: "wav" };
+        }, function (err) { if (edited) throw err; return orig; });
+    }
+    // Range la prise : pièce jointe audio de l'exercice visé, ou d'un nouvel exercice créé dans le dossier visé (« Mes enregistrements » sans exercice à viser).
     function recSave(name, quiet) {
-        var take = rec.take, target = recResolveTarget(quiet && rec.destAtStart ? rec.destAtStart : rec.dest);
-        if (!take) return;
-        if (!target) { showToast("Choisis où ranger l'enregistrement (un exercice, ou un dossier).", 4000); return; }
+        var take = rec.take;
+        if (!take || rec.saving) return;
+        var target = recResolveTarget(quiet && rec.destAtStart ? rec.destAtStart : rec.dest);
         name = (name || take.name || "Enregistrement").trim().slice(0, 80) || "Enregistrement";
-        var file;
-        try { file = new File([take.blob], name + recExt(take.mime), { type: take.mime }); } catch (e) { file = take.blob; file.name = name + recExt(take.mime); }
-        var ex = target.kind === "ex" ? target.f.ex : { id: uid(), title: name, notes: "", favorite: false, archived: false, links: [], files: [], tempoGoal: false, collapsed: true, updatedAt: Date.now() };
-        return attachFileToExercise(ex, file, name).then(function (meta) {
-            if (target.kind === "folder") target.folder.exercises.push(ex);
-            exerciseMediaTab[ex.id] = "links";
-            touchExercise(ex);
-            save();
-            if (target.kind === "ex") refreshExerciseMedia(ex); else render();
-            var where = target.kind === "ex" ? "« " + ex.title + " »" : "le dossier « " + target.folder.name + " » (nouvel exercice)";
-            rec.take = null; rec.phase = rec.stream ? "armed" : "idle";
-            recClearPending();
-            recEmit();
-            showToast("Enregistré dans " + where + " : « " + name + " ».", 6000, { label: "Écouter", run: function () { openAudioWindow(meta); } });
-        }, function () {
-            dlgAlert({ title: "Enregistrement non rangé", message: "Stockage plein, ou navigation privée activée sur cet appareil. La prise reste ici : tu peux réessayer." });
-        });
+        rec.saving = true; rec.progress = 0;
+        if (rec.stopPlay) rec.stopPlay();
+        recEmit();
+        function fail() { rec.saving = false; recEmit(); dlgAlert({ title: "Enregistrement non rangé", message: "Stockage plein, navigation privée activée, ou conversion impossible sur cet appareil. La prise reste ici : tu peux réessayer." }); }
+        return recPrepareOutput(take, function (p) { rec.progress = p; recEmit(); }).then(function (out) {
+            var file;
+            try { file = new File([out.blob], name + out.ext, { type: out.mime }); } catch (e) { file = out.blob; file.name = name + out.ext; }
+            var isLib = target.kind === "lib", folder = isLib ? recLibFolder(true) : target.kind === "folder" ? target.folder : null;
+            var ex = target.kind === "ex" ? target.f.ex : { id: uid(), title: name, notes: "", favorite: false, archived: false, links: [], files: [], tempoGoal: false, collapsed: true, updatedAt: Date.now() };
+            return attachFileToExercise(ex, file, name).then(function (meta) {
+                if (folder) folder.exercises.push(ex);
+                exerciseMediaTab[ex.id] = "links";
+                touchExercise(ex);
+                save();
+                if (target.kind === "ex") refreshExerciseMedia(ex); else render();
+                var where = target.kind === "ex" ? "« " + ex.title + " »" : isLib ? "« " + REC_LIB_NAME + " »" : "le dossier « " + folder.name + " » (nouvel exercice)";
+                rec.take = null; rec.phase = rec.stream ? "armed" : "idle"; rec.saving = false;
+                recClearPending();
+                recEmit();
+                showToast("Enregistré dans " + where + " : « " + name + " »" + (out.how === "wav" ? " (WAV : encodeur MP3 indisponible)" : "") + ".", 6000, isLib ? { label: "Voir", run: function () { revealExercise(ex.id); } } : { label: "Écouter", run: function () { openAudioWindow(meta); } });
+            });
+        }).catch(fail);
     }
     window.addEventListener("beforeunload", function () { if (rec.phase === "recording") { try { rec.mr.stop(); } catch (e) {} } });
 
@@ -11681,17 +12060,17 @@
             aLab.appendChild(aCb); aLab.appendChild(el("span", "", "Ranger sans demander à l'arrêt"));
             aRow.appendChild(aLab); panel.appendChild(aRow);
             aCb.addEventListener("change", function () { recSetPref("auto", aCb.checked ? "1" : "0"); });
-            if (!rec.dest.mode) rec.dest.mode = recPref("dest", "ctx");
+            if (!rec.dest.mode) { var m0 = recPref("dest", "ctx"); rec.dest.mode = ["ctx", "lib", "pick", "folder"].indexOf(m0) === -1 ? "ctx" : m0; } // l'ancien « me demander » devient « exercice en cours »
             function paintDest() {
                 var ctx = recContextExercise(), pickF = rec.dest.exId ? findExerciseById(rec.dest.exId) : null, fo = rec.dest.folderId ? findFolderById(getActiveInstrument(), rec.dest.folderId) : null;
                 dSel.innerHTML = "";
                 function opt(v, t) { var o = el("option", "", t); o.value = v; dSel.appendChild(o); }
-                opt("ctx", ctx ? "Exercice en cours : « " + ctx.ex.title + " »" : "Exercice en cours (aucun d'ouvert)");
+                opt("ctx", ctx ? "Exercice en cours : « " + ctx.ex.title + " »" : "Exercice en cours (aucun d'ouvert : « " + REC_LIB_NAME + " »)");
+                opt("lib", "« " + REC_LIB_NAME + " » (un exercice par prise)");
                 opt("pick", pickF ? "Un exercice : « " + pickF.ex.title + " »" : "Un autre exercice…");
                 opt("folder", fo ? "Nouvel exercice dans « " + fo.name + " »" : "Nouvel exercice dans un dossier…");
-                opt("ask", "Me demander à la fin");
                 dSel.value = rec.dest.mode;
-                aRow.hidden = !recResolveTarget(rec.dest);
+                aRow.hidden = false;
             }
             dSel.addEventListener("change", function () {
                 var v = dSel.value, prev = rec.dest.mode;
@@ -11707,6 +12086,9 @@
             var meter = el("div", "rec-meter"); var fill = el("div", "rec-meter-fill"); meter.appendChild(fill);
             main.appendChild(go); main.appendChild(timeEl); main.appendChild(meter);
             panel.appendChild(main);
+            var live = el("div", "rec-live-wave"); live.hidden = true;
+            var liveCv = el("canvas", "rec-live-cv"); liveCv.setAttribute("aria-label", "Forme d'onde de l'enregistrement en cours"); live.appendChild(liveCv);
+            panel.appendChild(live);
             var msg = el("div", "rec-msg"); msg.setAttribute("role", "status"); panel.appendChild(msg);
             go.addEventListener("click", function () { if (rec.phase === "recording") recStop(); else if (rec.phase === "armed") recStart(); else if (rec.phase === "idle") recOpenStream(); });
 
@@ -11717,9 +12099,16 @@
             var info = el("div", "rec-take-info");
             var acts = el("div", "rec-take-acts");
             var save = el("button", "btn-accent rec-save", "Enregistrer"); save.type = "button";
+            var fmtRow = el("label", "rec-row rec-fmt-row"); fmtRow.appendChild(el("span", "rec-lab", "Format"));
+            var fmtSel = el("select", "rec-select"); fmtSel.setAttribute("aria-label", "Format du fichier enregistré");
+            [["mp3", "MP3 (compatible partout)"], ["orig", "Format d'origine de l'appareil"]].forEach(function (o) { var op = el("option", "", o[1]); op.value = o[0]; fmtSel.appendChild(op); });
+            fmtSel.value = recPref("fmt", "mp3") === "orig" ? "orig" : "mp3";
+            fmtSel.addEventListener("change", function () { recSetPref("fmt", fmtSel.value); });
+            fmtRow.appendChild(fmtSel);
+            var wave = el("div", "rec-wave"); wave.hidden = true;
             var del = el("button", "btn-ghost rec-del", "Supprimer"); del.type = "button";
             acts.appendChild(del); acts.appendChild(save);
-            take.appendChild(audio); take.appendChild(nameIn); take.appendChild(info); take.appendChild(acts);
+            take.appendChild(wave); take.appendChild(audio); take.appendChild(nameIn); take.appendChild(fmtRow); take.appendChild(info); take.appendChild(acts);
             panel.appendChild(take);
             var shownTake = null, audioUrl = null;
             save.addEventListener("click", function () { recSave(nameIn.value); });
@@ -11733,10 +12122,148 @@
                 fill.style.width = Math.min(100, Math.round(Math.sqrt(peak) * 100)) + "%";
                 fill.classList.toggle("rec-hot", peak > 0.92);
             }
-            function loop() { paintLevel(); rec.meterRaf = (rec.phase === "armed" || rec.phase === "recording") ? requestAnimationFrame(loop) : null; if (!rec.meterRaf) fill.style.width = "0%"; }
+            function loop() { paintLevel(); if (!live.hidden) recDrawLive(liveCv, rec.peaks); rec.meterRaf = (rec.phase === "armed" || rec.phase === "recording") ? requestAnimationFrame(loop) : null; if (!rec.meterRaf) fill.style.width = "0%"; }
+            // -- éditeur de la prise : forme d'onde (sélection à la souris ou au doigt), couper, volume, fondus
+            var builtEd = null, edRedraw = null, edObserver = null;
+            function detachEd() {
+                if (builtEd && edRedraw) builtEd.listeners = builtEd.listeners.filter(function (fn) { return fn !== edRedraw; });
+                if (edObserver) { edObserver.disconnect(); edObserver = null; }
+                if (rec.stopPlay) rec.stopPlay();
+                builtEd = null; edRedraw = null;
+            }
+            function buildEdUI(ed) {
+                detachEd();
+                builtEd = ed;
+                wave.innerHTML = ""; wave.hidden = false; audio.hidden = true;
+                var cv = el("canvas", "rec-wave-cv"); cv.setAttribute("aria-label", "Forme d'onde de la prise : glisser pour sélectionner une partie, cliquer pour placer le repère"); wave.appendChild(cv);
+                var rng = el("div", "rec-wave-rng"); wave.appendChild(rng);
+                var tools = el("div", "rec-wave-tools"); wave.appendChild(tools);
+                function tb(label, title, fn) { var b = el("button", "btn-ghost rec-wave-btn", label); b.type = "button"; b.title = title; b.addEventListener("click", fn); tools.appendChild(b); return b; }
+                var playing = false;
+                var playB = tb("▶ Écouter", "Écouter la sélection, ou depuis le repère jusqu'à la fin (avec le volume et les fondus choisis)", function () {
+                    if (playing) { if (rec.stopPlay) rec.stopPlay(); return; }
+                    playing = true;
+                    var stop = recPlayPreview(ed, function (pos) { ed.head = pos; drawOnly(); }, function (fromEnd) { playing = false; if (fromEnd && !ed.sel) ed.head = 0; redraw(); });
+                    if (!stop) playing = false;
+                    redraw();
+                });
+                playB.classList.add("rec-wave-play");
+                var allB = tb("Tout sélectionner", "Sélectionner toute la prise", function () { if (rec.stopPlay) rec.stopPlay(); ed.setSel(0, ed.len()); });
+                var keepB = tb("Garder la sélection", "Ne garder que la partie sélectionnée : tout le reste est coupé", function () { if (rec.stopPlay) rec.stopPlay(); ed.keep(); });
+                var cutB = tb("Supprimer la sélection", "Couper la partie sélectionnée (le début et la fin se rejoignent)", function () { if (rec.stopPlay) rec.stopPlay(); ed.cut(); });
+                var undoB = tb("↶ Annuler", "Annuler la dernière coupe", function () { if (rec.stopPlay) rec.stopPlay(); ed.undo(); });
+                var vRow = el("div", "rec-wave-vol");
+                vRow.appendChild(el("span", "rec-lab", "Volume"));
+                var vIn = el("input", "rec-wave-vrange"); vIn.type = "range"; vIn.min = "-12"; vIn.max = "24"; vIn.step = "1"; vIn.value = String(ed.gainDb); vIn.setAttribute("aria-label", "Volume de l'enregistrement (dB)");
+                var vVal = el("span", "rec-wave-vval");
+                var normB = el("button", "btn-ghost rec-wave-btn", "Normaliser"); normB.type = "button"; normB.title = "Amener le son le plus fort juste sous la saturation (sur la partie qui sera enregistrée)";
+                vRow.appendChild(vIn); vRow.appendChild(vVal); vRow.appendChild(normB);
+                wave.appendChild(vRow);
+                var fRow = el("label", "rec-check rec-wave-fade"); var fCb = el("input"); fCb.type = "checkbox"; fCb.checked = ed.fade;
+                fRow.appendChild(fCb); fRow.appendChild(el("span", "", "Fondu au début et à la fin"));
+                wave.appendChild(fRow);
+                vIn.addEventListener("input", function () { ed.gainDb = parseInt(vIn.value, 10) || 0; redraw(); });
+                normB.addEventListener("click", function () { ed.normalize(); });
+                fCb.addEventListener("change", function () { ed.fade = fCb.checked; redraw(); });
+
+                // sélection : glisser dans le vide = nouvelle sélection ; glisser une poignée = l'ajuster ; clic = placer le repère
+                var drag = null;
+                function xSample(clientX) { var r = cv.getBoundingClientRect(); return Math.max(0, Math.min(1, (clientX - r.left) / Math.max(1, r.width))) * ed.len(); }
+                function grabPx() { return 10 / Math.max(1, cv.getBoundingClientRect().width) * ed.len(); }
+                cv.addEventListener("pointerdown", function (e) {
+                    e.preventDefault();
+                    try { cv.setPointerCapture(e.pointerId); } catch (er) {}
+                    var sm = xSample(e.clientX), sel = ed.sel, g = grabPx();
+                    if (sel && Math.abs(sm - sel.a) <= g) drag = { fixed: sel.b };
+                    else if (sel && Math.abs(sm - sel.b) <= g) drag = { fixed: sel.a };
+                    else drag = { anchor: sm, x0: e.clientX, moved: false };
+                });
+                cv.addEventListener("pointermove", function (e) {
+                    if (!drag) { var sm = xSample(e.clientX), g = grabPx(); cv.style.cursor = ed.sel && (Math.abs(sm - ed.sel.a) <= g || Math.abs(sm - ed.sel.b) <= g) ? "ew-resize" : "crosshair"; return; }
+                    if (drag.fixed !== undefined) { ed.setSel(drag.fixed, xSample(e.clientX)); return; }
+                    if (!drag.moved && Math.abs(e.clientX - drag.x0) < 4) return;
+                    if (!drag.moved) { drag.moved = true; if (rec.stopPlay) rec.stopPlay(); }
+                    ed.setSel(drag.anchor, xSample(e.clientX));
+                });
+                function endDrag(e) {
+                    if (!drag) return;
+                    var d = drag; drag = null;
+                    if (d.fixed === undefined && !d.moved) { ed.sel = null; ed.head = Math.round(d.anchor); ed.emit(); } // simple clic : repère de lecture
+                    else if (ed.sel && ed.sel.b - ed.sel.a < ed.pcm.sr * 0.05) ed.clearSel(); // sélection minuscule : écartée
+                }
+                cv.addEventListener("pointerup", endDrag); cv.addEventListener("pointercancel", endDrag);
+
+                var cache = { pcm: null, n: 0, v: null };
+                function drawOnly() {
+                    var c = recCanvasPrep(cv), g = c.g, n = ed.len(), cols = Math.max(10, Math.floor(c.w / 3));
+                    if (cache.pcm !== ed.pcm || cache.n !== cols) cache = { pcm: ed.pcm, n: cols, v: recWaveCols(ed.pcm, cols, 0, n) };
+                    var sa = ed.sel ? ed.sel.a / n * c.w : -1, sb = ed.sel ? ed.sel.b / n * c.w : -1, bw = Math.max(1.5, c.w / cols - 1);
+                    g.fillStyle = c.muted; g.globalAlpha = 0.25; g.fillRect(0, c.h / 2 - 0.5, c.w, 1); g.globalAlpha = 1;
+                    if (ed.sel) { g.fillStyle = c.accent; g.globalAlpha = 0.18; g.fillRect(sa, 0, sb - sa, c.h); g.globalAlpha = 1; }
+                    for (var i = 0; i < cols; i++) { var x = i * c.w / cols, on = !ed.sel || (x + bw >= sa && x <= sb); recBar(g, x, bw, c.h, cache.v[i], on ? c.accent : c.muted); }
+                    if (ed.sel) { g.fillStyle = c.accent; [sa, sb].forEach(function (x) { g.fillRect(x - 1, 0, 2, c.h); g.fillRect(x - 4, c.h / 2 - 11, 8, 22); }); }
+                    var hx = Math.min(c.w - 1, ed.head / n * c.w); g.fillStyle = c.red; g.fillRect(hx - 0.5, 0, 1.5, c.h);
+                }
+                function redraw() {
+                    drawOnly();
+                    var n = ed.len(), sr = ed.pcm.sr;
+                    rng.textContent = ed.sel ? "Sélection " + recFmtT(ed.sel.a / sr) + " → " + recFmtT(ed.sel.b / sr) + " (" + recFmtT((ed.sel.b - ed.sel.a) / sr) + " sur " + recFmtT(n / sr) + ")" : "Durée " + recFmtT(n / sr) + " — glisser pour sélectionner une partie, cliquer pour placer le repère";
+                    playB.textContent = playing ? "■ Arrêter" : "▶ Écouter";
+                    keepB.disabled = !ed.sel; cutB.disabled = !ed.sel || (ed.sel.b - ed.sel.a >= n); allB.disabled = !!(ed.sel && ed.sel.a === 0 && ed.sel.b === n);
+                    undoB.disabled = !ed.hist.length;
+                    vVal.textContent = (ed.gainDb > 0 ? "+" : ed.gainDb < 0 ? "−" : "") + Math.abs(ed.gainDb) + " dB";
+                    if (parseInt(vIn.value, 10) !== ed.gainDb) vIn.value = String(ed.gainDb);
+                    fCb.checked = ed.fade;
+                    paintSave();
+                }
+                edRedraw = redraw;
+                ed.listeners.push(redraw);
+                if (window.ResizeObserver) { edObserver = new ResizeObserver(function () { drawOnly(); }); edObserver.observe(cv); }
+                redraw();
+            }
+            // Libellé du bouton d'enregistrement : la sélection (si elle existe) est ce qui sera rangé ; progression de l'encodage.
+            function paintSave() {
+                var ed = rec.take && rec.take.ed;
+                if (rec.saving) { save.disabled = true; save.textContent = "Encodage… " + Math.round((rec.progress || 0) * 100) + " %"; }
+                else { save.disabled = false; save.textContent = ed && ed.sel ? "Enregistrer la sélection (" + recFmtT((ed.sel.b - ed.sel.a) / ed.pcm.sr) + ")" : "Enregistrer"; }
+                del.disabled = nameIn.disabled = fmtSel.disabled = !!rec.saving;
+            }
+
+            // -- « Mes enregistrements » : les prises rangées là, à renommer d'un clic (le nom de l'exercice ET du fichier audio)
+            var lib = el("details", "rec-lib"); lib.open = recLibOpen;
+            var libSum = el("summary", "", REC_LIB_NAME); lib.appendChild(libSum);
+            var libList = el("div", "rec-lib-list"); lib.appendChild(libList);
+            lib.addEventListener("toggle", function () { recLibOpen = lib.open; });
+            panel.appendChild(lib);
+            var libSig = null;
+            function paintLib() {
+                var items = recLibItems();
+                lib.hidden = !items.length;
+                libSum.textContent = REC_LIB_NAME + (items.length ? " (" + items.length + ")" : "");
+                var sig = items.map(function (it) { return it.ex.id + "|" + it.ex.title; }).join(";");
+                if (sig === libSig) return;
+                if (libList.contains(document.activeElement) && document.activeElement.tagName === "INPUT") return; // en pleine saisie : on ne reconstruit pas
+                libSig = sig; libList.innerHTML = "";
+                items.slice(0, 60).forEach(function (it) {
+                    var row = el("div", "rec-lib-row");
+                    var play = el("button", "btn-ghost rec-lib-play", "▶"); play.type = "button"; play.title = "Écouter"; play.setAttribute("aria-label", "Écouter " + it.ex.title);
+                    play.addEventListener("click", function () { openAudioWindow(it.meta); });
+                    var inp = el("input", "rec-lib-name"); inp.type = "text"; inp.maxLength = 80; inp.value = it.ex.title; inp.setAttribute("aria-label", "Nom de l'enregistrement");
+                    inp.addEventListener("change", function () { if (recRenameItem(it, inp.value)) recEmit(); else inp.value = it.ex.title; });
+                    inp.addEventListener("keydown", function (e) { e.stopPropagation(); if (e.key === "Enter") { e.preventDefault(); inp.blur(); } else if (e.key === "Escape") { inp.value = it.ex.title; inp.blur(); } });
+                    var go = el("button", "btn-ghost rec-lib-go", "↗"); go.type = "button"; go.title = "Voir dans le dossier"; go.setAttribute("aria-label", "Voir " + it.ex.title + " dans le dossier");
+                    go.addEventListener("click", function () { revealExercise(it.ex.id); });
+                    row.appendChild(play); row.appendChild(inp); row.appendChild(go); libList.appendChild(row);
+                });
+            }
             function paint() {
                 var ph = rec.phase, recording = ph === "recording", busy = ph === "recording" || ph === "finishing";
                 panel.classList.toggle("rec-is-live", recording);
+                live.hidden = !busy;
+                // la prise à ajuster prend toute la place : entrée, métronome et niveau reviennent une fois la prise rangée ou supprimée
+                var reviewing = ph === "review";
+                srcRow.hidden = mRow.hidden = main.hidden = reviewing;
+                cRow.hidden = reviewing || !mCb.checked;
                 go.className = "rec-go" + (recording ? " rec-go-stop" : "");
                 go.innerHTML = recording ? '<span class="rec-go-sq"></span>Arrêter' : '<span class="rec-go-dot"></span>' + (ph === "idle" ? "Activer l'entrée" : "Enregistrer");
                 go.disabled = ph === "finishing" || (ph === "review" && !rec.stream);
@@ -11749,15 +12276,23 @@
                 take.hidden = !showTake;
                 if (showTake && shownTake !== rec.take) {
                     shownTake = rec.take;
+                    detachEd(); wave.innerHTML = ""; wave.hidden = true; audio.hidden = false;
+                    var tk = rec.take;
+                    if (!tk.ed && !tk.edFail && !tk.edLoading && tk.ms <= REC_EDIT_MAX_MS) { // décodage de la prise pour dessiner sa forme d'onde
+                        tk.edLoading = true;
+                        recDecode(tk.blob).then(function (pcm) { tk.ed = makeRecEditor(pcm); tk.edLoading = false; recEmit(); }, function () { tk.edFail = true; tk.edLoading = false; recEmit(); });
+                    }
                     if (audioUrl) URL.revokeObjectURL(audioUrl);
                     audioUrl = URL.createObjectURL(rec.take.blob); audio.src = audioUrl;
                     nameIn.value = rec.take.name;
                     info.textContent = recFmtTime(rec.take.ms) + " · " + fmtStorage(rec.take.blob.size) + (rec.take.blob.size > CLOUD_FILE_MAX_BYTES ? " — plus de 30 Mo : restera sur cet appareil" : "");
                     setTimeout(function () { try { nameIn.focus(); nameIn.select(); } catch (e) {} }, 30);
                 }
-                if (!showTake) shownTake = null;
+                if (!showTake) { shownTake = null; detachEd(); }
+                else if (rec.take.ed && builtEd !== rec.take.ed) { buildEdUI(rec.take.ed); requestAnimationFrame(function () { clampPanelToViewport(panel); }); } // la fenêtre a grandi : on la rentre dans l'écran
+                else if (rec.take.edLoading) { wave.hidden = false; if (!wave.firstChild) wave.appendChild(el("div", "rec-wave-load", "Analyse de la prise…")); }
                 if ((ph === "armed" || recording) && !rec.meterRaf) loop();
-                paintDest();
+                paintDest(); paintLib(); paintSave();
             }
             rec.listeners.push(paint);
             rec.panelClose = close;
@@ -11770,6 +12305,7 @@
             var ctxTimer = setInterval(function () { if (rec.phase !== "recording" && rec.phase !== "finishing") paintDest(); }, 1500);
             return function () {
                 clearInterval(ctxTimer);
+                detachEd();
                 rec.listeners = rec.listeners.filter(function (fn) { return fn !== paint; });
                 rec.panelClose = null;
                 if (audioUrl) URL.revokeObjectURL(audioUrl);
@@ -12353,6 +12889,99 @@
     function gsDiceMemFor(step) { return gsDiceMem[step.id] || (gsDiceMem[step.id] = { history: [], recent: [] }); }
     // Un dé neuf reprend les réglages habituels de l'outil Gammes (familles, toniques, altérations…), sans son historique.
     function gsNewStepDice() { return { rand: normalizeScaleRand(cloneJson(loadScalesPrefs().rand), true) }; }
+    function gsNewStep(ex, extra) {
+        var st = { id: uid(), exerciseId: ex.id, minutes: gsDefaultMinutes(ex) };
+        if (extra) Object.keys(extra).forEach(function (k) { st[k] = extra[k]; });
+        return st;
+    }
+    // Dé effectif d'un pas de session : celui de l'exercice (réglé une fois pour toutes sur sa fiche), sinon l'ancien réglage propre au pas
+    // (sessions d'avant). Renvoie { rand, own } ou null. Le pas SUIT l'exercice : régler le dé de l'exercice règle toutes ses sessions.
+    function gsStepDice(step, ex) {
+        if (step.dice && typeof step.dice === "object") return { rand: diceRandOf(step.dice), own: true };
+        var r = ex ? exDiceRand(ex) : null;
+        return r ? { rand: r, own: false } : null;
+    }
+    // ---- dé réglé sur l'exercice (ex.dice = { rand }) : le tirage se prépare à l'avance, une fois pour toutes ----
+    var exDiceMem = {};   // id d'exercice -> { history, recent } (en mémoire : pas écrits dans l'exercice à chaque tirage)
+    var exDiceDrawn = {}; // id d'exercice -> dernier tirage { key, root }
+    function exDiceMemFor(ex) { return exDiceMem[ex.id] || (exDiceMem[ex.id] = { history: [], recent: [] }); }
+    // Réglages d'un dé (ex.dice ou step.dice), normalisés UNE fois : l'objet reste le même ensuite, car la fenêtre du dé le modifie en place.
+    var diceRandChecked = typeof WeakSet === "function" ? new WeakSet() : null;
+    function diceRandOf(holder) {
+        if (!holder || typeof holder !== "object") return null;
+        if (!holder.rand || !diceRandChecked || !diceRandChecked.has(holder.rand)) {
+            holder.rand = normalizeScaleRand(holder.rand, true);
+            if (diceRandChecked) diceRandChecked.add(holder.rand);
+        }
+        return holder.rand;
+    }
+    function exDiceRand(ex) { return diceRandOf(ex.dice); }
+    function openExerciseDiceWindow(ex, onChange) {
+        if (!exDiceRand(ex)) return null;
+        var w = openDiceWindow({ title: "Dé de gamme · " + ex.title, rand: ex.dice.rand, mem: exDiceMemFor(ex),
+            persist: function () { touchExercise(ex); saveSoon(); if (onChange) onChange(); },
+            onPick: function (pick) { exDiceDrawn[ex.id] = pick; if (onChange) onChange(); },
+            current: function () { return exDiceDrawn[ex.id] || null; },
+            onView: showScaleInViewer,
+            onRemove: function () { delete ex.dice; delete exDiceDrawn[ex.id]; touchExercise(ex); saveSoon(); if (onChange) onChange(); }, removeLabel: "Retirer le dé de cet exercice" });
+        w.owner = ex;
+        return w;
+    }
+    // Ligne de la fiche d'un exercice : case « Dé de gamme » (cocher propose aussitôt de régler le tirage), résumé du réglage,
+    // bouton pour le modifier, et un tirage direct (utile hors session, en entraînement libre).
+    function buildExerciseDiceRow(ex) {
+        var row = document.createElement("div");
+        row.className = "dice-ex-row";
+        var lab = document.createElement("label");
+        lab.className = "dice-ex-toggle";
+        var cb = document.createElement("input"); cb.type = "checkbox"; cb.className = "dice-ex-cb";
+        var ico = document.createElement("span"); ico.className = "dice-ex-ico"; ico.innerHTML = SCALES_DICE_SVG;
+        var txt = document.createElement("span"); txt.className = "dice-ex-txt"; txt.textContent = "Dé de gamme";
+        lab.appendChild(cb); lab.appendChild(ico); lab.appendChild(txt);
+        var sum = document.createElement("button"); sum.type = "button"; sum.className = "dice-ex-sum";
+        var go = document.createElement("button"); go.type = "button"; go.className = "btn-ghost dice-ex-go"; go.textContent = "Tirer";
+        var res = document.createElement("span"); res.className = "dice-ex-res";
+        row.appendChild(lab); row.appendChild(sum); row.appendChild(go); row.appendChild(res);
+        function paint() {
+            var on = !!exDiceRand(ex);
+            cb.checked = on;
+            lab.classList.toggle("dice-ex-on", on);
+            lab.title = on ? "Un dé choisit la gamme à travailler : le réglage est repris dans chaque session qui contient cet exercice — décocher pour le retirer" : "Cocher pour tirer au sort la gamme à travailler (et régler le tirage dès maintenant : triades, modes…)";
+            sum.hidden = go.hidden = !on;
+            res.hidden = !on;
+            if (!on) return;
+            sum.textContent = scaleRandSummary(ex.dice.rand);
+            sum.title = "Modifier le tirage de cet exercice";
+            var pick = exDiceDrawn[ex.id], d = pick && scaleDefByKey(pick.key);
+            res.textContent = d ? NOTE_NAMES_SHARP[pick.root] + " " + d.label : "";
+        }
+        cb.addEventListener("change", function () {
+            if (cb.checked) {
+                ex.dice = gsNewStepDice();
+                touchExercise(ex); saveSoon(); paint();
+                openExerciseDiceWindow(ex, paint); // on propose tout de suite de régler le tirage
+            } else {
+                var old = ex.dice;
+                if (old) {
+                    delete ex.dice; delete exDiceDrawn[ex.id]; touchExercise(ex); saveSoon();
+                    showToast("Dé retiré de « " + ex.title + " ».", 5000, { label: "Annuler", run: function () { ex.dice = old; touchExercise(ex); saveSoon(); paint(); } });
+                }
+                if (diceWin && diceWin.owner === ex) closeDiceWindow();
+                paint();
+            }
+        });
+        sum.addEventListener("click", function () { openExerciseDiceWindow(ex, paint); });
+        go.addEventListener("click", function () {
+            var rand = exDiceRand(ex); if (!rand) return;
+            var pick = scaleRandDraw(rand, exDiceMemFor(ex));
+            if (!pick) { showToast("Aucune gamme ne correspond au réglage du dé : modifie le tirage.", 4500); return; }
+            exDiceDrawn[ex.id] = pick; paint();
+        });
+        res.addEventListener("click", function () { var pick = exDiceDrawn[ex.id]; if (pick) showScaleInViewer(pick); });
+        res.title = "Voir cette gamme sur le manche";
+        paint();
+        return row;
+    }
     // Affiche une gamme tirée dans l'outil Gammes (manche ou clavier).
     function showScaleInViewer(pick) {
         var sp = loadScalesPrefs();
@@ -14441,17 +15070,23 @@
                 diceBtn.className = "btn-ghost gs-step-dice";
                 diceBtn.innerHTML = SCALES_DICE_SVG;
                 function refreshDiceBtn() {
-                    diceBtn.classList.toggle("gs-step-dice-on", !!step.dice);
-                    diceBtn.title = step.dice ? "Un dé choisit la gamme de cet exercice pendant la session — cliquer pour régler le tirage" : "Ajouter un dé : tirer au sort la gamme à travailler pendant la session";
+                    var sd = gsStepDice(step, found ? found.ex : null);
+                    diceBtn.classList.toggle("gs-step-dice-on", !!sd);
+                    diceBtn.title = sd ? "Un dé choisit la gamme de cet exercice (" + scaleRandSummary(sd.rand) + ") — cliquer pour régler le tirage" : "Ajouter un dé : tirer au sort la gamme à travailler (réglé une fois, repris dans toutes les sessions de cet exercice)";
                     diceBtn.setAttribute("aria-label", diceBtn.title);
                 }
                 refreshDiceBtn();
                 diceBtn.addEventListener("click", function () {
-                    if (!step.dice) step.dice = gsNewStepDice(); else step.dice.rand = normalizeScaleRand(step.dice.rand, true);
+                    var sd = gsStepDice(step, found ? found.ex : null);
+                    if (!sd && found) { // pas encore de dé : il se règle sur l'exercice (donc aussi pour ses autres sessions) et on propose de le régler tout de suite
+                        found.ex.dice = gsNewStepDice(); touchExercise(found.ex); saveSoon();
+                        sd = gsStepDice(step, found.ex);
+                    } else if (!sd) { step.dice = gsNewStepDice(); sd = gsStepDice(step, null); }
                     refreshDiceBtn(); refreshDirty();
-                    var w = openDiceWindow({ title: "Dé de gamme · " + (found ? found.ex.title : "exercice"), rand: step.dice.rand, mem: gsDiceMemFor(step),
-                        persist: function () { refreshDirty(); }, onPick: function () {},
-                        onRemove: function () { delete step.dice; refreshDiceBtn(); refreshDirty(); }, removeLabel: "Retirer le dé de cet exercice" });
+                    var w = openDiceWindow({ title: "Dé de gamme · " + (found ? found.ex.title : "exercice"), rand: sd.rand, mem: gsDiceMemFor(step),
+                        persist: function () { if (!sd.own && found) { touchExercise(found.ex); saveSoon(); } refreshDirty(); refreshDiceBtn(); }, onPick: function () {},
+                        onRemove: function () { if (sd.own) delete step.dice; else if (found) { delete found.ex.dice; touchExercise(found.ex); saveSoon(); } refreshDiceBtn(); refreshDirty(); },
+                        removeLabel: sd.own ? "Retirer le dé de ce pas" : "Retirer le dé de cet exercice" });
                     w.owner = step;
                 });
                 tempoSlot.appendChild(diceBtn);
@@ -14645,11 +15280,11 @@
         addStepBtn.textContent = "+ Ajouter un exercice";
         function startAddStep() {
             gsPickCallback = function (ex) {
-                session.steps.push({ id: uid(), exerciseId: ex.id, minutes: gsDefaultMinutes(ex) });
+                session.steps.push(gsNewStep(ex));
                 save();
             };
             gsPickMulti = function (exs) { // Ctrl/⌘ + clic : plusieurs exercices d'un coup, dans l'ordre des clics
-                exs.forEach(function (ex) { session.steps.push({ id: uid(), exerciseId: ex.id, minutes: gsDefaultMinutes(ex) }); });
+                exs.forEach(function (ex) { session.steps.push(gsNewStep(ex)); });
                 save();
             };
             exSel = {}; exSelAnchor = null;
@@ -17571,7 +18206,7 @@
         var old = findExerciseById((session.steps[0] || {}).exerciseId);
         openExercisePickerModal("Ajouter à la session", { inst: old ? old.inst : getActiveInstrument(), exclude: [] }, function (ex) {
             if (gsRunSession !== session) return;
-            var step = { id: uid(), exerciseId: ex.id, minutes: gsDefaultMinutes(ex), note: "", hidden: [] };
+            var step = gsNewStep(ex, { note: "", hidden: [] });
             var at = Math.max(0, Math.min(idx, session.steps.length));
             session.steps.splice(at, 0, step);
             if (at <= gsRunStepIndex) gsRunStepIndex++; // l'exercice en cours reste le même
@@ -18194,8 +18829,8 @@
         totalEl.title = "Durée totale de la session (s'arrête pendant la pause)";
         content.appendChild(totalEl);
         // Dé de gamme (exercices pour lesquels il a été réglé) : un clic tire une gamme, le tirage s'affiche sous le chrono.
-        if (step.dice) {
-            step.dice.rand = normalizeScaleRand(step.dice.rand, true);
+        var sdice = gsStepDice(step, found ? found.ex : null);
+        if (sdice) {
             var diceLine = document.createElement("div");
             diceLine.className = "gs-run-dice-line";
             var diceGo = document.createElement("button");
@@ -18232,16 +18867,16 @@
                 diceLine.appendChild(cfgBtn);
             };
             var openDiceCfg = function () {
-                var w = openDiceWindow({ title: "Dé de gamme · " + (found ? found.ex.title : "exercice"), rand: step.dice.rand, mem: gsDiceMemFor(step),
-                    persist: function () { save(); },
+                var w = openDiceWindow({ title: "Dé de gamme · " + (found ? found.ex.title : "exercice"), rand: sdice.rand, mem: gsDiceMemFor(step),
+                    persist: function () { if (!sdice.own && found) touchExercise(found.ex); save(); },
                     onPick: function (pick) { gsDiceDrawn[step.id] = pick; refreshDiceLine(); },
                     current: function () { return gsDiceDrawn[step.id] || null; },
                     onView: showScaleInViewer,
-                    onRemove: function () { delete step.dice; delete gsDiceDrawn[step.id]; save(); render(); }, removeLabel: "Retirer le dé de cet exercice" });
+                    onRemove: function () { if (sdice.own) delete step.dice; else if (found) { delete found.ex.dice; touchExercise(found.ex); } delete gsDiceDrawn[step.id]; save(); render(); }, removeLabel: sdice.own ? "Retirer le dé de ce pas" : "Retirer le dé de cet exercice" });
                 w.owner = step;
             };
             diceGo.addEventListener("click", function () {
-                var pick = scaleRandDraw(step.dice.rand, gsDiceMemFor(step));
+                var pick = scaleRandDraw(sdice.rand, gsDiceMemFor(step));
                 if (!pick) { showToast("Aucune gamme ne correspond aux réglages du dé : ouvre « Réglages du dé ».", 4500); return; }
                 gsDiceDrawn[step.id] = pick;
                 refreshDiceLine();
@@ -18388,7 +19023,7 @@
             refreshBellBtn();
         });
         toolsRow.appendChild(bellBtn);
-        if (!step.dice) {
+        if (!sdice) {
             var addDiceBtn = document.createElement("button");
             addDiceBtn.type = "button";
             addDiceBtn.className = "gs-run-dice-add";
@@ -18396,7 +19031,7 @@
             addDiceBtn.title = "Ajouter un dé à cet exercice : tirer au sort la gamme à travailler";
             addDiceBtn.setAttribute("aria-label", addDiceBtn.title);
             addDiceBtn.addEventListener("click", function () {
-                step.dice = gsNewStepDice();
+                if (found) { found.ex.dice = gsNewStepDice(); touchExercise(found.ex); } else step.dice = gsNewStepDice(); // réglé sur l'exercice : repris dans ses autres sessions
                 save();
                 render();
                 showToast("Dé ajouté : un clic sur le dé tire une gamme, « Réglages du dé » ajuste le tirage.", 5000);
