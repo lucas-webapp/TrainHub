@@ -1799,7 +1799,7 @@
     }
 
     // ---- images : bouton dans la barre de l'exercice, ouverture dans un onglet du navigateur ----
-    var NOTE_BUBBLE_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 8.2V7a3.5 3.5 0 0 1 3.5-3.5H18A3.5 3.5 0 0 1 21.5 7v3a3.5 3.5 0 0 1-3.5 3.5h-.4l.8 3.2-3.9-3.2h-.5"/><path d="M6 8.5h5a3.5 3.5 0 0 1 3.5 3.5v2a3.5 3.5 0 0 1-3.5 3.5H8l-3.6 3.2.7-3.3A3.5 3.5 0 0 1 2.5 14v-2A3.5 3.5 0 0 1 6 8.5Z"/></svg>';
+    var NOTE_BUBBLE_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 8.2V7a3.5 3.5 0 0 1 3.5-3.5H18A3.5 3.5 0 0 1 21.5 7v3a3.5 3.5 0 0 1-3.5 3.5h-.4l.8 3.2-3.9-3.2h-.5"/><path d="M6 8.5h5a3.5 3.5 0 0 1 3.5 3.5v2a3.5 3.5 0 0 1-3.5 3.5H8l-3.6 3.2.7-3.3A3.5 3.5 0 0 1 2.5 14v-2A3.5 3.5 0 0 1 6 8.5Z"/></svg>';
     var IMAGE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 8"/></svg>';
     function openExerciseImageInTab(meta) {
         var cached = imageUrlCache[meta.id];
@@ -2197,7 +2197,7 @@
     var STAR_FILLED_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.7l2.9 6 6.6.7-4.9 4.5 1.3 6.5L12 17.4l-5.9 3 1.3-6.5-4.9-4.5 6.6-.7Z"/></svg>';
     var ARCHIVE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"/><path d="M10 13h4"/></svg>';
     var FILE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05 12.25 20.24a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
-    var METRONOME_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 21 10 4h4l3 17Z"/><path d="M12 4V2.3"/><path d="M12 18 15.2 6.5"/><circle cx="14.1" cy="10.8" r="1.3" fill="currentColor" stroke="none"/></svg>';
+    var METRONOME_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 21 10 4h4l3 17Z"/><path d="M12 4V2.3"/><path d="M12 18 15.2 6.5"/><circle cx="14.1" cy="10.8" r="1.3" fill="currentColor" stroke="none"/></svg>';
     var METRO_PLAY_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5Z"/></svg>';
     var METRO_STOP_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
     var METRO_VOLUME_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v4h4l5 4V6L8 10Z"/><path d="M17 9a4.5 4.5 0 0 1 0 6"/><path d="M19.5 6.5a8.5 8.5 0 0 1 0 11"/></svg>';
@@ -2534,6 +2534,7 @@
             images: cloneJson(ex.images || []),
             metronome: ex.metronome ? JSON.parse(JSON.stringify(ex.metronome)) : null,
             tempoGoal: ex.tempoGoal,
+            dice: ex.dice ? cloneJson(ex.dice) : undefined, // le dé préréglé suit la copie (lié : il est partagé, sinon la copie l'effacerait chez l'original)
             notesArchive: (ex.notesArchive || []).map(function (e) { return { d: e.d, t: e.t }; }),
             noteDates: (ex.noteDates || []).slice(),
             lastMinutes: ex.lastMinutes || undefined,
@@ -3506,7 +3507,7 @@
         body.className = "link-dlg-body";
         var intro = document.createElement("div");
         intro.className = "link-dlg-intro";
-        intro.textContent = "Pièces jointes (liens, fichiers, images) et réglages (métronome prédéfini, objectif tempo, notes fixes) sont communs avec :";
+        intro.textContent = "Pièces jointes (liens, fichiers, images) et réglages (métronome prédéfini, objectif tempo, dé de gamme, notes fixes) sont communs avec :";
         body.appendChild(intro);
         var list = document.createElement("div");
         list.className = "link-dlg-list";
@@ -3573,6 +3574,7 @@
             m.links = cloneJson(links); m.files = cloneJson(files); m.images = cloneJson(images);
             m.metronome = src.metronome ? cloneJson(src.metronome) : null;
             if (src.tempoGoal === undefined) delete m.tempoGoal; else m.tempoGoal = src.tempoGoal;
+            if (src.dice) m.dice = cloneJson(src.dice); else delete m.dice;
             m.fixedNotes = src.fixedNotes || "";
             m.pinnedLinkId = pinned;
             m.updatedAt = Date.now();
@@ -3630,9 +3632,9 @@
             });
             body.appendChild(pickBox);
         } else para("link-dlg-note", "Aucun des deux n'a de pièce jointe pour l'instant.");
-        function presetText(e) { return e.metronome ? "♩ " + e.metronome.bpm + " BPM" : "pas de métronome prédéfini"; }
-        var preferB = !(a.metronome || a.fixedNotes) && (b.metronome || b.fixedNotes);
-        para("link-plan-h", "Réglages communs (métronome prédéfini, objectif tempo, notes fixes)");
+        function presetText(e) { return (e.metronome ? "♩ " + e.metronome.bpm + " BPM" : "pas de métronome prédéfini") + (e.dice ? " · dé réglé" : ""); }
+        var preferB = !(a.metronome || a.fixedNotes || a.dice) && (b.metronome || b.fixedNotes || b.dice);
+        para("link-plan-h", "Réglages communs (métronome prédéfini, objectif tempo, dé de gamme, notes fixes)");
         radioGroup("par", [
             { value: "a", text: "Ceux de « " + a.title + " » (" + presetText(a) + ")" },
             { value: "b", text: "Ceux de « " + b.title + " » (" + presetText(b) + ")" }
@@ -11582,7 +11584,7 @@
     function recPref(k, d) { try { var v = localStorage.getItem(REC_KEYS[k]); return v === null ? d : v; } catch (e) { return d; } }
     function recSetPref(k, v) { try { localStorage.setItem(REC_KEYS[k], v); } catch (e) {} }
     var REC_PENDING_BLOB = "rec-pending";
-    var REC_MIC_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8.5" y="2.5" width="6" height="11" rx="3"/><path d="M4.5 11a7 7 0 0 0 13 3.6"/><path d="M11.5 18v3.5"/><path d="M8.5 21.5h6"/><circle cx="19" cy="5.5" r="2.3" fill="#ff5252" stroke="none"/></svg>';
+    var REC_MIC_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8.5" y="2.5" width="6" height="11" rx="3"/><path d="M4.5 11a7 7 0 0 0 13 3.6"/><path d="M11.5 18v3.5"/><path d="M8.5 21.5h6"/><circle cx="19" cy="5.5" r="2.3" fill="#ff5252" stroke="none"/></svg>';
     var rec = { phase: "idle", stream: null, ctx: null, analyser: null, src: null, mr: null, chunks: [], startedAt: 0, ms: 0, timer: null, mime: "", take: null, startedMetro: false, clickDest: null,
         dest: { mode: "", exId: null, folderId: null }, destAtStart: null, error: "", listeners: [], panelClose: null, meterRaf: null, peaks: [], peakTimer: null, saving: false, stopPlay: null };
     function recEmit() {
@@ -12864,7 +12866,7 @@
                 tb.className = "settings-tab";
                 tb.dataset.tab = n;
                 tb.setAttribute("role", "tab");
-                tb.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICONS[n] + '</svg>';
+                tb.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICONS[n] + '</svg>';
                 var lbl = document.createElement("span"); lbl.textContent = n; tb.appendChild(lbl);
                 tb.addEventListener("click", function () { showTab(n); });
                 tabBar.appendChild(tb);
@@ -17203,7 +17205,7 @@
         rws.forEach(function (r) {
             if (chapterKey && r.chapterKey !== chapterKey) return;
             var key = r.subKey || "__none__";
-            var o = m[key] || (m[key] = { key: key, name: r.subKey ? r.subName : "Directement dans un chapitre", chapter: r.subKey ? r.chapterName : "", sec: 0 });
+            var o = m[key] || (m[key] = { key: key, name: r.subKey ? r.subName : "Directement dans le thème", chapter: r.subKey ? r.chapterName : "", sec: 0 });
             o.sec += r.sec; if (r.subKey) { o.name = r.subName; o.chapter = r.chapterName; }
         });
         return Object.keys(m).map(function (k) { return m[k]; });
@@ -17501,12 +17503,12 @@
 
         // ============ RÉPARTITION ============
         function tabSplit() {
-            var s2 = stSection(box, "Dossiers principaux");
+            var s2 = stSection(box, "Thèmes (dossiers principaux)");
             s2.appendChild(statsPie(st.chapters.map(function (c) { return { key: c.key, name: c.name, sec: c.sec }; })));
             var chapterNames = {}; st.chapters.forEach(function (c) { chapterNames[c.key] = c.name; });
             if (statsSubChapter && !chapterNames[statsSubChapter]) statsSubChapter = "";
-            var pick = document.createElement("select"); pick.className = "st-sub-pick"; pick.setAttribute("aria-label", "Chapitre");
-            var o0 = document.createElement("option"); o0.value = ""; o0.textContent = "Tous les dossiers principaux"; pick.appendChild(o0);
+            var pick = document.createElement("select"); pick.className = "st-sub-pick"; pick.setAttribute("aria-label", "Thème");
+            var o0 = document.createElement("option"); o0.value = ""; o0.textContent = "Tous les thèmes"; pick.appendChild(o0);
             st.chapters.forEach(function (c) { var op = document.createElement("option"); op.value = c.key; op.textContent = c.name; if (statsSubChapter === c.key) op.selected = true; pick.appendChild(op); });
             pick.addEventListener("change", function () { statsSubChapter = pick.value; rerender(); });
             var s2b = stSection(box, "Premiers sous-dossiers");

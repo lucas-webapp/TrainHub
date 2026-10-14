@@ -1974,7 +1974,7 @@ button.tempo-chip-empty { color: var(--text-muted); border-style: dashed; backgr
 }
 
 /* Barre d'outils du haut : boutons un peu plus grands */
-.top-actions .icon-btn { padding: 9px; border-radius: 9px; }
+.top-actions .icon-btn { padding: 9px; border-radius: 8px; }
 .top-actions .icon { width: 21px; height: 21px; }
 .top-actions .metronome-btn-highlight .icon { width: 24px; height: 24px; }
 .top-actions { gap: 8px; }
@@ -4156,3 +4156,10 @@ button.rec-lib-play, button.rec-lib-go { flex: none; width: 30px; height: 30px; 
 .backups-panel.panel-nudge { animation: panel-nudge .36s ease; }
 .gs-rec-guard-hint { margin: 2px 0 6px; padding: 6px 10px; border-radius: var(--radius-sm); font-size: var(--fs-xs); color: var(--c-orange-text, var(--c-orange)); background: color-mix(in srgb, var(--c-orange) 10%, transparent); border: 1px solid color-mix(in srgb, var(--c-orange) 40%, transparent); }
 .gs-rec-guard-hint[hidden] { display: none; }
+
+/* v179 — uniformisation des petits boutons : une même taille mini pour les croix et icônes discrètes, alignées sur leurs voisins */
+button.icon-btn.btn-ghost { min-width: 28px; min-height: 28px; }
+.exercise-row-tools > button.icon-btn { min-width: 30px; min-height: 30px; }
+.gs-step-session > button:last-child { height: 30px; }
+.add-link-row > input, .add-link-row > button { height: 34px; box-sizing: border-box; }
+.add-link-row > button.icon-btn { min-width: 34px; }
