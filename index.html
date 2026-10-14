@@ -16,11 +16,6 @@
 </head>
 <body>
 <div class="top-bar">
-    <div id="top-clock" class="top-clock" role="timer" aria-live="off" title="Heure actuelle" aria-label="Heure actuelle">
-        <svg class="top-clock-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 6.5V12l3.6 2.2"/></svg>
-        <span class="top-clock-date"></span>
-        <span class="top-clock-time"></span>
-    </div>
     <button type="button" id="sidebar-toggle-btn" class="icon-btn btn-ghost sidebar-toggle-btn" title="Masquer / afficher le bandeau des dossiers (Ctrl+B ou ⌘B)" aria-label="Masquer ou afficher le bandeau des dossiers" aria-pressed="false">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
     </button>
@@ -57,6 +52,10 @@
             </button>
         </div>
     </div>
+    <div id="top-clock" class="top-clock" role="timer" aria-live="off" title="Heure actuelle" aria-label="Heure actuelle">
+        <svg class="top-clock-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 6.5V12l3.6 2.2"/></svg>
+        <span class="top-clock-text"><span class="top-clock-time"></span><span class="top-clock-date"></span></span>
+    </div>
     <div class="top-actions">
         <button type="button" id="undo-btn" class="icon-btn btn-ghost" title="Annuler" aria-label="Annuler" disabled>
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
@@ -67,9 +66,6 @@
         <button type="button" id="search-toggle-btn" class="icon-btn btn-ghost" title="Rechercher un exercice (Ctrl+F : recherche rapide partout)" aria-label="Rechercher un exercice">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
         </button>
-        <button type="button" id="metronome-btn" class="icon-btn btn-ghost metronome-btn-highlight" title="Métronome" aria-label="Métronome">
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 21 10 4h4l3 17Z"/><path d="M12 4V2.3"/><path d="M12 18 15.2 6.5"/><circle cx="14.1" cy="10.8" r="1.3" fill="currentColor" stroke="none"/></svg>
-        </button>
         <button type="button" id="guided-session-btn" class="btn-ghost session-btn-highlight" title="Session guidée" aria-label="Session guidée">
             <svg class="icon" viewBox="1 2 21.5 19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><mask id="session-icon-gap" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="#fff" stroke="none"/><circle cx="15.5" cy="13.5" r="8.6" fill="#000" stroke="none"/></mask><g mask="url(#session-icon-gap)"><path d="M2 8h10"/><path d="M2 13.5h10"/><path d="M2 19h10"/></g><circle cx="15.5" cy="13.5" r="6"/><path d="M13.5 3.2h4"/><path d="M15.5 3.2v4.3"/><path d="M15.5 13.5l2.4-2.4"/></svg>
             <span>Session</span>
@@ -79,6 +75,9 @@
             <span>Libre</span>
         </button>
         <span class="top-break" aria-hidden="true"></span>
+        <button type="button" id="metronome-btn" class="icon-btn btn-ghost metronome-btn-highlight" title="Métronome" aria-label="Métronome">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 21 10 4h4l3 17Z"/><path d="M12 4V2.3"/><path d="M12 18 15.2 6.5"/><circle cx="14.1" cy="10.8" r="1.3" fill="currentColor" stroke="none"/></svg>
+        </button>
         <button type="button" id="aides-btn" class="icon-btn btn-ghost" title="Aides (cercle des quintes…)" aria-label="Aides">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.4"/><circle cx="12" cy="12" r="4.4"/><path stroke-width="1.5" d="M13.68 7.93L15.60 3.32M16.07 10.32L20.68 8.40M16.07 13.68L20.68 15.60M13.68 16.07L15.60 20.68M10.32 16.07L8.40 20.68M7.93 13.68L3.32 15.60M7.93 10.32L3.32 8.40M10.32 7.93L8.40 3.32"/></svg>
         </button>

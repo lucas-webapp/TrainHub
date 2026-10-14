@@ -1726,11 +1726,9 @@
         // s'insèrent. Si l'ordre des vidéos a changé, toutes sont recréées dans le nouvel ordre (déplacer un iframe le recharge de toute façon).
         function syncCards(p, ytLinks, show) {
             var host = p.cardsHost;
-            if (!show) {
-                Object.keys(p.cards).forEach(function (id) { p.cards[id].remove(); });
-                p.cards = {}; p.order = [];
-                return;
-            }
+            // « Masquer » les lecteurs : on les met en pause et on les cache, sans les détruire — la vidéo reprend là où elle en était.
+            host.hidden = !show;
+            if (!show) { pauseCards(p); return; }
             var want = ytLinks.map(function (l) { return l.id; });
             var urlOf = {}; ytLinks.forEach(function (l) { urlOf[l.id] = l.url; });
             var keep = p.order.filter(function (id) { return urlOf[id] !== undefined && p.cards[id] && p.cards[id]._url === urlOf[id]; });
@@ -1790,7 +1788,7 @@
                     }
                     p.el.hidden = false;
                 } else if (p) {
-                    if (key === "videos" && ytLinks.length) { pauseCards(p); p.el.hidden = true; } // vidéo laissée en pause, lecteurs gardés
+                    if (key === "videos" && ytLinks.length) p.el.hidden = true; // lecteurs gardés chargés ET en lecture (le son continue en fond) tant que l'exercice reste ouvert
                     else { pauseCards(p); p.el.remove(); delete st.panels[key]; }
                 }
             });
@@ -7069,8 +7067,9 @@
     (window.requestIdleCallback || function (f) { setTimeout(f, 60); })(loadFirebaseThenInit, { timeout: 1500 });
 
     // ---------- horloge ----------
-    // L'heure et la date du jour, toujours visibles tout en haut de l'appli (partout, session ou non) : petite, en retrait, avec un cadran
-    // de pendule et un texte fin — pour ne pas la confondre avec le chronomètre (gros chiffres, logo de chrono).
+    // L'heure et la date du jour, toujours visibles dans la barre du haut, sur la même ligne que le logo et l'espace (sans ligne dédiée) :
+    // petite, en retrait, avec un cadran et un texte fin — pour ne pas la confondre avec le chronomètre (gros chiffres, logo de chrono).
+    // Masquée par la feuille de style sur téléphone ; et masquée ici si elle ferait passer la barre sur une ligne de plus.
     (function () {
         var el = document.getElementById("top-clock"), last = "";
         if (!el) return;
@@ -7089,8 +7088,30 @@
             el.title = "Heure actuelle : " + day + " " + d.getDate() + " " + mon + " " + d.getFullYear() + ", " + elTime.textContent;
             el.setAttribute("aria-label", el.title);
         }
+        // Ne jamais coûter une ligne à la barre : on compare sa hauteur avec et sans l'horloge (deux mesures dans la même image, rien ne clignote).
+        function fit() {
+            var bar = el.parentNode;
+            el.classList.remove("top-clock-off");
+            if (!el.offsetParent) return;
+            el.classList.add("top-clock-off");
+            var h0 = bar.offsetHeight;
+            el.classList.remove("top-clock-off");
+            if (bar.offsetHeight > h0 + 2) el.classList.add("top-clock-off");
+        }
+        var fitQueued = false;
+        function queueFit() {
+            if (fitQueued) return;
+            fitQueued = true;
+            requestAnimationFrame(function () { fitQueued = false; fit(); });
+        }
         tick();
         setInterval(tick, 1000);
+        window.addEventListener("resize", queueFit);
+        if (window.ResizeObserver) {
+            var ro = new ResizeObserver(queueFit);
+            Array.prototype.forEach.call(el.parentNode.children, function (c) { if (c !== el) ro.observe(c); });
+        }
+        queueFit();
     })();
 
     // ---------- top actions ----------
@@ -14152,12 +14173,8 @@
         headIcon("gs-calendar-btn", GS_ICON_CAL, "Calendrier : programmer des sessions pour les prochaines semaines", function () { if (typeof openSessionCalendar === "function") openSessionCalendar({}); });
         headIcon("gs-history-btn", GS_ICON_HIST, "Historique : sessions réalisées, exercices par jour, semaine, mois ou année", function () { openSessionHistory(); });
         var statsBtn = headIcon("gs-stats-btn", GS_ICON_STATS, "Statistiques d'entraînement", function () { openStatistics(); });
-        var nToSort = statsIssueCount();
-        if (nToSort) {
-            var hb = document.createElement("span"); hb.className = "gs-tab-count st-issue-count gs-icon-badge"; hb.textContent = String(nToSort);
-            statsBtn.appendChild(hb);
-            statsBtn.title += " — " + nToSort + " exercice" + (nToSort > 1 ? "s" : "") + " à ranger pour les statistiques";
-        }
+        statsBtn.dataset.baseTitle = statsBtn.title;
+        refreshStatsBadge(statsBtn);
         if (window.matchMedia && window.matchMedia("(min-width: 880px)").matches) $contentHeading.appendChild(headActions);
         else content.insertBefore(headActions, content.firstChild);
     }
@@ -15032,6 +15049,25 @@
                 var rm = iconButton("✕", "Retirer cet exercice de la séance", function () { it.removed = true; box.hidden = true; refresh(); });
                 line.appendChild(nm); line.appendChild(dur); line.appendChild(bw); line.appendChild(rm);
                 box.appendChild(line);
+                if (st.chapterName) { // le thème retenu pour les statistiques : le dossier principal où l'exercice est ouvert
+                    nm.title += " · thème : " + st.chapterName;
+                    if (record.free) { var thn = document.createElement("small"); thn.className = "gs-rec-name-theme"; thn.textContent = st.chapterName; nm.appendChild(thn); }
+                }
+                else { // exercice supprimé ou sans dossier : thème inconnu, on demande à quel thème (dossier principal) l'attribuer
+                    var th = document.createElement("div"); th.className = "gs-rec-theme";
+                    var thl = document.createElement("span"); thl.textContent = "Thème (dossier principal) :";
+                    var ths = document.createElement("select"); ths.className = "gs-rec-theme-sel"; ths.setAttribute("aria-label", "Thème de l'exercice");
+                    var themeInst = state.instruments.filter(function (x) { return x.id === (record.instrumentId || state.activeInstrumentId); })[0] || getActiveInstrument();
+                    var themes = themeInst ? themeInst.categories : [];
+                    ths.appendChild(new Option("Autre (sans thème)", ""));
+                    themes.forEach(function (c) { ths.appendChild(new Option(c.name, c.id)); });
+                    ths.addEventListener("change", function () {
+                        var c = themes.filter(function (x) { return x.id === ths.value; })[0];
+                        if (c) { st.chapterId = c.id; st.chapterName = c.name; st.path = [c.name]; st.pathIds = [c.id]; }
+                        else { st.chapterId = null; st.chapterName = null; st.path = []; st.pathIds = []; }
+                    });
+                    th.appendChild(thl); th.appendChild(ths); box.appendChild(th);
+                }
                 if (it.ask) { // coupé avant le seuil : « est-ce bien ce tempo qu'il faut retenir ? »
                     var q = document.createElement("div"); q.className = "gs-rec-ask";
                     var qt = document.createElement("span"); qt.textContent = "Arrêté avant le seuil visé (" + st.bpmTarget + " BPM) — tempo retenu : " + st.bpmStop + " BPM";
@@ -16162,26 +16198,26 @@
                 else if (lost) issues.push({ kind: "orphan", key: key2, exId: id, title: last.frozenTitle, chapterName: last.frozenChapterName, count: o.rows.length, sec: o.sec });
             }
         });
-        var groups = {};
-        Object.keys(byEx).forEach(function (id) {
-            if (!ctx.ex[id]) return;
-            var k = statsNorm(ctx.ex[id].ex.title);
-            (groups[k] = groups[k] || []).push(id);
-        });
-        Object.keys(groups).forEach(function (k) {
-            var ids = groups[k];
-            if (ids.length < 2) return;
-            ids.sort(function (a, b) { return byEx[b].rows.length - byEx[a].rows.length || (a < b ? -1 : 1); });
-            var key = "dup:" + ids.slice().sort().join(",");
-            if (rules.resolved[key]) return;
-            issues.push({ kind: "dup", key: key, ids: ids, title: ctx.ex[ids[0]].ex.title, paths: ids.map(function (id) { return "« " + ctx.ex[id].ex.title + " » (" + ctx.ex[id].pathNames.join(" › ") + ")"; }) });
-        });
+        // Deux exercices de même nom dans deux thèmes ne posent aucune question : chaque séance compte dans le thème où l'exercice était
+        // ouvert quand elle a été faite (voir gsStepRecord). On ne demande qu'en cas de doute : exercice déplacé, supprimé ou recréé.
         return issues;
     }
     function statsIssueCount() {
         var ctx = statsContext();
         var log = logAll().filter(function (e) { return !e.instrumentId || e.instrumentId === state.activeInstrumentId; });
         return log.length ? statsIssues(statsRows(log, ctx), ctx).length : 0;
+    }
+    // Bulle du logo Statistiques (liste des sessions) : nombre de séances à attribuer à un thème. Recalculée à chaque changement
+    // (réponse donnée dans les statistiques, fermeture de la fenêtre…) pour disparaître dès que tout est réglé.
+    function refreshStatsBadge(only) {
+        var n = statsIssueCount(), btns = only && only.nodeType === 1 ? [only] : Array.prototype.slice.call(document.querySelectorAll(".gs-stats-btn"));
+        btns.forEach(function (btn) {
+            var base = btn.dataset.baseTitle || "Statistiques d'entraînement", hb = btn.querySelector(".gs-icon-badge");
+            if (!n) { if (hb) hb.remove(); btn.title = base; return; }
+            if (!hb) { hb = document.createElement("span"); hb.className = "gs-tab-count st-issue-count gs-icon-badge"; btn.appendChild(hb); }
+            hb.textContent = String(n);
+            btn.title = base + " — " + n + " exercice" + (n > 1 ? "s" : "") + " à attribuer à un thème";
+        });
     }
 
     function gsFmtMin(sec) { var m = Math.round(sec / 60); return m >= 60 ? Math.floor(m / 60) + " h " + (m % 60 < 10 ? "0" : "") + (m % 60) : m + " min"; }
@@ -16219,11 +16255,15 @@
             var c = chap[r.chapterKey] || (chap[r.chapterKey] = { key: r.chapterKey, name: r.chapterName, color: r.chapterColor, sec: 0 });
             c.sec += r.sec; c.name = r.chapterName; if (r.chapterColor) c.color = r.chapterColor;
             var o = byEx[r.exKey] || (byEx[r.exKey] = { key: r.exKey, title: r.title, sec: 0, count: 0, last: 0 });
-            o.sec += r.sec; o.count++; o.title = r.title; if (r.date > o.last) o.last = r.date;
+            o.sec += r.sec; o.count++; o.title = r.title; o.chapterName = r.chapterName; if (r.date > o.last) o.last = r.date;
         });
         var chapSum = 0; Object.keys(chap).forEach(function (k) { chapSum += chap[k].sec; });
         var chapters = Object.keys(chap).map(function (k) { var c = chap[k]; c.pct = chapSum ? Math.round(c.sec * 100 / chapSum) : 0; return c; }).sort(function (a, b) { return b.sec - a.sec; });
         var top = Object.keys(byEx).map(function (k) { return byEx[k]; }).sort(function (a, b) { return b.sec - a.sec; });
+        var titleCount = {}; // deux exercices de même nom dans deux thèmes : on précise le thème pour les distinguer
+        var sameKey = function (t) { return String(t || "").trim().toLowerCase(); };
+        top.forEach(function (o) { var k = sameKey(o.title); titleCount[k] = (titleCount[k] || 0) + 1; });
+        top.forEach(function (o) { o.label = titleCount[sameKey(o.title)] > 1 && o.chapterName ? o.title + " (" + o.chapterName + ")" : o.title; });
         var mine = Object.keys(ctx.ex).filter(function (id) { return ctx.ex[id].instrumentId === state.activeInstrumentId && !ctx.ex[id].ex.archived && !ctx.rules.alias[id]; });
         var favorites = mine.filter(function (id) { return ctx.ex[id].ex.favorite; }).map(function (id) {
             var o = byEx[id]; return { id: id, title: ctx.ex[id].ex.title, sec: o ? o.sec : 0, count: o ? o.count : 0, last: (allEx[id] || {}).last || 0 };
@@ -16369,10 +16409,50 @@
             var pys = new Date(d.getFullYear() - yo - 1, 0, 1).getTime();
             out.start = ys; out.end = yo ? ye : now + 1;
             out.compare = { start: pys, end: yo ? ys : Math.min(ys, pys + (now + 1 - ys)), label: String(new Date(pys).getFullYear()) + (yo ? "" : " (à la même date)") };
+        } else if (statsIsShort(spec)) {
+            // Périodes courtes, en jours civils (minuit à minuit) : aujourd'hui, hier, les 3 derniers jours, ou un jour précis choisi.
+            var dayAt = function (k) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() - k).getTime(); };
+            if (spec === "d0") {
+                out.start = dayAt(0);
+                out.compare = { start: dayAt(1), end: Math.min(dayAt(0), dayAt(1) + (now + 1 - dayAt(0))), label: "hier (à la même heure)", none: "Aucune séance hier à la même heure" };
+            } else if (spec === "d1") {
+                out.start = dayAt(1); out.end = dayAt(0);
+                out.compare = { start: dayAt(2), end: dayAt(1), label: "avant-hier", none: "Aucune séance avant-hier" };
+            } else if (spec === "3") {
+                out.start = dayAt(2);
+                out.compare = { start: dayAt(5), end: dayAt(2), label: "aux 3 jours d'avant", none: "Aucune séance sur les 3 jours d'avant" };
+            } else { // "day:AAAA-MM-JJ"
+                var dp = spec.slice(4).split("-"), ds = new Date(+dp[0], +dp[1] - 1, +dp[2]), de = new Date(+dp[0], +dp[1] - 1, +dp[2] + 1);
+                var dprev = new Date(+dp[0], +dp[1] - 1, +dp[2] - 1);
+                out.start = ds.getTime(); out.end = Math.min(de.getTime(), now + 1);
+                out.compare = { start: dprev.getTime(), end: ds.getTime(), label: "la veille", none: "Aucune séance la veille" };
+            }
         } else if (spec !== "0") {
             out.start = now - (parseInt(spec, 10) || 28) * STATS_DAY;
         }
         return out;
+    }
+    // Périodes courtes (un jour, 3 jours) : l'écran montre le détail par thème et la liste des séances plutôt que des moyennes hebdomadaires.
+    function statsIsShort(spec) { return spec === "d0" || spec === "d1" || spec === "3" || /^day:\d{4}-\d{2}-\d{2}$/.test(String(spec)); }
+    function statsHour(ts) { var d = new Date(ts); return (d.getHours() < 10 ? "0" : "") + d.getHours() + ":" + (d.getMinutes() < 10 ? "0" : "") + d.getMinutes(); }
+    // Temps par thème (dossier principal) puis par premier sous-dossier, puis par exercice : le détail d'une journée ou de quelques jours.
+    function statsThemeTree(rws) {
+        var themes = {};
+        rws.forEach(function (r) {
+            if (!(r.sec > 0)) return;
+            var t = themes[r.chapterKey] || (themes[r.chapterKey] = { key: r.chapterKey, name: r.chapterName, sec: 0, subs: {} });
+            t.sec += r.sec;
+            var sk = r.subKey || "", sub = t.subs[sk] || (t.subs[sk] = { key: sk, name: r.subName || "", sec: 0, exs: {} });
+            sub.sec += r.sec;
+            var e = sub.exs[r.exKey] || (sub.exs[r.exKey] = { key: r.exKey, title: r.title, sec: 0, n: 0 });
+            e.sec += r.sec; e.n++;
+        });
+        var bySec = function (a, b) { return b.sec - a.sec; };
+        return Object.keys(themes).map(function (k) {
+            var t = themes[k];
+            t.subList = Object.keys(t.subs).map(function (sk) { var sb = t.subs[sk]; sb.exList = Object.keys(sb.exs).map(function (ek) { return sb.exs[ek]; }).sort(bySec); return sb; }).sort(function (a, b) { return (a.name ? 1 : 0) - (b.name ? 1 : 0) || b.sec - a.sec; }); // exercices posés directement dans le thème d'abord
+            return t;
+        }).sort(bySec);
     }
     function stDeltaPct(cur, prev) {
         if (!prev) return "";
@@ -16497,6 +16577,9 @@
     }
 
     // ---- écran Statistiques : sous-onglets (l'essentiel d'abord) ----
+    var STATS_SEEN_KEY = "trainhub.statsSeen.v1"; // par appareil : alertes déjà consultées (exercice -> types d'alertes)
+    function statsSeenLoad() { try { var o = JSON.parse(localStorage.getItem(STATS_SEEN_KEY) || "{}"); return o && typeof o === "object" ? o : {}; } catch (e) { return {}; } }
+    function statsSeenSave(o) { try { localStorage.setItem(STATS_SEEN_KEY, JSON.stringify(o)); } catch (e) {} }
     var STATS_TABS = [["overview", "Aperçu"], ["time", "Temps"], ["split", "Répartition"], ["ex", "Exercices"]];
     var statsTab = "overview", statsSubChapter = "", statsExFilter = "all", statsExSort = "alerts", statsExOpen = {}, statsIssuesOpen = false;
     function stSection(box, title, extra) {
@@ -16532,9 +16615,19 @@
         var rws = rows.filter(function (r) { return r.date >= range.start && r.date < range.end; });
         var exList = statsExerciseReport(rws, rows, now, st.totalSec);
         var warnCount = exList.filter(function (o) { return o.warn > 0; }).length;
+        var isShort = statsIsShort(spec);
+        // Bulle de l'onglet Exercices : seulement les alertes pas encore consultées. On l'enlève en ouvrant l'onglet ; elle ne revient que
+        // si une alerte nouvelle ou différente apparaît pour un exercice.
+        var seenAlerts = statsSeenLoad(), warnSig = function (o) { return o.alerts.filter(function (a) { return a.level === "warn"; }).map(function (a) { return a.kind; }).sort().join(","); };
+        var unseenWarn = exList.filter(function (o) { return o.warn > 0 && seenAlerts[o.key] !== warnSig(o); }).length;
+        if (statsTab === "ex" && unseenWarn) {
+            exList.forEach(function (o) { if (o.warn > 0) seenAlerts[o.key] = warnSig(o); });
+            statsSeenSave(seenAlerts);
+            unseenWarn = 0;
+        }
         if (onIssues) onIssues(issues.length);
         function rerender() { renderStatsScreen(box, spec, onIssues); }
-        function done(fn) { return function () { fn(); save(); rerender(); }; }
+        function done(fn) { return function () { fn(); save(); rerender(); refreshStatsBadge(); }; }
         // Clic droit (appui long) sur un exercice des statistiques : l'ouvrir dans son dossier, le renommer…
         function bindExMenu(el, exId) {
             var f = exId && exId.indexOf("t:") !== 0 ? findExerciseById(exId) : null;
@@ -16548,7 +16641,7 @@
         STATS_TABS.forEach(function (t) {
             var b = document.createElement("button"); b.type = "button"; b.className = "st-tab" + (statsTab === t[0] ? " active" : ""); b.dataset.tab = t[0];
             b.setAttribute("role", "tab"); b.setAttribute("aria-selected", statsTab === t[0] ? "true" : "false"); b.textContent = t[1];
-            if (t[0] === "ex" && warnCount) { var bub = document.createElement("span"); bub.className = "gs-tab-count st-issue-count"; bub.textContent = String(warnCount); bub.title = warnCount + " exercice(s) à surveiller"; b.appendChild(bub); }
+            if (t[0] === "ex" && unseenWarn) { var bub = document.createElement("span"); bub.className = "gs-tab-count st-issue-count"; bub.textContent = String(unseenWarn); bub.title = unseenWarn + " exercice(s) à surveiller, pas encore consultés"; b.appendChild(bub); }
             b.addEventListener("click", function () { statsTab = t[0]; rerender(); });
             bar.appendChild(b);
         });
@@ -16562,13 +16655,20 @@
             var hasPrev = pv && pv.sessions > 0;
             var tiles = document.createElement("div"); tiles.className = "st-tiles";
             var rNow = st.ratio === null ? null : Math.round(st.ratio * 100), rPrev = hasPrev && pv.ratio !== null ? Math.round(pv.ratio * 100) : null;
-            [["Temps total", gsFmtMin(st.totalSec), true, hasPrev ? stDeltaPct(st.totalSec, pv.totalSec) : ""],
-             ["Sessions", String(st.sessions), false, hasPrev ? stDeltaAbs(st.sessions, pv.sessions, "") : ""],
-             ["Jours pratiqués", st.activeDays + " / " + st.periodDays, false, hasPrev ? stDeltaAbs(st.activeDays, pv.activeDays, "j") : ""],
-             ["Moyenne / semaine", gsFmtMin(st.avgPerWeekSec), true, hasPrev ? stDeltaPct(st.avgPerWeekSec, pv.avgPerWeekSec) : ""],
-             ["Durée moyenne", st.sessions ? gsFmtMin(st.avgSessionSec) : "–", false, hasPrev ? stDeltaPct(st.avgSessionSec, pv.avgSessionSec) : ""],
-             ["Réel / prévu", rNow === null ? "–" : rNow + " %", false, rNow !== null && rPrev !== null ? stDeltaAbs(rNow, rPrev, "pts") : ""]]
-                .forEach(function (t) {
+            var tileList = isShort ?
+                // un jour ou 3 jours : pas de moyenne par semaine, mais le nombre d'exercices et ce qui a été fait
+                [["Temps total", gsFmtMin(st.totalSec), true, hasPrev ? stDeltaPct(st.totalSec, pv.totalSec) : ""],
+                 ["Sessions", String(st.sessions), false, hasPrev ? stDeltaAbs(st.sessions, pv.sessions, "") : ""],
+                 ["Exercices", String(st.top.length), false, hasPrev ? stDeltaAbs(st.top.length, pv.top.length, "") : ""],
+                 spec === "3" ? ["Jours pratiqués", st.activeDays + " / " + st.periodDays, false, hasPrev ? stDeltaAbs(st.activeDays, pv.activeDays, "j") : ""]
+                              : ["Durée moyenne", st.sessions ? gsFmtMin(st.avgSessionSec) : "–", false, hasPrev ? stDeltaPct(st.avgSessionSec, pv.avgSessionSec) : ""]] :
+                [["Temps total", gsFmtMin(st.totalSec), true, hasPrev ? stDeltaPct(st.totalSec, pv.totalSec) : ""],
+                 ["Sessions", String(st.sessions), false, hasPrev ? stDeltaAbs(st.sessions, pv.sessions, "") : ""],
+                 ["Jours pratiqués", st.activeDays + " / " + st.periodDays, false, hasPrev ? stDeltaAbs(st.activeDays, pv.activeDays, "j") : ""],
+                 ["Moyenne / semaine", gsFmtMin(st.avgPerWeekSec), true, hasPrev ? stDeltaPct(st.avgPerWeekSec, pv.avgPerWeekSec) : ""],
+                 ["Durée moyenne", st.sessions ? gsFmtMin(st.avgSessionSec) : "–", false, hasPrev ? stDeltaPct(st.avgSessionSec, pv.avgSessionSec) : ""],
+                 ["Réel / prévu", rNow === null ? "–" : rNow + " %", false, rNow !== null && rPrev !== null ? stDeltaAbs(rNow, rPrev, "pts") : ""]];
+            tileList.forEach(function (t) {
                     var el = document.createElement("div"); el.className = "st-tile" + (t[2] ? " st-tile-hi" : "");
                     var v = document.createElement("div"); v.className = "st-tile-v"; v.textContent = t[1];
                     var l = document.createElement("div"); l.className = "st-tile-l"; l.textContent = t[0];
@@ -16579,10 +16679,34 @@
             var s0 = stSection(box, "Chiffres clés"); s0.appendChild(tiles);
             if (range.compare) {
                 var cc = document.createElement("div"); cc.className = "st-caption st-compare";
-                cc.textContent = hasPrev ? "Comparé à " + range.compare.label : "Aucune séance en " + range.compare.label + " : pas de comparaison possible.";
+                cc.textContent = hasPrev ? "Comparé à " + range.compare.label : (range.compare.none || "Aucune séance en " + range.compare.label) + " : pas de comparaison possible.";
                 s0.appendChild(cc);
             }
-            if (st.sessions) {
+            if (isShort && st.sessions) {
+                // Détail par thème (dossier principal), premier sous-dossier et exercice : où est passé le temps de la journée
+                var tree = statsThemeTree(rws), treeTotal = 0; tree.forEach(function (t) { treeTotal += t.sec; });
+                var sd = stSection(box, "Détail par thème");
+                tree.forEach(function (t, ti) {
+                    var tr = stRow(sd, t.name, gsFmtMin(t.sec) + " · " + (treeTotal ? Math.round(t.sec * 100 / treeTotal) : 0) + " %", treeTotal ? t.sec * 100 / treeTotal : 0, ti === 0);
+                    tr.classList.add("st-tree-theme");
+                    t.subList.forEach(function (sb) {
+                        var lvl = 1;
+                        if (sb.name) { var sr = stRow(sd, sb.name, gsFmtMin(sb.sec)); sr.classList.add("st-tree-sub"); lvl = 2; }
+                        sb.exList.forEach(function (e) {
+                            var er = stRow(sd, e.title, gsFmtMin(e.sec) + (e.n > 1 ? " · " + e.n + "×" : ""));
+                            er.classList.add("st-tree-ex", "st-tree-lv" + lvl);
+                            bindExMenu(er, e.key);
+                        });
+                    });
+                });
+                // Séances de la période, la plus récente en premier
+                var ss = stSection(box, "Séances");
+                st.recs.slice().reverse().forEach(function (r) {
+                    var row = stRow(ss, (spec === "3" ? statsShortDate(r.date) + " · " : "") + statsHour(r.date) + " · " + logRecName(r), gsFmtMin(r.totalSec || 0));
+                    row.classList.add("st-tree-sess");
+                });
+            }
+            if (st.sessions && !(isShort && spec !== "3")) {
                 var sb = stSection(box, "Temps de pratique dans le temps");
                 var bk = statsBuckets(st.recs, range, now, first);
                 var wrap = document.createElement("div"); wrap.className = "st-chart-wrap"; wrap.appendChild(statsBarChart(bk)); sb.appendChild(wrap);
@@ -16597,7 +16721,7 @@
         function renderIssues() {
             // une seule ligne, dépliable : l'essentiel d'abord
             var tg = document.createElement("button"); tg.type = "button"; tg.className = "st-issues-toggle" + (statsIssuesOpen ? " open" : ""); tg.setAttribute("aria-expanded", statsIssuesOpen ? "true" : "false");
-            var tl = document.createElement("span"); tl.className = "st-issues-label"; tl.textContent = "À ranger pour les statistiques";
+            var tl = document.createElement("span"); tl.className = "st-issues-label"; tl.textContent = "Séances à attribuer à un thème";
             var bubble = document.createElement("span"); bubble.className = "gs-tab-count st-issue-count"; bubble.textContent = String(issues.length);
             var chev = document.createElement("span"); chev.className = "st-issues-chev"; chev.textContent = statsIssuesOpen ? "Masquer ▴" : "Voir ▾";
             tg.appendChild(tl); tg.appendChild(bubble); tg.appendChild(chev);
@@ -16610,27 +16734,24 @@
                 var tx = document.createElement("div"); tx.className = "st-issue-text";
                 var acts = document.createElement("div"); acts.className = "st-issue-actions";
                 var rules = statsRules();
+                var nSeances = function (n) { return n + " séance" + (n > 1 ? "s" : ""); };
                 if (it.kind === "moved") {
-                    tx.textContent = "« " + it.title + " » a changé de chapitre : ses " + it.count + " séance" + (it.count > 1 ? "s" : "") + " (" + gsFmtMin(it.sec) + ") étaient dans « " + it.from.join(" », « ") + " », il est maintenant dans « " + it.to + " ».";
-                    acts.appendChild(stBtn("Garder l'historique", "btn-ghost", done(function () { rules.resolved[it.key] = "history"; })));
-                    acts.appendChild(stBtn("Tout compter dans « " + it.to + " »", "btn-accent", done(function () { rules.chapterOf[it.exId] = it.toId; rules.resolved[it.key] = "follow"; })));
+                    tx.textContent = "« " + it.title + " » a changé de thème : il était dans « " + it.from.join(" », « ") + " », il est maintenant dans « " + it.to + " ». À quel thème attribuer ses " + nSeances(it.count) + " (" + gsFmtMin(it.sec) + ") ?";
+                    acts.appendChild(stBtn("Rester dans « " + it.from.join(" », « ") + " »", "btn-ghost", done(function () { rules.resolved[it.key] = "history"; })));
+                    acts.appendChild(stBtn("Compter dans « " + it.to + " »", "btn-accent", done(function () { rules.chapterOf[it.exId] = it.toId; rules.resolved[it.key] = "follow"; })));
                 } else if (it.kind === "recreated") {
-                    tx.textContent = "« " + it.title + " » n'existe plus (" + it.count + " séance" + (it.count > 1 ? "s" : "") + ", " + gsFmtMin(it.sec) + "), mais un exercice du même nom existe : « " + it.twinPath + " ».";
-                    acts.appendChild(stBtn("Garder séparé", "btn-ghost", done(function () { rules.resolved[it.key] = "separate"; })));
-                    acts.appendChild(stBtn("Regrouper avec cet exercice", "btn-accent", done(function () { rules.alias[it.exId] = it.twinId; })));
+                    tx.textContent = "« " + it.title + " » a été supprimé, mais un exercice du même nom existe : « " + it.twinPath + " ». Ses " + nSeances(it.count) + " (" + gsFmtMin(it.sec) + ") doivent-elles compter avec ce nouvel exercice ?";
+                    acts.appendChild(stBtn("Non, garder à part", "btn-ghost", done(function () { rules.resolved[it.key] = "separate"; })));
+                    acts.appendChild(stBtn("Oui, compter avec lui", "btn-accent", done(function () { rules.alias[it.exId] = it.twinId; })));
                 } else if (it.kind === "orphan") {
-                    tx.textContent = "« " + it.title + " » a été supprimé, et son chapitre d'origine (« " + it.chapterName + " ») aussi (" + it.count + " séance" + (it.count > 1 ? "s" : "") + ", " + gsFmtMin(it.sec) + "). Où le ranger ?";
-                    var sel = document.createElement("select"); sel.className = "st-issue-select"; sel.setAttribute("aria-label", "Chapitre");
+                    tx.textContent = "« " + it.title + " » a été supprimé, ainsi que son thème d'origine (« " + it.chapterName + " »). À quel thème attribuer ses " + nSeances(it.count) + " (" + gsFmtMin(it.sec) + ") ?";
+                    var sel = document.createElement("select"); sel.className = "st-issue-select"; sel.setAttribute("aria-label", "Thème");
                     var inst = getActiveInstrument();
                     (inst ? inst.categories : []).forEach(function (c) { var op = document.createElement("option"); op.value = c.id; op.textContent = c.name; sel.appendChild(op); });
                     acts.appendChild(sel);
-                    acts.appendChild(stBtn("Ranger ici", "btn-accent", done(function () { if (sel.value) rules.chapterOf[it.exId] = sel.value; })));
+                    acts.appendChild(stBtn("Attribuer à ce thème", "btn-accent", done(function () { if (sel.value) rules.chapterOf[it.exId] = sel.value; })));
                     acts.appendChild(stBtn("Ne pas compter", "btn-ghost", done(function () { rules.chapterOf[it.exId] = STATS_IGNORE; })));
-                    acts.appendChild(stBtn("Laisser tel quel", "btn-ghost", done(function () { rules.resolved[it.key] = "keep"; })));
-                } else if (it.kind === "dup") {
-                    tx.textContent = "Cet exercice existe en " + it.ids.length + " exemplaires, tous travaillés : " + it.paths.join(" et ") + ". Même exercice pour les statistiques ?";
-                    acts.appendChild(stBtn("Garder séparés", "btn-ghost", done(function () { rules.resolved[it.key] = "separate"; })));
-                    acts.appendChild(stBtn("Regrouper", "btn-accent", done(function () { it.ids.slice(1).forEach(function (id) { rules.alias[id] = it.ids[0]; }); })));
+                    acts.appendChild(stBtn("Laisser sans thème", "btn-ghost", done(function () { rules.resolved[it.key] = "keep"; })));
                 }
                 card.appendChild(tx); card.appendChild(acts); rv.appendChild(card);
             });
@@ -16638,10 +16759,10 @@
             var movedAll = issues.filter(function (i) { return i.kind === "moved"; });
             if (movedAll.length >= 2) {
                 var bulk = document.createElement("div"); bulk.className = "st-issue-bulk";
-                var bl = document.createElement("span"); bl.textContent = "Pour les " + movedAll.length + " exercices déplacés :";
+                var bl = document.createElement("span"); bl.textContent = "Pour les " + movedAll.length + " exercices qui ont changé de thème :";
                 bulk.appendChild(bl);
-                bulk.appendChild(stBtn("Tout garder dans l'historique", "btn-ghost", done(function () { var r = statsRules(); movedAll.forEach(function (i) { r.resolved[i.key] = "history"; }); })));
-                bulk.appendChild(stBtn("Tout compter dans le chapitre actuel", "btn-accent", done(function () { var r = statsRules(); movedAll.forEach(function (i) { r.chapterOf[i.exId] = i.toId; r.resolved[i.key] = "follow"; }); })));
+                bulk.appendChild(stBtn("Tout laisser dans les anciens thèmes", "btn-ghost", done(function () { var r = statsRules(); movedAll.forEach(function (i) { r.resolved[i.key] = "history"; }); })));
+                bulk.appendChild(stBtn("Tout compter dans les thèmes actuels", "btn-accent", done(function () { var r = statsRules(); movedAll.forEach(function (i) { r.chapterOf[i.exId] = i.toId; r.resolved[i.key] = "follow"; }); })));
                 rv.appendChild(bulk);
             }
         }
@@ -16651,10 +16772,13 @@
             var s1 = stSection(box, "Temps de pratique");
             stRow(s1, "Sessions enregistrées", String(st.sessions));
             stRow(s1, "Total", gsFmtMin(st.totalSec));
-            stRow(s1, "Moyenne par jour (période entière)", gsFmtMin(st.totalSec / st.periodDays));
-            stRow(s1, "Moyenne par semaine", gsFmtMin(st.avgPerWeekSec));
-            stRow(s1, "Jours pratiqués", st.activeDays + " / " + st.periodDays);
-            if (log.length) {
+            if (spec === "3") stRow(s1, "Moyenne par jour", gsFmtMin(st.totalSec / st.periodDays));
+            if (!isShort) {
+                stRow(s1, "Moyenne par jour (période entière)", gsFmtMin(st.totalSec / st.periodDays));
+                stRow(s1, "Moyenne par semaine", gsFmtMin(st.avgPerWeekSec));
+            }
+            if (!isShort || spec === "3") stRow(s1, "Jours pratiqués", st.activeDays + " / " + st.periodDays);
+            if (log.length && !isShort) {
                 var sh = stSection(box, "Régularité sur 12 mois");
                 var hw = document.createElement("div"); hw.className = "st-chart-wrap st-heat-wrap"; hw.appendChild(statsHeatmap(st.dayMap, now)); sh.appendChild(hw);
             }
@@ -16690,21 +16814,23 @@
             s2b.appendChild(statsPie(statsSubSplit(rws, statsSubChapter), function (it) { return it.chapter && !statsSubChapter ? it.chapter : ""; }));
             if (st.top.length) {
                 var s3 = stSection(box, "Les plus travaillés");
-                st.top.slice(0, 5).forEach(function (x, i) { bindExMenu(stRow(s3, x.title, gsFmtMin(x.sec) + " · " + x.count + "×", undefined, i === 0), x.key); });
+                st.top.slice(0, isShort ? 15 : 5).forEach(function (x, i) { bindExMenu(stRow(s3, x.label, gsFmtMin(x.sec) + " · " + x.count + "×", undefined, i === 0), x.key); });
             }
             if (st.favorites.length) {
                 var s4 = stSection(box, "Mes favoris ★");
                 st.favorites.slice(0, 8).forEach(function (x) { bindExMenu(stRow(s4, x.title, x.count ? gsFmtMin(x.sec) + " · " + gsFmtAgo(x.last, now) : "pas travaillé (" + gsFmtAgo(x.last, now) + ")"), x.id); });
             }
+            if (!isShort) {
             var s5 = stSection(box, "Exercices sous-utilisés");
             if (!st.underused.length) { var ok = document.createElement("div"); ok.className = "gs-empty"; ok.textContent = "Tous tes exercices ont été travaillés sur cette période."; s5.appendChild(ok); }
             st.underused.slice(0, 8).forEach(function (x) { var ur = stRow(s5, x.title, x.last ? "dernier passage " + gsFmtAgo(x.last, now) : "jamais travaillé"); ur.title = x.path; bindExMenu(ur, x.id); });
             if (st.underused.length > 8) { var more = document.createElement("div"); more.className = "gs-empty"; more.textContent = "… et " + (st.underused.length - 8) + " autres"; s5.appendChild(more); }
-            var sp2 = stSection(box, "Exercices déplacés");
+            }
+            var sp2 = stSection(box, "Exercices qui changent de thème");
             var prow = document.createElement("label"); prow.className = "st-policy";
-            var pl = document.createElement("span"); pl.textContent = "Quand un exercice change de chapitre :";
+            var pl = document.createElement("span"); pl.textContent = "Quand un exercice change de thème (dossier principal) :";
             var ps = document.createElement("select"); ps.className = "st-policy-sel"; ps.setAttribute("aria-label", "Exercice déplacé");
-            [["ask", "me demander"], ["history", "garder l'historique là où il était"], ["follow", "suivre l'exercice partout"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if (statsRules().movePolicy === o[0]) op.selected = true; ps.appendChild(op); });
+            [["ask", "me demander"], ["history", "garder les anciennes séances dans l'ancien thème"], ["follow", "tout compter dans son thème actuel"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if (statsRules().movePolicy === o[0]) op.selected = true; ps.appendChild(op); });
             ps.addEventListener("change", function () { statsRules().movePolicy = ps.value; save(); rerender(); });
             prow.appendChild(pl); prow.appendChild(ps); sp2.appendChild(prow);
         }
@@ -16808,7 +16934,10 @@
             var tools = document.createElement("div");
             tools.className = "gs-history-tabs";
             var period = document.createElement("select"); period.className = "gs-hist-period gs-stats-period"; period.setAttribute("aria-label", "Période");
-            [["7", "7 jours"], ["28", "28 jours"], ["90", "90 jours"], ["m0", "Ce mois"], ["m1", "Mois dernier"], ["y0", "Cette année"], ["y1", "Année dernière"], ["0", "Tout"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if (o[0] === "28") op.selected = true; period.appendChild(op); });
+            [["d0", "Aujourd'hui"], ["d1", "Hier"], ["3", "3 derniers jours"], ["day", "Un jour précis…"], ["7", "7 jours"], ["28", "28 jours"], ["90", "90 jours"], ["m0", "Ce mois"], ["m1", "Mois dernier"], ["y0", "Cette année"], ["y1", "Année dernière"], ["0", "Tout"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if (o[0] === "28") op.selected = true; period.appendChild(op); });
+            var dayIn = document.createElement("input"); dayIn.type = "date"; dayIn.className = "gs-stats-day"; dayIn.setAttribute("aria-label", "Jour");
+            dayIn.max = calKey(new Date()); dayIn.value = calKey(new Date()); dayIn.hidden = true;
+            tools.appendChild(dayIn);
             tools.appendChild(period);
             panel.appendChild(tools);
             var list = document.createElement("div");
@@ -16816,14 +16945,17 @@
             panel.appendChild(list);
             function markIssues(n) {
                 var old = title.querySelector(".st-issue-count"); if (old) old.remove();
-                if (n > 0) { var bub = document.createElement("span"); bub.className = "gs-tab-count st-issue-count"; bub.textContent = String(n); bub.title = n + " exercice(s) à ranger pour les statistiques"; tt.appendChild(bub); }
+                if (n > 0) { var bub = document.createElement("span"); bub.className = "gs-tab-count st-issue-count"; bub.textContent = String(n); bub.title = n + " exercice(s) à attribuer à un thème"; tt.appendChild(bub); }
             }
             function fill() {
                 requestAnimationFrame(function () { clampPanelToViewport(panel); });
-                renderStatsScreen(list, period.value, markIssues);
+                dayIn.hidden = period.value !== "day";
+                renderStatsScreen(list, period.value === "day" ? "day:" + (dayIn.value || calKey(new Date())) : period.value, markIssues);
             }
+            dayIn.addEventListener("change", fill);
             period.addEventListener("change", fill);
             fill();
+            return function () { refreshStatsBadge(); }; // à la fermeture : la bulle du logo reflète ce qui a été réglé
         });
     }
 
@@ -17405,7 +17537,7 @@
             msg.appendChild(a);
             msg.hidden = false;
         }
-        card._ytPause = function () { try { if (ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo(); } catch (e) {} }; // vidéo laissée en pause quand on quitte l'onglet
+        card._ytPause = function () { try { if (ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo(); } catch (e) {} }; // « Masquer les lecteurs » ou plus aucune vidéo : mise en pause
         loadYouTubeApi().then(function () {
             ytPlayer = new window.YT.Player(target, {
                 width: "100%", height: "100%",

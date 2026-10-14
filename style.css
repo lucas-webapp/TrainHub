@@ -3981,7 +3981,7 @@ button.img-thumb-btn { flex: 0 1 auto; min-width: 0; max-width: calc(var(--img-c
 button.img-thumb-btn.img-loading { min-width: 120px; min-height: 64px; }
 .media-panel[hidden] { display: none; }
 .media-cards { display: flex; flex-direction: column; gap: 8px; }
-.media-cards:empty { display: none; }
+.media-cards:empty, .media-cards[hidden] { display: none; }
 .links-group { display: contents; }
 /* Glisser-déposer des médias */
 .link-chip.dragging, .file-chip.dragging, .img-fig.dragging { opacity: .35; }
@@ -3999,12 +3999,16 @@ button.img-thumb-btn { cursor: zoom-in; }
 button.gs-pick-tab { height: 30px; padding: 0 14px; font-size: var(--fs-sm); font-weight: 700; border-radius: var(--radius-sm); }
 button.gs-pick-tab.active { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
 button.gs-pick-tab[data-tab="fav"].active { border-color: #ffd60a; color: #ffd60a; background: color-mix(in srgb, #ffd60a 10%, transparent); }
-/* Horloge persistante : fine bande tout en haut, petite et en retrait (cadran + date + heure en texte léger) — le chronomètre, lui, a de gros chiffres gras et son logo de chrono */
-.top-bar > .top-clock { order: -1; flex: 0 0 100%; display: flex; align-items: center; justify-content: center; gap: 6px; height: 14px; margin: -6px 0 -4px; font-size: 11px; font-weight: 500; letter-spacing: .04em; line-height: 1; color: var(--text-muted); opacity: .85; font-variant-numeric: tabular-nums; white-space: nowrap; user-select: none; -webkit-user-select: none; cursor: default; }
-.top-clock-ico { width: 12px; height: 12px; flex: none; opacity: .8; }
-.top-clock-date { text-transform: lowercase; opacity: .9; }
-.top-clock-time { font-weight: 600; color: var(--text-dim); }
-.top-clock-date:not(:empty)::after { content: "·"; margin-left: 6px; opacity: .6; }
+/* Horloge persistante : dans la barre du haut, sur la même ligne que le logo et l'espace (pas de bande dédiée). Petit cadran + heure en texte léger
+   au-dessus de la date — rien à voir avec le chronomètre (gros chiffres gras). Masquée sur téléphone (la barre d'état du téléphone l'affiche déjà)
+   et dès qu'elle ferait passer la barre sur une ligne de plus (voir le script de l'horloge). */
+.top-bar > .top-clock { flex: 0 0 auto; display: flex; align-items: center; gap: 5px; margin: 0 2px; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; user-select: none; -webkit-user-select: none; cursor: default; }
+.top-bar > .top-clock.top-clock-off { display: none; }
+.top-clock-ico { width: 14px; height: 14px; flex: none; opacity: .65; }
+.top-clock-text { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; line-height: 1; }
+.top-clock-time { font-size: 12px; font-weight: 600; letter-spacing: .03em; color: var(--text-dim); }
+.top-clock-date { font-size: 10px; font-weight: 500; letter-spacing: .03em; text-transform: lowercase; opacity: .85; }
+@media (max-width: 760px) { .top-bar > .top-clock { display: none; } }
 /* Barre d'exercice sur téléphone : pas de retour à la ligne. Les vignettes de médias (liens, audio, images) se regroupent en une pastille,
    le titre se coupe par « … » ; la ligne ne passe sur deux lignes qu'en dernier recours, quand le titre n'aurait plus ~100 px pour se lire. */
 button.exercise-media-group { display: none; flex: none; align-items: center; justify-content: center; gap: 4px; height: 30px; min-width: 36px; padding: 0 8px; box-sizing: border-box; border-radius: 6px; font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); font-variant-numeric: tabular-nums; }
@@ -4080,3 +4084,21 @@ input.rec-name { height: 34px; padding: 0 8px; font-weight: 600; }
 .rec-take-info { font-size: var(--fs-xs); color: var(--text-muted); }
 .rec-take-acts { display: flex; justify-content: space-between; gap: 8px; }
 .rec-take-acts button { height: 34px; padding: 0 14px; font-weight: 700; }
+
+/* ---------- v176 ---------- */
+/* Enregistrement d'une séance : thème à choisir pour un exercice sans dossier (supprimé…) */
+.gs-rec-theme { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; font-size: var(--fs-xs); color: var(--c-orange); }
+.gs-rec-theme-sel { height: 28px; min-width: 0; max-width: 100%; }
+/* Statistiques d'un jour / de 3 jours : détail par thème, sous-dossier, exercice */
+.gs-stat-row.st-tree-theme { font-weight: 700; margin-top: 4px; }
+.gs-stat-row.st-tree-sub { margin-left: 14px; font-weight: 600; }
+.gs-stat-row.st-tree-ex { color: var(--text-dim); }
+.gs-stat-row.st-tree-ex.st-tree-lv1 { margin-left: 14px; }
+.gs-stat-row.st-tree-ex.st-tree-lv2 { margin-left: 28px; }
+.gs-stat-row.st-tree-sess { background: transparent; border: 1px solid var(--border); }
+.gs-stats-day { margin-left: auto; height: 32px; width: auto; padding: 0 8px; font: inherit; }
+.gs-stats-day:not([hidden]) + .gs-hist-period { margin-left: 8px; }
+.gs-stats-day[hidden] { display: none; }
+/* Barre du haut : icônes un peu plus serrées (6 px au lieu de 8) pour que l'horloge tienne sur la même ligne, y compris sur un écran de portable (1440 px) */
+@media (min-width: 761px) { .top-bar { gap: 8px; } .top-actions { gap: 6px; } .logo { margin-right: 4px; } }
+.gs-rec-name-theme { display: block; margin-top: 1px; font-size: var(--fs-2xs); font-weight: 500; letter-spacing: .02em; color: var(--text-muted); }
