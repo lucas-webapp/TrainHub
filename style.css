@@ -4470,3 +4470,6 @@ button.dice-opt.harm-has-sub .dice-box { margin-top: 1px; }
 .harm-opt-txt .dice-name { white-space: normal; }
 .harm-pop .dice-grid.harm-grid-1 { grid-template-columns: minmax(0, 1fr) !important; gap: 2px; }
 button.harm-level-edit { display: inline-flex; align-items: center; justify-content: center; flex: none; }
+
+/* v191 — Harmonie : si le contenu dépasse la hauteur de l'écran, la fenêtre défile au lieu d'écraser le manche (blocs non compressibles) */
+.harmony-panel > * { flex-shrink: 0; }
