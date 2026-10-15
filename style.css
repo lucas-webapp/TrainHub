@@ -4232,3 +4232,8 @@ html[data-glass="1"] .dice-panel button, html[data-glass="1"] .exercise-picker-p
   button.dice-remove { height: 38px; }
   button.gs-pick-folder-all { height: 32px; }
 }
+
+/* v184 — dé : carte actuellement affichée sur le manche (« Voir sur le manche » demande laquelle quand il y a une gamme ET un mode) */
+.dice-card-shown { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.dice-card-shown .dice-card-name { color: var(--accent); }
+.dice-card-shown .dice-card-name::after { content: " · affiché"; text-transform: none; letter-spacing: 0; font-weight: 700; }

@@ -10911,6 +10911,7 @@
         m = m && typeof m === "object" ? m : {};
         var out = diceNewMem();
         if (Array.isArray(m.history)) out.history = m.history.filter(function (h) { return h && typeof h === "object" && Object.keys(h).some(function (k) { return !!diceDie(k); }); }).slice(0, 20);
+        if (m.viewDie === "scale" || m.viewDie === "mode") out.viewDie = m.viewDie; // le dé qu'on affiche sur le manche quand le tirage a une gamme ET un mode
         return out;
     }
     // Un tirage : { key: 0-11, scale: clé, mode: clé, notes: id } (seulement les dés actifs). Chaque dé évite ses dernières faces ;
@@ -10958,7 +10959,17 @@
         return out;
     }
     function dicePickText(pick) { return dicePickLines(pick).map(function (l) { return l.label; }).join(" · "); }
-    function dicePickView(pick) { var l = dicePickLines(pick).filter(function (x) { return !!x.view; })[0]; return l ? l.view : null; }
+    // Lignes qu'on peut voir sur le manche (gamme, mode). Si le tirage en a deux, « prefer » (le dé que l'utilisateur affiche d'habitude : mem.viewDie) l'emporte.
+    function diceViewLines(pick) { return dicePickLines(pick).filter(function (x) { return !!x.view; }); }
+    function dicePickView(pick, prefer) { var ls = diceViewLines(pick); var l = ls.filter(function (x) { return x.die === prefer; })[0] || ls[0]; return l ? l.view : null; }
+    // Gamme ET mode tirés : on demande lequel afficher (petit menu sous le bouton) ; un seul, on l'affiche tout de suite. onChoose(ligne).
+    function diceChooseView(pick, anchor, onChoose) {
+        var ls = diceViewLines(pick);
+        if (!ls.length) return;
+        if (ls.length === 1) { onChoose(ls[0]); return; }
+        var r = anchor.getBoundingClientRect();
+        openLinksQuickMenu(r.left, r.bottom + 4, ls.map(function (l) { return { label: l.name + " · " + l.label, open: function () { onChoose(l); } }; }));
+    }
 
     // ---- préréglages : rangés dans des onglets (state.settings.dicePresets = { tabs: [{ id, name }], list: [{ id, name, tab, cfg }] }) ----
     function dicePresetsDefault() {
@@ -11179,11 +11190,36 @@
             var actRow = el("div", "dice-res-acts");
             var copyBtn = btn("btn-ghost dice-mini", "Copier", "Copier le résumé du tirage");
             var viewBtn = ctx.onView ? btn("btn-ghost dice-mini dice-view", "Voir sur le manche", "Afficher la gamme (ou le mode) tirée dans l'outil Gammes") : null;
+            var shownDie = null, shownPick = null; // carte affichée sur le manche (hors outil Gammes, qui dit lui-même ce qu'il montre : ctx.shown)
             actRow.appendChild(copyBtn); if (viewBtn) actRow.appendChild(viewBtn);
             var cards = el("div", "dice-cards");
             resBox.appendChild(sumBig); resBox.appendChild(actRow); resBox.appendChild(cards);
             views.draw.appendChild(resBox);
             var hist = el("section", "dice-sec dice-hist"); views.draw.appendChild(hist);
+            // Marque la carte dont la gamme (ou le mode) est affichée sur le manche.
+            function markShown() {
+                var vl = diceViewLines(lastPick), cur = null;
+                if (ctx.shown) {
+                    var sw = ctx.shown();
+                    var hit = sw ? vl.filter(function (l) { return l.view.key === sw.key && l.view.root === sw.root; }) : [];
+                    var hl = hit.filter(function (l) { return l.die === mem.viewDie; })[0] || hit[0];
+                    cur = hl ? hl.die : null;
+                } else if (shownPick === lastPick) cur = shownDie;
+                Array.prototype.forEach.call(cards.children, function (c) {
+                    var on = !!cur && c.dataset.die === cur;
+                    c.classList.toggle("dice-card-shown", on);
+                    if (c.tagName === "BUTTON") c.setAttribute("aria-pressed", on ? "true" : "false");
+                });
+            }
+            // Affiche cette ligne (gamme ou mode) sur le manche et retient le choix ; sur téléphone la fenêtre couvre l'outil : on la referme.
+            function showLine(l) {
+                if (!ctx.onView || !l || !l.view) return;
+                mem.viewDie = l.die; shownDie = l.die; shownPick = lastPick;
+                ctx.onView(l.view);
+                ctx.persist();
+                markShown();
+                if (isMobilePanelLayout()) close();
+            }
             function showResult() {
                 cards.innerHTML = "";
                 var lines = dicePickLines(lastPick);
@@ -11197,13 +11233,20 @@
                 actRow.hidden = false; cards.hidden = false;
                 lines.forEach(function (l) {
                     var c = el(l.view && ctx.onView ? "button" : "div", "dice-card dice-card-" + l.die);
-                    if (l.view && ctx.onView) { c.type = "button"; c.title = "Voir sur le manche"; c.addEventListener("click", function () { ctx.onView(l.view); }); }
+                    c.dataset.die = l.die;
+                    if (l.view && ctx.onView) { c.type = "button"; c.title = "Voir « " + l.label + " » sur le manche"; c.addEventListener("click", function () { showLine(l); }); }
                     c.appendChild(el("span", "dice-card-name", l.name));
                     c.appendChild(el("span", "dice-card-val", l.label));
                     if (l.notes) c.appendChild(el("span", "dice-card-notes", l.notes));
                     cards.appendChild(c);
                 });
-                if (viewBtn) viewBtn.disabled = !dicePickView(lastPick);
+                markShown();
+                if (viewBtn) {
+                    var vn = diceViewLines(lastPick).length;
+                    viewBtn.disabled = !vn;
+                    viewBtn.textContent = vn > 1 ? "Voir sur le manche ▾" : "Voir sur le manche";
+                    viewBtn.title = !vn ? "Rien à afficher : ce tirage n'a ni gamme ni mode" : vn > 1 ? "Choisir la gamme ou le mode à afficher dans l'outil Gammes (ou toucher directement une carte)" : "Afficher la gamme (ou le mode) tirée dans l'outil Gammes";
+                }
                 footSum.textContent = "Dernier tirage : " + dicePickText(lastPick);
                 footSum.hidden = view === "draw";
             }
@@ -11213,7 +11256,7 @@
                 function done() { showToast("Résumé copié : " + t, 2500); }
                 try { navigator.clipboard.writeText(t).then(done, function () { showToast(t, 4000); }); } catch (e) { showToast(t, 4000); }
             });
-            if (viewBtn) viewBtn.addEventListener("click", function () { var v = dicePickView(lastPick); if (v) ctx.onView(v); });
+            if (viewBtn) viewBtn.addEventListener("click", function () { diceChooseView(lastPick, viewBtn, showLine); });
             function renderHist() {
                 var items = mem.history.filter(function (h) { return h !== lastPick; }).slice(0, 12);
                 hist.innerHTML = ""; hist.hidden = !items.length;
@@ -11703,7 +11746,7 @@
             // Mode hasard : le dé ouvre sa fenêtre (dés, préréglages, tirage). Le dernier tirage est mémorisé (prefs.diceMem.history) :
             // le dé reste « allumé » tant que la gamme affichée est celle de ce tirage.
             function lastDraw() { return prefs.diceMem.history[0] || null; }
-            function drawnNow() { var v = dicePickView(lastDraw()); return !!v && v.key === prefs.type && v.root === prefs.root; }
+            function drawnNow() { var v = dicePickView(lastDraw(), prefs.diceMem.viewDie); return !!v && v.key === prefs.type && v.root === prefs.root; }
             function showView(v) {
                 if (!v) return;
                 prefs.root = v.root; prefs.type = v.key;
@@ -11711,7 +11754,7 @@
                 update();
             }
             function applyRandomPick(pick) {
-                var v = dicePickView(pick);
+                var v = dicePickView(pick, prefs.diceMem.viewDie);
                 if (v) showView(v);
                 else { if (typeof pick.key === "number") prefs.root = pick.key; update(); }
             }
@@ -11719,7 +11762,7 @@
             function toggleDiceWindow() {
                 if (diceWin && diceWin.owner === prefs) { closeDiceWindow(); return; }
                 var w = openDiceWindow({ kind: "tool", title: "Tirage au sort", tool: prefs, mem: prefs.diceMem, persist: function () { saveScalesPrefs(prefs); }, onPick: applyRandomPick,
-                    current: lastDraw, onView: showView });
+                    current: lastDraw, onView: showView, shown: function () { return { key: prefs.type, root: prefs.root }; } });
                 w.owner = prefs;
             }
             var diceBtn = chip(controls, "", "Gamme au hasard (réglages et tirage)", toggleDiceWindow);
@@ -13506,7 +13549,7 @@
             sum.title = (p ? "Préréglage « " + p.name + " » : " : "") + diceSummary(diceHolderCfg(ex.dice)) + " — modifier le dé de cet exercice";
             var pick = exDiceDrawn[ex.id];
             res.textContent = pick ? dicePickText(pick) : "";
-            res.title = pick && dicePickView(pick) ? "Voir sur le manche" : "";
+            res.title = pick && diceViewLines(pick).length ? (diceViewLines(pick).length > 1 ? "Voir sur le manche : la gamme ou le mode (au choix)" : "Voir sur le manche") : "";
         }
         cb.addEventListener("change", function () {
             if (cb.checked) {
@@ -13530,7 +13573,9 @@
             if (!pick) { showToast("Le dé n'a rien à tirer : allume un dé et coche au moins une face (bouton du réglage).", 4500); return; }
             exDiceDrawn[ex.id] = pick; paint();
         });
-        res.addEventListener("click", function () { var v = dicePickView(exDiceDrawn[ex.id]); if (v) showScaleInViewer(v); });
+        res.addEventListener("click", function () {
+            diceChooseView(exDiceDrawn[ex.id], res, function (l) { exDiceMemFor(ex).viewDie = l.die; showScaleInViewer(l.view); });
+        });
         paint();
         return row;
     }
@@ -19517,11 +19562,13 @@
                         nt.textContent = withNotes.label + " : " + withNotes.notes;
                         diceLine.appendChild(nt);
                     }
-                    var v = dicePickView(pick);
-                    if (v) {
+                    var nView = diceViewLines(pick).length;
+                    if (nView) {
                         var viewBtn = document.createElement("button");
-                        viewBtn.type = "button"; viewBtn.className = "btn-ghost gs-run-dice-mini"; viewBtn.textContent = "Voir sur le manche";
-                        viewBtn.addEventListener("click", function () { showScaleInViewer(v); });
+                        viewBtn.type = "button"; viewBtn.className = "btn-ghost gs-run-dice-mini"; viewBtn.textContent = nView > 1 ? "Voir sur le manche ▾" : "Voir sur le manche";
+                        viewBtn.addEventListener("click", function () {
+                            diceChooseView(pick, viewBtn, function (l) { gsDiceMemFor(step).viewDie = l.die; showScaleInViewer(l.view); });
+                        });
                         diceLine.appendChild(viewBtn);
                     }
                 } else {
