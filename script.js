@@ -496,9 +496,10 @@
         if (PREF_CLOUD_BUDGET_MB.indexOf(p.cloudBudgetMB) === -1) p.cloudBudgetMB = 800;
         if (PREF_BELL_LEAD_SEC.indexOf(p.bellLeadSec) === -1) p.bellLeadSec = 10;
         if (PREF_MINI_MODES.indexOf(p.miniMode) === -1) p.miniMode = "auto";
+        p.noteNames = p.noteNames === "solfege" ? "solfege" : "letters"; // outil Gammes et tirage : C D E ou Do Ré Mi
         p.pauseOnHidden = p.pauseOnHidden === true; // chrono de session : par défaut il continue quand TrainHub passe au second plan
     }
-    function prefs() { return (state && state.settings && state.settings.prefs) || { tempoStep: 10, defaultMinutes: 5, freeStartSec: 10, freeIdleMin: 15, cloudBudgetMB: 800, bellLeadSec: 10, pauseOnHidden: false, miniMode: "auto" }; }
+    function prefs() { return (state && state.settings && state.settings.prefs) || { tempoStep: 10, defaultMinutes: 5, freeStartSec: 10, freeIdleMin: 15, cloudBudgetMB: 800, bellLeadSec: 10, pauseOnHidden: false, miniMode: "auto", noteNames: "letters" }; }
 
     // Une session guidée = un enchaînement d'exercices avec un temps alloué à chacun. Les pas
     // référencent l'exercice par son id (unique dans toute l'appli, voir uid()) plutôt que de
@@ -10412,10 +10413,10 @@
         sc("major", "Gammes", "Majeur", [0, 2, 4, 5, 7, 9, 11], ["1", "2", "3", "4", "5", "6", "7"]),
         sc("aeolian", "Gammes", "Mineur naturel", [0, 2, 3, 5, 7, 8, 10], ["1", "2", "♭3", "4", "5", "♭6", "♭7"]),
         sc("harmonicMinor", "Gammes", "Mineur harmonique", [0, 2, 3, 5, 7, 8, 11], ["1", "2", "♭3", "4", "5", "♭6", "7"]),
-        sc("melodicMinor", "Gammes", "Mineur mélodique", [0, 2, 3, 5, 7, 9, 11], ["1", "2", "♭3", "4", "5", "6", "7"]),
+        sc("melodicMinor", "Gammes", "Mineur mélodique (ascendant)", [0, 2, 3, 5, 7, 9, 11], ["1", "2", "♭3", "4", "5", "6", "7"]),
         sc("majorPenta", "Gammes", "Pentatonique majeure", [0, 2, 4, 7, 9], ["1", "2", "3", "5", "6"]),
         sc("minorPenta", "Gammes", "Pentatonique mineure", [0, 3, 5, 7, 10], ["1", "♭3", "4", "5", "♭7"]),
-        sc("blues", "Gammes", "Blues", [0, 3, 5, 6, 7, 10], ["1", "♭3", "4", "♭5", "5", "♭7"]),
+        sc("blues", "Gammes", "Blues mineur", [0, 3, 5, 6, 7, 10], ["1", "♭3", "4", "♭5", "5", "♭7"]),
         // Modes de la gamme majeure
         sc("dorian", "Gammes", "Dorien", [0, 2, 3, 5, 7, 9, 10], ["1", "2", "♭3", "4", "5", "6", "♭7"]),
         sc("phrygian", "Gammes", "Phrygien", [0, 1, 3, 5, 7, 8, 10], ["1", "♭2", "♭3", "4", "5", "♭6", "♭7"]),
@@ -10435,7 +10436,7 @@
         sc("dorianSharp4", "Gammes", "Dorien ♯4", [0, 2, 3, 6, 7, 9, 10], ["1", "2", "♭3", "♯4", "5", "6", "♭7"]),
         sc("phrygianDominant", "Gammes", "Phrygien dominant (flamenco)", [0, 1, 4, 5, 7, 8, 10], ["1", "♭2", "3", "4", "5", "♭6", "♭7"]),
         sc("lydianSharp2", "Gammes", "Lydien ♯2", [0, 3, 4, 6, 7, 9, 11], ["1", "♯2", "3", "♯4", "5", "6", "7"]),
-        sc("superLocrianbb7", "Gammes", "Super-locrien ♭♭7", [0, 1, 3, 4, 6, 8, 9], ["1", "♭2", "♭3", "♭4", "♭5", "♭6", "♭♭7"]),
+        sc("superLocrianbb7", "Gammes", "Ultra-locrien (Locrien ♭♭7)", [0, 1, 3, 4, 6, 8, 9], ["1", "♭2", "♭3", "♭4", "♭5", "♭6", "♭♭7"]),
         // Autres gammes
         sc("bluesMajor", "Gammes", "Blues majeur", [0, 2, 3, 4, 7, 9], ["1", "2", "♭3", "3", "5", "6"]),
         sc("wholeTone", "Gammes", "Gamme par tons", [0, 2, 4, 6, 8, 10], ["1", "2", "3", "♯4", "♯5", "♭7"]),
@@ -10480,6 +10481,88 @@
         sc("maj7s5", "Arpèges", "Majeure 7 ♯5 (maj7♯5)", [0, 4, 8, 11], ["1", "3", "♯5", "7"])
     ];
 
+    // ---------- orthographe des notes : une lettre par degré ----------
+    // Une gamme s'écrit avec UNE lettre par degré (Do mineur : C D E♭ F G A♭ B♭ — pas C D D♯ F G G♯ A♯), et la tonique prend le nom qui demande
+    // le moins d'altérations (Mi♭ majeur, pas Ré♯ majeur qui aurait 9 dièses ; double dièse / double bémol quand la gamme l'exige). À égalité,
+    // le nom en dièses (F♯ plutôt que G♭). Le réglage « Nom des notes » (lettres ou Do Ré Mi) ne change que l'affichage : noteDisplay().
+    var NOTE_LETTERS = ["C", "D", "E", "F", "G", "A", "B"];
+    var NOTE_LETTER_PC = [0, 2, 4, 5, 7, 9, 11];
+    var NOTE_SOLFEGE = { C: "Do", D: "Ré", E: "Mi", F: "Fa", G: "Sol", A: "La", B: "Si" };
+    var TONIC_NAMES = [[[0, 0]], [[0, 1], [1, -1]], [[1, 0]], [[1, 1], [2, -1]], [[2, 0]], [[3, 0]], [[3, 1], [4, -1]], [[4, 0]], [[4, 1], [5, -1]], [[5, 0]], [[5, 1], [6, -1]], [[6, 0]]]; // par note (0-11) : [lettre, altération]
+    function accidentalText(a) {
+        return a === 0 ? "" : a === 1 ? "♯" : a === -1 ? "♭" : a === 2 ? "𝄪" : a === -2 ? "𝄫" : a > 0 ? new Array(a + 1).join("♯") : new Array(1 - a).join("♭");
+    }
+    // « E♭ » → « E♭ » ou « Mi♭ » selon le réglage Nom des notes (Paramètres › Affichage).
+    function noteDisplay(name) {
+        if (!name || prefs().noteNames !== "solfege") return name;
+        return (NOTE_SOLFEGE[name.charAt(0)] || name.charAt(0)) + name.slice(1);
+    }
+    function solfegeOn() { return prefs().noteNames === "solfege"; }
+    function tonicNames(pc) { return TONIC_NAMES[pc].map(function (t) { return noteDisplay(NOTE_LETTERS[t[0]] + accidentalText(t[1])); }); }
+    function rootMenuName(pc) { return tonicNames(pc).join(" / "); }
+    function diceKeyName(pc) { return tonicNames(pc).join("/"); }
+    function degreeNumber(label) { var n = parseInt(String(label).replace(/[^0-9]/g, ""), 10); return n > 0 ? n : 1; }
+    // Les notes d'une gamme écrites depuis une tonique (lettre L, altération a) : la lettre vient du numéro du degré, l'altération de l'écart.
+    function spellFrom(L, a, def) {
+        var rootPc = (NOTE_LETTER_PC[L] + a + 12) % 12;
+        return def.semis.map(function (st, i) {
+            var l = (L + degreeNumber(def.degrees[i]) - 1) % 7;
+            var acc = (((rootPc + st) % 12 - NOTE_LETTER_PC[l] + 18) % 12) - 6;
+            return { letter: l, acc: acc, name: NOTE_LETTERS[l] + accidentalText(acc) };
+        });
+    }
+    var spellBestCache = {};
+    // Meilleure écriture d'une gamme sur la note pc : { L, acc, root: « E♭ », notes: ["E♭", "F", …] }.
+    function spellBest(pc, def) {
+        var ck = def.key + ":" + pc;
+        if (spellBestCache[ck]) return spellBestCache[ck];
+        var best = null;
+        TONIC_NAMES[pc].forEach(function (t) {
+            var sp = spellFrom(t[0], t[1], def), cost = 0;
+            sp.forEach(function (x) { var ax = Math.abs(x.acc); cost += ax + (ax >= 2 ? 3 : 0); });
+            if (!best || cost < best.cost || (cost === best.cost && t[1] > best.acc)) {
+                best = { L: t[0], acc: t[1], cost: cost, root: NOTE_LETTERS[t[0]] + accidentalText(t[1]), notes: sp.map(function (x) { return x.name; }) };
+            }
+        });
+        return (spellBestCache[ck] = best);
+    }
+    // Accord bâti sur la tonique avec des degrés de la gamme (1-3-5, et 7 ou à défaut 6) : { idx: [positions dans la gamme], suffix: "m7" } ou null.
+    // Triade : 3 sons, tétrade : 4 sons. Aucune note inventée : si la gamme n'a pas de tierce (ou de quinte), pas d'accord.
+    function chordOfScale(def, count) {
+        function find(num, order) {
+            var cands = [];
+            def.degrees.forEach(function (lab, i) { if (degreeNumber(lab) === num) cands.push(i); });
+            for (var k = 0; k < order.length; k++) for (var j = 0; j < cands.length; j++) if (def.semis[cands[j]] === order[k]) return cands[j];
+            return cands.length ? cands[0] : -1;
+        }
+        var i3 = find(3, [4, 3]), i5 = find(5, [7, 6, 8]);
+        if (i3 < 0 || i5 < 0) return null;
+        var third = def.semis[i3], fifth = def.semis[i5], minor = third === 3, suffix;
+        if (count === 3) {
+            suffix = minor ? (fifth === 7 ? "m" : fifth === 6 ? "dim" : "m♯5") : (fifth === 7 ? "" : fifth === 8 ? "aug" : "(♭5)");
+            return { idx: [0, i3, i5], suffix: suffix };
+        }
+        var i7 = find(7, [10, 11, 9]), six = false;
+        if (i7 < 0) { i7 = find(6, [9]); six = true; }
+        if (i7 < 0) return null;
+        var sev = def.semis[i7];
+        if (sev === 11) suffix = minor ? "m(maj7)" : "maj7";
+        else if (sev === 10) suffix = minor ? "m7" : "7";
+        else if (!six && minor && fifth === 6) suffix = "dim7";
+        else suffix = minor ? "m6" : "6";
+        if (suffix !== "dim7") suffix += fifth === 6 ? "♭5" : fifth === 8 ? "♯5" : "";
+        return { idx: [0, i3, i5, i7], suffix: suffix };
+    }
+    function scaleHasMajorThird(def) { return def.semis.some(function (st, i) { return st === 4 && degreeNumber(def.degrees[i]) === 3; }); }
+    // Pentatonique et blues « de » une gamme : ceux de sa tierce (tierce majeure → majeure, sinon mineure) ; une gamme déjà pentatonique (ou blues) reste telle quelle.
+    function pentaOf(def) { return def.semis.length === 5 ? def : scaleDefByKey(scaleHasMajorThird(def) ? "majorPenta" : "minorPenta"); }
+    function bluesOf(def) { return def.key === "blues" || def.key === "bluesMajor" ? def : scaleDefByKey(scaleHasMajorThird(def) ? "bluesMajor" : "blues"); }
+    // Taille de l'écriture d'une note dans une pastille : « Sol♯ » ou « B𝄫 » sont plus longs que « C♯ ».
+    function noteLabelScale(text, white) {
+        var n = Array.from(text).length;
+        return white ? (n >= 4 ? 0.85 : 1) : (n <= 2 ? 1 : n === 3 ? 0.8 : 0.62);
+    }
+
     var FRETBOARD_TUNINGS = [
         { key: "bass4", label: "Basse", midis: [28, 33, 38, 43] },
         { key: "bass5", label: "Basse 5 cordes", midis: [23, 28, 33, 38, 43] },
@@ -10489,8 +10572,8 @@
     var FRETBOARD_SINGLE_MARKERS = [3, 5, 7, 9, 15, 17, 19, 21];
     var FRETBOARD_DOUBLE_MARKERS = [12, 24];
 
-    function scaleNoteLabel(def, semiIdx, pc, labelMode) {
-        return labelMode === "notes" ? NOTE_NAMES_SHARP[pc] : def.degrees[semiIdx];
+    function scaleNoteLabel(def, semiIdx, rootPc, labelMode) {
+        return labelMode === "notes" ? noteDisplay(spellBest(rootPc, def).notes[semiIdx]) : def.degrees[semiIdx];
     }
 
     // sz : { s: échelle de base (taille de l'écran), w / h: réglages de largeur et de hauteur propres à
@@ -10574,8 +10657,8 @@
                 // Texte au centre exact du cercle : dy = 0,35 em (hauteur de ligne), plutôt qu'un
                 // décalage en px qui le laissait trop bas.
                 var t = el("text", { x: nx, y: ny, dy: "0.35em", class: "fretboard-note-label" });
-                t.style.fontSize = (9.5 * S) + "px";
-                t.textContent = scaleNoteLabel(def, semiIdx, pc, labelMode);
+                t.textContent = scaleNoteLabel(def, semiIdx, rootPc, labelMode);
+                t.style.fontSize = (9.5 * S * (labelMode === "notes" ? noteLabelScale(t.textContent) : 1)) + "px";
                 svg.appendChild(t);
             }
         }
@@ -10615,7 +10698,7 @@
             var diff = (pc - rootPc + 12) % 12;
             var semiIdx = def.semis.indexOf(diff);
             if (semiIdx === -1) return null;
-            return { isRoot: diff === 0, label: scaleNoteLabel(def, semiIdx, pc, labelMode) };
+            return { isRoot: diff === 0, label: scaleNoteLabel(def, semiIdx, rootPc, labelMode) };
         }
 
         whiteMidis.forEach(function (midi, i) {
@@ -10626,6 +10709,7 @@
             if (active) {
                 var t = el("text", { x: x + w / 2, y: keyH - 8, class: "piano-key-label" });
                 t.textContent = active.label;
+                if (labelMode === "notes" && noteLabelScale(active.label, true) < 1) t.style.fontSize = (13 * noteLabelScale(active.label, true)) + "px";
                 svg.appendChild(t);
             }
         });
@@ -10640,6 +10724,7 @@
             if (active2) {
                 var t2 = el("text", { x: x2 + blackW / 2, y: blackH - 8, class: "piano-key-label piano-key-label-black" });
                 t2.textContent = active2.label;
+                if (labelMode === "notes" && noteLabelScale(active2.label) < 1) t2.style.fontSize = (13 * noteLabelScale(active2.label)) + "px";
                 svg.appendChild(t2);
             }
         }
@@ -10670,7 +10755,6 @@
     function scaleIsExtra(key) {
         return SCALE_MENU.some(function (g) { return g.extra && g.keys.indexOf(key) !== -1; });
     }
-    var ROOT_MENU_NAMES = ["C", "C♯ / D♭", "D", "D♯ / E♭", "E", "F", "F♯ / G♭", "G", "G♯ / A♭", "A", "A♯ / B♭", "B"];
     // Mode « hasard » : tirer au sort la gamme à travailler. Le nombre de notes découle de la famille cochée
     // (triades = 3, tétrades = 4, pentatoniques = 5, gammes complètes = 7…) ; les toniques se filtrent à part.
     var SCALE_RAND_FAMILIES = [
@@ -10810,7 +10894,6 @@
     // Un réglage du dé (cfg) dit quels dés lancer et, pour chacun, quelles faces il porte. Les dés sont indépendants : la tonalité est
     // tirée une fois, chaque autre dé actif tire une de ses faces, et le résumé les met bout à bout (« D · Locrien · Tétrade (4 notes) »).
     // cfg = { on: { key, scale, mode, notes }, key: [12 booléens], scale: [clés de gamme], mode: [clés de mode], notes: [ids] }
-    var DICE_KEY_NAMES = ROOT_MENU_NAMES.map(function (n) { return n.replace(" / ", "/"); });
     var DICE_MODE_LABELS = { major: "Ionien", aeolian: "Éolien" };
     var DICE_NOTES = [["scale", "Gamme complète", "7 notes"], ["blues", "Gamme blues", "6 notes"], ["penta", "Pentatonique", "5 notes"], ["tetrad", "Tétrade", "4 notes"], ["triad", "Triade", "3 notes"]];
     var DICE_DICE = [
@@ -10866,7 +10949,7 @@
     function diceActiveIds(cfg) { return DICE_DICE.filter(function (d) { return cfg.on[d.id]; }).map(function (d) { return d.id; }); }
     function diceEmptyDice(cfg) { return diceActiveIds(cfg).filter(function (id) { return !diceFaces(cfg, id).length; }); }
     function diceFaceLabel(id, f) {
-        if (id === "key") return DICE_KEY_NAMES[f] || "?";
+        if (id === "key") return typeof f === "number" && f >= 0 && f < 12 ? diceKeyName(f) : "?";
         if (id === "notes") { var n = DICE_NOTES.filter(function (x) { return x[0] === f; })[0]; return n ? n[1] + " (" + n[2] + ")" : String(f); }
         var d = scaleDefByKey(f);
         if (!d) return String(f);
@@ -10927,6 +11010,10 @@
             var faces = diceFaces(cfg, id), rec = mem.recent[id] || (mem.recent[id] = []);
             var pool = faces.filter(function (f) { return rec.indexOf(f) === -1; });
             if (!pool.length) pool = faces;
+            if (id === "mode" && pick.scale !== undefined) { // « Majeur · Ionien » dirait deux fois la même chose : on tire un autre mode si possible
+                var other = pool.filter(function (x) { return x !== pick.scale; });
+                if (other.length) pool = other;
+            }
             var f = pool[Math.floor(Math.random() * pool.length)];
             rec.push(f);
             var keep = Math.max(0, Math.min(id === "key" ? 4 : 3, faces.length - 1));
@@ -10943,20 +11030,60 @@
         var out = [];
         if (!pick) return out;
         var root = typeof pick.key === "number" ? pick.key : null;
+        var dupMode = pick.mode !== undefined && pick.mode !== null && pick.mode === pick.scale; // Ionien = Majeur, Éolien = Mineur naturel : une seule fois
+        var defs = {}, sp = {}, tonics = [];
+        ["scale", "mode"].forEach(function (id) {
+            var k = pick[id];
+            if (k === undefined || k === null || (id === "mode" && dupMode)) return;
+            var d0 = scaleDefByKey(k);
+            if (!d0) return;
+            defs[id] = d0;
+            if (root !== null) { sp[id] = spellBest(root, d0); if (tonics.indexOf(sp[id].root) === -1) tonics.push(sp[id].root); }
+        });
+        var perLine = tonics.length > 1; // gamme et mode ne s'écrivent pas depuis la même tonique (rare) : chacun annonce la sienne
+        var target = defs.mode ? "mode" : defs.scale ? "scale" : null; // le dé « Exercice » s'applique au mode s'il y en a un, sinon à la gamme
         DICE_DICE.forEach(function (d) {
             var f = pick[d.id];
             if (f === undefined || f === null) return;
+            if (d.id === "mode" && dupMode) return;
             var line = { die: d.id, name: d.name, label: diceFaceLabel(d.id, f), view: null, notes: "" };
-            if (d.id === "scale" || d.id === "mode") {
-                var def = scaleDefByKey(f);
-                if (def) {
+            if (d.id === "key") {
+                if (root !== null && tonics.length === 1) line.label = noteDisplay(tonics[0]); // la tonique écrite comme la gamme l'exige (E♭, pas D♯)
+            } else if (d.id === "scale" || d.id === "mode") {
+                if (defs[d.id]) {
                     line.view = { key: f, root: root === null ? 0 : root };
-                    if (root !== null) line.notes = def.semis.map(function (st) { return NOTE_NAMES_SHARP[(root + st) % 12]; }).join(" ");
+                    if (perLine) line.label = noteDisplay(sp[d.id].root) + " " + line.label;
+                    if (root !== null) line.notes = sp[d.id].notes.map(noteDisplay).join(" ");
                 }
+            } else if (d.id === "notes") {
+                var ex = diceExerciseLine(f, target ? defs[target] : null, target && root !== null ? sp[target] : null);
+                line.label = ex.label; line.notes = ex.notes;
+                if (defs.scale && defs.mode && ex.notes) line.on = "sur le mode";
             }
             out.push(line);
         });
         return out;
+    }
+    // Ce que demande le dé « Exercice » une fois la gamme (ou le mode) tiré(e) : { label, notes }. Gamme complète = toutes ses notes ;
+    // Triade / Tétrade = l'accord bâti sur la tonique avec les degrés de la gamme (Ré dorien → Dm7 : D F A C) ; Pentatonique / Blues = ceux de sa tierce.
+    // Sans gamme ni mode tiré, ou sans tonalité, le dé garde son seul intitulé (« Tétrade (4 notes) »).
+    function diceExerciseLine(face, def, sp) {
+        var base = diceFaceLabel("notes", face);
+        if (!def) return { label: base, notes: "" };
+        function spelled(d2) { return sp ? spellFrom(sp.L, sp.acc, d2).map(function (x) { return x.name; }) : null; }
+        function joined(names) { return names ? names.map(noteDisplay).join(" ") : ""; }
+        function chord(count, word) {
+            var ch = chordOfScale(def, count);
+            if (!ch) return { label: word, notes: "pas de " + word.toLowerCase() + " dans cette gamme" };
+            if (!sp) return { label: base, notes: "" };
+            var names = spelled(def);
+            return { label: word + " " + noteDisplay(sp.root) + ch.suffix, notes: joined(ch.idx.map(function (i) { return names[i]; })) };
+        }
+        if (face === "scale") return { label: "Gamme complète (" + def.semis.length + " notes)", notes: joined(spelled(def)) };
+        if (face === "tetrad") return chord(4, "Tétrade");
+        if (face === "triad") return chord(3, "Triade");
+        var d2 = face === "penta" ? pentaOf(def) : bluesOf(def);
+        return { label: d2.label, notes: joined(spelled(d2)) };
     }
     function dicePickText(pick) { return dicePickLines(pick).map(function (l) { return l.label; }).join(" · "); }
     // Lignes qu'on peut voir sur le manche (gamme, mode). Si le tirage en a deux, « prefer » (le dé que l'utilisateur affiche d'habitude : mem.viewDie) l'emporte.
@@ -11237,7 +11364,7 @@
                     if (l.view && ctx.onView) { c.type = "button"; c.title = "Voir « " + l.label + " » sur le manche"; c.addEventListener("click", function () { showLine(l); }); }
                     c.appendChild(el("span", "dice-card-name", l.name));
                     c.appendChild(el("span", "dice-card-val", l.label));
-                    if (l.notes) c.appendChild(el("span", "dice-card-notes", l.notes));
+                    if (l.notes) c.appendChild(el("span", "dice-card-notes", (l.on ? l.on + " : " : "") + l.notes));
                     cards.appendChild(c);
                 });
                 markShown();
@@ -11341,7 +11468,7 @@
                             ["Aucune", function () { edit(function (cc) { cc.key = cc.key.map(function () { return false; }); }); }]]);
                         var kb = el("div", "dice-keys");
                         function rootKey(col, row, pc) {
-                            var o = opt(DICE_KEY_NAMES[pc], function () { return c.key[pc]; }, function (cc) { cc.key[pc] = !cc.key[pc]; }, "dice-key");
+                            var o = opt(diceKeyName(pc), function () { return c.key[pc]; }, function (cc) { cc.key[pc] = !cc.key[pc]; }, "dice-key");
                             o.style.gridColumn = col + " / span 2"; o.style.gridRow = String(row + 1);
                             kb.appendChild(o);
                         }
@@ -11353,6 +11480,7 @@
                         var g0 = el("div", "dice-grid");
                         DICE_NOTES.forEach(function (nt) { g0.appendChild(opt(nt[1] + " · " + nt[2], function () { return c.notes.indexOf(nt[0]) !== -1; }, function (cc) { toggleIn(cc.notes, nt[0]); })); });
                         s.appendChild(g0);
+                        s.appendChild(el("div", "dice-hint", "Le dé s'applique à la gamme ou au mode tiré (au mode s'il y en a un) : triade et tétrade bâties sur sa tonique, pentatonique et blues de sa tierce."));
                     } else {
                         var showMore = !!diceUi.more[id];
                         function visibleKeys() { var out = []; d.groups.forEach(function (g) { if (!g.more || showMore) g.keys.forEach(function (k) { if (scaleDefByKey(k) && out.indexOf(k) === -1) out.push(k); }); }); return out; }
@@ -11732,7 +11860,7 @@
             // (intervalles/notes, 12/24 cases, largeur, hauteur). Sans libellés : des infobulles à la place.
             var rootSelect = select(controls, "Tonique", function (v) { prefs.root = parseInt(v, 10); update(); });
             rootSelect.classList.add("scales-select-root");
-            ROOT_MENU_NAMES.forEach(function (name, pc) { addOption(rootSelect, String(pc), name); });
+            for (var rpc = 0; rpc < 12; rpc++) addOption(rootSelect, String(rpc), rootMenuName(rpc));
 
             var typeBtn = document.createElement("button");
             typeBtn.type = "button";
@@ -11829,10 +11957,15 @@
             panel.appendChild(legend);
 
             function setActive(btns, pred) { btns.forEach(function (b, i) { b.classList.toggle("scales-chip-active", !!pred(i)); }); }
+            // Changement de « Nom des notes » (Paramètres) pendant que l'outil est ouvert : on réécrit les noms.
+            function onNamesChange() { if (!panel.isConnected) { document.removeEventListener("trainhub-prefs", onNamesChange); return; } update(); }
+            document.addEventListener("trainhub-prefs", onNamesChange);
 
             function update() {
                 saveScalesPrefs(prefs);
                 instSelect.value = prefs.instrument;
+                Array.prototype.forEach.call(rootSelect.options, function (o) { var nm = rootMenuName(parseInt(o.value, 10)); if (o.textContent !== nm) o.textContent = nm; });
+                rootSelect.classList.toggle("scales-select-root-solfege", solfegeOn()); // « Sol♯ / La♭ » est plus long que « G♯ / A♭ »
                 rootSelect.value = String(prefs.root);
                 var curDef = SCALE_DEFS.filter(function (d) { return d.key === prefs.type; })[0];
                 typeBtn.textContent = curDef.label;
@@ -11854,7 +11987,8 @@
 
                 // Récapitulatif lisible : nom complet + notes de la gamme, utile en soi.
                 var def = SCALE_DEFS.filter(function (d) { return d.key === prefs.type; })[0];
-                var notes = def.semis.map(function (st) { return NOTE_NAMES_SHARP[(prefs.root + st) % 12]; });
+                var spell = spellBest(prefs.root, def);
+                var notes = spell.notes.map(noteDisplay);
                 summary.innerHTML = "";
                 var kindInfo = scaleKindInfo(def);
                 var kindChip = document.createElement("span");
@@ -11862,7 +11996,7 @@
                 kindChip.textContent = kindInfo.name + " · " + kindInfo.count + " notes";
                 summary.appendChild(kindChip);
                 var strong = document.createElement("strong");
-                strong.textContent = NOTE_NAMES_SHARP[prefs.root] + " " + def.label;
+                strong.textContent = noteDisplay(spell.root) + " " + def.label;
                 summary.appendChild(strong);
                 summary.appendChild(document.createTextNode(" · " + notes.join(" ")));
                 if (drawnNow()) { // re-tirage en un clic, avec les mêmes dés ; le tirage complet (tous les dés) est rappelé à côté
@@ -13291,6 +13425,9 @@
             field("Densité de l'interface", segControl([["compact", "Compacte"], ["comfortable", "Confortable"], ["spacious", "Spacieuse"]], a.density, function (v) { a.density = v; save(); render(); }));
             card("Disposition");
             field("Écran principal", segControl([["vertical", "Verticale"], ["horizontal", "Horizontale (Finder)"]], a.mainLayout, function (v) { a.mainLayout = v; save(); render(); }));
+
+            card("Gammes et tirage au sort");
+            field("Nom des notes", segControl([["letters", "C D E"], ["solfege", "Do Ré Mi"]], prefs().noteNames, function (v) { setPref("noteNames", v); }), "Outil Gammes et tirage au sort. L'écriture juste (Mi♭ plutôt que Ré♯) est automatique.");
 
             // ===== Métronome =====
             section("Métronome");
@@ -19555,7 +19692,7 @@
                     main.className = "gs-run-dice-result";
                     main.textContent = dicePickText(pick);
                     diceLine.appendChild(main);
-                    var withNotes = lines.filter(function (l) { return l.notes; })[0];
+                    var withNotes = lines.filter(function (l) { return l.die === "notes" && l.notes; })[0] || lines.filter(function (l) { return l.notes; })[0];
                     if (withNotes) {
                         var nt = document.createElement("span");
                         nt.className = "gs-run-dice-notes";

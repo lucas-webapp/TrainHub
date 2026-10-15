@@ -4237,3 +4237,7 @@ html[data-glass="1"] .dice-panel button, html[data-glass="1"] .exercise-picker-p
 .dice-card-shown { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .dice-card-shown .dice-card-name { color: var(--accent); }
 .dice-card-shown .dice-card-name::after { content: " · affiché"; text-transform: none; letter-spacing: 0; font-weight: 700; }
+
+/* v185 — dé : remarque sous les faces du dé « Exercice » */
+.dice-hint { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.35; }
+.scales-controls .scales-select.scales-select-root.scales-select-root-solfege { width: 124px; }
