@@ -4341,3 +4341,30 @@ input.harm-edit-name { flex: 1 1 200px; height: 32px; box-sizing: border-box; }
 .gs-run-harm { color: #c792ea; }
 @media (max-width: 700px) { .harm-head .harm-views { margin-left: 0; order: 3; width: 100%; } .harm-beats { margin-left: 0; } button.harm-cell { min-width: 44px; } }
 .gs-step-dice.gs-step-dice-harm { color: #c792ea; }
+
+/* v188 — Harmonie : repères (accord suivant, approches), calque CAGED, harmonie avancée */
+.harm-cues { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.harm-cues[hidden], .harm-cues .scales-segmented[hidden], .harm-adv[hidden] { display: none !important; }
+.harm-cues .scales-chip { height: 30px; font-size: var(--fs-xs); }
+.harm-adv { display: flex; flex-direction: column; gap: 6px; }
+.harm-adv-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.harm-adv-row .scales-chip { height: 30px; font-size: var(--fs-xs); }
+.harm-cell-an { font-size: var(--fs-2xs); font-weight: 700; color: #c792ea; white-space: nowrap; }
+.harm-cell-an.harm-an-borrow { color: #4dd0e1; } .harm-cell-an.harm-an-chrom { color: var(--text-muted); }
+.fretboard-note.harm-common { stroke: #ffffff; stroke-width: 3; }
+.fretboard-note.harm-next { fill: transparent; stroke: #c792ea; stroke-width: 2; stroke-dasharray: 3 2; }
+.harm-tone.harm-next + .fretboard-note-label { fill: #e1bee7; }
+.fretboard-note.harm-target { stroke: #ff5252; stroke-width: 3; }
+.fretboard-note.harm-app { fill: transparent; stroke: #ffab40; stroke-width: 2; stroke-dasharray: 2 2; }
+.harm-tone.harm-app + .fretboard-note-label { fill: #ffcc80; }
+.piano-key-white.harm-next { fill: #e1bee7; } .piano-key-black.harm-next { fill: #8e24aa; }
+.piano-key-white.harm-app { fill: #ffe0b2; } .piano-key-black.harm-app { fill: #e65100; }
+.piano-key-white.harm-common, .piano-key-black.harm-common { stroke: #ffffff; stroke-width: 2.5; }
+.harm-band { fill: rgba(199, 146, 234, .09); stroke: rgba(199, 146, 234, .55); stroke-width: 1.2; }
+.harm-band-label { fill: #c792ea; font-weight: 800; text-anchor: middle; }
+.harm-band.harm-band-A, .harm-band.harm-band-E { fill: rgba(77, 208, 225, .09); stroke: rgba(77, 208, 225, .55); } .harm-band-label.harm-band-A, .harm-band-label.harm-band-E { fill: #4dd0e1; }
+.harm-dot-common { background: #888; border: 2.5px solid #fff; }
+.harm-dot-next { background: transparent; border: 2px dashed #c792ea; }
+.harm-dot-target { background: transparent; border: 3px solid #ff5252; }
+.harm-dot-app { background: transparent; border: 2px dashed #ffab40; }
+.harm-dot-band { background: rgba(199, 146, 234, .25); border: 1.2px solid #c792ea; border-radius: 3px; }
