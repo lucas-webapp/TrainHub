@@ -12193,7 +12193,9 @@
         // Mode du degré : la même gamme lue depuis ce degré (le IIe degré du majeur → dorien).
         var rot = []; for (var r = 0; r < 7; r++) rot.push((s[(deg + r) % 7] - s[deg] + 12) % 12);
         var mode = SCALE_DEFS.filter(function (d) { return d.kind === "Gammes" && d.semis.length === 7 && d.semis.join() === rot.join(); })[0] || null;
-        return { deg: deg, numeral: numeral + numSuffix, suffix: suffix, tones: tones, avoided: avoided, mode: mode, fn: harmFunction(def, deg) };
+        var full = numeral + numSuffix;
+        if (o.numCase === "lower") full = harmLowerNumeral(full);
+        return { deg: deg, numeral: full, suffix: suffix, tones: tones, avoided: avoided, mode: mode, fn: harmFunction(def, deg) };
     }
     // Fonction tonale (règle reprise de HarmoHub, prudente) : affichée seulement quand elle fait consensus. I = T, II et IV = SD, V = D,
     // VII = D s'il est la sensible (un demi-ton sous la tonique : majeur, mineurs harmonique et mélodique) ; III et VI (et le ♭VII du mineur naturel,
@@ -12208,6 +12210,20 @@
     }
     // Nom affiché du mode d'un degré (Ionien / Éolien pour le majeur et le mineur naturel lus comme modes).
     function harmModeName(mode) { return mode ? (DICE_MODE_LABELS[mode.key] || mode.label) : ""; }
+    // Chiffrage en minuscules (convention classique, très utilisée aussi en jazz : ii7 – V7 – Imaj7) : chiffre en minuscules pour les
+    // accords mineurs et diminués, le « m » disparaît (la minuscule le dit déjà), m7♭5 s'écrit ø7, dim7 °7. Majeurs, dominantes,
+    // augmentés et sus gardent la majuscule. Entrée : chiffrage jazz complet (« ♭VIIm7♭5 », « IIm9 », « VII° »).
+    function harmLowerNumeral(n) {
+        var m = /^((?:♭|♯|𝄫)*)(VII|VI|IV|V|III|II|I)(.*)$/.exec(n);
+        if (!m) return n;
+        var q = m[3], low = true;
+        if (/^(dim7|°7)/.test(q)) q = "°7" + q.replace(/^(dim7|°7)/, "");
+        else if (/^(dim|°)/.test(q)) q = "°" + q.replace(/^(dim|°)/, "");
+        else if (/^m7♭5/.test(q)) q = "ø7" + q.slice(4);
+        else if (/^m(?!aj)/.test(q)) q = q.slice(1);
+        else low = false;
+        return low ? m[1] + m[2].toLowerCase() + q : n;
+    }
     function harmRoleClass(num) { return num === 1 ? "r1" : num === 3 ? "r3" : num === 5 ? "r5" : num === 7 ? "r7" : "rt"; }
 
     // ---------- harmonie : progressions (chiffrage jazz, relatif au majeur) ----------
@@ -12268,6 +12284,7 @@
         if (o.numeral === "scale" && dia !== null) numeral = HARM_ROMANS[dia];
         else numeral = (ch.acc < 0 ? "♭" : ch.acc > 0 ? "♯" : "") + HARM_ROMANS[ch.ri];
         numeral += triadSfx === "dim" ? "°" : triadSfx === "aug" ? "+" : suffix;
+        if (o.numCase === "lower") numeral = harmLowerNumeral(numeral);
         var fn = null;
         if (dia !== null) fn = harmFunction(def, dia);
         else if (third === 4 && tones[3] && tones[3].semi === 10 && r !== 0 && def.semis.indexOf((r + 5) % 12) !== -1) fn = "D"; // dominante secondaire
@@ -12751,7 +12768,7 @@
             type: harmScaleOk(p.type) ? p.type : "major",
             size: oneOf(p.size, ["triad", "tetrad", "ext"], "tetrad"),
             extOn: p.extOn === true, extMax: oneOf(p.extMax, [9, 11, 13], 9), avoid: p.avoid !== false, legend: p.legend !== false,
-            fn: p.fn === true, numeral: oneOf(p.numeral, ["major", "scale"], "major"), showScale: p.showScale !== false,
+            fn: p.fn === true, numeral: oneOf(p.numeral, ["major", "scale"], "major"), numCase: oneOf(p.numCase, ["jazz", "lower"], "jazz"), showScale: p.showScale !== false,
             labelMode: oneOf(p.labelMode, ["intervals", "notes"], "intervals"), frets: p.frets === 24 ? 24 : 12,
             deg: typeof p.deg === "number" && p.deg >= 0 && p.deg < 7 ? p.deg : 0,
             instByWs: p.instByWs && typeof p.instByWs === "object" ? p.instByWs : {},
@@ -12928,9 +12945,11 @@
                 function () { return prefs.caged; }, function (v) { prefs.caged = v; }, "Formes CAGED (guitare) : la zone du manche de chaque forme d'accord");
             var legendSeg = seg(opRow(diagSec, "Légende des couleurs"), [[true, "Affichée"], [false, "Masquée"]], function () { return prefs.legend; }, function (v) { prefs.legend = bool(v); });
             var anaSec = popSec(displayBox, "Analyse");
-            var numRow = opRow(anaSec, "Chiffrage des accords");
-            var numSeg = seg(numRow, [["major", "Jazz", "Relatif au majeur : ♭IIImaj7 en mineur"], ["scale", "Gamme", "Relatif à la gamme : IIImaj7 en mineur"]], function () { return prefs.numeral; }, function (v) { prefs.numeral = v; });
-            numRow.appendChild(el("span", "harm-opt-hint", "Jazz : ♭IIImaj7 en mineur · Gamme : IIImaj7"));
+            var caseSeg = seg(opRow(anaSec, "Chiffrage des accords"), [["jazz", "IIm7 (jazz)", "Majuscules, qualité écrite après le chiffre : IIm7 – V7 – Imaj7, VIIm7♭5"],
+                ["lower", "ii7 (minuscules)", "Minuscules pour les accords mineurs et diminués : ii7 – V7 – Imaj7, viiø7, vii°"]], function () { return prefs.numCase; }, function (v) { prefs.numCase = v; });
+            var numRow = opRow(anaSec, "En mineur et dans les modes");
+            var numSeg = seg(numRow, [["major", "Compté depuis le majeur (♭IIImaj7)", "Convention jazz : chaque degré est comparé à la gamme majeure de la tonique"],
+                ["scale", "Degré de la gamme (IIImaj7)", "Chaque accord porte simplement le numéro de son degré dans la gamme jouée"]], function () { return prefs.numeral; }, function (v) { prefs.numeral = v; }, null, "harm-seg-col");
             var fnSeg = seg(opRow(anaSec, "Fonctions (T / SD / D)"), [[false, "Masquées"], [true, "Affichées"]], function () { return prefs.fn; }, function (v) { prefs.fn = bool(v); });
             var advRow = opRow(anaSec, "Harmonie avancée (vue Degrés)");
             var advSeg = seg(advRow, [[false, "Masquée"], [true, "Affichée"]], function () { return prefs.adv; }, function (v) { prefs.adv = bool(v); if (!prefs.adv) advSel = null; });
@@ -13025,7 +13044,7 @@
 
             function curProg() { return edit ? { id: edit.id, name: edit.name, scale: edit.scale, meter: edit.meter, chords: edit.chords, user: true, level: edit.level, style: "Perso" } : harmProgById(prefs.progId) || harmProgById("l2-251"); }
             function inst() { return SCALES_INSTRUMENTS.filter(function (i) { return i.key === harmInstrumentKey(prefs); })[0] || SCALES_INSTRUMENTS[2]; }
-            function opt() { return { avoid: prefs.avoid, numeral: prefs.numeral }; }
+            function opt() { return { avoid: prefs.avoid, numeral: prefs.numeral, numCase: prefs.numCase }; }
             function progInfos(p) { var def = scaleDefByKey(p.scale); return p.chords.map(function (c) { return harmChordInfo(c, prefs.root, def, harmSize(prefs), opt()); }); }
             function setBpm(v) { if (!(v > 0)) v = prefs.bpm; prefs.bpm = Math.max(30, Math.min(300, Math.round(v))); restartIfPlaying(); update(); }
             function clearRange() { range = null; rangeMode = false; rangePend = false; }
@@ -13156,7 +13175,7 @@
                 r2.appendChild(el("span", "harm-opt-label", "Ajouter"));
                 var size = Math.min(4, harmSize(prefs));
                 for (var d = 0; d < 7; d++) (function (d) {
-                    var c = harmDegreeChord(def, d, { size: size, avoid: true, numeral: "major" });
+                    var c = harmDegreeChord(def, d, { size: size, avoid: true, numeral: "major", numCase: prefs.numCase });
                     var r = def.semis[d], acc = r - HARM_MAJOR_SEMIS[d];
                     var base = harmBaseSuffix(c.tones[1].semi, c.tones[2].semi, c.tones[3] ? c.tones[3].semi : null);
                     chip(r2, c.numeral, "Ajouter " + c.numeral, function () { addChord({ ri: d, acc: acc, q: HARM_QUALITIES[base] ? base : "", iv: c.tones.map(function (t) { return t.semi; }), beats: edit.meter }); });
@@ -13257,7 +13276,7 @@
                         facts.push(advSel.text);
                     } else {
                         var spell = spellBest(prefs.root, def);
-                        cur = harmDegreeChord(def, prefs.deg, { size: harmSize(prefs), avoid: prefs.avoid, numeral: prefs.numeral });
+                        cur = harmDegreeChord(def, prefs.deg, { size: harmSize(prefs), avoid: prefs.avoid, numeral: prefs.numeral, numCase: prefs.numCase });
                         names = cur.tones.map(function (t) { return spell.notes[t.idx]; });
                         rootPc = (prefs.root + def.semis[cur.deg]) % 12;
                         title = cur.numeral + " · " + noteDisplay(spell.notes[cur.deg]) + cur.suffix;
@@ -13385,9 +13404,10 @@
                 var isProg = prefs.view === "prog";
                 degView.hidden = isProg; progView.hidden = !isProg;
                 typeSel.hidden = isProg; progSel.hidden = !isProg || !!edit;
-                [viewSeg, sizeSeg, labelSeg, fretSeg, fnSeg, numSeg, extMaxSeg, avoidSeg, scaleSeg, advSeg, loopSeg, swingSeg, clickSeg, countSeg, cueSeg, cagedSeg, legendSeg].forEach(function (sg) { sg.paint(); });
+                [viewSeg, sizeSeg, labelSeg, fretSeg, fnSeg, numSeg, caseSeg, extMaxSeg, avoidSeg, scaleSeg, advSeg, loopSeg, swingSeg, clickSeg, countSeg, cueSeg, cagedSeg, legendSeg].forEach(function (sg) { sg.paint(); });
                 cueRow.hidden = !isProg; advRow.hidden = isProg; cagedRow.hidden = it.key !== "guitar"; fretRow.hidden = it.type === "piano";
                 extSec.hidden = prefs.size !== "ext";
+                numRow.hidden = (isProg ? curProg().scale || "major" : prefs.type) === "major"; // en majeur, les deux repères donnent le même chiffrage
                 player.hidden = !isProg;
                 panel.classList.toggle("harm-has-player", isProg);
                 renderTask();
@@ -13397,7 +13417,7 @@
                     scaleLine.appendChild(el("span", "scales-kind scales-kind-scale", "Gamme harmonisée"));
                     scaleLine.appendChild(el("strong", null, noteDisplay(spell.root) + " " + def.label));
                     scaleLine.appendChild(document.createTextNode(" · " + names.map(noteDisplay).join(" ")));
-                    var o7 = { size: harmSize(prefs), avoid: prefs.avoid, numeral: prefs.numeral };
+                    var o7 = { size: harmSize(prefs), avoid: prefs.avoid, numeral: prefs.numeral, numCase: prefs.numCase };
                     degs.innerHTML = "";
                     for (var d = 0; d < 7; d++) (function (ch) {
                         var b = el("button", "harm-deg" + (ch.deg === prefs.deg ? " harm-deg-on" : "")); b.type = "button";
