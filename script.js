@@ -18354,7 +18354,8 @@
                     progressTimer = setTimeout(function () { if (!resolved) opts.onProgress(snapshot()); }, 500);
                 }
                 var n = items.filter(function (it) { return !it.removed && numVal(it.mi) * 60 + numVal(it.si) > 0; }).length;
-                sum.textContent = (nameIn ? "" : "« " + record.name + " » · ") + gsFmtDur(totalSec()) + " · " + n + " exercice" + (n > 1 ? "s" : "");
+                var nRm = items.filter(function (it) { return it.removed; }).length;
+                sum.textContent = (nameIn ? "" : "« " + record.name + " » · ") + gsFmtDur(totalSec()) + " · " + n + " exercice" + (n > 1 ? "s" : "") + (nRm ? " · " + nRm + " retiré" + (nRm > 1 ? "s" : "") + " (↶ ou Ctrl+Z pour rétablir)" : "");
                 var blocked = items.some(function (it) { return it.ask && !it.answered && !it.removed; });
                 yes.disabled = blocked || totalSec() <= 0;
                 yes.title = blocked ? "Confirme le tempo des exercices arrêtés avant leur seuil" : "";
@@ -18386,7 +18387,8 @@
                     paintGoal();
                     bw.appendChild(goalBtn);
                 }
-                var rm = iconButton("✕", "Retirer cet exercice de la séance", function () { it.removed = true; box.hidden = true; refresh(); });
+                var rm = iconButton("✕", "Retirer cet exercice de la séance", function () { setRemoved(it, !it.removed); });
+                it.box = box; it.rm = rm;
                 line.appendChild(nm); line.appendChild(dur); line.appendChild(bw); line.appendChild(rm);
                 box.appendChild(line);
                 if (st.chapterName) { // le chapitre retenu pour les statistiques : le dossier principal où l'exercice est ouvert
@@ -18423,6 +18425,49 @@
                 list.appendChild(box);
             }
             items.forEach(renderItem);
+            // Retour en arrière (Ctrl/⌘+Z) et rétablir (Ctrl/⌘+Y ou Maj+Z) propres à cette fenêtre : retirer un exercice par mégarde, ou changer une durée / un
+            // tempo / un nom. Sans cela, ces touches défaisaient la dernière modification de l'appli DERRIÈRE la fenêtre, sans rien rendre ici.
+            var undoStack = [], redoStack = [], committed = new Map();
+            function histPush(act) { undoStack.push(act); if (undoStack.length > 200) undoStack.shift(); redoStack.length = 0; }
+            function histUndo() { var a = undoStack.pop(); if (!a) return; a.undo(); redoStack.push(a); refresh(); }
+            function histRedo() { var a = redoStack.pop(); if (!a) return; a.redo(); undoStack.push(a); refresh(); }
+            function paintRemoved(it) {
+                it.box.classList.toggle("gs-rec-removed", !!it.removed);
+                it.rm.textContent = it.removed ? "↶" : "✕";
+                it.rm.title = it.removed ? "Rétablir cet exercice dans la séance" : "Retirer cet exercice de la séance";
+                it.rm.setAttribute("aria-label", it.rm.title);
+                [it.mi, it.si, it.bi].forEach(function (i) { i.disabled = !!it.removed; });
+            }
+            function setRemoved(it, on, fromHist) {
+                if (!!it.removed === on) return;
+                it.removed = on;
+                if (!fromHist) histPush({ undo: function () { setRemoved(it, !on, true); }, redo: function () { setRemoved(it, on, true); } });
+                paintRemoved(it); refresh();
+            }
+            function trackField(input) { // une saisie validée (quitter le champ, Entrée, glisser, molette) = une étape du retour en arrière
+                if (!input) return;
+                committed.set(input, input.value);
+                input.addEventListener("change", function () {
+                    var prev = committed.get(input), next = input.value;
+                    if (prev === next) return;
+                    committed.set(input, next);
+                    histPush({ undo: function () { input.value = prev; committed.set(input, prev); }, redo: function () { input.value = next; committed.set(input, next); } });
+                });
+            }
+            items.forEach(function (it) { [it.mi, it.si, it.bi].forEach(trackField); });
+            [nameIn, dateIn, timeIn].forEach(trackField);
+            function onUndoKeys(e) {
+                if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+                var k = e.key.toLowerCase(), isUndo = k === "z" && !e.shiftKey, isRedo = k === "y" || (k === "z" && e.shiftKey);
+                if (!isUndo && !isRedo) return;
+                e.stopPropagation(); // le retour en arrière de l'appli ne doit rien défaire derrière cette fenêtre
+                if (dlgIsOpen()) return;
+                var t = e.target;
+                if (t && t.tagName === "INPUT" && committed.has(t) && t.value !== committed.get(t)) return; // saisie en cours dans ce champ : c'est son propre retour en arrière (navigateur)
+                e.preventDefault();
+                if (isUndo) histUndo(); else histRedo();
+            }
+            document.addEventListener("keydown", onUndoKeys, true);
             // Ce qui est saisi, en l'état : sert à repérer des modifications non enregistrées, et à les garder si la séance part dans les « non enregistrées ».
             function sig() {
                 return JSON.stringify([nameIn ? nameIn.value : "", dateIn ? dateIn.value : "", timeIn ? timeIn.value : "", items.map(function (it) { return [it.removed ? 1 : 0, it.mi.value, it.si.value, it.bi.value, it.st.chapterId || "", it.answered ? 1 : 0]; })]);
@@ -18515,6 +18560,7 @@
             snap0 = null; refresh(); snap0 = sig();
             return function () {
                 clearTimeout(progressTimer); clearTimeout(guardHintTimer);
+                document.removeEventListener("keydown", onUndoKeys, true);
                 if (!resolved) { var edited = snapshot(); resolved = true; if (opts.onDismiss) opts.onDismiss(edited); } // fermée par l'appli : on garde ce qui était saisi
             };
         }, { guard: function (how, pn) { return guardImpl ? guardImpl(how, pn) : true; } });

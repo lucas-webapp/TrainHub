@@ -4605,3 +4605,9 @@ html[data-glass="1"] button.dice-custom-toggle, html[data-glass="1"] .dp-list bu
 .recorder-panel .rec-row select, .recorder-panel input.rec-name, .recorder-panel .rec-take { min-width: 0; max-width: 100%; box-sizing: border-box; }
 .recorder-panel .rec-wave-rng { min-height: 2.6em; }
 .backups-panel.recorder-panel > .panel-drag-handle { margin: -12px -14px 0 -14px; }
+/* v199 — séance à enregistrer : un exercice retiré reste visible, grisé, avec « ↶ » pour le rétablir */
+.gs-rec-item.gs-rec-removed { background: transparent; border-style: dashed; }
+.gs-rec-removed .gs-rec-name { text-decoration: line-through; opacity: .55; }
+.gs-rec-removed .gs-rec-dur, .gs-rec-removed .gs-rec-bw { opacity: .4; pointer-events: none; }
+.gs-rec-removed > :not(.gs-rec-row) { display: none; }
+.gs-rec-removed .gs-rec-row > .icon-btn { color: var(--accent); border-color: var(--accent); }
