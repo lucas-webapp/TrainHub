@@ -12294,6 +12294,10 @@
         { id: "l3-mm14", level: 3, style: "Jazz", name: "Mineur mélodique : Im(maj7) - IV7", scale: "melodicMinor", prog: "Im(maj7) IV7" },
         // Niveau 4 — modes, harmonie avancée (dominantes secondaires, substitution tritonique, emprunts)
         { id: "l4-scale-dor", level: 4, style: "Gamme", name: "Dorien harmonisé", scale: "dorian", prog: "Im7 IIm7 ♭IIImaj7 IV7 Vm7 VIm7♭5 ♭VIImaj7 Im7" },
+        { id: "l4-scale-phr", level: 4, style: "Gamme", name: "Phrygien harmonisé", scale: "phrygian", prog: "Im7 ♭IImaj7 ♭III7 IVm7 Vm7♭5 ♭VImaj7 ♭VIIm7 Im7" },
+        { id: "l4-scale-lyd", level: 4, style: "Gamme", name: "Lydien harmonisé", scale: "lydian", prog: "Imaj7 II7 IIIm7 ♯IVm7♭5 Vmaj7 VIm7 VIIm7 Imaj7" },
+        { id: "l4-scale-mix", level: 4, style: "Gamme", name: "Mixolydien harmonisé", scale: "mixolydian", prog: "I7 IIm7 IIIm7♭5 IVmaj7 Vm7 VIm7 ♭VIImaj7 I7" },
+        { id: "l4-scale-loc", level: 4, style: "Gamme", name: "Locrien harmonisé", scale: "locrian", prog: "Im7♭5 ♭IImaj7 ♭IIIm7 IVm7 ♭Vmaj7 ♭VI7 ♭VIIm7 Im7♭5" },
         { id: "l4-dorian", level: 4, style: "Modal", name: "Vamp dorien (Im7 - IV7)", scale: "dorian", prog: "Im7*2 IV7*2" },
         { id: "l4-mixo", level: 4, style: "Modal", name: "Vamp mixolydien (I7 - ♭VII)", scale: "mixolydian", prog: "I7*2 ♭VIImaj7*2" },
         { id: "l4-lyd", level: 4, style: "Modal", name: "Vamp lydien (Imaj7 - II7)", scale: "lydian", prog: "Imaj7*2 II7*2" },
@@ -12532,8 +12536,14 @@
     // ---------- harmonie : consignes (exercices adaptés à chaque instrument) ----------
     // inst : familles d'instruments pour lesquelles la consigne a du sens ; min : niveau à partir duquel elle est proposée ;
     // targets : les notes de l'accord mises en évidence sur le diagramme (« notes-cibles »).
-    var HARM_CONS_FAMILIES = [["arp", "Arpèges"], ["acc", "Accords"], ["ench", "Enchaînements"], ["walk", "Walking"]];
+    var HARM_CONS_FAMILIES = [["deg", "Gamme harmonisée"], ["arp", "Arpèges"], ["acc", "Accords"], ["ench", "Enchaînements"], ["walk", "Walking"]];
+    // only : la consigne n'a de sens que sur une grille qui parcourt les degrés (styles « Gamme », ou ids listés) : le dé ne la tire pas avec une autre grille.
+    var HARM_DEG_ONLY = { styles: ["Gamme"], ids: ["l3-cycle"] };
     var HARM_CONSIGNES = [
+        { id: "deg-name", fam: "deg", name: "Nommer avant de jouer", text: "Avant de jouer chaque accord, nomme-le à voix haute : son chiffre, son nom et ses notes (par exemple « II, ré mineur 7 : ré, fa, la, do »). Puis joue-le.", inst: ["bass", "guitar", "piano"], min: 1, targets: "all" },
+        { id: "deg-updown", fam: "deg", name: "Montée puis descente, doigtés différents", text: "Monte les sept accords un par un, puis redescends en jouant chaque accord avec un autre doigté, une autre position ou un autre renversement : jamais deux fois la même chose.", inst: ["bass", "guitar", "piano"], min: 1, targets: "all", only: HARM_DEG_ONLY },
+        { id: "deg-fourths", fam: "deg", name: "Cycle des quartes", text: "Joue les degrés dans l'ordre du cycle : I – IV – VII – III – VI – II – V – I. Chaque accord est à une quarte du précédent : cherche le chemin le plus court sur l'instrument.", inst: ["bass", "guitar", "piano"], min: 2, targets: "all", only: HARM_DEG_ONLY },
+        { id: "deg-thirds", fam: "deg", name: "Par tierces (I – III – V – VII)", text: "Joue les degrés par bonds de tierce : I – III – V – VII – II – IV – VI – I. Deux accords voisins par tierce partagent beaucoup de notes : écoute comme ils s'enchaînent presque sans changer de couleur.", inst: ["bass", "guitar", "piano"], min: 2, targets: "all", only: HARM_DEG_ONLY },
         { id: "arp-up", fam: "arp", name: "Arpèges de la grille", text: "Joue l'arpège de chaque accord en montant, une note par temps, en suivant la boucle.", inst: ["bass", "guitar", "piano"], min: 1, targets: "all" },
         { id: "arp-updown", fam: "arp", name: "Arpège montant puis descendant", text: "Monte l'arpège sur le premier accord, redescends sur le suivant, et ainsi de suite.", inst: ["bass", "guitar", "piano"], min: 1, targets: "all" },
         { id: "arp-from3", fam: "arp", name: "Arpège depuis la tierce", text: "Commence chaque arpège sur la tierce (1er renversement), puis sur la quinte : la base des renversements.", inst: ["bass", "guitar", "piano"], min: 2, targets: "all" },
@@ -12571,6 +12581,11 @@
     var HARM_AIDS = [["full", "Diagramme complet"], ["targets", "Notes-cibles seules"], ["hidden", "Masqué (« Révéler »)"], ["none", "Aucune aide"]];
     function harmConsById(id) { return HARM_CONSIGNES.filter(function (c) { return c.id === id; })[0] || null; }
     function harmInstFamily(key) { return key === "piano" ? "piano" : key === "guitar" ? "guitar" : "bass"; }
+    function harmConsFits(c, progId) {
+        if (!c || !c.only || !progId) return true;
+        var p = harmProgById(progId);
+        return !!p && (c.only.styles.indexOf(p.style) !== -1 || c.only.ids.indexOf(p.id) !== -1);
+    }
     function harmConsFor(fam, level) { return HARM_CONSIGNES.filter(function (c) { return c.inst.indexOf(fam) !== -1 && (!level || c.min <= level); }); }
 
     // ---------- dé d'harmonie ----------
@@ -12580,9 +12595,25 @@
     var HARM_CHORD_FACES = [["triad", "Triades"], ["tetrad", "Tétrades"], ["ext", "Extensions"]];
     var HARM_LEVEL_DESC = { 1: "triades, majeur, diagramme complet", 2: "tétrades, majeur et mineur naturel, notes-cibles", 3: "mineurs harmonique et mélodique, diagramme masqué", 4: "modes, extensions, harmonie avancée, sans aide" };
     var HARM_LEVEL_AID = { 1: "full", 2: "targets", 3: "hidden", 4: "none" };
+    // Préréglages intégrés (au-delà des quatre niveaux) : « Gamme harmonisée » = une tonalité à la fois, les grilles qui parcourent la gamme degré par degré,
+    // des consignes pour apprendre chaque accord. Les tonalités restent celles du réglage en cours.
+    var HARM_BUILTIN_PRESETS = {
+        scale: { name: "Gamme harmonisée", desc: "une tonalité à la fois : la gamme harmonisée degré par degré (majeur, mineurs, modes), triades ou tétrades, consignes pour apprendre chaque accord" }
+    };
+    function harmBuiltinCfg(id, fam, keys) {
+        if (id === "scale") {
+            var accOk = ["acc-find", "acc-inv", "acc-shell", "acc-caged"];
+            return { v: 1, level: null, preset: "scale", inst: fam, on: { key: true, prog: true, chord: true, cons: true }, key: keys || [true, true, true, true, true, true, true, true, true, true, true, true],
+                prog: HARM_LIBRARY.filter(function (p) { return p.style === "Gamme"; }).map(function (p) { return p.id; }),
+                chord: ["triad", "tetrad"],
+                cons: harmConsFor(fam, 4).filter(function (c) { return c.fam === "deg" || (c.fam === "arp" && c.id.indexOf("adv-") !== 0) || accOk.indexOf(c.id) !== -1; }).map(function (c) { return c.id; }),
+                aid: "full" };
+        }
+        return harmLevelCfg(1, fam, keys);
+    }
     // Un niveau pré-règle tout le dé (on peut ensuite retoucher à la main : il devient « personnalisé »). Les tonalités n'en dépendent pas.
     function harmLevelCfg(level, fam, keys) {
-        return { v: 1, level: level, inst: fam, on: { key: true, prog: true, chord: true, cons: true }, key: keys || [true, true, true, true, true, true, true, true, true, true, true, true],
+        return { v: 1, level: level, preset: null, inst: fam, on: { key: true, prog: true, chord: true, cons: true }, key: keys || [true, true, true, true, true, true, true, true, true, true, true, true],
             prog: HARM_LIBRARY.filter(function (p) { return p.level === level; }).map(function (p) { return p.id; }),
             chord: level === 1 ? ["triad"] : level === 4 ? ["tetrad", "ext"] : ["tetrad"],
             cons: harmConsFor(fam, level).map(function (c) { return c.id; }),
@@ -12592,7 +12623,7 @@
         c = c && typeof c === "object" ? c : null;
         if (!c) return harmLevelCfg(1, fam || "bass");
         var ids = harmAllProgIds(), on = c.on && typeof c.on === "object" ? c.on : {};
-        return { v: 1, level: [1, 2, 3, 4].indexOf(c.level) !== -1 ? c.level : null, inst: ["bass", "guitar", "piano"].indexOf(c.inst) !== -1 ? c.inst : (fam || "bass"),
+        return { v: 1, level: [1, 2, 3, 4].indexOf(c.level) !== -1 ? c.level : null, preset: typeof c.preset === "string" && HARM_BUILTIN_PRESETS[c.preset] ? c.preset : null, inst: ["bass", "guitar", "piano"].indexOf(c.inst) !== -1 ? c.inst : (fam || "bass"),
             on: { key: on.key !== false, prog: on.prog !== false, chord: on.chord !== false, cons: on.cons !== false },
             key: Array.isArray(c.key) && c.key.length === 12 ? c.key.map(function (x) { return x !== false; }) : [true, true, true, true, true, true, true, true, true, true, true, true],
             prog: (Array.isArray(c.prog) ? c.prog : []).filter(function (id, i, a) { return ids.indexOf(id) !== -1 && a.indexOf(id) === i; }),
@@ -12617,6 +12648,10 @@
         var pick = { aid: cfg.aid };
         ids.forEach(function (id) {
             var faces = harmFaces(cfg, id), rec = mem.recent[id] || (mem.recent[id] = []);
+            if (id === "cons" && pick.prog) { // une consigne propre aux gammes harmonisées ne sort qu'avec une grille qui parcourt les degrés
+                var fit = faces.filter(function (f) { return harmConsFits(harmConsById(f), pick.prog); });
+                if (fit.length) faces = fit;
+            }
             var pool = faces.filter(function (f) { return rec.indexOf(f) === -1; });
             if (!pool.length) pool = faces;
             var f = pool[Math.floor(Math.random() * pool.length)];
@@ -12624,6 +12659,11 @@
             while (rec.length > Math.max(0, Math.min(id === "key" ? 4 : 3, faces.length - 1))) rec.shift();
             pick[id] = f;
         });
+        var pc = pick.cons != null && pick.prog ? harmConsById(pick.cons) : null;
+        if (pc && !harmConsFits(pc, pick.prog)) { // aucune consigne compatible avec la grille tirée : on retire plutôt une grille compatible avec la consigne
+            var okProgs = cfg.prog.filter(function (pid) { return harmConsFits(pc, pid); });
+            if (okProgs.length) pick.prog = okProgs[Math.floor(Math.random() * okProgs.length)];
+        }
         mem.history.unshift(pick);
         if (mem.history.length > 20) mem.history.length = 20;
         return pick;
@@ -12651,6 +12691,7 @@
     }
     function harmPickText(pick) { return harmPickLines(pick).map(function (l) { return l.label; }).join(" · "); }
     function harmCfgLabel(cfg) {
+        if (cfg.preset && HARM_BUILTIN_PRESETS[cfg.preset]) return HARM_BUILTIN_PRESETS[cfg.preset].name;
         if (cfg.level) return "Niveau " + cfg.level + " · " + HARM_LEVELS[cfg.level - 1].name;
         return "Personnalisé · " + cfg.prog.length + " progression" + (cfg.prog.length > 1 ? "s" : "");
     }
@@ -13344,7 +13385,7 @@
             var painters = [];
             function repaint() { painters.forEach(function (fn) { fn(); }); }
             // toute retouche à la main rend le réglage « personnalisé » (il n'est plus exactement un niveau)
-            function edit(fn, keepLevel) { var c = cfg(); fn(c); if (!keepLevel) c.level = null; ctx.set(harmNormCfg(c, ctx.fam)); ctx.persist(); repaint(); }
+            function edit(fn, keepLevel) { var c = cfg(); fn(c); if (!keepLevel) { c.level = null; c.preset = null; } ctx.set(harmNormCfg(c, ctx.fam)); ctx.persist(); repaint(); }
             var head = el("div", "dice-head");
             var tt = el("div", "backups-title dice-title"); tt.innerHTML = HARM_DICE_SVG; tt.appendChild(document.createTextNode(" " + ctx.title)); head.appendChild(tt);
             var closeBtn = btn("btn-ghost dice-close", "✕", "Fermer", close); closeBtn.setAttribute("aria-label", "Fermer"); head.appendChild(closeBtn);
@@ -13482,8 +13523,8 @@
             setRow("Niveau", function (body) {
                 var c = cfg();
                 HARM_LEVELS.forEach(function (lv) { radio(body, "Niveau " + lv.n + " · " + lv.name, HARM_LEVEL_DESC[lv.n], c.level === lv.n, function () { applyLevel(lv.n); }, "harm-level-opt"); });
-                body.appendChild(el("div", "dice-hint", c.level ? "Un niveau règle tout le dé (progressions, accords, consignes, aide) ; les tonalités restent libres. Retoucher une face le rend « personnalisé »." : "Réglage personnalisé : choisir un niveau remet tout le dé à ce niveau."));
-            }, function (c) { return c.level ? "Niveau " + c.level + " · " + HARM_LEVELS[c.level - 1].name : "Personnalisé"; });
+                body.appendChild(el("div", "dice-hint", c.level ? "Un niveau règle tout le dé (progressions, accords, consignes, aide) ; les tonalités restent libres. Retoucher une face le rend « personnalisé »." : (c.preset ? "Préréglage « " + harmCfgLabel(c) + " » : " : "Réglage personnalisé : ") + "choisir un niveau remet tout le dé à ce niveau."));
+            }, function (c) { return c.level ? "Niveau " + c.level + " · " + HARM_LEVELS[c.level - 1].name : c.preset ? harmCfgLabel(c) : "Personnalisé"; });
             setRow("Consignes pour", function (body) {
                 var c = cfg();
                 [["bass", "Basse"], ["guitar", "Guitare"], ["piano", "Piano"]].forEach(function (f) {
@@ -13540,7 +13581,7 @@
                     if (!items.length) return;
                     body.appendChild(el("div", "dice-group", fm[1]));
                     var g4 = el("div", "dice-grid harm-grid-1");
-                    items.forEach(function (x) { var b = opt(x.name, function () { return c.cons.indexOf(x.id) !== -1; }, function (cc) { toggleIn(cc.cons, x.id); }, null, "dès le niveau " + x.min); b.title = x.text; g4.appendChild(b); });
+                    items.forEach(function (x) { var b = opt(x.name, function () { return c.cons.indexOf(x.id) !== -1; }, function (cc) { toggleIn(cc.cons, x.id); }, null, "dès le niveau " + x.min + (x.only ? " · avec les gammes harmonisées" : "")); b.title = x.text; g4.appendChild(b); });
                     body.appendChild(g4);
                 });
             }, function (c) { return c.cons.length + " consigne" + (c.cons.length > 1 ? "s" : ""); }, function (c) { return c.on.cons; });
@@ -13555,6 +13596,14 @@
             var pres = el("div", "harm-pres"); views.pres.appendChild(pres);
             painters.push(function () {
                 pres.innerHTML = "";
+                var sB = section("Prêts à l'emploi", pres), gb = el("div", "dice-hist-list");
+                Object.keys(HARM_BUILTIN_PRESETS).forEach(function (id) {
+                    var bp = HARM_BUILTIN_PRESETS[id], b = btn("dice-hist-item harm-builtin-preset", null, "Charger « " + bp.name + " »");
+                    b.appendChild(el("span", "dice-hist-name", bp.name)); b.appendChild(el("span", "harm-opt-sub", bp.desc));
+                    b.addEventListener("click", function () { edit(function (cc) { var nc = harmBuiltinCfg(id, cc.inst, cc.key); Object.keys(nc).forEach(function (k) { cc[k] = nc[k]; }); }, true); showToast("« " + bp.name + " » chargé (pas de tirage automatique).", 2500); showView("draw"); });
+                    gb.appendChild(b);
+                });
+                sB.box.appendChild(gb);
                 var sL = section("Niveaux", pres), gl = el("div", "dice-hist-list");
                 HARM_LEVELS.forEach(function (lv) {
                     var b = btn("dice-hist-item", null, "Charger le niveau " + lv.n);
