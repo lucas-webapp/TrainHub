@@ -4600,3 +4600,8 @@ html[data-glass="1"] button.dice-custom-toggle, html[data-glass="1"] .dp-list bu
     .harm-transport input.harm-bpm-in { height: 40px; }
     button.harm-player-btn.harm-ico { width: 42px; min-width: 42px; height: 42px; }
 }
+/* v198 — enregistreur : sa taille ne dépend que du CSS (plus de recalcul périodique) ; jamais plus haut que l'écran, ni de défilement de côté */
+.backups-panel.recorder-panel { max-height: calc(100vh - 24px); overflow-x: hidden; overflow-y: auto; }
+.recorder-panel .rec-row select, .recorder-panel input.rec-name, .recorder-panel .rec-take { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.recorder-panel .rec-wave-rng { min-height: 2.6em; }
+.backups-panel.recorder-panel > .panel-drag-handle { margin: -12px -14px 0 -14px; }

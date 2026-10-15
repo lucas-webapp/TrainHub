@@ -8223,10 +8223,28 @@
             panel.appendChild(fitBox);
         }
 
+        // Garde-fou contre une boucle de redimensionnement (navigateur ou contenu qui réagit à la taille de la fenêtre, comme une barre de
+        // défilement qui apparaît et disparaît) : si les tailles que l'ajustement impose changent à CHAQUE passage (toutes les 0,4 s) six fois de
+        // suite, on arrête l'ajustement automatique et la fenêtre garde la plus grande taille demandée — elle ne « saute » plus.
+        // (Un redimensionnement voulu — coin tiré à la main, écran qui change — ne change pas la taille imposée à chaque passage.)
+        var fitSig = null, fitStreak = 0, fitMaxMinW = 0, fitMaxMinH = 0;
+        function fitGuard() {
+            var mw = parseFloat(panel.style.minWidth) || 0, mh = parseFloat(panel.style.minHeight) || 0, sig = mw + "x" + mh;
+            fitMaxMinW = Math.max(fitMaxMinW, mw); fitMaxMinH = Math.max(fitMaxMinH, mh);
+            fitStreak = fitSig !== null && sig !== fitSig ? fitStreak + 1 : 0;
+            fitSig = sig;
+            if (fitStreak >= 6 && fitTimer) {
+                clearInterval(fitTimer); fitTimer = null;
+                panel.style.minWidth = fitMaxMinW + "px"; panel.style.minHeight = fitMaxMinH + "px";
+                panel.dataset.fitFrozen = "1";
+            }
+        }
         function refit() {
             if (!fitContent) {
                 if (userSized || panel.dataset.userSized) { panel.style.minWidth = baseMin.w + "px"; panel.style.minHeight = baseMin.h + "px"; return; } // taille choisie à la main : on ne la « cliquette » plus vers le haut
-                recalcPanelFit(panel, baseMin.w, baseMin.h, !!(opts && opts.fluid)); return;
+                recalcPanelFit(panel, baseMin.w, baseMin.h, !!(opts && opts.fluid));
+                fitGuard();
+                return;
             }
             if (!userSized && !docked && !isMobilePanelLayout() && panel.isConnected) {
                 var prevH = panel.offsetHeight, prevW = panel.offsetWidth;
@@ -8273,7 +8291,7 @@
         // Position initiale : taille/position mémorisées si on a déjà ouvert cet outil, sinon centré
         // — posée en px une fois le panneau mesurable, pour ne jamais voir le saut depuis (0,0).
         requestAnimationFrame(function () {
-            refit();
+            if (!(opts && opts.noFit)) refit();
             if (docked) { panel.style.visibility = "visible"; return; }
             var rect = panel.getBoundingClientRect();
             var w = rect.width, h = rect.height;
@@ -8315,7 +8333,7 @@
         });
         // Filet de sécurité (changements que les observateurs ne voient pas : classe qui change une
         // marge, taille de l'écran…) ; pour une fenêtre déjà ajustée, ne refait rien de visible.
-        fitTimer = setInterval(refit, 400);
+        if (!(opts && opts.noFit)) fitTimer = setInterval(refit, 400);
 
         return close;
     }
@@ -8585,8 +8603,9 @@
         return { ctx: ctx, gain: gain };
     }
     // Le contexte neuf devient celui du métronome (et des sons de l'appli).
+    var metroBuiltAt = 0; // quand le contexte en cours a été créé
     function metroAdopt(pair) {
-        metroAudioCtx = pair.ctx; metroMasterGain = pair.gain;
+        metroAudioCtx = pair.ctx; metroMasterGain = pair.gain; metroBuiltAt = Date.now();
         metroCtxLost = false;
         metroClockProbe = null;
         var built = pair.ctx;
@@ -8611,7 +8630,7 @@
     // qu'une autre appli a pris la main sur le son ; rien ne permet de le voir, et seul un contexte neuf rend le son.
     function ensureMetroAudio(fromGesture, fresh) {
         var ctx = metroAudioCtx;
-        if (!ctx || ctx.state === "closed" || (fromGesture && !metroPlaying && ((fresh && !metroCtxBusy()) || metroCtxLost || ctx.state !== "running"))) {
+        if (!ctx || ctx.state === "closed" || (fromGesture && !metroPlaying && ((fresh && !metroCtxBusy() && Date.now() - metroBuiltAt > 800) || metroCtxLost || ctx.state !== "running"))) {
             try { metroBuildAudio(); }
             catch (e) {
                 if (!metroAudioCtx) { showToast("Le son n'est pas disponible : ferme les autres onglets ou applis qui jouent du son, puis réessaie.", 6000); throw e; }
@@ -14111,7 +14130,8 @@
     var REC_PENDING_BLOB = "rec-pending";
     var REC_MIC_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8.5" y="2.5" width="6" height="11" rx="3"/><path d="M4.5 11a7 7 0 0 0 13 3.6"/><path d="M11.5 18v3.5"/><path d="M8.5 21.5h6"/><circle cx="19" cy="5.5" r="2.3" fill="#ff5252" stroke="none"/></svg>';
     var rec = { phase: "idle", stream: null, ctx: null, analyser: null, src: null, mr: null, chunks: [], startedAt: 0, ms: 0, timer: null, mime: "", take: null, startedMetro: false, clickDest: null,
-        dest: { mode: "", exId: null, folderId: null }, destAtStart: null, error: "", listeners: [], panelClose: null, meterRaf: null, peaks: [], peakTimer: null, saving: false, stopPlay: null };
+        dest: { mode: "", exId: null, folderId: null }, destAtStart: null, error: "", listeners: [], panelClose: null, meterRaf: null, peaks: [], peakTimer: null, saving: false, stopPlay: null,
+        split: null, anL: null, anR: null, pkL: 0, pkR: 0, mix: null };
     function recEmit() {
         var b = document.getElementById("rec-btn");
         if (b) { b.classList.toggle("rec-live", rec.phase === "recording"); b.classList.toggle("active", !!rec.panelClose); b.classList.toggle("rec-pending", rec.phase === "review"); }
@@ -14381,7 +14401,7 @@
         if (rec.stream) { rec.stream.getTracks().forEach(function (t) { t.stop(); }); rec.stream = null; }
         if (rec.src) { try { rec.src.disconnect(); } catch (e) {} rec.src = null; }
         if (rec.ctx) { try { rec.ctx.close(); } catch (e) {} rec.ctx = null; }
-        rec.analyser = null;
+        rec.analyser = null; rec.split = rec.anL = rec.anR = rec.mix = null; rec.pkL = rec.pkR = 0;
     }
     function recOpenStream() {
         recCloseStream();
@@ -14397,6 +14417,13 @@
             rec.src = rec.ctx.createMediaStreamSource(stream);
             rec.analyser = rec.ctx.createAnalyser(); rec.analyser.fftSize = 2048; // ~45 ms : couvre l'intervalle des barres de la forme d'onde
             rec.src.connect(rec.analyser);
+            // Une carte son range souvent l'instrument sur UNE seule entrée (la 1 = oreille gauche) : on mesure chaque voie pendant le réglage
+            // du niveau, pour enregistrer ensuite un son centré (voir recBuildMix).
+            rec.split = rec.ctx.createChannelSplitter(2);
+            rec.src.connect(rec.split);
+            rec.anL = rec.ctx.createAnalyser(); rec.anR = rec.ctx.createAnalyser(); rec.anL.fftSize = rec.anR.fftSize = 1024;
+            rec.split.connect(rec.anL, 0); rec.split.connect(rec.anR, 1);
+            rec.pkL = rec.pkR = 0; rec.mix = null;
             if (rec.phase !== "review" && rec.phase !== "recording") rec.phase = "armed";
             recEmit();
             return true;
@@ -14408,20 +14435,53 @@
             return false;
         });
     }
+    // Plus fort pic vu sur chaque voie depuis l'ouverture de l'entrée (appelé à chaque image du vumètre).
+    function recSampleChannels() {
+        if (!rec.anL || !rec.anR) return;
+        var buf = new Uint8Array(rec.anL.fftSize);
+        [[rec.anL, "pkL"], [rec.anR, "pkR"]].forEach(function (a) {
+            a[0].getByteTimeDomainData(buf);
+            var pk = 0; for (var i = 0; i < buf.length; i++) { var v = Math.abs(buf[i] - 128) / 128; if (v > pk) pk = v; }
+            if (pk > rec[a[1]]) rec[a[1]] = pk;
+        });
+    }
+    // Son enregistré = UNE voix centrée, copiée dans les deux oreilles : si une seule voie porte du signal (instrument sur l'entrée 1 d'une
+    // carte son), c'est elle qui est copiée des deux côtés ; si les deux en portent, on en fait la moyenne ; sans information (pas d'essai de
+    // niveau), on additionne les deux et un limiteur évite la saturation. Retourne le nœud de destination à enregistrer.
+    function recBuildMix() {
+        var ctx = rec.ctx, pl = rec.pkL, pr = rec.pkR, hi = Math.max(pl, pr), gl = 1, gr = 1;
+        if (hi >= 0.02) { if (pl < hi * 0.1) { gl = 0; gr = 1; } else if (pr < hi * 0.1) { gl = 1; gr = 0; } else { gl = 0.5; gr = 0.5; } }
+        var gL = ctx.createGain(), gR = ctx.createGain(), bus = ctx.createGain(), lim = ctx.createDynamicsCompressor(), dest = ctx.createMediaStreamDestination();
+        gL.gain.value = gl; gR.gain.value = gr;
+        bus.channelCount = 1; bus.channelCountMode = "explicit"; // les deux voies s'additionnent en une seule
+        lim.threshold.value = -2; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.002; lim.release.value = 0.12;
+        dest.channelCount = 2; dest.channelCountMode = "explicit"; dest.channelInterpretation = "speakers"; // une voix → gauche ET droite
+        rec.split.connect(gL, 0); rec.split.connect(gR, 1);
+        gL.connect(bus); gR.connect(bus); bus.connect(lim); lim.connect(dest);
+        rec.mix = { gL: gL, gR: gR, dest: dest };
+        return dest;
+    }
+    function recDropMix() {
+        if (rec.mix && rec.split) { try { rec.split.disconnect(rec.mix.gL); } catch (e) {} try { rec.split.disconnect(rec.mix.gR); } catch (e) {} }
+        rec.mix = null;
+    }
     function recStart() {
         if (rec.phase !== "armed" || !rec.stream) return;
         var mime = recPickMime(), srcStream = rec.stream, withMetro = recPref("metro", "0") === "1", withClick = withMetro && recPref("click", "0") === "1";
         rec.chunks = []; rec.mime = mime; rec.clickDest = null; rec.startedMetro = false;
         try {
+            var mixDest = rec.split && rec.ctx && rec.ctx.createMediaStreamDestination ? recBuildMix() : null;
+            if (mixDest) srcStream = mixDest.stream;
             if (withMetro) {
-                ensureMetroAudio(true);
-                if (withClick && metroAudioCtx && metroMasterGain && metroAudioCtx.createMediaStreamDestination) { // le clic rejoint l'enregistrement : mélange micro + métronome
+                // Son du métronome NEUF, créé maintenant que l'entrée est ouverte : Safari change de mode audio quand le micro s'ouvre, et un son créé
+                // avant peut rester muet (c'était le « métronome en fond qu'on n'entend pas »). S'il joue déjà, on passe à chaud sur un son neuf.
+                ensureMetroAudio(true, true);
+                if (metroPlaying) metroTrySwap(true);
+                if (withClick && mixDest && metroAudioCtx && metroMasterGain && metroAudioCtx.createMediaStreamDestination) { // le clic rejoint l'enregistrement : mélange micro + métronome
                     var md = metroAudioCtx.createMediaStreamDestination();
                     metroMasterGain.connect(md);
-                    var dest = rec.ctx.createMediaStreamDestination();
-                    rec.src.connect(dest);
-                    rec.ctx.createMediaStreamSource(md.stream).connect(dest);
-                    rec.clickDest = md; srcStream = dest.stream;
+                    rec.ctx.createMediaStreamSource(md.stream).connect(mixDest);
+                    rec.clickDest = md;
                 }
                 if (!metroPlaying) { if (metroPanelApi && metroPanelApi.toggle) metroPanelApi.toggle(); else startMetronome(); rec.startedMetro = metroPlaying; } // via le panneau du métronome s'il est ouvert : son bouton suit
             }
@@ -14455,6 +14515,7 @@
         if (rec.startedMetro && metroPlaying) { if (metroPanelApi && metroPanelApi.toggle) metroPanelApi.toggle(); else stopMetronome(); }
         rec.startedMetro = false;
         if (rec.clickDest) { try { metroMasterGain.disconnect(rec.clickDest); } catch (e) {} rec.clickDest = null; }
+        recDropMix();
         recEmit();
     }
     function recFinish() {
@@ -14648,6 +14709,7 @@
 
             function paintLevel() {
                 if (!rec.analyser) { fill.style.width = "0%"; return; }
+                recSampleChannels();
                 var buf = new Uint8Array(rec.analyser.fftSize); rec.analyser.getByteTimeDomainData(buf);
                 var peak = 0; for (var i = 0; i < buf.length; i++) { var v = Math.abs(buf[i] - 128) / 128; if (v > peak) peak = v; }
                 fill.style.width = Math.min(100, Math.round(Math.sqrt(peak) * 100)) + "%";
@@ -14824,6 +14886,7 @@
                 else if (rec.take.edLoading) { wave.hidden = false; if (!wave.firstChild) wave.appendChild(el("div", "rec-wave-load", "Analyse de la prise…")); }
                 if ((ph === "armed" || recording) && !rec.meterRaf) loop();
                 paintDest(); paintLib(); paintSave();
+                requestAnimationFrame(function () { if (panel.isConnected) clampPanelToViewport(panel); }); // la fenêtre a changé de hauteur : on la rentre dans l'écran (un seul déplacement, vers le haut)
             }
             rec.listeners.push(paint);
             rec.panelClose = close;
@@ -14843,7 +14906,7 @@
                 if (rec.phase === "armed" || rec.phase === "idle") { recCloseStream(); rec.phase = "idle"; }
                 recEmit();
             };
-        }, { floating: true });
+        }, { floating: true, noFit: true }); // taille réglée par le CSS seul (hauteur selon le contenu, jusqu'à l'écran) : rien ne la recalcule en boucle
         return closeFn;
     }
 
