@@ -8572,34 +8572,46 @@
     var metroDogTimer = null;       // chien de garde, actif seulement pendant la lecture
     var metroClockProbe = null;     // { ctx, c, w } : l'horloge audio avance-t-elle vraiment ?
     var metroRecoverAt = 0, metroRecoverTries = 0;
-    function metroBuildAudio() {
-        var old = metroAudioCtx;
-        // L'ancien contexte est fermé AVANT d'en créer un neuf : les navigateurs plafonnent le nombre de contextes ouverts
-        // (Safari, Chrome), et un plafond atteint donnerait un métronome muet jusqu'au redémarrage de l'appli.
-        if (old) { try { old.onstatechange = null; old.close(); } catch (e) {} metroAudioCtx = null; }
+    // Un contexte neuf et son volume (pas encore utilisé par le métronome).
+    function metroMakeCtx() {
         var Ctor = window.AudioContext || window.webkitAudioContext;
-        metroAudioCtx = new Ctor();
-        metroMasterGain = metroAudioCtx.createGain();
-        metroMasterGain.gain.value = state.settings.metronome.volume;
-        metroMasterGain.connect(metroAudioCtx.destination);
+        var ctx = new Ctor(), gain = ctx.createGain();
+        gain.gain.value = state.settings.metronome.volume;
+        gain.connect(ctx.destination);
+        try { // note muette : « débloque » la sortie son sur iOS dès ce geste
+            var b = ctx.createBuffer(1, 1, 22050), src = ctx.createBufferSource();
+            src.buffer = b; src.connect(ctx.destination); src.start(0);
+        } catch (e) {}
+        return { ctx: ctx, gain: gain };
+    }
+    // Le contexte neuf devient celui du métronome (et des sons de l'appli).
+    function metroAdopt(pair) {
+        metroAudioCtx = pair.ctx; metroMasterGain = pair.gain;
         metroCtxLost = false;
         metroClockProbe = null;
-        var built = metroAudioCtx;
+        var built = pair.ctx;
         built.onstatechange = function () { // coupé puis rendu (vidéo plein écran, appel, autre appli) : on relance le son tout seul
             if (built !== metroAudioCtx || !metroPlaying) return;
             if (built.state === "running") metroNextNoteTime = Math.max(metroNextNoteTime, built.currentTime + 0.05);
             else metroReviveAudio();
         };
-        try { // note muette : « débloque » la sortie son sur iOS dès ce geste
-            var b = metroAudioCtx.createBuffer(1, 1, 22050), src = metroAudioCtx.createBufferSource();
-            src.buffer = b; src.connect(metroAudioCtx.destination); src.start(0);
-        } catch (e) {}
     }
+    function metroBuildAudio() {
+        var old = metroAudioCtx;
+        // L'ancien contexte est fermé AVANT d'en créer un neuf : les navigateurs plafonnent le nombre de contextes ouverts
+        // (Safari, Chrome), et un plafond atteint donnerait un métronome muet jusqu'au redémarrage de l'appli.
+        if (old) { try { old.onstatechange = null; old.close(); } catch (e) {} metroAudioCtx = null; }
+        metroAdopt(metroMakeCtx());
+    }
+    // Le contexte sert aussi au lecteur d'harmonie et au clic mêlé à un enregistrement : tant qu'ils l'utilisent, on ne le remplace pas.
+    function metroCtxBusy() { return !!harmPlay || !!(rec && rec.clickDest); }
     // Contexte prêt à jouer. Il est reconstruit (au lieu d'être réveillé) s'il n'existe plus, s'il est fermé, si la page a quitté l'avant-plan
     // depuis sa création, ou s'il n'est pas en marche : un contexte neuf, créé pendant un geste, est toujours autorisé à jouer.
-    function ensureMetroAudio(fromGesture) {
+    // `fresh` (lancement voulu par l'utilisateur) : toujours un contexte neuf. Safari peut garder un contexte « en marche » mais muet après
+    // qu'une autre appli a pris la main sur le son ; rien ne permet de le voir, et seul un contexte neuf rend le son.
+    function ensureMetroAudio(fromGesture, fresh) {
         var ctx = metroAudioCtx;
-        if (!ctx || ctx.state === "closed" || (fromGesture && !metroPlaying && (metroCtxLost || ctx.state !== "running"))) {
+        if (!ctx || ctx.state === "closed" || (fromGesture && !metroPlaying && ((fresh && !metroCtxBusy()) || metroCtxLost || ctx.state !== "running"))) {
             try { metroBuildAudio(); }
             catch (e) {
                 if (!metroAudioCtx) { showToast("Le son n'est pas disponible : ferme les autres onglets ou applis qui jouent du son, puis réessaie.", 6000); throw e; }
@@ -8627,6 +8639,64 @@
     // Le contexte avance-t-il vraiment ? (une horloge figée = sortie morte)
     function metroAudioAlive() { return !!metroAudioCtx && metroAudioCtx.state === "running"; }
 
+    // Tous les instants exprimés sur l'horloge audio, décalés d'un coup (passage sur un contexte neuf, dont l'horloge repart de zéro).
+    function metroShiftClock(shift) {
+        metroNextNoteTime += shift;
+        if (metroProgNextAt !== null) metroProgNextAt += shift;
+        if (metroProgHoldUntil !== null) metroProgHoldUntil += shift;
+        if (metroTrainNextAt !== null) metroTrainNextAt += shift;
+        metroBeatLog.forEach(function (b) { b.t += shift; });
+    }
+    // Une autre appli a pris la main sur le son, ou la sortie a changé : Safari peut garder un contexte « en marche » mais muet, que rien
+    // ne réveille. Pendant la lecture, on passe alors sur un contexte NEUF, à chaud : la cadence reprend exactement où elle en était (les clics
+    // déjà programmés sur l'ancien contexte finissent de jouer, puis il est fermé). Hors geste, Safari peut refuser de démarrer le contexte
+    // neuf : l'ancien continue, et l'échange se fait au premier clic ou à la première touche dans l'appli (un geste autorise toujours le son).
+    var metroAway = false;          // l'appli a perdu le premier plan (autre appli, autre fenêtre) pendant la lecture
+    var metroSwapCand = null;       // contexte neuf en attente de démarrer (essai hors geste)
+    var metroSwapWanted = false;    // essai hors geste refusé : échange au prochain geste
+    function metroCommitSwap(pair) {
+        var old = metroAudioCtx;
+        metroSwapCand = null; metroSwapWanted = false;
+        if (old === pair.ctx) return;
+        if (!metroPlaying || !old || old.state === "closed") {
+            if (old) { try { old.onstatechange = null; old.close(); } catch (e) {} }
+            metroAdopt(pair); return;
+        }
+        var spb = 60 / Math.max(20, state.settings.metronome.bpm || 60);
+        var lead = Math.min(Math.max(0.03, metroNextNoteTime - old.currentTime), spb + 0.5); // temps restant avant le prochain clic à programmer
+        metroShiftClock(pair.ctx.currentTime + lead - metroNextNoteTime);
+        old.onstatechange = null;
+        metroAdopt(pair);
+        metroRecoverTries = 0;
+        setTimeout(function () { try { old.close(); } catch (e) {} }, Math.round((lead + 0.25) * 1000));
+        try { metroScheduler(); } catch (e) {}
+    }
+    function metroDropCand(pair) { if (metroSwapCand === pair) metroSwapCand = null; try { pair.ctx.close(); } catch (e) {} }
+    function metroTrySwap(inGesture) {
+        if (!metroPlaying || metroCtxBusy()) return;
+        if (metroSwapCand) { // essai hors geste en cours : ce geste l'autorise à démarrer
+            if (!inGesture) return;
+            var c = metroSwapCand;
+            try { var pc = c.ctx.resume(); if (pc && pc.catch) pc.catch(function () {}); } catch (e) {}
+            metroCommitSwap(c); return;
+        }
+        var pair;
+        try { pair = metroMakeCtx(); } catch (e) { metroSwapWanted = true; return; }
+        try { var pr = pair.ctx.resume(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {}
+        if (inGesture || pair.ctx.state === "running") { metroCommitSwap(pair); return; }
+        metroSwapCand = pair;
+        var t0 = Date.now();
+        (function wait() {
+            if (metroSwapCand !== pair) return; // déjà échangé pendant un geste
+            if (!metroPlaying || metroCtxBusy()) { metroDropCand(pair); return; }
+            if (pair.ctx.state === "running") { metroCommitSwap(pair); return; }
+            if (Date.now() - t0 > 700) { metroDropCand(pair); metroSwapWanted = true; return; } // refusé hors geste : au prochain geste
+            setTimeout(wait, 60);
+        })();
+    }
+    function metroLeave() { if (metroPlaying) metroAway = true; }
+    function metroBack() { if (!metroPlaying || !metroAway) return; metroAway = false; metroTrySwap(false); }
+
     // Contexte mort pendant la lecture (sortie son perdue, horloge figée, contexte fermé par le système) : on en construit un neuf et on
     // repart de SON horloge (elle repart de zéro). Au bout de trois tentatives sans succès, on arrête proprement et on le dit.
     function metroRecover() {
@@ -8641,8 +8711,8 @@
         }
         try { metroBuildAudio(); } catch (e) { return; }
         try { var pr = metroAudioCtx.resume(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {}
-        metroNextNoteTime = metroAudioCtx.currentTime + 0.05;
         metroBeatLog.length = 0;
+        metroShiftClock(metroAudioCtx.currentTime + 0.05 - metroNextNoteTime);
     }
     // Chien de garde (toutes les 300 ms pendant la lecture) : (1) le planificateur tourne-t-il encore ? un Web Worker peut mourir ou geler
     // après un long passage en arrière-plan, sans erreur ; (2) le contexte audio est-il en marche et son horloge avance-t-elle ?
@@ -8688,16 +8758,21 @@
         }, 450);
     }
     document.addEventListener("visibilitychange", function () {
-        if (document.hidden) metroCtxLost = true; else metroOnReturn();
+        if (document.hidden) { metroCtxLost = true; metroLeave(); } else { metroOnReturn(); metroBack(); }
     });
-    window.addEventListener("pageshow", function () { metroOnReturn(); });
-    window.addEventListener("focus", function () { if (metroAudioCtx && metroAudioCtx.state !== "running") metroOnReturn(); });
-    // Sortie son changée (casque branché, haut-parleur Bluetooth…) : le contexte en cours n'est plus fiable, on en reconstruira un au prochain « Jouer ».
-    try { if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener("devicechange", function () { metroCtxLost = true; }); } catch (e) {}
-    // Premier geste après un passage en arrière-plan (clic, touche) : seul moment où Safari accepte de réveiller un contexte « interrupted ».
+    window.addEventListener("pageshow", function () { metroOnReturn(); metroBack(); });
+    window.addEventListener("blur", metroLeave);
+    window.addEventListener("focus", function () { if (metroAudioCtx && metroAudioCtx.state !== "running") metroOnReturn(); metroBack(); });
+    // Sortie son changée (casque branché, haut-parleur Bluetooth, autre appli qui change la fréquence de la carte son…) : le contexte en cours
+    // n'est plus fiable — échange à chaud s'il joue, contexte neuf au prochain « Jouer » sinon.
+    try { if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener("devicechange", function () { metroCtxLost = true; if (metroPlaying) metroTrySwap(false); }); } catch (e) {}
+    // Premier geste après un passage en arrière-plan (clic, touche) : seul moment où Safari accepte de réveiller un contexte « interrupted »,
+    // ou de démarrer le contexte neuf d'un échange refusé hors geste.
     ["pointerdown", "keydown", "touchend"].forEach(function (ev) {
         window.addEventListener(ev, function () {
-            if (!metroPlaying || !metroAudioCtx || metroAudioCtx.state === "running") return;
+            if (!metroPlaying || !metroAudioCtx) return;
+            if (metroAway || metroSwapWanted || metroSwapCand) { metroAway = false; metroTrySwap(true); return; }
+            if (metroAudioCtx.state === "running") return;
             try { var pr = metroAudioCtx.resume(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {}
         }, { capture: true, passive: true });
     });
@@ -8953,7 +9028,7 @@
 
     function startMetronome() {
         if (metroPlaying) return;
-        try { ensureMetroAudio(true); } catch (e) { return; }
+        try { ensureMetroAudio(true, true); } catch (e) { return; }
         metroPlaying = true;
         metroCurrentStep = 0;
         metroProgNextAt = null; // le décompte du tempo progressif repart à chaque lancement
@@ -8976,6 +9051,8 @@
         metroStopDog();
         if (metroTimer) { clearTimeout(metroTimer); metroTimer = null; }
         if (metroReviveTimer) { clearTimeout(metroReviveTimer); metroReviveTimer = null; }
+        metroAway = false; metroSwapWanted = false;
+        if (metroSwapCand) metroDropCand(metroSwapCand);
         // "Revenir au tempo de départ" : le prochain lancement repart du tempo d'origine.
         if (metroProgStartBpm !== null) {
             var mm = state.settings.metronome;
@@ -12447,7 +12524,7 @@
     // o = { chords: [{ midis, beats }], meter, bpm, swing, click, countIn, loop, volume, onChord(i), onBeat(b), onStop() }
     function harmPlayerStart(o) {
         harmPlayerStop();
-        var ctx = ensureMetroAudio(true);
+        var ctx = ensureMetroAudio(true, true);
         var out = ctx.createGain(); out.gain.value = o.volume == null ? 0.8 : o.volume; out.connect(ctx.destination);
         var total = o.chords.reduce(function (s, c) { return s + c.beats; }, 0);
         if (!(total > 0)) return;
