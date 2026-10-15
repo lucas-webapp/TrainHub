@@ -4499,3 +4499,15 @@ button.harm-play.harm-ico { flex: none; width: 72px; min-width: 72px; }
 .harm-pres .dice-hist-name { white-space: normal; max-width: 100%; }
 .harm-pres .harm-opt-sub { width: auto; }
 .harm-edit-row select.harm-dur { flex: 1 1 120px; min-width: 0; }
+
+/* v193 — Harmonie : lecture d'une portion de la grille (cases choisies jouées en boucle, comme iReal Pro) */
+.harm-grid { -webkit-user-select: none; user-select: none; }
+.harm-range-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 6px 10px; border-radius: var(--radius-sm); background: rgba(159, 168, 255, .16); font-size: var(--fs-sm); color: var(--text-main); }
+.harm-range-line[hidden] { display: none; }
+.harm-range-text { flex: 1 1 180px; min-width: 0; }
+.harm-range-line .harm-range-all { height: 30px; font-size: var(--fs-xs); }
+.harm-grid-card button.harm-cell.harm-cell-range { background: rgba(159, 168, 255, .26); box-shadow: inset 0 -3px 0 #9fa8ff; }
+.harm-grid-card button.harm-cell.harm-cell-range.harm-cell-play { background: color-mix(in srgb, #ffb300 22%, transparent); }
+.harm-grid.harm-grid-ranged button.harm-cell:not(.harm-cell-range) { opacity: .5; }
+html[data-theme="light"] .harm-range-line { background: rgba(63, 81, 181, .12); }
+html[data-theme="light"] .harm-grid-card button.harm-cell.harm-cell-range { background: rgba(63, 81, 181, .2); box-shadow: inset 0 -3px 0 #5c6bc0; }

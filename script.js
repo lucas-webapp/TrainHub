@@ -12419,8 +12419,10 @@
                 if (tb >= 0 && !o.click) break; // sans métronome, seul le décompte clique
                 var tt = p.start + tb * p.spb;
                 if (tt > horizon || (!o.loop && tb >= total)) break;
-                try { metroClick(tt, ((tb % o.meter) + o.meter) % o.meter === 0 ? 2 : 1); } catch (e) {}
-                if (o.onBeat) (function (b) { later(tt, function () { if (harmPlay === p) o.onBeat(b); }); })(tb);
+                // position dans la mesure d'origine : une portion jouée peut commencer en milieu de mesure (o.beatOffset)
+                var bb = tb >= 0 ? (Number.isInteger(total) ? tb % total : tb) + (o.beatOffset || 0) : tb;
+                try { metroClick(tt, ((bb % o.meter) + o.meter) % o.meter === 0 ? 2 : 1); } catch (e) {}
+                if (o.onBeat) (function (b) { later(tt, function () { if (harmPlay === p) o.onBeat(b); }); })(bb);
                 p.nextClick++;
             }
             // accords
@@ -12704,6 +12706,7 @@
         trash: '<svg ' + HARM_ICON_ATTR + '><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/><path d="M10 11v5M14 11v5"/></svg>',
         copy: '<svg ' + HARM_ICON_ATTR + '><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>',
         save: '<svg ' + HARM_ICON_ATTR + '><path d="M5 4h11l3 3v13H5Z"/><path d="M8 4v5h7V4"/><path d="M8 20v-6h8v6"/></svg>',
+        repeat: '<svg ' + HARM_ICON_ATTR + '><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/></svg>',
         play: METRO_PLAY_ICON_SVG, stop: METRO_STOP_ICON_SVG
     };
     // Bouton en icône : le texte reste dans le bouton (masqué à l'écran) pour les lecteurs d'écran et la recherche.
@@ -12758,6 +12761,7 @@
         if (harmWin && document.querySelector(".harmony-panel")) { if (opts.pick) harmWin.apply(opts.pick, opts); return; }
         openModal("harmony-panel", function (panel) {
             var prefs = loadHarmonyPrefs(), fitObs = null, edit = null, playIdx = -1, playBeat = null, task = null, revealed = false, selIdx = 0, advSel = null;
+            var range = null, rangeMode = false, rangePend = false, rangeAnchor = 0; // portion de la grille jouée en boucle : { a, b } (indices d'accords)
             if (prefs.size === "ext" && !prefs.extOn) prefs.size = "tetrad";
             function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
             function chip(container, text, title, fn) { var b = el("button", "scales-chip", text); b.type = "button"; if (title) b.title = title; b.addEventListener("click", fn); container.appendChild(b); return b; }
@@ -12802,7 +12806,7 @@
             var typeSel = scaleSelect("harm-select-type", function (v) { prefs.type = v; advSel = null; update(); }); typeSel.setAttribute("aria-label", "Gamme à harmoniser");
             controls.appendChild(typeSel);
             var progSel = el("select", "scales-select harm-select-prog"); progSel.setAttribute("aria-label", "Progression");
-            progSel.addEventListener("change", function () { prefs.progId = progSel.value; selIdx = 0; task = null; stopPlay(); update(); });
+            progSel.addEventListener("change", function () { prefs.progId = progSel.value; selIdx = 0; task = null; clearRange(); stopPlay(); update(); });
             controls.appendChild(progSel);
             panel.appendChild(controls);
             // -- rubriques : un bouton par groupe de réglages ; il ouvre un petit panneau (popover) et résume le réglage en cours
@@ -12867,6 +12871,7 @@
             var progHead = el("div", "harm-prog-head");
             var progInfo = el("span", "harm-prog-info"); progHead.appendChild(progInfo);
             var progActs = el("span", "harm-prog-acts"); progHead.appendChild(progActs);
+            var rangeBtn = chip(progActs, "", "Jouer seulement une portion de la grille, en boucle : touche la première puis la dernière case (ou Maj + clic, ou glisser à la souris)", function () { toggleRangeMode(); }); harmSetIcon(rangeBtn, "repeat", "Jouer une portion"); rangeBtn.classList.add("harm-range-btn");
             var newBtn = chip(progActs, "", "Créer une progression", function () { startEdit(null); }); harmSetIcon(newBtn, "plus", "Nouvelle");
             var editBtn = chip(progActs, "", null, function () { startEdit(curProg()); }); harmSetIcon(editBtn, "pencil", "Modifier");
             var delBtn = chip(progActs, "", "Supprimer cette progression", function () { deleteProg(curProg()); }); harmSetIcon(delBtn, "trash", "Supprimer");
@@ -12874,7 +12879,30 @@
             var editBox = el("div", "harm-edit"); editBox.hidden = true;
             // la grille (avec son titre, ses actions et le créateur) est une carte à fond coloré : elle se distingue des réglages et du lecteur
             var gridCard = el("div", "harm-grid-card"); progView.appendChild(gridCard);
-            gridCard.appendChild(progHead); gridCard.appendChild(gridBox); gridCard.appendChild(editBox);
+            var rangeLine = el("div", "harm-range-line"); rangeLine.hidden = true;
+            gridCard.appendChild(progHead); gridCard.appendChild(rangeLine); gridCard.appendChild(gridBox); gridCard.appendChild(editBox);
+            // choix d'une portion : doigt = deux touches (bouton « portion ») ; souris = glisser sur les cases ou Maj + clic ; une simple touche choisit l'accord affiché sur le diagramme
+            var drag = null;
+            function cellIndexAt(x, y) { var t = document.elementFromPoint(x, y), c = t && t.closest ? t.closest(".harm-cell") : null; return c && gridBox.contains(c) ? Array.prototype.indexOf.call(gridBox.querySelectorAll(".harm-cell"), c) : -1; }
+            function dragStop() { document.removeEventListener("pointermove", dragMove); document.removeEventListener("pointerup", dragEnd); document.removeEventListener("pointercancel", dragStop); drag = null; }
+            function dragMove(e) {
+                if (!drag || drag.type !== "mouse" || edit) return;
+                var j = cellIndexAt(e.clientX, e.clientY);
+                if (j < 0 || (j === drag.start && !drag.moved)) return;
+                drag.moved = true; drag.cur = j; rangeMode = false; rangePend = false; setRange(drag.start, j); paintPlaying(); paintRange();
+            }
+            function dragEnd() {
+                var d = drag; dragStop();
+                if (!d) return;
+                if (d.moved) { rangeAnchor = d.start; selIdx = d.start; restartIfPlaying(); update(); } else cellTap(d.start, d.ext);
+            }
+            gridBox.addEventListener("pointerdown", function (e) {
+                if (e.pointerType === "mouse" && e.button !== 0) return;
+                var i = cellIndexAt(e.clientX, e.clientY);
+                if (i < 0) return;
+                drag = { start: i, cur: i, moved: false, type: e.pointerType, ext: e.shiftKey || e.metaKey || e.ctrlKey };
+                document.addEventListener("pointermove", dragMove); document.addEventListener("pointerup", dragEnd); document.addEventListener("pointercancel", dragStop);
+            });
             var player = el("div", "harm-player"); progView.appendChild(player);
             var playBtn = el("button", "btn-accent harm-play"); playBtn.type = "button"; player.appendChild(playBtn);
             playBtn.addEventListener("click", function () { if (harmPlayerPlaying()) stopPlay(); else startPlay(); });
@@ -12900,26 +12928,54 @@
             function opt() { return { avoid: prefs.avoid, numeral: prefs.numeral }; }
             function progInfos(p) { var def = scaleDefByKey(p.scale); return p.chords.map(function (c) { return harmChordInfo(c, prefs.root, def, harmSize(prefs), opt()); }); }
             function setBpm(v) { if (!(v > 0)) v = prefs.bpm; prefs.bpm = Math.max(30, Math.min(300, Math.round(v))); restartIfPlaying(); update(); }
+            function clearRange() { range = null; rangeMode = false; rangePend = false; }
+            function setRange(a, b) { range = { a: Math.min(a, b), b: Math.max(a, b) }; }
+            function toggleRangeMode() { rangeMode = !rangeMode; rangePend = false; paintRange(); }
+            function cellTap(i, ext) {
+                if (edit) { selIdx = i; edit.sel = i; update(); return; }
+                if (rangeMode) {
+                    if (!rangePend) { setRange(i, i); rangeAnchor = i; rangePend = true; } else { setRange(rangeAnchor, i); rangePend = false; rangeMode = false; }
+                } else if (ext) setRange(rangeAnchor, i);
+                else rangeAnchor = i;
+                selIdx = i; restartIfPlaying(); update();
+            }
+            function paintRange() {
+                var on = prefs.view === "prog" && !edit;
+                rangeBtn.classList.toggle("scales-chip-active", on && (rangeMode || !!range));
+                rangeLine.innerHTML = ""; rangeLine.hidden = !on || (!rangeMode && !range);
+                if (rangeLine.hidden) return;
+                if (rangeMode) { rangeLine.appendChild(el("span", "harm-range-text", rangePend ? "Touche la dernière case de la portion (la même case pour un seul accord)." : "Touche la première case de la portion à jouer en boucle.")); return; }
+                var p = curProg(), n = range.b - range.a + 1, beats = 0, i;
+                for (i = range.a; i <= range.b; i++) beats += p.chords[i].beats;
+                var bars = Math.round(beats / p.meter * 100) / 100;
+                rangeLine.appendChild(el("span", "harm-range-text", "Portion jouée : " + (n === 1 ? "accord " + (range.a + 1) : "accords " + (range.a + 1) + " à " + (range.b + 1)) + " · " + bars.toLocaleString("fr-FR") + " mesure" + (bars > 1 ? "s" : "")));
+                var all = chip(rangeLine, "Toute la grille", "Rejouer la grille entière", function () { clearRange(); restartIfPlaying(); update(); }); all.classList.add("harm-range-all");
+            }
             function startPlay() {
                 var p = curProg(), infos = progInfos(p);
                 if (!infos.length) return;
+                var r = !edit && range && range.b < infos.length ? range : null, idx = [], off = 0, i;
+                for (i = r ? r.a : 0; i <= (r ? r.b : infos.length - 1); i++) idx.push(i);
+                for (i = 0; i < idx[0]; i++) off += p.chords[i].beats;
                 playIdx = -1; playBeat = null;
-                harmPlayerStart({ chords: infos.map(function (inf, i) { return { midis: harmVoicing(inf), beats: p.chords[i].beats }; }), meter: p.meter, bpm: prefs.bpm, swing: prefs.swing,
+                harmPlayerStart({ chords: idx.map(function (j) { return { midis: harmVoicing(infos[j]), beats: p.chords[j].beats }; }), meter: p.meter, bpm: prefs.bpm, swing: prefs.swing, beatOffset: off % p.meter,
                     click: prefs.click, countIn: prefs.countIn, loop: prefs.loop, volume: prefs.volume,
-                    onChord: function (i) { playIdx = i; if (prefs.follow) selIdx = i; paintPlaying(); },
+                    onChord: function (k) { playIdx = idx[k]; if (prefs.follow) selIdx = idx[k]; paintPlaying(); },
                     onBeat: function (b) { playBeat = b; paintBeat(p.meter); },
                     onStop: function () { playIdx = -1; playBeat = null; paintPlaying(); paintBeat(p.meter); paintPlayBtn(); } });
                 paintPlayBtn();
             }
             function stopPlay() { if (harmPlayerPlaying()) harmPlayerStop(); }
             function restartIfPlaying() { if (harmPlayerPlaying()) { stopPlay(); startPlay(); } }
-            function paintPlayBtn() { var on = harmPlayerPlaying(); harmSetIcon(playBtn, on ? "stop" : "play", on ? "Arrêter" : "Lecture"); playBtn.title = on ? "Arrêter la lecture" : "Lancer la lecture en boucle"; playBtn.classList.toggle("harm-play-on", on); }
+            function paintPlayBtn() { var on = harmPlayerPlaying(); harmSetIcon(playBtn, on ? "stop" : "play", on ? "Arrêter" : "Lecture"); playBtn.title = on ? "Arrêter la lecture" : range && !edit ? "Lancer la lecture de la portion choisie" : "Lancer la lecture"; playBtn.classList.toggle("harm-play-on", on); }
             function paintBeat(meter) {
                 beatDots.innerHTML = "";
                 for (var i = 0; i < meter; i++) { var d = el("span", "harm-beat"); if (playBeat !== null && ((playBeat % meter) + meter) % meter === i) d.classList.add(playBeat < 0 ? "harm-beat-count" : "harm-beat-on"); beatDots.appendChild(d); }
             }
             function paintPlaying() {
-                Array.prototype.forEach.call(gridBox.querySelectorAll(".harm-cell"), function (c, i) { c.classList.toggle("harm-cell-play", i === playIdx); c.classList.toggle("harm-cell-on", i === selIdx); });
+                var rr = !edit && range;
+                gridBox.classList.toggle("harm-grid-ranged", !!rr);
+                Array.prototype.forEach.call(gridBox.querySelectorAll(".harm-cell"), function (c, i) { c.classList.toggle("harm-cell-play", i === playIdx); c.classList.toggle("harm-cell-on", i === selIdx); c.classList.toggle("harm-cell-range", !!rr && i >= rr.a && i <= rr.b); });
                 if (prefs.view === "prog" && prefs.follow && playIdx >= 0) paintChord();
             }
             // ----- tirage reçu (dé d'harmonie) : tonalité, progression, accords, consigne et aide -----
@@ -12927,7 +12983,7 @@
                 if (typeof pick.key === "number") prefs.root = pick.key;
                 if (pick.prog && harmProgById(pick.prog)) prefs.progId = pick.prog;
                 if (pick.chord === "ext") { prefs.extOn = true; prefs.size = "ext"; } else if (pick.chord) prefs.size = pick.chord;
-                prefs.view = "prog"; selIdx = 0; revealed = false; edit = null;
+                prefs.view = "prog"; selIdx = 0; revealed = false; edit = null; clearRange();
                 var cc = pick.cons ? harmConsById(pick.cons) : null;
                 if (cc) prefs.cue = cc.fam === "ench" ? "lead" : cc.fam === "walk" ? "approach" : "chord";
                 task = { pick: pick, from: info && info.title || "" };
@@ -12941,7 +12997,7 @@
             }
             // ----- créateur de progressions -----
             function startEdit(p) {
-                stopPlay();
+                stopPlay(); clearRange();
                 if (p && !p.user) { // une progression de la bibliothèque se copie avant d'être modifiée
                     edit = { id: null, name: p.name + " (copie)", scale: p.scale, meter: p.meter, chords: p.chords.map(function (c) { return Object.assign({}, c); }), level: p.level, sel: 0 };
                 } else if (p) edit = { id: p.id, name: p.name, scale: p.scale, meter: p.meter, chords: p.chords.map(function (c) { return Object.assign({}, c); }), level: p.level, sel: 0 };
@@ -12956,7 +13012,7 @@
                 var i = list.findIndex(function (x) { return x.id === data.id; });
                 if (i === -1) list.push(data); else list[i] = data;
                 saveSoon();
-                prefs.progId = data.id; edit = null;
+                prefs.progId = data.id; edit = null; clearRange();
                 showToast("Progression « " + data.name + " » enregistrée dans « Mes progressions ».", 3500);
                 update();
             }
@@ -12966,7 +13022,7 @@
                     var list = harmUserProgs(), i = list.findIndex(function (x) { return x.id === p.id; }), old = list[i];
                     if (i === -1) return;
                     list.splice(i, 1); saveSoon();
-                    prefs.progId = "l2-251"; update();
+                    prefs.progId = "l2-251"; clearRange(); update();
                     showToast("Progression supprimée.", 5000, { label: "Annuler", run: function () { harmUserProgs().splice(i, 0, old); saveSoon(); prefs.progId = old.id; update(); } });
                 });
             }
@@ -13044,7 +13100,7 @@
                     if (an) { var al = el("span", "harm-cell-an harm-an-" + an.kind, an.label); al.title = an.text; b.appendChild(al); }
                     if (prefs.fn && fnc) { var f = el("span", "harm-deg-fn harm-fn-" + fnc.toLowerCase(), fnc); f.title = HARM_FUNCTIONS[fnc]; b.appendChild(f); }
                     b.title = noteDisplay(inf.names[0]) + inf.suffix + " · " + harmDurLabel(p.chords[i].beats, p.meter);
-                    b.addEventListener("click", function () { selIdx = i; if (edit) edit.sel = i; update(); });
+                    b.addEventListener("click", function (e) { if (e.detail === 0) cellTap(i, false); }); // clavier ; souris et doigt passent par les événements du pointeur
                     gridBox.appendChild(b);
                 });
                 if (!infos.length) gridBox.appendChild(el("div", "harm-empty", "Grille vide."));
@@ -13260,11 +13316,12 @@
                     editBtn.title = p.user ? "Modifier cette progression" : "Les grilles de la bibliothèque ne changent pas : on en fait une copie dans « Mes progressions »";
                     delBtn.hidden = !p.user;
                     renderTask();
+                    if (!edit && range && range.b >= infos.length) clearRange();
                     renderGrid(p, infos);
                     editBox.hidden = !edit;
                     if (edit) renderEditor();
                     bpmIn.value = String(prefs.bpm); volIn.value = String(prefs.volume);
-                    paintPlayBtn(); paintPlaying(); paintBeat(p.meter);
+                    paintPlayBtn(); paintPlaying(); paintBeat(p.meter); paintRange();
                 }
                 paintChord();
             }
