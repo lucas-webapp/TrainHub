@@ -4249,7 +4249,6 @@ html[data-glass="1"] .dice-panel button, html[data-glass="1"] .exercise-picker-p
 .harm-opt-label { min-width: 160px; font-size: var(--fs-xs); color: var(--text-muted); }
 .harm-opt-row .scales-chip { height: 30px; font-size: var(--fs-xs); }
 .harm-degrees { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
-@media (max-width: 700px) { .harm-degrees { grid-template-columns: repeat(4, minmax(0, 1fr)); } .harm-opt-label { min-width: 0; width: 100%; } }
 button.harm-deg { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 2px; min-width: 0; height: auto; padding: 8px 4px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: transparent; color: var(--text-main); font: inherit; cursor: pointer; text-align: center; box-shadow: none; }
 button.harm-deg:hover { border-color: var(--accent); }
 button.harm-deg.harm-deg-on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
@@ -4335,7 +4334,6 @@ input.harm-edit-name { flex: 1 1 200px; height: 32px; box-sizing: border-box; }
 .dice-ex-toggle.dice-ex-harm .dice-ex-ico { color: #c792ea; }
 .dice-ex-toggle.dice-ex-harm.dice-ex-on { border-color: color-mix(in srgb, #c792ea 60%, transparent); }
 .gs-run-harm { color: #c792ea; }
-@media (max-width: 700px) { .harm-head .harm-views { margin-left: 0; order: 3; width: 100%; } .harm-beats { margin-left: 0; } button.harm-cell { min-width: 44px; } }
 .gs-step-dice.gs-step-dice-harm { color: #c792ea; }
 
 /* v188 — Harmonie : repères (accord suivant, approches), calque CAGED, harmonie avancée */
@@ -4390,15 +4388,6 @@ html[data-theme="light"] .harm-fn-t { color: #1b8a4a; } html[data-theme="light"]
 .harm-head .harm-dice-btn { width: auto; padding: 0 12px; gap: 6px; }
 .harm-dice-lbl { font-size: var(--fs-sm); font-weight: 700; color: var(--text-main); }
 .harm-controls .scales-select.harm-select-type, .harm-controls .scales-select.harm-select-prog { flex: 1 1 200px; max-width: none; }
-.harm-rubs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-.harm-rubs[data-n="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-button.harm-rub { position: relative; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; min-width: 0; height: auto; min-height: 48px; padding: 5px 24px 5px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: rgba(var(--ov), .04); color: var(--text-main); font: inherit; text-align: left; cursor: pointer; box-shadow: none; }
-button.harm-rub[hidden] { display: none; }
-button.harm-rub::after { content: "▾"; position: absolute; right: 9px; top: 50%; transform: translateY(-50%); font-size: var(--fs-xs); color: var(--text-muted); }
-button.harm-rub:hover, button.harm-rub.harm-rub-open { border-color: var(--accent); }
-button.harm-rub.harm-rub-open { background: color-mix(in srgb, var(--accent) 10%, transparent); }
-.harm-rub-name { font-size: var(--fs-2xs); font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
-.harm-rub-val { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); font-weight: 700; }
 /* popover de rubrique : sous le bouton sur ordinateur, feuille au bas de l'écran sur téléphone */
 .harm-pop-back { position: fixed; inset: 0; z-index: 991; background: transparent; }
 .harm-pop-back-sheet { background: rgba(0, 0, 0, .42); }
@@ -4409,7 +4398,7 @@ button.harm-rub.harm-rub-open { background: color-mix(in srgb, var(--accent) 10%
 button.harm-pop-ok { height: 32px; padding: 0 14px; font-weight: 700; }
 .harm-pop-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 10px; padding: 6px 14px 14px; }
 html[data-glass="1"] .harm-pop { background: var(--glass-solid); }
-html[data-glass="1"] .harm-pop button, html[data-glass="1"] .harm-rubs button { box-shadow: none; }
+html[data-glass="1"] .harm-pop button, html[data-glass="1"] .harmony-panel button { box-shadow: none; }
 .harm-pop-content { display: flex; flex-direction: column; gap: 12px; }
 .harm-pop .harm-opt-row { flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: 5px; }
 .harm-pop .harm-opt-row[hidden] { display: none; }
@@ -4424,9 +4413,7 @@ html[data-glass="1"] .harm-pop button, html[data-glass="1"] .harm-rubs button { 
 .harm-pop .dice-hist-list { max-height: none; }
 .harm-pop .dice-keys { max-width: none; }
 .harm-pop .dice-sec-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-@media (max-width: 700px) { .harm-rubs[data-n="4"] { grid-template-columns: repeat(2, minmax(0, 1fr)); } .harm-head .harm-views { width: 100%; } .harm-head .harm-views button.scales-chip { flex: 1; } .harm-head { gap: 8px; } }
 .harm-player { gap: 10px; }
-@media (max-width: 700px) { .harm-player .harm-beats { margin-left: auto; } button.harm-play { flex: 1 1 130px; } }
 
 .harm-head { margin-bottom: 0; } .harm-controls { margin-bottom: 0; }
 
@@ -4493,7 +4480,6 @@ html[data-theme="light"] .harm-grid-card { --harm-grid-bg: rgba(63, 81, 181, .07
 .harm-grid-card .harm-prog-info { color: var(--text-dim, var(--text-muted)); }
 .harm-grid-card .harm-edit { border-color: var(--harm-grid-line); }
 button.harm-play.harm-ico { flex: none; width: 72px; min-width: 72px; }
-@media (max-width: 700px) { button.harm-play.harm-ico { flex: none; } }
 /* v192 — préréglages : nom au-dessus de sa description (plus de nom coupé sur téléphone) ; durée d'accord qui laisse la place aux boutons */
 .harm-pres button.dice-hist-item { flex-direction: column; align-items: flex-start; gap: 0; }
 .harm-pres .dice-hist-name { white-space: normal; max-width: 100%; }
@@ -4511,3 +4497,106 @@ button.harm-play.harm-ico { flex: none; width: 72px; min-width: 72px; }
 .harm-grid.harm-grid-ranged button.harm-cell:not(.harm-cell-range) { opacity: .5; }
 html[data-theme="light"] .harm-range-line { background: rgba(63, 81, 181, .12); }
 html[data-theme="light"] .harm-grid-card button.harm-cell.harm-cell-range { background: rgba(63, 81, 181, .2); box-shadow: inset 0 -3px 0 #5c6bc0; }
+
+/* v195 — Harmonie : la mise en page suit la largeur de la FENÊTRE (container queries), barre de lecture fixée en bas,
+   deux colonnes (grille | diagramme) quand la fenêtre est large, croix dans l'en-tête */
+.harmony-panel { container: harmpanel / inline-size; --hp-x: 18px; padding-bottom: 0; }
+@media (max-width: 700px) { .backups-panel.harmony-panel { --hp-x: 14px; padding-bottom: 0 !important; } }
+.harmony-panel:not(.harm-has-player) .harm-body { padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+.harm-opt-label { min-width: 0; }
+/* en-tête : titre, vues, dé, instrument, croix */
+.harm-head { justify-content: flex-start; gap: 8px 10px; }
+.harm-head .harm-views { margin: 0 auto 0 6px; }
+.harm-head .scales-select.scales-select-inst { width: 150px; }
+button.harm-close { flex: none; width: 34px; height: 34px; padding: 0; font-size: 17px; line-height: 1; }
+@container harmpanel (max-width: 619px) {
+    .harm-head .harm-views { order: 10; flex: 1 1 100%; margin: 0; }
+    .harm-head .harm-views button.scales-chip { flex: 1 1 0; }
+    .harm-head .harm-dice-btn { margin-left: auto; }
+    .harm-head .scales-select.scales-select-inst { width: auto; flex: 0 1 140px; min-width: 92px; }
+}
+/* choix : tonique, gamme ou progression, taille des accords, affichage */
+.harm-controls { flex-wrap: wrap; row-gap: 8px; }
+.harm-controls .harm-size-seg { flex: none; }
+button.harm-display-btn { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+button.harm-display-btn .icon { width: 17px; height: 17px; flex: none; }
+button.harm-display-btn.harm-rub-open, button.harm-player-btn.harm-rub-open { border-color: var(--accent); color: var(--accent); }
+@container harmpanel (max-width: 619px) {
+    .harm-controls .scales-select.harm-select-type, .harm-controls .scales-select.harm-select-prog { flex: 1 1 60%; min-width: 0; }
+    .harm-controls .harm-size-seg { flex: 1 1 auto; }
+    .harm-controls .harm-size-seg button.scales-chip { flex: 1 1 0; }
+}
+@container harmpanel (max-width: 359px) { .harm-display-lbl { display: none; } button.harm-display-btn { width: var(--sc-h); padding: 0; justify-content: center; } }
+/* popover « Affichage » : sections */
+.harm-pop-sec { display: flex; flex-direction: column; gap: 10px; }
+.harm-pop-sec[hidden] { display: none; }
+.harm-pop-sec:not(:first-child) { padding-top: 12px; border-top: 1px solid var(--border); }
+.harm-pop-sec[hidden] + .harm-pop-sec { padding-top: 0; border-top: none; }
+.harm-pop-sec-title { font-size: var(--fs-sm); font-weight: 800; color: var(--text-main); }
+/* bandeau du tirage en cours */
+.harm-task { gap: 6px; }
+.harm-task-kicker { flex: 1; font-size: var(--fs-2xs); font-weight: 800; text-transform: uppercase; letter-spacing: .07em; color: #c792ea; }
+.harm-task-sum { display: block; font-size: var(--fs-md); line-height: 1.3; overflow-wrap: anywhere; }
+.harm-task-acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.harm-task-acts .scales-chip { height: 32px; font-size: var(--fs-xs); }
+/* corps : une colonne, deux quand la fenêtre est large */
+.harm-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.harm-main, .harm-side { display: flex; flex-direction: column; gap: 8px; min-width: 0; container: harmcol / inline-size; }
+@container harmpanel (min-width: 980px) {
+    .harm-body { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 20px; align-items: start; }
+    .harm-side { position: sticky; top: 0; }
+}
+.harm-degrees { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+@container harmcol (max-width: 620px) { .harm-degrees { grid-template-columns: repeat(4, minmax(0, 1fr)); } button.harm-cell { min-width: 44px; } }
+@container harmcol (max-width: 300px) { .harm-degrees { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.harm-legend[hidden] { display: none !important; }
+.harm-legend { gap: 2px 14px; }
+/* barre de lecture fixée en bas de la fenêtre (vue Progressions) */
+.harm-transport { position: sticky; bottom: 0; z-index: 4; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 2px calc(-1 * var(--hp-x)) 0; padding: 8px var(--hp-x) calc(8px + env(safe-area-inset-bottom, 0px)); background: var(--card-bg-2); border-top: 1px solid var(--border); border-bottom: none; box-shadow: 0 -8px 16px rgba(0, 0, 0, calc(.16 * var(--sh-k))); }
+.harm-transport[hidden] { display: none; }
+html[data-glass="1"] .harm-transport { background: var(--glass-solid); }
+.harm-now { flex: 1 1 120px; min-width: 0; display: flex; align-items: baseline; gap: 8px; overflow: hidden; white-space: nowrap; }
+.harm-now-cur { font-size: var(--fs-md); font-weight: 800; }
+.harm-now-next { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--fs-sm); color: var(--text-muted); }
+.harm-transport .harm-beats { margin-left: 0; }
+button.harm-player-btn.harm-ico { width: 36px; min-width: 36px; height: 36px; padding: 0; }
+@container harmpanel (max-width: 520px) {
+    .harm-transport { gap: 8px; }
+    .harm-transport .harm-bpm-unit { display: none; }
+    .harm-transport .harm-now { order: 5; flex: 1 1 100%; }
+    .harm-transport .harm-beats { margin-left: auto; }
+    button.harm-play.harm-ico { width: 60px; min-width: 60px; }
+}
+/* fenêtres de dé : la mise en page suit aussi la largeur de la fenêtre */
+.backups-panel.dice-panel { container: dicepanel / inline-size; }
+@container dicepanel (min-width: 720px) { .dice-rubs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* v195 — dé de gammes au même modèle que le dé d'harmonie ; réglages du dé d'harmonie en deux niveaux */
+.dice-setting-line { gap: 8px; }
+.dice-setting-line select.dice-preset-sel { flex: 1 1 auto; min-width: 0; }
+button.dice-setting-edit.harm-ico { flex: none; }
+.dice-res > .dice-sec-head { margin-bottom: -2px; }
+.dp-list:not(.dp-list-ex) { flex-direction: column; flex-wrap: nowrap; gap: 4px; }
+.dp-list:not(.dp-list-ex) button.dp-chip { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; width: 100%; height: auto; min-height: 44px; padding: 6px 12px; border-radius: var(--radius-sm); text-align: left; }
+.dp-chip-sub { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-2xs); font-weight: 500; color: var(--text-muted); }
+button.dp-chip.dp-chip-on .dp-chip-sub { color: inherit; opacity: .8; }
+button.dice-custom-toggle { display: flex; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; box-sizing: border-box; min-height: 46px; margin-top: 4px; padding: 6px 12px; border: 1px dashed var(--border); border-radius: var(--radius-sm); background: transparent; color: var(--text-main); font: inherit; text-align: left; cursor: pointer; box-shadow: none; }
+button.dice-custom-toggle:hover { border-color: var(--accent); }
+.dice-custom-arrow { flex: none; width: 14px; color: var(--text-muted); }
+.dice-custom-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.dice-custom-name { font-size: var(--fs-sm); font-weight: 700; }
+.dice-custom-sub { font-size: var(--fs-2xs); color: var(--text-muted); }
+.dice-rubs[hidden] { display: none; }
+.harm-pop .harm-pop-sec-title { margin-top: 4px; }
+.harm-pop .dice-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.harm-pop .dice-face-sec { gap: 8px; }
+html[data-glass="1"] button.dice-custom-toggle, html[data-glass="1"] .dp-list button { box-shadow: none; }
+/* au doigt ou en fenêtre étroite : cibles tactiles de l'en-tête, des choix et de la barre de lecture à 42 px */
+@media (pointer: coarse), (max-width: 700px) {
+    .harmony-panel { --sc-h: 42px; }
+    .harmony-panel .harm-head .harm-views, .harmony-panel .harm-controls .harm-size-seg { --seg-h: 38px; }
+    .harmony-panel button.harm-close { width: 42px; height: 42px; }
+    .harmony-panel .harm-controls .scales-select, .harmony-panel .harm-head .scales-select-inst, .harmony-panel button.harm-display-btn, .harmony-panel .harm-head .harm-dice-btn { min-height: 42px; }
+    .harm-transport .harm-bpm .scales-chip { width: 40px; height: 40px; }
+    .harm-transport input.harm-bpm-in { height: 40px; }
+    button.harm-player-btn.harm-ico { width: 42px; min-width: 42px; height: 42px; }
+}
