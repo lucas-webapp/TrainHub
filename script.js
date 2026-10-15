@@ -8134,7 +8134,7 @@
                 if (closeActiveModal === close) { closeActiveModal = null; activeModalKind = null; }
             }
         }
-        function onKey(e) { if (e.key === "Escape") { if (document.querySelector(".ctx-menu")) return; userClose("escape"); } } // un menu ouvert par-dessus (popover, clic droit) se referme seul : Échap ne ferme que lui
+        function onKey(e) { if (e.key === "Escape") { if (document.querySelector(".ctx-menu, .harm-pop")) return; userClose("escape"); } } // un menu ouvert par-dessus (popover, clic droit) se referme seul : Échap ne ferme que lui
         if (!docked && !floating) {
             backdrop.addEventListener("click", function () { userClose("backdrop"); });
             document.addEventListener("keydown", onKey, true);
@@ -12576,6 +12576,7 @@
     //         chord: ["triad" | "tetrad" | "ext"], cons: [ids], aid: "full" | "targets" | "hidden" | "none" }
     var HARM_DICE = [{ id: "key", name: "Tonalité" }, { id: "prog", name: "Progression" }, { id: "chord", name: "Accords" }, { id: "cons", name: "Consigne" }];
     var HARM_CHORD_FACES = [["triad", "Triades"], ["tetrad", "Tétrades"], ["ext", "Extensions"]];
+    var HARM_LEVEL_DESC = { 1: "triades, majeur, diagramme complet", 2: "tétrades, majeur et mineur naturel, notes-cibles", 3: "mineurs harmonique et mélodique, diagramme masqué", 4: "modes, extensions, harmonie avancée, sans aide" };
     var HARM_LEVEL_AID = { 1: "full", 2: "targets", 3: "hidden", 4: "none" };
     // Un niveau pré-règle tout le dé (on peut ensuite retoucher à la main : il devient « personnalisé »). Les tonalités n'en dépendent pas.
     function harmLevelCfg(level, fam, keys) {
@@ -12698,6 +12699,48 @@
     var HARM_DICE_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><ellipse cx="10" cy="16" rx="2.2" ry="1.7" fill="currentColor" stroke="none"/><ellipse cx="10" cy="11.5" rx="2.2" ry="1.7" fill="currentColor" stroke="none"/><ellipse cx="10" cy="7" rx="2.2" ry="1.7" fill="currentColor" stroke="none"/><path d="M12.2 16V5.5"/></svg>';
     var harmWin = null; // fenêtre Harmonie ouverte : { apply(pick, info), owner }
 
+    // ---------- popover de rubrique (outil Harmonie, dé d'harmonie) ----------
+    // Un bouton de rubrique ouvre un petit panneau de réglages : sous le bouton sur ordinateur, en feuille collée au bas de l'écran
+    // sur téléphone. build(body, pop) le remplit (pop.render() le refait quand un réglage change) ; un clic à côté, Échap ou « OK » le ferme.
+    var harmPopOpen = null;
+    function closeHarmPop() { if (harmPopOpen) { var c = harmPopOpen.close; harmPopOpen = null; c(); } }
+    function openHarmPop(anchor, o) {
+        closeHarmPop();
+        var sheet = isMobilePanelLayout(), closed = false;
+        var back = document.createElement("div"); back.className = "harm-pop-back" + (sheet ? " harm-pop-back-sheet" : "");
+        var pop = document.createElement("div"); pop.className = "harm-pop" + (sheet ? " harm-pop-sheet" : "") + (o.cls ? " " + o.cls : "");
+        pop.setAttribute("role", "dialog"); pop.setAttribute("aria-label", o.title);
+        var head = document.createElement("div"); head.className = "harm-pop-head";
+        var tt = document.createElement("div"); tt.className = "harm-pop-title"; tt.textContent = o.title; head.appendChild(tt);
+        var ok = document.createElement("button"); ok.type = "button"; ok.className = "btn-ghost harm-pop-ok"; ok.textContent = "OK"; head.appendChild(ok);
+        var body = document.createElement("div"); body.className = "harm-pop-body";
+        pop.appendChild(head); pop.appendChild(body);
+        var ctl = { anchor: anchor, owner: o.owner || null, close: close, body: body, render: function () { var st = body.scrollTop; body.innerHTML = ""; o.build(body, ctl); body.scrollTop = st; } };
+        function onKey(e) { if (dlgIsOpen()) return; if (e.key === "Escape") { e.stopImmediatePropagation(); e.preventDefault(); close(); } }
+        function close() {
+            if (closed) return; closed = true;
+            window.removeEventListener("keydown", onKey, true);
+            if (harmPopOpen === ctl) harmPopOpen = null;
+            pop.remove(); back.remove();
+            if (o.onClose) o.onClose();
+        }
+        back.addEventListener("pointerdown", function (e) { e.preventDefault(); close(); });
+        back.addEventListener("contextmenu", function (e) { e.preventDefault(); close(); });
+        ok.addEventListener("click", close);
+        o.build(body, ctl);
+        document.body.appendChild(back); document.body.appendChild(pop);
+        window.addEventListener("keydown", onKey, true);
+        if (!sheet) {
+            var r = anchor.getBoundingClientRect(), w = pop.offsetWidth, below = window.innerHeight - r.bottom - 12, above = r.top - 12;
+            var openBelow = below >= Math.min(320, above) || below >= above;
+            pop.style.maxHeight = Math.max(160, openBelow ? below : above) + "px";
+            pop.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left)) + "px";
+            if (openBelow) pop.style.top = (r.bottom + 4) + "px"; else pop.style.top = Math.max(8, r.top - 4 - pop.offsetHeight) + "px";
+        }
+        harmPopOpen = ctl;
+        return ctl;
+    }
+
     // opts.pick : un tirage du dé d'harmonie à afficher (consigne, aide, progression, tonalité, accords) ; opts.title : d'où il vient.
     function openHarmonyPanel(opts) {
         opts = opts || {};
@@ -12707,8 +12750,8 @@
             if (prefs.size === "ext" && !prefs.extOn) prefs.size = "tetrad";
             function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
             function chip(container, text, title, fn) { var b = el("button", "scales-chip", text); b.type = "button"; if (title) b.title = title; b.addEventListener("click", fn); container.appendChild(b); return b; }
-            function seg(container, items, get, set, title) {
-                var g = el("div", "scales-segmented"); if (title) g.title = title;
+            function seg(container, items, get, set, title, cls) {
+                var g = el("div", "scales-segmented" + (cls ? " " + cls : "")); if (title) g.title = title;
                 var bs = items.map(function (it) { var b = chip(g, it[1], it[2] || null, function () { set(it[0]); update(); }); b.dataset.value = String(it[0]); return b; });
                 container.appendChild(g);
                 return { box: g, btns: bs, paint: function () { bs.forEach(function (b) { b.classList.toggle("scales-chip-active", b.dataset.value === String(get())); }); } };
@@ -12730,8 +12773,8 @@
             head.appendChild(el("div", "backups-title", "Harmonie"));
             var viewSeg = seg(head, [["deg", "Degrés", "Les accords de chaque degré d'une gamme"], ["prog", "Progressions", "Grilles d'accords, lecteur en boucle"]], function () { return prefs.view; }, function (v) { prefs.view = v; });
             viewSeg.box.classList.add("harm-views");
-            var diceBtn = el("button", "scales-chip scales-chip-icon harm-dice-btn"); diceBtn.type = "button"; diceBtn.innerHTML = HARM_DICE_SVG;
-            diceBtn.title = "Dé d'harmonie : tirer au sort une progression, une tonalité et une consigne"; diceBtn.setAttribute("aria-label", "Dé d'harmonie");
+            var diceBtn = el("button", "scales-chip harm-dice-btn"); diceBtn.type = "button"; diceBtn.innerHTML = HARM_DICE_SVG + '<span class="harm-dice-lbl">Tirage</span>';
+            diceBtn.title = "Dé d'harmonie : tirer au sort une progression, une tonalité et une consigne"; diceBtn.setAttribute("aria-label", "Dé d'harmonie : tirage au sort");
             diceBtn.addEventListener("click", function () { openToolHarmDice(); });
             head.appendChild(diceBtn);
             var instSel = el("select", "scales-select scales-select-inst"); instSel.setAttribute("aria-label", "Instrument");
@@ -12739,7 +12782,7 @@
             instSel.addEventListener("change", function () { var ws = getActiveInstrument(); if (ws) prefs.instByWs[ws.id] = instSel.value; update(); });
             head.appendChild(instSel);
             panel.appendChild(head);
-            // -- réglages communs
+            // -- choix de base : tonique + gamme (vue Degrés) ou progression (vue Progressions)
             var controls = el("div", "scales-controls harm-controls");
             var rootSel = el("select", "scales-select scales-select-root"); rootSel.setAttribute("aria-label", "Tonique");
             for (var pc = 0; pc < 12; pc++) { var o = el("option", null, rootMenuName(pc)); o.value = String(pc); rootSel.appendChild(o); }
@@ -12750,24 +12793,57 @@
             var progSel = el("select", "scales-select harm-select-prog"); progSel.setAttribute("aria-label", "Progression");
             progSel.addEventListener("change", function () { prefs.progId = progSel.value; selIdx = 0; task = null; stopPlay(); update(); });
             controls.appendChild(progSel);
-            var sizeSeg = seg(controls, [["triad", "Triades", "3 sons : 1-3-5"], ["tetrad", "Tétrades", "4 sons : 1-3-5-7"], ["ext", "Extensions", "9, 11, 13 (voir Options)"]],
-                function () { return prefs.size; }, function (v) { prefs.size = v; }, "Taille des accords");
-            var labelSeg = seg(controls, [["intervals", "Intervalles", "1, 3, 5, 7 de l'accord"], ["notes", "Notes"]], function () { return prefs.labelMode; }, function (v) { prefs.labelMode = v; });
-            var fretSeg = seg(controls, [[12, "12"], [24, "24"]], function () { return prefs.frets; }, function (v) { prefs.frets = parseInt(v, 10); }, "Nombre de cases");
-            var optBtn = chip(controls, "Options", "Fonctions, chiffrage, extensions", function () { optBox.hidden = !optBox.hidden; optBtn.classList.toggle("scales-chip-active", !optBox.hidden); });
             panel.appendChild(controls);
-            var optBox = el("div", "harm-options"); optBox.hidden = true;
-            function optRow(label) { var r = el("div", "harm-opt-row"); r.appendChild(el("span", "harm-opt-label", label)); optBox.appendChild(r); return r; }
-            var fnSeg = seg(optRow("Fonctions (T / SD / D)"), [[false, "Masquées"], [true, "Affichées"]], function () { return prefs.fn; }, function (v) { prefs.fn = bool(v); });
-            var numSeg = seg(optRow("Chiffrage"), [["major", "Relatif au majeur (jazz)", "♭IIImaj7 en mineur"], ["scale", "Relatif à la gamme", "IIImaj7 en mineur"]], function () { return prefs.numeral; }, function (v) { prefs.numeral = v; });
-            var extSeg = seg(optRow("Extensions"), [[false, "Non"], [true, "Oui"]], function () { return prefs.extOn; }, function (v) { prefs.extOn = bool(v); if (!prefs.extOn && prefs.size === "ext") prefs.size = "tetrad"; });
-            var extMaxRow = optRow("Jusqu'à");
+            // -- rubriques : un bouton par groupe de réglages ; il ouvre un petit panneau (popover) et résume le réglage en cours
+            var rubs = el("div", "harm-rubs");
+            function block() { return el("div", "harm-pop-content"); }
+            function opRow(parent, label) { var r = el("div", "harm-opt-row"); r.appendChild(el("span", "harm-opt-label", label)); parent.appendChild(r); return r; }
+            function rubric(name, content) {
+                var b = el("button", "harm-rub"); b.type = "button"; b.setAttribute("aria-haspopup", "dialog");
+                b.appendChild(el("span", "harm-rub-name", name)); var val = el("span", "harm-rub-val"); b.appendChild(val);
+                b.addEventListener("click", function () {
+                    b.classList.add("harm-rub-open");
+                    openHarmPop(b, { title: name, build: function (body) { body.appendChild(content); }, onClose: function () { b.classList.remove("harm-rub-open"); } });
+                });
+                rubs.appendChild(b);
+                return { btn: b, val: val };
+            }
+            var chordsBox = block(), analysisBox = block(), viewBox = block(), playerBox = block();
+            // Accords
+            var sizeSeg = seg(opRow(chordsBox, "Taille des accords"), [["triad", "Triades", "3 sons : 1-3-5"], ["tetrad", "Tétrades", "4 sons : 1-3-5-7"], ["ext", "Extensions", "Ajoute les 9, 11 et 13"]],
+                function () { return prefs.size; }, function (v) { prefs.size = v; if (v === "ext") prefs.extOn = true; });
+            var extMaxRow = opRow(chordsBox, "Extensions jusqu'à");
             var extMaxSeg = seg(extMaxRow, [[9, "9"], [11, "11"], [13, "13"]], function () { return prefs.extMax; }, function (v) { prefs.extMax = parseInt(v, 10); });
-            var avoidRow = optRow("Notes à éviter (jazz)");
+            var avoidRow = opRow(chordsBox, "Notes à éviter (jazz)");
             var avoidSeg = seg(avoidRow, [[true, "Retirées"], [false, "Gardées"]], function () { return prefs.avoid; }, function (v) { prefs.avoid = bool(v); });
-            var scaleSeg = seg(optRow("Reste de la gamme"), [[true, "En grisé"], [false, "Masqué"]], function () { return prefs.showScale; }, function (v) { prefs.showScale = bool(v); });
-            var advSeg = seg(optRow("Harmonie avancée (Degrés)"), [[false, "Masquée"], [true, "Affichée"]], function () { return prefs.adv; }, function (v) { prefs.adv = bool(v); if (!prefs.adv) advSel = null; });
-            panel.appendChild(optBox);
+            // Analyse
+            var numRow = opRow(analysisBox, "Chiffrage des accords");
+            var numSeg = seg(numRow, [["major", "Jazz", "Relatif au majeur : ♭IIImaj7 en mineur"], ["scale", "Gamme", "Relatif à la gamme : IIImaj7 en mineur"]], function () { return prefs.numeral; }, function (v) { prefs.numeral = v; });
+            numRow.appendChild(el("span", "harm-opt-hint", "Jazz : ♭IIImaj7 en mineur · Gamme : IIImaj7"));
+            var fnSeg = seg(opRow(analysisBox, "Fonctions (T / SD / D)"), [[false, "Masquées"], [true, "Affichées"]], function () { return prefs.fn; }, function (v) { prefs.fn = bool(v); });
+            var advRow = opRow(analysisBox, "Harmonie avancée (vue Degrés)");
+            var advSeg = seg(advRow, [[false, "Masquée"], [true, "Affichée"]], function () { return prefs.adv; }, function (v) { prefs.adv = bool(v); if (!prefs.adv) advSel = null; });
+            // Diagramme
+            var cueRow = opRow(viewBox, "Repères sur le diagramme");
+            var cueSeg = seg(cueRow, [["chord", "Accord seul"], ["lead", "Vers l'accord suivant", "Notes communes et trajet des notes-guides (3 et 7)"], ["approach", "Approches", "Walking : fondamentale suivante et ses approches chromatiques"]],
+                function () { return prefs.cue; }, function (v) { prefs.cue = v; }, "Repères sur le diagramme", "harm-seg-col");
+            var labelSeg = seg(opRow(viewBox, "Étiquettes"), [["intervals", "Intervalles", "1, 3, 5, 7 de l'accord"], ["notes", "Notes"]], function () { return prefs.labelMode; }, function (v) { prefs.labelMode = v; });
+            var fretRow = opRow(viewBox, "Cases affichées");
+            var fretSeg = seg(fretRow, [[12, "12"], [24, "24"]], function () { return prefs.frets; }, function (v) { prefs.frets = parseInt(v, 10); }, "Nombre de cases");
+            var scaleSeg = seg(opRow(viewBox, "Reste de la gamme"), [[true, "En grisé"], [false, "Masqué"]], function () { return prefs.showScale; }, function (v) { prefs.showScale = bool(v); });
+            var cagedRow = opRow(viewBox, "Formes CAGED (guitare)");
+            var cagedSeg = seg(cagedRow, [["none", "Non"], ["C", "C"], ["A", "A"], ["G", "G"], ["E", "E"], ["D", "D"], ["all", "Toutes"]],
+                function () { return prefs.caged; }, function (v) { prefs.caged = v; }, "Formes CAGED (guitare) : la zone du manche de chaque forme d'accord");
+            // Lecteur
+            var loopSeg = seg(opRow(playerBox, "Lecture"), [[true, "Boucle"], [false, "Une fois"]], function () { return prefs.loop; }, function (v) { prefs.loop = bool(v); restartIfPlaying(); });
+            var swingSeg = seg(opRow(playerBox, "Swing des croches"), [["straight", "Droit"], ["shuffle", "Shuffle"], ["ternary", "Ternaire"]], function () { return prefs.swing; }, function (v) { prefs.swing = v; restartIfPlaying(); });
+            var clickSeg = seg(opRow(playerBox, "Clic"), [[true, "Métronome"], [false, "Sans clic"]], function () { return prefs.click; }, function (v) { prefs.click = bool(v); restartIfPlaying(); });
+            var countSeg = seg(opRow(playerBox, "Départ"), [[true, "Décompte"], [false, "Sans décompte"]], function () { return prefs.countIn; }, function (v) { prefs.countIn = bool(v); });
+            var volIn = el("input", "harm-vol"); volIn.type = "range"; volIn.min = "0"; volIn.max = "1"; volIn.step = "0.05"; volIn.title = "Volume du piano"; volIn.setAttribute("aria-label", "Volume du piano");
+            volIn.addEventListener("input", function () { prefs.volume = parseFloat(volIn.value); if (harmPlay) harmPlay.out.gain.value = prefs.volume; saveHarmonyPrefs(prefs); });
+            opRow(playerBox, "Volume du piano").appendChild(volIn);
+            var rubChords = rubric("Accords", chordsBox), rubAnalysis = rubric("Analyse", analysisBox), rubView = rubric("Diagramme", viewBox), rubPlayer = rubric("Lecteur", playerBox);
+            panel.appendChild(rubs);
             // -- vue Degrés
             var degView = el("div", "harm-view harm-view-deg");
             var scaleLine = el("div", "scales-summary harm-scale-line"); degView.appendChild(scaleLine);
@@ -12788,7 +12864,6 @@
             var player = el("div", "harm-player"); progView.appendChild(player);
             var playBtn = el("button", "btn-accent harm-play"); playBtn.type = "button"; player.appendChild(playBtn);
             playBtn.addEventListener("click", function () { if (harmPlayerPlaying()) stopPlay(); else startPlay(); });
-            var loopSeg = seg(player, [[true, "Boucle"], [false, "Une fois"]], function () { return prefs.loop; }, function (v) { prefs.loop = bool(v); restartIfPlaying(); });
             var bpmWrap = el("span", "harm-bpm");
             var bpmMinus = chip(bpmWrap, "−", "Ralentir de 5", function () { setBpm(prefs.bpm - 5); });
             var bpmIn = el("input", "harm-bpm-in"); bpmIn.type = "number"; bpmIn.min = "30"; bpmIn.max = "300"; bpmIn.setAttribute("aria-label", "Tempo (BPM)");
@@ -12796,21 +12871,8 @@
             bpmWrap.appendChild(bpmIn); bpmWrap.appendChild(el("span", "harm-bpm-unit", "BPM"));
             var bpmPlus = chip(bpmWrap, "+", "Accélérer de 5", function () { setBpm(prefs.bpm + 5); });
             bpmWrap.insertBefore(bpmMinus, bpmIn); player.appendChild(bpmWrap);
-            var swingSeg = seg(player, [["straight", "Droit"], ["shuffle", "Shuffle"], ["ternary", "Ternaire"]], function () { return prefs.swing; }, function (v) { prefs.swing = v; restartIfPlaying(); }, "Swing des croches");
-            var clickSeg = seg(player, [[true, "Métronome"], [false, "Sans clic"]], function () { return prefs.click; }, function (v) { prefs.click = bool(v); restartIfPlaying(); });
-            var countSeg = seg(player, [[true, "Décompte"], [false, "Sans décompte"]], function () { return prefs.countIn; }, function (v) { prefs.countIn = bool(v); });
-            var volIn = el("input", "harm-vol"); volIn.type = "range"; volIn.min = "0"; volIn.max = "1"; volIn.step = "0.05"; volIn.title = "Volume du piano"; volIn.setAttribute("aria-label", "Volume du piano");
-            volIn.addEventListener("input", function () { prefs.volume = parseFloat(volIn.value); if (harmPlay) harmPlay.out.gain.value = prefs.volume; saveHarmonyPrefs(prefs); });
-            player.appendChild(volIn);
             var beatDots = el("span", "harm-beats"); player.appendChild(beatDots);
             panel.appendChild(progView);
-            // -- repères sur le diagramme : vers l'accord suivant, approches chromatiques (walking), calque CAGED (guitare)
-            var cues = el("div", "harm-cues");
-            var cueSeg = seg(cues, [["chord", "Accord seul"], ["lead", "Vers l'accord suivant", "Notes communes et trajet des notes-guides (3 et 7)"], ["approach", "Approches", "Walking : fondamentale suivante et ses approches chromatiques"]],
-                function () { return prefs.cue; }, function (v) { prefs.cue = v; }, "Repères sur le diagramme");
-            var cagedSeg = seg(cues, [["none", "CAGED : non"], ["C", "C"], ["A", "A"], ["G", "G"], ["E", "E"], ["D", "D"], ["all", "Toutes"]],
-                function () { return prefs.caged; }, function (v) { prefs.caged = v; }, "Formes CAGED (guitare) : la zone du manche de chaque forme d'accord");
-            panel.appendChild(cues);
             // -- accord affiché, diagramme, légende (communs)
             var detail = el("div", "harm-detail"); panel.appendChild(detail);
             var diagramsWrap = el("div", "scales-diagrams"); panel.appendChild(diagramsWrap);
@@ -13110,7 +13172,7 @@
                 progSel.innerHTML = "";
                 HARM_LEVELS.forEach(function (lv) {
                     var og = el("optgroup"); og.label = "Niveau " + lv.n + " · " + lv.name; progSel.appendChild(og);
-                    HARM_LIBRARY.filter(function (p) { return p.level === lv.n; }).forEach(function (p) { var o4 = el("option", null, p.name + " (" + p.style.toLowerCase() + ")"); o4.value = p.id; og.appendChild(o4); });
+                    HARM_LIBRARY.filter(function (p) { return p.level === lv.n; }).forEach(function (p) { var sty = "(" + p.style.toLowerCase() + ")", o4 = el("option", null, p.name.toLowerCase().slice(-sty.length) === sty ? p.name : p.name + " " + sty); o4.value = p.id; og.appendChild(o4); });
                 });
                 var mine = harmUserProgs();
                 if (mine.length) {
@@ -13128,11 +13190,15 @@
                 var isProg = prefs.view === "prog";
                 degView.hidden = isProg; progView.hidden = !isProg;
                 typeSel.hidden = isProg; progSel.hidden = !isProg || !!edit;
-                sizeSeg.btns[2].hidden = !prefs.extOn;
-                [viewSeg, sizeSeg, labelSeg, fretSeg, fnSeg, numSeg, extSeg, extMaxSeg, avoidSeg, scaleSeg, advSeg, loopSeg, swingSeg, clickSeg, countSeg, cueSeg, cagedSeg].forEach(function (sg) { sg.paint(); });
-                cueSeg.box.hidden = !isProg; cagedSeg.box.hidden = it.key !== "guitar"; cues.hidden = cueSeg.box.hidden && cagedSeg.box.hidden;
-                extMaxRow.hidden = avoidRow.hidden = !prefs.extOn;
-                fretSeg.box.hidden = it.type === "piano";
+                [viewSeg, sizeSeg, labelSeg, fretSeg, fnSeg, numSeg, extMaxSeg, avoidSeg, scaleSeg, advSeg, loopSeg, swingSeg, clickSeg, countSeg, cueSeg, cagedSeg].forEach(function (sg) { sg.paint(); });
+                cueRow.hidden = !isProg; advRow.hidden = isProg; cagedRow.hidden = it.key !== "guitar"; fretRow.hidden = it.type === "piano";
+                extMaxRow.hidden = avoidRow.hidden = prefs.size !== "ext";
+                rubPlayer.btn.hidden = !isProg; rubs.dataset.n = isProg ? "4" : "3";
+                rubChords.val.textContent = prefs.size === "triad" ? "Triades" : prefs.size === "ext" ? "Ext. " + prefs.extMax : "Tétrades";
+                rubAnalysis.val.textContent = (prefs.numeral === "scale" ? "Gamme" : "Jazz") + (prefs.fn ? " · fonctions" : "") + (!isProg && prefs.adv ? " · avancée" : "");
+                rubView.val.textContent = [prefs.labelMode === "notes" ? "Notes" : "Intervalles"].concat(isProg && prefs.cue === "lead" ? ["accord suivant"] : isProg && prefs.cue === "approach" ? ["approches"] : [],
+                    it.key === "guitar" && prefs.caged !== "none" ? ["CAGED " + (prefs.caged === "all" ? "toutes" : prefs.caged)] : [], it.type !== "piano" && prefs.frets === 24 ? ["24 cases"] : []).join(" · ");
+                rubPlayer.val.textContent = (prefs.loop ? "Boucle" : "Une fois") + " · " + ({ straight: "Droit", shuffle: "Shuffle", ternary: "Ternaire" })[prefs.swing] + (prefs.click ? "" : " · sans clic");
                 if (!isProg) {
                     var def = scaleDefByKey(prefs.type), spell = spellBest(prefs.root, def), names = spell.notes;
                     scaleLine.innerHTML = "";
@@ -13189,7 +13255,7 @@
                 paintChord();
             }
             if (opts.pick) applyPick(opts.pick, opts); else update();
-            return function () { if (fitObs) fitObs.disconnect(); stopPlay(); harmWin = null; closeHarmDiceWindow(); };
+            return function () { if (fitObs) fitObs.disconnect(); stopPlay(); harmWin = null; closeHarmDiceWindow(); closeHarmPop(); };
         });
     }
 
@@ -13240,8 +13306,8 @@
                 var nm = el("span", "dice-name");
                 if (extra === "dice-key" && label.indexOf("/") !== -1) { nm.classList.add("dice-key-two"); label.split("/").forEach(function (t) { nm.appendChild(el("span", null, t)); }); }
                 else nm.textContent = label;
-                b.appendChild(nm);
-                if (sub) { b.classList.add("harm-has-sub"); b.appendChild(el("span", "harm-opt-sub", sub)); }
+                if (sub) { b.classList.add("harm-has-sub"); var tx = el("span", "harm-opt-txt"); tx.appendChild(nm); tx.appendChild(el("span", "harm-opt-sub", sub)); b.appendChild(tx); }
+                else b.appendChild(nm);
                 var on = isOn(); b.classList.toggle("dice-opt-on", on); b.setAttribute("aria-pressed", on ? "true" : "false");
                 b.addEventListener("click", function () { edit(flip); });
                 return b;
@@ -13250,19 +13316,32 @@
 
             // ===== Tirage =====
             var levelLine = el("div", "dice-preset-row harm-level-line"); views.draw.appendChild(levelLine);
-            painters.push(function () { levelLine.textContent = "Réglage : " + harmCfgLabel(cfg()); });
-            var resBox = el("div", "dice-res"), sumBig = el("div", "dice-sum dice-sum-big"), actRow = el("div", "dice-res-acts"), cards = el("div", "dice-cards harm-cards");
+            var levelTxt = el("span", "harm-level-txt"); levelLine.appendChild(levelTxt);
+            levelLine.appendChild(btn("dice-links-solo harm-level-edit", "Modifier", "Ouvrir les réglages du dé", function () { showView("set"); }));
+            painters.push(function () { var c = cfg(); levelTxt.textContent = harmCfgLabel(c) + " · consignes pour " + ({ bass: "la basse", guitar: "la guitare", piano: "le piano" })[c.inst]; });
+            var emptyBox = el("div", "dice-empty");
+            emptyBox.appendChild(el("div", "dice-empty-title", "Pas encore de tirage"));
+            emptyBox.appendChild(el("div", "dice-empty-text", "Touche « Tirer au sort » : le dé choisit pour toi"));
+            var emptyList = el("ul", "dice-empty-list"); emptyBox.appendChild(emptyList);
+            emptyBox.appendChild(el("div", "dice-empty-text", "Ensuite, « Voir dans Harmonie » affiche la grille d'accords, le lecteur et la consigne à jouer."));
+            views.draw.appendChild(emptyBox);
+            painters.push(function () {
+                var what = { key: "une tonalité", prog: "une progression d'accords", chord: "un type d'accords (triades, tétrades…)", cons: "une consigne à jouer" };
+                emptyList.innerHTML = "";
+                harmActiveIds(cfg()).forEach(function (id) { emptyList.appendChild(el("li", null, what[id])); });
+                if (!emptyList.children.length) emptyList.appendChild(el("li", null, "rien pour l'instant : allume au moins un dé dans « Réglages »"));
+            });
+            var resBox = el("div", "dice-res"), resHead = el("div", "dice-sec-head"), cards = el("div", "dice-cards harm-cards");
             var copyBtn = btn("btn-ghost dice-mini", "Copier", "Copier le résumé du tirage");
-            var openBtn = btn("btn-ghost dice-mini harm-open", "Voir dans Harmonie", "Afficher la progression, la consigne et le lecteur dans l'outil Harmonie");
-            actRow.appendChild(copyBtn); actRow.appendChild(openBtn);
-            resBox.appendChild(sumBig); resBox.appendChild(actRow); resBox.appendChild(cards); views.draw.appendChild(resBox);
+            var openBtn = btn("dice-open-btn harm-open", "Voir dans Harmonie", "Afficher la grille, la consigne et le lecteur dans l'outil Harmonie");
+            resHead.appendChild(el("div", "dice-sec-title", "Ton tirage")); resHead.appendChild(copyBtn);
+            resBox.appendChild(resHead); resBox.appendChild(cards); resBox.appendChild(openBtn); views.draw.appendChild(resBox);
             var hist = el("section", "dice-sec dice-hist"); views.draw.appendChild(hist);
             function showResult() {
                 cards.innerHTML = "";
                 var lines = harmPickLines(lastPick);
-                if (!lines.length) { sumBig.textContent = "Pas encore de tirage"; sumBig.classList.add("dice-sum-empty"); actRow.hidden = cards.hidden = true; return; }
-                sumBig.classList.remove("dice-sum-empty"); sumBig.textContent = harmPickText(lastPick);
-                actRow.hidden = cards.hidden = false;
+                emptyBox.hidden = lines.length > 0; resBox.hidden = !lines.length;
+                if (!lines.length) return;
                 lines.forEach(function (l) {
                     var c = el("div", "dice-card dice-card-" + l.die);
                     c.appendChild(el("span", "dice-card-name", l.name)); c.appendChild(el("span", "dice-card-val", l.label));
@@ -13295,7 +13374,7 @@
                 ids.forEach(function (id) { n *= harmFaces(c, id).length; });
                 if (!ids.length) count.textContent = "Aucun dé allumé : coche au moins une case dans « Réglages ».";
                 else if (empty.length) count.textContent = "Le dé « " + empty.map(function (id) { return HARM_DICE.filter(function (d) { return d.id === id; })[0].name; }).join(" », « ") + " » n'a aucune face cochée (voir « Réglages »).";
-                else count.textContent = ids.length + " dé" + (ids.length > 1 ? "s" : "") + " · " + n.toLocaleString("fr-FR") + " tirage" + (n > 1 ? "s" : "") + " différent" + (n > 1 ? "s" : "");
+                else count.textContent = "Tire : " + ids.map(function (id) { return HARM_DICE.filter(function (d) { return d.id === id; })[0].name.toLowerCase(); }).join(", ") + " · " + n.toLocaleString("fr-FR") + " tirage" + (n > 1 ? "s" : "") + " possible" + (n > 1 ? "s" : "");
                 count.classList.toggle("dice-count-bad", !ids.length || empty.length > 0);
                 go.disabled = !ids.length || empty.length > 0;
             });
@@ -13307,95 +13386,99 @@
                 showResult(); renderHist(); showView("draw");
             });
 
-            // ===== Réglages =====
-            var lvSec = section("Niveau", views.set);
-            var lvRow = el("div", "dice-grid harm-levels"); lvSec.box.appendChild(lvRow);
-            lvSec.box.appendChild(el("div", "dice-hint", "Un niveau règle tout le dé (progressions, accords, consignes, aide) ; les tonalités restent libres. Retoucher une face le rend « personnalisé »."));
-            painters.push(function () {
-                lvRow.innerHTML = "";
-                var c = cfg();
-                HARM_LEVELS.forEach(function (lv) {
-                    var b = btn("dice-opt harm-level-opt" + (c.level === lv.n ? " dice-opt-on" : ""), null, "Niveau " + lv.n + " : " + lv.name, function () {
-                        edit(function (cc) { var nc = harmLevelCfg(lv.n, cc.inst, cc.key); Object.keys(nc).forEach(function (k) { cc[k] = nc[k]; }); }, true);
-                    });
-                    b.appendChild(el("span", "dice-box", "✓")); b.appendChild(el("span", "dice-name", "Niveau " + lv.n + " · " + lv.name));
-                    lvRow.appendChild(b);
+            // ===== Réglages : une ligne par rubrique, qui ouvre un popover =====
+            views.set.appendChild(el("div", "dice-hint", "Touche une ligne pour régler ce que le dé peut tirer."));
+            var setList = el("div", "dice-rubs"); views.set.appendChild(setList);
+            function setRow(name, build, summary, visible) {
+                var b = btn("dice-rub", null, null), val = el("span", "dice-rub-val");
+                b.appendChild(el("span", "dice-rub-name", name)); b.appendChild(val);
+                b.addEventListener("click", function () {
+                    b.classList.add("dice-rub-open");
+                    openHarmPop(b, { title: name, owner: win, build: build, onClose: function () { b.classList.remove("dice-rub-open"); } });
                 });
-            });
-            var instSec = section("Consignes pour", views.set);
-            var instRow = el("div", "dice-grid"); instSec.box.appendChild(instRow);
-            painters.push(function () {
-                instRow.innerHTML = "";
+                setList.appendChild(b);
+                painters.push(function () { var c = cfg(); b.hidden = visible ? !visible(c) : false; val.textContent = summary(c); });
+            }
+            function radio(body, label, sub, isOn, pick, extra) {
+                var b = btn("harm-radio" + (extra ? " " + extra : "") + (isOn ? " harm-radio-on" : ""), null, null, function () { pick(); closeHarmPop(); });
+                b.setAttribute("aria-pressed", isOn ? "true" : "false");
+                b.appendChild(el("span", "harm-radio-dot"));
+                var t = el("span", "harm-radio-txt"); t.appendChild(el("span", "harm-radio-name", label)); if (sub) t.appendChild(el("span", "harm-opt-sub", sub));
+                b.appendChild(t); body.appendChild(b);
+            }
+            function linksRow(body, defs) { var h = el("div", "dice-sec-head"); links(h, defs); body.appendChild(h); }
+            function applyLevel(n) { edit(function (cc) { var nc = harmLevelCfg(n, cc.inst, cc.key); Object.keys(nc).forEach(function (k) { cc[k] = nc[k]; }); }, true); }
+            setRow("Niveau", function (body) {
+                var c = cfg();
+                HARM_LEVELS.forEach(function (lv) { radio(body, "Niveau " + lv.n + " · " + lv.name, HARM_LEVEL_DESC[lv.n], c.level === lv.n, function () { applyLevel(lv.n); }, "harm-level-opt"); });
+                body.appendChild(el("div", "dice-hint", c.level ? "Un niveau règle tout le dé (progressions, accords, consignes, aide) ; les tonalités restent libres. Retoucher une face le rend « personnalisé »." : "Réglage personnalisé : choisir un niveau remet tout le dé à ce niveau."));
+            }, function (c) { return c.level ? "Niveau " + c.level + " · " + HARM_LEVELS[c.level - 1].name : "Personnalisé"; });
+            setRow("Consignes pour", function (body) {
+                var c = cfg();
                 [["bass", "Basse"], ["guitar", "Guitare"], ["piano", "Piano"]].forEach(function (f) {
-                    instRow.appendChild(opt(f[1], function () { return cfg().inst === f[0]; }, function (cc) {
-                        cc.inst = f[0];
-                        cc.cons = cc.level ? harmConsFor(f[0], cc.level).map(function (x) { return x.id; }) : cc.cons.filter(function (id) { return harmConsById(id).inst.indexOf(f[0]) !== -1; });
-                    }));
+                    radio(body, f[1], null, c.inst === f[0], function () {
+                        edit(function (cc) {
+                            cc.inst = f[0];
+                            cc.cons = cc.level ? harmConsFor(f[0], cc.level).map(function (x) { return x.id; }) : cc.cons.filter(function (id) { return harmConsById(id).inst.indexOf(f[0]) !== -1; });
+                        });
+                    });
                 });
-            });
-            var onSec = section("Ce qu'on tire au sort", views.set);
-            var onRow = el("div", "dice-grid"); onSec.box.appendChild(onRow);
-            painters.push(function () { onRow.innerHTML = ""; HARM_DICE.forEach(function (d) { onRow.appendChild(opt(d.name, function () { return cfg().on[d.id]; }, function (cc) { cc.on[d.id] = !cc.on[d.id]; })); }); });
-            var facesWrap = el("div", "dice-faces"); views.set.appendChild(facesWrap);
-            painters.push(function () {
-                facesWrap.innerHTML = "";
+            }, function (c) { return ({ bass: "Basse", guitar: "Guitare", piano: "Piano" })[c.inst]; });
+            setRow("Ce qu'on tire au sort", function (body) {
+                var g = el("div", "dice-grid"); body.appendChild(g);
+                HARM_DICE.forEach(function (d) { g.appendChild(opt(d.name, function () { return cfg().on[d.id]; }, function (cc) { cc.on[d.id] = !cc.on[d.id]; })); });
+            }, function (c) { var n = harmActiveIds(c).map(function (id) { return HARM_DICE.filter(function (d) { return d.id === id; })[0].name; }); return !n.length ? "Aucun dé" : n.length === HARM_DICE.length ? "Les " + n.length + " dés" : n.join(", "); });
+            setRow("Tonalités possibles", function (body) {
                 var c = cfg();
-                if (c.on.key) {
-                    var s1 = section("Faces du dé « Tonalité » (" + harmFaces(c, "key").length + ")", facesWrap);
-                    links(s1.head, [["Toutes", function () { edit(function (cc) { cc.key = cc.key.map(function () { return true; }); }); }],
-                        ["Naturelles", function () { edit(function (cc) { cc.key = cc.key.map(function (_, pc) { return SCALE_RAND_NATURALS.indexOf(pc) !== -1; }); }); }],
-                        ["Aucune", function () { edit(function (cc) { cc.key = cc.key.map(function () { return false; }); }); }]]);
-                    var kb = el("div", "dice-keys");
-                    function rootKey(col, row, pc) { var o = opt(diceKeyName(pc), function () { return c.key[pc]; }, function (cc) { cc.key[pc] = !cc.key[pc]; }, "dice-key"); o.style.gridColumn = col + " / span 2"; o.style.gridRow = String(row + 1); kb.appendChild(o); }
-                    [[2, 0, 1], [4, 0, 3], [8, 0, 6], [10, 0, 8], [12, 0, 10]].forEach(function (k) { rootKey(k[0], k[1], k[2]); });
-                    [[1, 0], [3, 2], [5, 4], [7, 5], [9, 7], [11, 9], [13, 11]].forEach(function (k) { rootKey(k[0], 1, k[1]); });
-                    s1.box.appendChild(kb);
-                }
-                if (c.on.prog) {
-                    var s2 = section("Faces du dé « Progression » (" + c.prog.length + ")", facesWrap);
-                    links(s2.head, [["Toutes", function () { edit(function (cc) { cc.prog = harmAllProgIds(); }); }], ["Aucune", function () { edit(function (cc) { cc.prog = []; }); }]]);
-                    HARM_LEVELS.forEach(function (lv) {
-                        var g = el("div", "dice-group harm-group-head", "Niveau " + lv.n + " · " + lv.name);
-                        var ids = HARM_LIBRARY.filter(function (p) { return p.level === lv.n; }).map(function (p) { return p.id; });
-                        var all = btn("dice-links-solo", "tout", "Cocher tout le niveau " + lv.n, function () { edit(function (cc) { ids.forEach(function (id) { if (cc.prog.indexOf(id) === -1) cc.prog.push(id); }); }); });
-                        g.appendChild(all); s2.box.appendChild(g);
-                        var grid = el("div", "dice-grid");
-                        HARM_LIBRARY.filter(function (p) { return p.level === lv.n; }).forEach(function (p) { grid.appendChild(opt(p.name, function () { return c.prog.indexOf(p.id) !== -1; }, function (cc) { toggleIn(cc.prog, p.id); }, null, p.style)); });
-                        s2.box.appendChild(grid);
-                    });
-                    var mine = harmUserProgs();
-                    s2.box.appendChild(el("div", "dice-group", "Mes progressions"));
-                    if (mine.length) { var gm = el("div", "dice-grid"); mine.forEach(function (p) { gm.appendChild(opt(p.name || "Sans nom", function () { return c.prog.indexOf(p.id) !== -1; }, function (cc) { toggleIn(cc.prog, p.id); })); }); s2.box.appendChild(gm); }
-                    else s2.box.appendChild(el("div", "dice-hint", "Aucune pour l'instant : crée-les dans l'outil Harmonie, vue « Progressions »."));
-                }
-                if (c.on.chord) {
-                    var s3 = section("Faces du dé « Accords » (" + c.chord.length + ")", facesWrap);
-                    var g3 = el("div", "dice-grid");
-                    HARM_CHORD_FACES.forEach(function (f) { g3.appendChild(opt(f[1], function () { return c.chord.indexOf(f[0]) !== -1; }, function (cc) { toggleIn(cc.chord, f[0]); })); });
-                    s3.box.appendChild(g3);
-                }
-                if (c.on.cons) {
-                    var list = harmConsFor(c.inst, null);
-                    var s4 = section("Faces du dé « Consigne » (" + c.cons.length + ")", facesWrap);
-                    links(s4.head, [["Toutes", function () { edit(function (cc) { cc.cons = harmConsFor(cc.inst, null).map(function (x) { return x.id; }); }); }], ["Aucune", function () { edit(function (cc) { cc.cons = []; }); }]]);
-                    HARM_CONS_FAMILIES.forEach(function (fm) {
-                        var items = list.filter(function (x) { return x.fam === fm[0]; });
-                        if (!items.length) return;
-                        s4.box.appendChild(el("div", "dice-group", fm[1]));
-                        var g4 = el("div", "dice-grid");
-                        items.forEach(function (x) { var b = opt(x.name, function () { return c.cons.indexOf(x.id) !== -1; }, function (cc) { toggleIn(cc.cons, x.id); }, null, "dès le niveau " + x.min); b.title = x.text; g4.appendChild(b); });
-                        s4.box.appendChild(g4);
-                    });
-                }
-                var s5 = section("Aide affichée", facesWrap);
-                var g5 = el("div", "dice-grid");
-                HARM_AIDS.forEach(function (a) { g5.appendChild(opt(a[1], function () { return c.aid === a[0]; }, function (cc) { cc.aid = a[0]; })); });
-                s5.box.appendChild(g5);
-                if (ctx.onRemove) {
-                    var rm = btn("dice-remove", ctx.removeLabel || "Retirer le dé", null, function () { close(); ctx.onRemove(); });
-                    facesWrap.appendChild(rm);
-                }
-            });
+                linksRow(body, [["Toutes", function () { edit(function (cc) { cc.key = cc.key.map(function () { return true; }); }); }],
+                    ["Naturelles", function () { edit(function (cc) { cc.key = cc.key.map(function (_, pc) { return SCALE_RAND_NATURALS.indexOf(pc) !== -1; }); }); }],
+                    ["Aucune", function () { edit(function (cc) { cc.key = cc.key.map(function () { return false; }); }); }]]);
+                var kb = el("div", "dice-keys");
+                function rootKey(col, row, pc) { var o = opt(diceKeyName(pc), function () { return c.key[pc]; }, function (cc) { cc.key[pc] = !cc.key[pc]; }, "dice-key"); o.style.gridColumn = col + " / span 2"; o.style.gridRow = String(row + 1); kb.appendChild(o); }
+                [[2, 0, 1], [4, 0, 3], [8, 0, 6], [10, 0, 8], [12, 0, 10]].forEach(function (k) { rootKey(k[0], k[1], k[2]); });
+                [[1, 0], [3, 2], [5, 4], [7, 5], [9, 7], [11, 9], [13, 11]].forEach(function (k) { rootKey(k[0], 1, k[1]); });
+                body.appendChild(kb);
+            }, function (c) { return harmFaces(c, "key").length + " sur 12"; }, function (c) { return c.on.key; });
+            setRow("Progressions possibles", function (body) {
+                var c = cfg();
+                linksRow(body, [["Toutes", function () { edit(function (cc) { cc.prog = harmAllProgIds(); }); }], ["Aucune", function () { edit(function (cc) { cc.prog = []; }); }]]);
+                HARM_LEVELS.forEach(function (lv) {
+                    var g = el("div", "dice-group harm-group-head", "Niveau " + lv.n + " · " + lv.name);
+                    var ids = HARM_LIBRARY.filter(function (p) { return p.level === lv.n; }).map(function (p) { return p.id; });
+                    g.appendChild(btn("dice-links-solo", "tout", "Cocher tout le niveau " + lv.n, function () { edit(function (cc) { ids.forEach(function (id) { if (cc.prog.indexOf(id) === -1) cc.prog.push(id); }); }); }));
+                    body.appendChild(g);
+                    var grid = el("div", "dice-grid harm-grid-1");
+                    HARM_LIBRARY.filter(function (p) { return p.level === lv.n; }).forEach(function (p) { grid.appendChild(opt(p.name, function () { return c.prog.indexOf(p.id) !== -1; }, function (cc) { toggleIn(cc.prog, p.id); }, null, p.style)); });
+                    body.appendChild(grid);
+                });
+                var mine = harmUserProgs();
+                body.appendChild(el("div", "dice-group", "Mes progressions"));
+                if (mine.length) { var gm = el("div", "dice-grid"); mine.forEach(function (p) { gm.appendChild(opt(p.name || "Sans nom", function () { return c.prog.indexOf(p.id) !== -1; }, function (cc) { toggleIn(cc.prog, p.id); })); }); body.appendChild(gm); }
+                else body.appendChild(el("div", "dice-hint", "Aucune pour l'instant : crée-les dans l'outil Harmonie, vue « Progressions »."));
+            }, function (c) { return c.prog.length + " progression" + (c.prog.length > 1 ? "s" : ""); }, function (c) { return c.on.prog; });
+            setRow("Accords possibles", function (body) {
+                var c = cfg(), g3 = el("div", "dice-grid");
+                HARM_CHORD_FACES.forEach(function (f) { g3.appendChild(opt(f[1], function () { return c.chord.indexOf(f[0]) !== -1; }, function (cc) { toggleIn(cc.chord, f[0]); })); });
+                body.appendChild(g3);
+            }, function (c) { return c.chord.length ? c.chord.map(harmChordFaceLabel).join(", ") : "Aucun"; }, function (c) { return c.on.chord; });
+            setRow("Consignes possibles", function (body) {
+                var c = cfg(), list = harmConsFor(c.inst, null);
+                linksRow(body, [["Toutes", function () { edit(function (cc) { cc.cons = harmConsFor(cc.inst, null).map(function (x) { return x.id; }); }); }], ["Aucune", function () { edit(function (cc) { cc.cons = []; }); }]]);
+                HARM_CONS_FAMILIES.forEach(function (fm) {
+                    var items = list.filter(function (x) { return x.fam === fm[0]; });
+                    if (!items.length) return;
+                    body.appendChild(el("div", "dice-group", fm[1]));
+                    var g4 = el("div", "dice-grid harm-grid-1");
+                    items.forEach(function (x) { var b = opt(x.name, function () { return c.cons.indexOf(x.id) !== -1; }, function (cc) { toggleIn(cc.cons, x.id); }, null, "dès le niveau " + x.min); b.title = x.text; g4.appendChild(b); });
+                    body.appendChild(g4);
+                });
+            }, function (c) { return c.cons.length + " consigne" + (c.cons.length > 1 ? "s" : ""); }, function (c) { return c.on.cons; });
+            setRow("Aide affichée", function (body) {
+                var c = cfg();
+                HARM_AIDS.forEach(function (a) { radio(body, a[1], null, c.aid === a[0], function () { edit(function (cc) { cc.aid = a[0]; }); }); });
+            }, function (c) { var a = HARM_AIDS.filter(function (x) { return x[0] === c.aid; })[0]; return a ? a[1] : ""; });
+            if (ctx.onRemove) views.set.appendChild(btn("dice-remove", ctx.removeLabel || "Retirer le dé", null, function () { close(); ctx.onRemove(); }));
+            painters.push(function () { if (harmPopOpen && harmPopOpen.owner === win) harmPopOpen.render(); });
 
             // ===== Préréglages =====
             var pres = el("div", "harm-pres"); views.pres.appendChild(pres);
@@ -13405,7 +13488,7 @@
                 HARM_LEVELS.forEach(function (lv) {
                     var b = btn("dice-hist-item", null, "Charger le niveau " + lv.n);
                     b.appendChild(el("span", "dice-hist-name", "Niveau " + lv.n + " · " + lv.name));
-                    b.appendChild(el("span", "harm-opt-sub", ({ 1: "triades, majeur, diagramme complet", 2: "tétrades, majeur et mineur naturel, notes-cibles", 3: "mineurs harmonique et mélodique, diagramme masqué", 4: "modes, extensions, harmonie avancée, sans aide" })[lv.n]));
+                    b.appendChild(el("span", "harm-opt-sub", HARM_LEVEL_DESC[lv.n]));
                     b.addEventListener("click", function () { edit(function (cc) { var nc = harmLevelCfg(lv.n, cc.inst, cc.key); Object.keys(nc).forEach(function (k) { cc[k] = nc[k]; }); }, true); showToast("Niveau " + lv.n + " chargé (pas de tirage automatique).", 2500); showView("draw"); });
                     gl.appendChild(b);
                 });
@@ -13430,10 +13513,10 @@
                     sM.box.appendChild(row);
                 });
             });
-            function onKey(e) { if (e.key === "Escape" && !dlgIsOpen() && !document.querySelector(".ctx-menu")) { e.stopImmediatePropagation(); close(); } }
+            function onKey(e) { if (e.key === "Escape" && !dlgIsOpen() && !document.querySelector(".ctx-menu, .harm-pop")) { e.stopImmediatePropagation(); close(); } }
             window.addEventListener("keydown", onKey, true);
             repaint(); showResult(); renderHist(); showView(view);
-            return function () { window.removeEventListener("keydown", onKey, true); if (harmDiceWin === win) harmDiceWin = null; };
+            return function () { window.removeEventListener("keydown", onKey, true); if (harmPopOpen && harmPopOpen.owner === win) closeHarmPop(); if (harmDiceWin === win) harmDiceWin = null; };
         }, { floating: true });
         harmDiceWin = win;
         return win;
