@@ -4368,3 +4368,26 @@ input.harm-edit-name { flex: 1 1 200px; height: 32px; box-sizing: border-box; }
 .harm-dot-target { background: transparent; border: 3px solid #ff5252; }
 .harm-dot-app { background: transparent; border: 2px dashed #ffab40; }
 .harm-dot-band { background: rgba(199, 146, 234, .25); border: 1.2px solid #c792ea; border-radius: 3px; }
+
+/* v189 — audit du design : cibles tactiles, poignée des fenêtres de dé, grille d'accords lisible, reflets du verre */
+.backups-panel.dice-panel > .panel-drag-handle { margin: -12px -16px 0 -16px; }
+.harmony-panel .scales-chip { min-width: 32px; justify-content: center; }
+.harm-cell-num, .harm-cell-sym, .harm-cell-an { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+html[data-glass="1"] .harmony-panel button { box-shadow: none; }
+@media (pointer: coarse) {
+    button.num-stepper-btn { width: 28px; min-width: 28px; }
+    .gs-step-session .num-stepper-btn { width: 28px; min-width: 28px; }
+    .crumb { min-height: 30px; padding: 4px 8px; }
+}
+/* thème clair : repères de l'outil Harmonie lisibles sur fond blanc */
+html[data-theme="light"] .harm-tone.harm-next + .fretboard-note-label { fill: #6a1b9a; }
+html[data-theme="light"] .fretboard-note.harm-next { stroke: #8e24aa; }
+html[data-theme="light"] .harm-tone.harm-app + .fretboard-note-label { fill: #bf360c; }
+html[data-theme="light"] .fretboard-note.harm-app { stroke: #e65100; }
+html[data-theme="light"] .fretboard-note.harm-common { stroke: #263238; }
+html[data-theme="light"] .harm-dot-common { border-color: #263238; }
+html[data-theme="light"] .harm-cell-an { color: #7b1fa2; }
+html[data-theme="light"] .harm-cell-an.harm-an-borrow { color: #00838f; }
+html[data-theme="light"] .harm-band-label { fill: #7b1fa2; }
+html[data-theme="light"] .harm-band-label.harm-band-A, html[data-theme="light"] .harm-band-label.harm-band-E { fill: #00838f; }
+html[data-theme="light"] .harm-fn-t { color: #1b8a4a; } html[data-theme="light"] .harm-fn-sd { color: #c25e00; } html[data-theme="light"] .harm-fn-d { color: #c62828; }

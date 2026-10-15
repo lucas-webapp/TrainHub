@@ -7956,6 +7956,15 @@
         var h = Math.max(baseMinH, neededH) + "px";
         if (panel.style.minWidth !== w) panel.style.minWidth = w;
         if (panel.style.minHeight !== h) panel.style.minHeight = h;
+        // Le contenu a grandi après l'ouverture (options dépliées, tableau plus long) : la fenêtre remonte pour que son bas reste
+        // à l'écran — sinon la fin du contenu sortait de l'écran sans que rien ne défile (la fenêtre n'avait pas atteint sa hauteur maximale).
+        if (!panel.classList.contains("panel-docked") && !isMobilePanelLayout() && panel.style.top) {
+            var rect = panel.getBoundingClientRect();
+            if (rect.bottom > window.innerHeight - 8) {
+                var nt = Math.max(8, window.innerHeight - 8 - rect.height);
+                if (nt < rect.top - 0.5) panel.style.top = nt + "px";
+            }
+        }
     }
     // ---------- fenêtres "à contenu ajustable" (métronome) ----------
     // La taille de la fenêtre reste libre (poignée de redimensionnement, minimum fixé en CSS) et
@@ -12946,7 +12955,10 @@
             function renderGrid(p, infos) {
                 gridBox.innerHTML = "";
                 var ans = harmAnalyze(p.chords, scaleDefByKey(p.scale));
-                var unit = 100 / (p.meter * 4); // 4 mesures par ligne
+                // 4 mesures par ligne, moins quand la place manque (téléphone, grille à 2 accords par mesure) : une case reste lisible (≥ 60 px)
+                var gw = gridBox.clientWidth || Math.max(240, window.innerWidth - 60), minBeats = Math.min.apply(null, p.chords.map(function (c) { return c.beats; }).concat([p.meter])), barsPerRow = 4;
+                while (barsPerRow > 1 && gw * minBeats / (p.meter * barsPerRow) < 60) barsPerRow /= 2;
+                var unit = 100 / (p.meter * barsPerRow);
                 infos.forEach(function (inf, i) {
                     var b = el("button", "harm-cell"); b.type = "button";
                     b.style.flexBasis = "calc(" + (unit * p.chords[i].beats) + "% - 4px)";
