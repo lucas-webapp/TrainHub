@@ -4278,3 +4278,66 @@ button.harm-deg.harm-deg-on { border-color: var(--accent); background: color-mix
 .piano-key-black[class*="harm-r"] + .piano-key-label-black { fill: #0d1117; }
 .harm-dot-r1 { background: #00e676; } .harm-dot-r3 { background: #ffb300; } .harm-dot-r5 { background: #29b6f6; } .harm-dot-r7 { background: #b388ff; } .harm-dot-rt { background: #ff80ab; } .harm-dot-scale { background: transparent; border: 1.6px solid rgba(160, 170, 185, .85); width: 9px; height: 9px; }
 button.scales-chip[hidden], .harm-controls [hidden] { display: none !important; }
+
+/* v187 — Harmonie : vues, progressions (grille, lecteur, créateur), consigne du tirage, dé d'harmonie */
+.harm-head { flex-wrap: wrap; }
+.harm-head .harm-views { margin-right: auto; margin-left: 12px; }
+.harm-head .harm-dice-btn { width: var(--sc-h); height: var(--sc-h); padding: 0; color: #c792ea; }
+.harm-head .harm-dice-btn .icon { width: 20px; height: 20px; }
+.harm-controls .scales-select.harm-select-prog { width: auto; min-width: 200px; max-width: 340px; flex: 1 1 220px; }
+.harm-controls [hidden], .harm-view[hidden], .harm-edit[hidden], .harm-task[hidden], .harm-prog-acts[hidden] { display: none !important; }
+.harm-view { display: flex; flex-direction: column; gap: 8px; }
+.harm-task { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid color-mix(in srgb, #c792ea 55%, transparent); border-radius: var(--radius-sm); background: color-mix(in srgb, #c792ea 10%, transparent); }
+.harm-task-top { display: flex; align-items: center; gap: 8px; }
+.harm-task-top strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+button.harm-task-x { width: 28px; height: 28px; padding: 0; flex: none; }
+.harm-task-text { font-size: var(--fs-sm); line-height: 1.4; }
+.harm-task-aid { font-size: var(--fs-xs); color: var(--text-muted); }
+.harm-prog-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.harm-prog-info { flex: 1 1 200px; font-size: var(--fs-sm); color: var(--text-muted); }
+.harm-prog-acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.harm-prog-acts .scales-chip { height: 30px; font-size: var(--fs-xs); }
+.harm-grid { display: flex; flex-wrap: wrap; gap: 4px; }
+button.harm-cell { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; min-width: 52px; height: auto; min-height: 50px; padding: 5px 8px; border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: var(--radius-sm); background: transparent; color: var(--text-main); font: inherit; text-align: left; cursor: pointer; box-shadow: none; flex-grow: 0; flex-shrink: 0; box-sizing: border-box; overflow: hidden; }
+button.harm-cell:hover { border-color: var(--accent); }
+button.harm-cell.harm-cell-on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+button.harm-cell.harm-cell-play { border-left-color: #ffb300; background: color-mix(in srgb, #ffb300 16%, transparent); }
+.harm-cell-num { font-size: var(--fs-sm); font-weight: 800; white-space: nowrap; }
+.harm-cell-sym { font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; }
+.harm-empty, .harm-hidden-note { font-size: var(--fs-sm); color: var(--text-muted); padding: 10px 0; }
+button.harm-reveal { height: 32px; padding: 0 12px; margin-left: 6px; }
+.harm-player { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.harm-player .scales-chip { height: 32px; font-size: var(--fs-xs); }
+button.harm-play { height: 36px; min-width: 110px; padding: 0 14px; font-weight: 800; }
+button.harm-play.harm-play-on { background: color-mix(in srgb, #ef5350 30%, transparent); border-color: #ef5350; }
+.harm-bpm { display: inline-flex; align-items: center; gap: 4px; }
+.harm-bpm .scales-chip { width: 32px; padding: 0; }
+input.harm-bpm-in { width: 58px; height: 32px; box-sizing: border-box; text-align: center; font-variant-numeric: tabular-nums; }
+.harm-bpm-unit { font-size: var(--fs-2xs); color: var(--text-muted); }
+input.harm-vol { width: 90px; }
+.harm-beats { display: inline-flex; gap: 5px; margin-left: auto; }
+.harm-beat { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--border); }
+.harm-beat.harm-beat-on { background: #ffb300; border-color: #ffb300; }
+.harm-beat.harm-beat-count { background: var(--text-muted); border-color: var(--text-muted); }
+.harm-edit { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; border: 1px dashed var(--border); border-radius: var(--radius-sm); }
+.harm-edit-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.harm-edit-row .scales-chip { height: 30px; font-size: var(--fs-xs); }
+input.harm-edit-name { flex: 1 1 200px; height: 32px; box-sizing: border-box; }
+.harm-edit-row .scales-select { height: 32px; font-size: var(--fs-xs); width: auto; }
+.harm-edit-end { justify-content: flex-end; }
+.harm-edit-end .harm-opt-label { margin-right: auto; }
+/* dé d'harmonie : même fenêtre que le dé de gammes, teinte violette pour les distinguer */
+.harm-dice-panel .dice-title .icon { width: 18px; height: 18px; color: #c792ea; vertical-align: -3px; }
+.harm-dice-panel .dice-go .icon { width: 18px; height: 18px; }
+.harm-opt-sub { display: block; width: 100%; font-size: var(--fs-2xs); color: var(--text-muted); font-weight: 500; }
+.harm-dice-panel .dice-opt.harm-has-sub { flex-wrap: wrap; row-gap: 0; }
+.harm-dice-panel .dice-opt.harm-has-sub .harm-opt-sub { padding-left: 30px; }
+.harm-group-head { display: flex; align-items: center; gap: 8px; }
+.harm-pres-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.harm-pres-row .dice-hist-item { flex: 1 1 220px; }
+.harm-level-line { font-size: var(--fs-sm); color: var(--text-muted); }
+.dice-ex-toggle.dice-ex-harm .dice-ex-ico { color: #c792ea; }
+.dice-ex-toggle.dice-ex-harm.dice-ex-on { border-color: color-mix(in srgb, #c792ea 60%, transparent); }
+.gs-run-harm { color: #c792ea; }
+@media (max-width: 700px) { .harm-head .harm-views { margin-left: 0; order: 3; width: 100%; } .harm-beats { margin-left: 0; } button.harm-cell { min-width: 44px; } }
+.gs-step-dice.gs-step-dice-harm { color: #c792ea; }

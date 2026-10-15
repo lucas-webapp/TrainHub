@@ -1,0 +1,5 @@
+Échantillons de piano du lecteur d'harmonie de TrainHub.
+
+Salamander Grand Piano V3, par Alexander Holm — licence Creative Commons Attribution 3.0 (CC BY 3.0).
+https://creativecommons.org/licenses/by/3.0/
+Fichiers MP3 tels que distribués par le projet Tone.js (dépôt Tonejs/audio, dossier salamander), les mêmes que ceux de HarmoHub.
