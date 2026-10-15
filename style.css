@@ -3697,25 +3697,28 @@ button.dice-go .icon { width: 20px; height: 20px; }
 .dice-sec-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .dice-sec-title { font-size: var(--fs-2xs); font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); }
 .dice-sec-note { font-size: var(--fs-xs); line-height: 1.4; color: var(--text-muted); }
-.dice-links { display: inline-flex; gap: 12px; margin-left: auto; }
-.dice-links button, button.dice-links-solo { padding: 0; background: none; border: none; font: inherit; font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
-.dice-links button:hover, button.dice-links-solo:hover { color: var(--accent); }
+.dice-links { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.dice-links button, button.dice-links-solo { height: 28px; padding: 0 10px; background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm); font: inherit; font-size: var(--fs-xs); font-weight: 700; color: var(--text-dim); cursor: pointer; }
+.dice-links button:hover, button.dice-links-solo:hover { color: var(--accent); border-color: var(--accent); }
 .dice-group { margin-top: 2px; font-size: var(--fs-2xs); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
 .dice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 10px; }
-button.dice-opt { display: flex; align-items: center; justify-content: flex-start; gap: 8px; width: 100%; box-sizing: border-box; padding: 6px 8px; background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--text-main); font: inherit; font-size: var(--fs-sm); text-align: left; }
+button.dice-opt { display: flex; align-items: center; justify-content: flex-start; gap: 8px; width: 100%; box-sizing: border-box; min-height: 36px; padding: 6px 8px; background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--text-main); font: inherit; font-size: var(--fs-sm); text-align: left; }
 button.dice-opt:hover { background: rgba(var(--ov), .06); border-color: transparent; }
 .dice-box { flex: none; width: 18px; height: 18px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; border: 1.5px solid var(--text-muted); border-radius: 5px; font-size: 12px; font-weight: 900; color: transparent; }
 .dice-opt-on .dice-box { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .dice-name { min-width: 0; font-weight: 600; }
 .dice-keys { display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); grid-template-rows: auto auto; gap: 6px 0; max-width: 440px; }
-button.dice-key { justify-content: center; height: 32px; padding: 0; border-color: var(--border); }
+button.dice-key { justify-content: center; height: 40px; min-height: 0; padding: 0 2px; overflow: hidden; border-color: var(--border); }
+button.dice-key .dice-name { display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; font-size: var(--fs-sm); line-height: 1.1; white-space: nowrap; }
+button.dice-key .dice-key-two { font-size: var(--fs-xs); line-height: 1.15; }
+button.dice-key .dice-key-two > span:last-child { color: var(--text-muted); }
 button.dice-key .dice-box { display: none; }
 button.dice-key.dice-opt-on { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); color: var(--accent); }
 .dice-hist-list { display: flex; flex-direction: column; max-height: 180px; overflow-y: auto; }
 button.dice-hist-item { display: flex; align-items: baseline; justify-content: flex-start; gap: 8px; width: 100%; box-sizing: border-box; padding: 5px 6px; background: transparent; border: none; border-radius: var(--radius-sm); color: var(--text-main); font: inherit; font-size: var(--fs-sm); text-align: left; }
 button.dice-hist-item:hover { background: rgba(var(--ov), .06); }
 .dice-hist-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-button.dice-remove { align-self: flex-start; padding: 0; background: none; border: none; font-size: var(--fs-xs); color: var(--c-red-text, #ff6b6b); text-decoration: underline; text-underline-offset: 2px; }
+button.dice-remove { align-self: flex-start; height: 32px; padding: 0 12px; background: transparent; border: 1px solid color-mix(in srgb, var(--c-red-text, #ff6b6b) 45%, var(--border)); border-radius: var(--radius-sm); font-size: var(--fs-xs); font-weight: 700; color: var(--c-red-text, #ff6b6b); }
 @media (max-width: 520px) { .dice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 /* ---------- dé de gamme dans une session ---------- */
@@ -4133,17 +4136,18 @@ button.icon-btn.btn-ghost { min-width: 28px; min-height: 28px; }
 /* v181 — dé : dés indépendants (tuiles), tirage en cartes + résumé, préréglages rangés en onglets (+ onglet « Exercices ») */
 button.dice-card { font: inherit; color: inherit; cursor: pointer; }
 button.dice-card:hover { border-color: var(--accent); }
-button.dice-mini { height: 28px; padding: 0 10px; font-size: var(--fs-xs); font-weight: 700; border-color: var(--border); }
+button.dice-mini { height: 30px; padding: 0 12px; font-size: var(--fs-xs); font-weight: 700; border-color: var(--border); }
 .dice-faces { display: flex; flex-direction: column; gap: 16px; }
-button.dice-more { align-self: flex-start; padding: 0; background: none; border: none; font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); }
-button.dice-more:hover { color: var(--accent); }
+button.dice-more { align-self: stretch; height: 36px; padding: 0 12px; background: transparent; border: 1px dashed var(--border); border-radius: var(--radius-sm); font-size: var(--fs-sm); font-weight: 700; color: var(--text-dim); justify-content: flex-start; }
+button.dice-more:hover { color: var(--accent); border-color: var(--accent); }
+button.dice-more.dice-more-open { border-style: solid; }
 .dp-current { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: var(--fs-sm); }
 .dp-current-label { flex: 1 1 180px; min-width: 0; color: var(--text-dim); overflow-wrap: anywhere; }
 .dp-current-label strong { color: var(--text-main); }
 .dp-badge { margin-left: 6px; padding: 1px 6px; border-radius: 6px; font-size: var(--fs-2xs); font-weight: 800; color: var(--c-orange-text, var(--c-orange)); background: color-mix(in srgb, var(--c-orange) 16%, transparent); }
 .dp-current-acts { display: flex; flex-wrap: wrap; gap: 6px; }
 .dp-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
-button.dp-tab { height: 28px; padding: 0 10px; border-color: transparent; border-radius: var(--radius-sm); background: transparent; font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); }
+button.dp-tab { height: 30px; padding: 0 12px; border-color: transparent; border-radius: var(--radius-sm); background: transparent; font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); }
 button.dp-tab:hover { color: var(--text-main); background: rgba(var(--ov), .06); }
 button.dp-tab.dp-tab-on { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 button.dp-tab.dp-tab-ex { margin-left: auto; }
@@ -4207,8 +4211,24 @@ button.dice-tile.dice-tile-bad { border-color: var(--c-red-text, #ff6b6b); }
 .gs-pick-multi-row .gs-pick-check { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); }
 .gs-pick-has-dice { font-size: var(--fs-2xs); color: var(--text-muted); white-space: nowrap; }
 .gs-pick-multi-row .gs-pick-has-dice { position: absolute; right: 10px; top: 8px; }
-button.gs-pick-folder-all { flex: none; margin-left: auto; height: 24px; padding: 0 8px; font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); }
+button.gs-pick-folder-all { flex: none; margin-left: auto; height: 28px; padding: 0 10px; font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); }
 button.gs-pick-folder-all:hover { color: var(--accent); }
 .gs-pick-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
 .gs-pick-count { font-size: var(--fs-sm); color: var(--text-dim); }
 button.gs-pick-ok { height: 34px; padding: 0 14px; font-weight: 700; }
+
+/* v183 — fenêtre du dé : pas de reflet de verre sur les boutons transparents (il dessinait un arc clair au-dessus de chaque case), tailles tactiles sur téléphone */
+html[data-glass="1"] .dice-panel button, html[data-glass="1"] .exercise-picker-panel button { box-shadow: none; }
+@media (max-width: 520px) {
+  .dice-sec-head { flex-wrap: wrap; row-gap: 6px; }
+  .dice-sec-head .dice-links { margin-left: 0; }
+  button.dice-opt { min-height: 42px; }
+  button.dice-key { height: 46px; }
+  .dice-links button, button.dice-links-solo { height: 32px; }
+  button.dice-mini, button.dp-tab { height: 34px; }
+  button.dp-chip { height: 36px; }
+  button.dice-more { height: 42px; }
+  button.dice-view-btn { height: 36px; }
+  button.dice-remove { height: 38px; }
+  button.gs-pick-folder-all { height: 32px; }
+}

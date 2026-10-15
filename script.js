@@ -10816,8 +10816,9 @@
     var DICE_DICE = [
         { id: "key", name: "Tonalité" },
         { id: "scale", name: "Gamme", moreLabel: "Plus de gammes", groups: [
-            { title: "Gammes de base", keys: ["major", "aeolian", "harmonicMinor", "melodicMinor"] },
-            { title: "Pentatoniques et blues", more: true, keys: ["majorPenta", "minorPenta", "blues", "bluesMajor"] },
+            { title: "Gammes de base", keys: ["major", "aeolian", "majorPenta", "minorPenta"] },
+            { title: "Mineures harmonique et mélodique", more: true, keys: ["harmonicMinor", "melodicMinor"] },
+            { title: "Blues", more: true, keys: ["blues", "bluesMajor"] },
             { title: "Autres gammes", more: true, keys: SCALE_MENU[7].keys.filter(function (k) { return k !== "bluesMajor"; }) },
             { title: "Gammes du monde", more: true, keys: SCALE_MENU[8].keys }] },
         { id: "mode", name: "Mode", moreLabel: "Modes du mineur mélodique et harmonique", groups: [
@@ -10851,8 +10852,11 @@
             var cat = diceCatalog(id);
             faces[id] = Array.isArray(c[id]) ? c[id].filter(function (k, j, a) { return cat.indexOf(k) !== -1 && a.indexOf(k) === j; }) : diceDefaultFaces(id);
         });
-        Object.keys(out).forEach(function (k) { if (["on", "key", "scale", "mode", "notes"].indexOf(k) === -1) delete out[k]; });
-        out.on = newOn; out.key = keys; out.scale = faces.scale; out.mode = faces.mode; out.notes = faces.notes;
+        // v2 : les gammes de base sont majeur, mineur naturel et les deux pentatoniques (avant : avec l'harmonique et la mélodique). Un réglage
+        // d'avant qui avait EXACTEMENT les anciennes gammes de base passe aux nouvelles, une fois ; ensuite ses choix ne sont plus touchés.
+        if (c.v !== 2 && faces.scale.length === 4 && ["major", "aeolian", "harmonicMinor", "melodicMinor"].every(function (k) { return faces.scale.indexOf(k) !== -1; })) faces.scale = diceDefaultFaces("scale");
+        Object.keys(out).forEach(function (k) { if (["v", "on", "key", "scale", "mode", "notes"].indexOf(k) === -1) delete out[k]; });
+        out.v = 2; out.on = newOn; out.key = keys; out.scale = faces.scale; out.mode = faces.mode; out.notes = faces.notes;
         return out;
     }
     function diceFaces(cfg, id) {
@@ -11268,7 +11272,12 @@
             function opt(label, isOn, flip, extraClass) {
                 var b = btn("dice-opt" + (extraClass ? " " + extraClass : ""), null, null);
                 b.appendChild(el("span", "dice-box", "✓"));
-                b.appendChild(el("span", "dice-name", label));
+                var nm = el("span", "dice-name");
+                if (extraClass === "dice-key" && label.indexOf("/") !== -1) { // touche noire : « C♯ » au-dessus de « D♭ », sans retour à la ligne au milieu d'un nom
+                    nm.classList.add("dice-key-two");
+                    label.split("/").forEach(function (t) { nm.appendChild(el("span", null, t)); });
+                } else nm.textContent = label;
+                b.appendChild(nm);
                 var on = isOn();
                 b.classList.toggle("dice-opt-on", on); b.setAttribute("aria-pressed", on ? "true" : "false");
                 b.addEventListener("click", function () { edit(flip); });
