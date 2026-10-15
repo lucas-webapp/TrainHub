@@ -12697,6 +12697,17 @@
     }
     function harmSize(p) { return p.size === "triad" ? 3 : p.size === "ext" && p.extOn ? (p.extMax === 13 ? 7 : p.extMax === 11 ? 6 : 5) : 4; }
     var HARM_DICE_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><ellipse cx="10" cy="16" rx="2.2" ry="1.7" fill="currentColor" stroke="none"/><ellipse cx="10" cy="11.5" rx="2.2" ry="1.7" fill="currentColor" stroke="none"/><ellipse cx="10" cy="7" rx="2.2" ry="1.7" fill="currentColor" stroke="none"/><path d="M12.2 16V5.5"/></svg>';
+    var HARM_ICON_ATTR = 'class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
+    var HARM_ICONS = {
+        plus: '<svg ' + HARM_ICON_ATTR + '><path d="M12 5v14M5 12h14"/></svg>',
+        pencil: PENCIL_ICON_SVG,
+        trash: '<svg ' + HARM_ICON_ATTR + '><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/><path d="M10 11v5M14 11v5"/></svg>',
+        copy: '<svg ' + HARM_ICON_ATTR + '><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>',
+        save: '<svg ' + HARM_ICON_ATTR + '><path d="M5 4h11l3 3v13H5Z"/><path d="M8 4v5h7V4"/><path d="M8 20v-6h8v6"/></svg>',
+        play: METRO_PLAY_ICON_SVG, stop: METRO_STOP_ICON_SVG
+    };
+    // Bouton en icône : le texte reste dans le bouton (masqué à l'écran) pour les lecteurs d'écran et la recherche.
+    function harmSetIcon(b, icon, label) { b.innerHTML = HARM_ICONS[icon] + '<span class="vh">' + label + '</span>'; b.classList.add("harm-ico"); }
     var harmWin = null; // fenêtre Harmonie ouverte : { apply(pick, info), owner }
 
     // ---------- popover de rubrique (outil Harmonie, dé d'harmonie) ----------
@@ -12853,14 +12864,17 @@
             // -- vue Progressions
             var progView = el("div", "harm-view harm-view-prog");
             var taskBox = el("div", "harm-task"); progView.appendChild(taskBox);
-            var progHead = el("div", "harm-prog-head"); progView.appendChild(progHead);
+            var progHead = el("div", "harm-prog-head");
             var progInfo = el("span", "harm-prog-info"); progHead.appendChild(progInfo);
             var progActs = el("span", "harm-prog-acts"); progHead.appendChild(progActs);
-            var newBtn = chip(progActs, "Nouvelle", "Créer une progression", function () { startEdit(null); });
-            var editBtn = chip(progActs, "Modifier", null, function () { startEdit(curProg()); });
-            var delBtn = chip(progActs, "Supprimer", "Supprimer cette progression", function () { deleteProg(curProg()); });
-            var gridBox = el("div", "harm-grid"); progView.appendChild(gridBox);
-            var editBox = el("div", "harm-edit"); editBox.hidden = true; progView.appendChild(editBox);
+            var newBtn = chip(progActs, "", "Créer une progression", function () { startEdit(null); }); harmSetIcon(newBtn, "plus", "Nouvelle");
+            var editBtn = chip(progActs, "", null, function () { startEdit(curProg()); }); harmSetIcon(editBtn, "pencil", "Modifier");
+            var delBtn = chip(progActs, "", "Supprimer cette progression", function () { deleteProg(curProg()); }); harmSetIcon(delBtn, "trash", "Supprimer");
+            var gridBox = el("div", "harm-grid");
+            var editBox = el("div", "harm-edit"); editBox.hidden = true;
+            // la grille (avec son titre, ses actions et le créateur) est une carte à fond coloré : elle se distingue des réglages et du lecteur
+            var gridCard = el("div", "harm-grid-card"); progView.appendChild(gridCard);
+            gridCard.appendChild(progHead); gridCard.appendChild(gridBox); gridCard.appendChild(editBox);
             var player = el("div", "harm-player"); progView.appendChild(player);
             var playBtn = el("button", "btn-accent harm-play"); playBtn.type = "button"; player.appendChild(playBtn);
             playBtn.addEventListener("click", function () { if (harmPlayerPlaying()) stopPlay(); else startPlay(); });
@@ -12899,7 +12913,7 @@
             }
             function stopPlay() { if (harmPlayerPlaying()) harmPlayerStop(); }
             function restartIfPlaying() { if (harmPlayerPlaying()) { stopPlay(); startPlay(); } }
-            function paintPlayBtn() { var on = harmPlayerPlaying(); playBtn.textContent = on ? "■ Arrêter" : "▶ Lecture"; playBtn.classList.toggle("harm-play-on", on); }
+            function paintPlayBtn() { var on = harmPlayerPlaying(); harmSetIcon(playBtn, on ? "stop" : "play", on ? "Arrêter" : "Lecture"); playBtn.title = on ? "Arrêter la lecture" : "Lancer la lecture en boucle"; playBtn.classList.toggle("harm-play-on", on); }
             function paintBeat(meter) {
                 beatDots.innerHTML = "";
                 for (var i = 0; i < meter; i++) { var d = el("span", "harm-beat"); if (playBeat !== null && ((playBeat % meter) + meter) % meter === i) d.classList.add(playBeat < 0 ? "harm-beat-count" : "harm-beat-on"); beatDots.appendChild(d); }
@@ -13001,7 +13015,7 @@
                     r3.appendChild(durSel);
                     chip(r3, "◀", "Avancer", function () { move(-1); }).disabled = edit.sel === 0;
                     chip(r3, "▶", "Reculer", function () { move(1); }).disabled = edit.sel === edit.chords.length - 1;
-                    chip(r3, "Retirer", "Retirer cet accord", function () { edit.chords.splice(edit.sel, 1); edit.sel = Math.min(edit.sel, edit.chords.length - 1); selIdx = Math.max(0, edit.sel); update(); });
+                    harmSetIcon(chip(r3, "", "Retirer cet accord", function () { edit.chords.splice(edit.sel, 1); edit.sel = Math.min(edit.sel, edit.chords.length - 1); selIdx = Math.max(0, edit.sel); update(); }), "trash", "Retirer");
                 } else r3.appendChild(el("span", "harm-opt-label", edit.chords.length ? "Touche un accord de la grille pour régler sa durée." : "Touche les degrés ci-dessus pour composer la grille."));
                 editBox.appendChild(r3);
                 var r4 = el("div", "harm-edit-row harm-edit-end");
@@ -13242,7 +13256,7 @@
                     progInfo.textContent = (edit ? "Création · " : (p.level ? "Niveau " + p.level + " · " : "") + (p.style || "") + " · ") + noteDisplay(spellBest(prefs.root, pdef).root) + " " + pdef.label.toLowerCase() +
                         " · " + p.meter + "/4 · " + (Math.round(bars * 100) / 100).toLocaleString("fr-FR") + " mesure" + (bars > 1 ? "s" : "");
                     progActs.hidden = !!edit;
-                    editBtn.textContent = p.user ? "Modifier" : "Copier pour modifier";
+                    harmSetIcon(editBtn, "pencil", p.user ? "Modifier" : "Copier pour modifier");
                     editBtn.title = p.user ? "Modifier cette progression" : "Les grilles de la bibliothèque ne changent pas : on en fait une copie dans « Mes progressions »";
                     delBtn.hidden = !p.user;
                     renderTask();
@@ -13317,7 +13331,7 @@
             // ===== Tirage =====
             var levelLine = el("div", "dice-preset-row harm-level-line"); views.draw.appendChild(levelLine);
             var levelTxt = el("span", "harm-level-txt"); levelLine.appendChild(levelTxt);
-            levelLine.appendChild(btn("dice-links-solo harm-level-edit", "Modifier", "Ouvrir les réglages du dé", function () { showView("set"); }));
+            var lvEdit = btn("dice-links-solo harm-level-edit", "", "Modifier les réglages du dé", function () { showView("set"); }); harmSetIcon(lvEdit, "pencil", "Modifier"); levelLine.appendChild(lvEdit);
             painters.push(function () { var c = cfg(); levelTxt.textContent = harmCfgLabel(c) + " · consignes pour " + ({ bass: "la basse", guitar: "la guitare", piano: "le piano" })[c.inst]; });
             var emptyBox = el("div", "dice-empty");
             emptyBox.appendChild(el("div", "dice-empty-title", "Pas encore de tirage"));
@@ -13332,7 +13346,7 @@
                 if (!emptyList.children.length) emptyList.appendChild(el("li", null, "rien pour l'instant : allume au moins un dé dans « Réglages »"));
             });
             var resBox = el("div", "dice-res"), resHead = el("div", "dice-sec-head"), cards = el("div", "dice-cards harm-cards");
-            var copyBtn = btn("btn-ghost dice-mini", "Copier", "Copier le résumé du tirage");
+            var copyBtn = btn("btn-ghost dice-mini", "", "Copier le résumé du tirage"); harmSetIcon(copyBtn, "copy", "Copier");
             var openBtn = btn("dice-open-btn harm-open", "Voir dans Harmonie", "Afficher la grille, la consigne et le lecteur dans l'outil Harmonie");
             resHead.appendChild(el("div", "dice-sec-title", "Ton tirage")); resHead.appendChild(copyBtn);
             resBox.appendChild(resHead); resBox.appendChild(cards); resBox.appendChild(openBtn); views.draw.appendChild(resBox);
@@ -13507,9 +13521,12 @@
                     var b = btn("dice-hist-item", null, "Charger « " + pr.name + " »", function () { edit(function (cc) { var nc = harmNormCfg(pr.cfg, cc.inst); Object.keys(nc).forEach(function (k) { cc[k] = nc[k]; }); }, true); showToast("« " + pr.name + " » chargé.", 2500); showView("draw"); });
                     b.appendChild(el("span", "dice-hist-name", pr.name)); b.appendChild(el("span", "harm-opt-sub", harmCfgLabel(harmNormCfg(pr.cfg, ctx.fam))));
                     row.appendChild(b);
-                    row.appendChild(btn("dice-links-solo", "Renommer", null, function () { dlgPrompt({ title: "Renommer", value: pr.name, confirmLabel: "Renommer" }, function (n2) { n2 = (n2 || "").trim().slice(0, 60); if (n2) { pr.name = n2; saveSoon(); repaint(); } }); }));
-                    row.appendChild(btn("dice-links-solo", "Mettre à jour", "Remplacer par le réglage actuel", function () { pr.cfg = JSON.parse(JSON.stringify(cfg())); saveSoon(); showToast("« " + pr.name + " » mis à jour.", 2500); repaint(); }));
-                    row.appendChild(btn("dice-links-solo", "Supprimer", null, function () { list.splice(i, 1); saveSoon(); repaint(); showToast("Préréglage supprimé.", 5000, { label: "Annuler", run: function () { harmPresets().splice(i, 0, pr); saveSoon(); repaint(); } }); }));
+                    var rnB = btn("dice-links-solo", "", "Renommer ce préréglage", function () { dlgPrompt({ title: "Renommer", value: pr.name, confirmLabel: "Renommer" }, function (n2) { n2 = (n2 || "").trim().slice(0, 60); if (n2) { pr.name = n2; saveSoon(); repaint(); } }); });
+                    harmSetIcon(rnB, "pencil", "Renommer"); row.appendChild(rnB);
+                    var upB = btn("dice-links-solo", "", "Remplacer par le réglage actuel", function () { pr.cfg = JSON.parse(JSON.stringify(cfg())); saveSoon(); showToast("« " + pr.name + " » mis à jour.", 2500); repaint(); });
+                    harmSetIcon(upB, "save", "Mettre à jour"); row.appendChild(upB);
+                    var dlB = btn("dice-links-solo", "", "Supprimer ce préréglage", function () { list.splice(i, 1); saveSoon(); repaint(); showToast("Préréglage supprimé.", 5000, { label: "Annuler", run: function () { harmPresets().splice(i, 0, pr); saveSoon(); repaint(); } }); });
+                    harmSetIcon(dlB, "trash", "Supprimer"); row.appendChild(dlB);
                     sM.box.appendChild(row);
                 });
             });
