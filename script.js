@@ -7873,6 +7873,7 @@
     var PANEL_BASE_MIN_SIZE = {
         "aides-panel": { w: 300, h: 320 },
         "scales-panel": { w: 320, h: 200 },
+        "harmony-panel": { w: 320, h: 260 },
         "dice-panel": { w: 320, h: 360 },
         "folder-picker-panel": { w: 280, h: 280 },
         "recorder-panel": { w: 300, h: 260 },
@@ -10579,7 +10580,7 @@
     // sz : { s: échelle de base (taille de l'écran), w / h: réglages de largeur et de hauteur propres à
     // l'instrument }. Largeur et hauteur ne changent que les ESPACEMENTS (cases et cordes) ; les pastilles
     // gardent leur taille, elles ne sont jamais déformées.
-    function buildFretboardSvg(tuning, def, rootPc, labelMode, fretCount, sz) {
+    function buildFretboardSvg(tuning, def, rootPc, labelMode, fretCount, sz, marks) {
         sz = sz || { s: 1, w: 1, h: 1 };
         var S = sz.s;
         var FRETS = fretCount || FRETBOARD_DISPLAY_FRETS;
@@ -10646,19 +10647,24 @@
         for (var s2 = 0; s2 < n; s2++) {
             for (var fret2 = 0; fret2 <= FRETS; fret2++) {
                 var pc = (tuning.midis[s2] + fret2) % 12;
+                // marks(pc) (outil Harmonie) : { cls, label, small } ou null — remplace l'affichage de la gamme (couleur par note de l'accord)
+                var mk = marks ? marks(pc) : null;
+                if (marks && !mk) continue;
                 var diff = (pc - rootPc + 12) % 12;
                 var semiIdx = def.semis.indexOf(diff);
-                if (semiIdx === -1) continue;
+                if (!marks && semiIdx === -1) continue;
                 var isRoot = diff === 0;
                 var nx = fret2 === 0 ? marginLeft - 11 * S : marginLeft + (fret2 - 0.5) * fretGap;
                 var ny = stringY(s2);
                 var r = fret2 === 0 ? openR : noteR;
-                svg.appendChild(el("circle", { cx: nx, cy: ny, r: r, class: "fretboard-note" + (isRoot ? " fretboard-note-root" : "") }));
+                if (mk && mk.small) r *= 0.5;
+                svg.appendChild(el("circle", { cx: nx, cy: ny, r: r, class: mk ? "fretboard-note harm-tone " + mk.cls : "fretboard-note" + (isRoot ? " fretboard-note-root" : "") }));
+                if (mk && !mk.label) continue;
                 // Texte au centre exact du cercle : dy = 0,35 em (hauteur de ligne), plutôt qu'un
                 // décalage en px qui le laissait trop bas.
                 var t = el("text", { x: nx, y: ny, dy: "0.35em", class: "fretboard-note-label" });
-                t.textContent = scaleNoteLabel(def, semiIdx, rootPc, labelMode);
-                t.style.fontSize = (9.5 * S * (labelMode === "notes" ? noteLabelScale(t.textContent) : 1)) + "px";
+                t.textContent = mk ? mk.label : scaleNoteLabel(def, semiIdx, rootPc, labelMode);
+                t.style.fontSize = (9.5 * S * (mk || labelMode === "notes" ? noteLabelScale(t.textContent) : 1)) + "px";
                 svg.appendChild(t);
             }
         }
@@ -10674,7 +10680,7 @@
     var PIANO_HIGH_MIDI = 72; // C5, deux octaves complètes
     var PIANO_BLACK_PCS = [1, 3, 6, 8, 10];
 
-    function buildPianoScaleSvg(def, rootPc, labelMode) {
+    function buildPianoScaleSvg(def, rootPc, labelMode, marks) {
         var ns = "http://www.w3.org/2000/svg";
         var keyW = 36, keyH = 130, blackW = keyW * 0.62, blackH = keyH * 0.6;
         var whiteMidis = [];
@@ -10695,6 +10701,7 @@
         }
         function activeFor(midi) {
             var pc = ((midi % 12) + 12) % 12;
+            if (marks) { var mk = marks(pc); return mk ? { isRoot: false, label: mk.label, cls: mk.cls } : null; }
             var diff = (pc - rootPc + 12) % 12;
             var semiIdx = def.semis.indexOf(diff);
             if (semiIdx === -1) return null;
@@ -10704,12 +10711,12 @@
         whiteMidis.forEach(function (midi, i) {
             var active = activeFor(midi);
             var x = i * keyW, w = keyW - 1;
-            var path = el("path", { d: roundedBottomRectPath(x, 0, w, keyH, 3), class: "piano-key-white" + (active ? " piano-key-active" + (active.isRoot ? " piano-key-root" : "") : "") });
+            var path = el("path", { d: roundedBottomRectPath(x, 0, w, keyH, 3), class: "piano-key-white" + (active ? " piano-key-active" + (active.isRoot ? " piano-key-root" : "") + (active.cls ? " " + active.cls : "") : "") });
             svg.appendChild(path);
-            if (active) {
+            if (active && active.label) {
                 var t = el("text", { x: x + w / 2, y: keyH - 8, class: "piano-key-label" });
                 t.textContent = active.label;
-                if (labelMode === "notes" && noteLabelScale(active.label, true) < 1) t.style.fontSize = (13 * noteLabelScale(active.label, true)) + "px";
+                if ((marks || labelMode === "notes") && noteLabelScale(active.label, true) < 1) t.style.fontSize = (13 * noteLabelScale(active.label, true)) + "px";
                 svg.appendChild(t);
             }
         });
@@ -10719,12 +10726,12 @@
             if (!isBlack) { whiteSeen++; continue; }
             var active2 = activeFor(midi2);
             var x2 = whiteSeen * keyW - blackW / 2;
-            var path2 = el("path", { d: roundedBottomRectPath(x2, 0, blackW, blackH, 2.5), class: "piano-key-black" + (active2 ? " piano-key-active" + (active2.isRoot ? " piano-key-root" : "") : "") });
+            var path2 = el("path", { d: roundedBottomRectPath(x2, 0, blackW, blackH, 2.5), class: "piano-key-black" + (active2 ? " piano-key-active" + (active2.isRoot ? " piano-key-root" : "") + (active2.cls ? " " + active2.cls : "") : "") });
             svg.appendChild(path2);
-            if (active2) {
+            if (active2 && active2.label) {
                 var t2 = el("text", { x: x2 + blackW / 2, y: blackH - 8, class: "piano-key-label piano-key-label-black" });
                 t2.textContent = active2.label;
-                if (labelMode === "notes" && noteLabelScale(active2.label) < 1) t2.style.fontSize = (13 * noteLabelScale(active2.label)) + "px";
+                if ((marks || labelMode === "notes") && noteLabelScale(active2.label) < 1) t2.style.fontSize = (13 * noteLabelScale(active2.label)) + "px";
                 svg.appendChild(t2);
             }
         }
@@ -12044,6 +12051,291 @@
             }
             update();
             return function () { if (fretFitObs) fretFitObs.disconnect(); closeDiceWindow(); };
+        });
+    }
+
+    // ---------- harmonie : les accords des degrés d'une gamme ----------
+    // Harmoniser une gamme à 7 notes = empiler, sur chaque degré, une note sur deux DE LA GAMME (tierces) : 1-3-5 (triade), 1-3-5-7 (tétrade),
+    // puis 9, 11, 13 (extensions). Les pentatoniques et les gammes à 6 ou 8 notes ne s'harmonisent pas ainsi : seules les gammes à 7 notes sont proposées.
+    var HARM_BASE_SCALES = ["major", "aeolian"];
+    var HARM_MORE_GROUPS = [
+        { title: "Mineurs harmonique et mélodique", keys: ["harmonicMinor", "melodicMinor"] },
+        { title: "Modes du majeur", keys: ["dorian", "phrygian", "lydian", "mixolydian", "locrian"] },
+        { title: "Modes du mineur mélodique", keys: SCALE_MENU[5].keys },
+        { title: "Modes du mineur harmonique", keys: SCALE_MENU[6].keys }];
+    var HARM_TONAL = ["major", "aeolian", "harmonicMinor", "melodicMinor"]; // gammes « tonales » : on peut y parler de fonctions
+    var HARM_MAJOR_SEMIS = [0, 2, 4, 5, 7, 9, 11];
+    var HARM_ROMANS = ["I", "II", "III", "IV", "V", "VI", "VII"];
+    var HARM_NATURAL = { 1: 0, 3: 4, 5: 7, 7: 11, 9: 14, 11: 17, 13: 21 }; // intervalle « naturel » de chaque note de l'accord (majeur)
+    var HARM_FUNCTIONS = { T: "Tonique", SD: "Sous-dominante", D: "Dominante" };
+    function harmScaleOk(key) { var d = scaleDefByKey(key); return !!d && d.semis.length === 7; }
+    // Nom d'intervalle d'une note de l'accord : 1, ♭3, 5, ♭7, 9, ♯11, ♭13…
+    function harmToneLabel(num, semi) {
+        var d = semi - HARM_NATURAL[num];
+        if (num === 1) return "1";
+        if (d === 0) return String(num);
+        return (d > 0 ? new Array(d + 1).join("♯") : new Array(1 - d).join("♭")) + num;
+    }
+    // Suffixe d'accord (notation jazz) d'après la tierce, la quinte et la septième (ou null : triade).
+    function harmBaseSuffix(third, fifth, seventh) {
+        var minor = third === 3;
+        if (seventh === null) return minor ? (fifth === 7 ? "m" : fifth === 6 ? "dim" : "m♯5") : (fifth === 7 ? "" : fifth === 8 ? "aug" : "(♭5)");
+        var sfx;
+        if (seventh === 11) sfx = minor ? "m(maj7)" : "maj7";
+        else if (seventh === 10) sfx = minor ? "m7" : "7";
+        else sfx = minor && fifth === 6 ? "dim7" : (minor ? "m6" : "6");
+        if (sfx !== "dim7") sfx += fifth === 6 ? "♭5" : fifth === 8 ? "♯5" : "";
+        return sfx;
+    }
+    // Extensions en notation jazz : la plus haute extension naturelle remplace le « 7 » (maj7 + 9 + 13 → maj13, m7 + 9 + 11 → m11, 7 + 9 → 9),
+    // les tensions altérées (♭9, ♯9, ♯11, ♭13) restent entre parenthèses : maj13(♯11), 7(♭9, ♭13). Sans 9 naturelle : tout entre parenthèses.
+    function harmJazzSuffix(base, ext) {
+        if (!ext.length) return base;
+        var nat = ext.filter(function (t) { return t.semi === HARM_NATURAL[t.num]; }).map(function (t) { return t.num; });
+        var stem = { "maj7": "maj", "m7": "m", "7": "", "m(maj7)": "m(maj" }[base];
+        if (stem === undefined || nat.indexOf(9) === -1) return base + "(" + ext.map(function (t) { return t.label; }).join(", ") + ")";
+        var high = Math.max.apply(null, nat);
+        var rest = ext.filter(function (t) { return t.semi !== HARM_NATURAL[t.num]; }).map(function (t) { return t.label; });
+        return stem + high + (base === "m(maj7)" ? ")" : "") + (rest.length ? "(" + rest.join(", ") + ")" : "");
+    }
+    // L'accord du degré `deg` (0-6) d'une gamme : o = { size: 3 | 4 | 5..7 (extensions jusqu'à 9, 11, 13), avoid: retirer les notes à éviter, numeral: "major" | "scale" }.
+    // → { deg, numeral, suffix, tones: [{ idx, num, semi, label }], avoided: [labels], mode: def, fn: "T" | "SD" | "D" | null }
+    function harmDegreeChord(def, deg, o) {
+        var s = def.semis;
+        function at(i) { return s[i % 7] + 12 * Math.floor(i / 7); }
+        var root = at(deg), tones = [], avoided = [];
+        for (var k = 0; k < Math.max(3, Math.min(7, o.size)); k++) {
+            var idx = deg + 2 * k, num = 1 + 2 * k, semi = at(idx) - root;
+            tones.push({ idx: idx % 7, num: num, semi: semi, label: harmToneLabel(num, semi) });
+        }
+        var third = tones[1].semi, fifth = tones[2].semi, seventh = tones[3] ? tones[3].semi : null;
+        var dominant = third === 4 && seventh === 10;
+        // Notes à éviter (règle jazz) : une extension un demi-ton au-dessus d'une note de l'accord (11 sur maj7, ♭9 et ♭13 sur m7 phrygien…).
+        // Sur une dominante, ♭9, ♯9 et ♭13 sont des tensions admises : seule la 11 juste (un demi-ton au-dessus de la tierce) est à éviter.
+        if (o.avoid && tones.length > 4) {
+            var chordPcs = tones.slice(0, 4).map(function (t) { return t.semi % 12; });
+            tones = tones.filter(function (t, i) {
+                if (i < 4) return true;
+                var pc = t.semi % 12;
+                var bad = dominant ? pc === 5 : chordPcs.some(function (c) { return (pc - c + 12) % 12 === 1; });
+                if (bad) avoided.push(t.label);
+                return !bad;
+            });
+        }
+        var base = harmBaseSuffix(third, fifth, seventh);
+        var suffix = harmJazzSuffix(base, tones.slice(4));
+        var acc = o.numeral === "scale" ? 0 : s[deg] - HARM_MAJOR_SEMIS[deg];
+        var numeral = (acc === 0 ? "" : acc > 0 ? new Array(acc + 1).join("♯") : acc === -2 ? "𝄫" : new Array(1 - acc).join("♭")) + HARM_ROMANS[deg];
+        var numSuffix = seventh === null ? (base === "dim" ? "°" : base === "aug" ? "+" : base) : suffix;
+        // Mode du degré : la même gamme lue depuis ce degré (le IIe degré du majeur → dorien).
+        var rot = []; for (var r = 0; r < 7; r++) rot.push((s[(deg + r) % 7] - s[deg] + 12) % 12);
+        var mode = SCALE_DEFS.filter(function (d) { return d.kind === "Gammes" && d.semis.length === 7 && d.semis.join() === rot.join(); })[0] || null;
+        return { deg: deg, numeral: numeral + numSuffix, suffix: suffix, tones: tones, avoided: avoided, mode: mode, fn: harmFunction(def, deg) };
+    }
+    // Fonction tonale (règle reprise de HarmoHub, prudente) : affichée seulement quand elle fait consensus. I = T, II et IV = SD, V = D,
+    // VII = D s'il est la sensible (un demi-ton sous la tonique : majeur, mineurs harmonique et mélodique) ; III et VI (et le ♭VII du mineur naturel,
+    // sous-tonique) restent en zone grise. Pas de fonctions dans les modes : leur harmonie est modale.
+    function harmFunction(def, deg) {
+        if (HARM_TONAL.indexOf(def.key) === -1) return null;
+        if (deg === 0) return "T";
+        if (deg === 1 || deg === 3) return "SD";
+        if (deg === 4) return "D";
+        if (deg === 6 && def.semis[6] === 11) return "D";
+        return null;
+    }
+    // Nom affiché du mode d'un degré (Ionien / Éolien pour le majeur et le mineur naturel lus comme modes).
+    function harmModeName(mode) { return mode ? (DICE_MODE_LABELS[mode.key] || mode.label) : ""; }
+    function harmRoleClass(num) { return num === 1 ? "r1" : num === 3 ? "r3" : num === 5 ? "r5" : num === 7 ? "r7" : "rt"; }
+
+    // ---------- outil Harmonie (étape 1 : tableau des degrés et accord sur le manche entier) ----------
+    var HARMONY_PREFS_KEY = "trainhub.harmonyPrefs.v1";
+    function loadHarmonyPrefs() {
+        var p = {};
+        try { p = JSON.parse(localStorage.getItem(HARMONY_PREFS_KEY)) || {}; } catch (e) {}
+        var isPhone = window.matchMedia && window.matchMedia("(max-width: 700px)").matches;
+        function oneOf(v, list, d) { return list.indexOf(v) !== -1 ? v : d; }
+        return {
+            root: typeof p.root === "number" && p.root >= 0 && p.root < 12 ? p.root : 0,
+            type: harmScaleOk(p.type) ? p.type : "major",
+            size: oneOf(p.size, ["triad", "tetrad", "ext"], "tetrad"),
+            extOn: p.extOn === true,                       // option : extensions proposées
+            extMax: oneOf(p.extMax, [9, 11, 13], 9),
+            avoid: p.avoid !== false,                      // option : retirer les notes à éviter des extensions
+            fn: p.fn === true,                             // option : fonctions T / SD / D
+            numeral: oneOf(p.numeral, ["major", "scale"], "major"), // chiffrage relatif au majeur (jazz) ou à la gamme
+            showScale: p.showScale !== false,              // le reste de la gamme en grisé sur le diagramme
+            labelMode: oneOf(p.labelMode, ["intervals", "notes"], "intervals"),
+            frets: p.frets === 24 ? 24 : 12,
+            deg: typeof p.deg === "number" && p.deg >= 0 && p.deg < 7 ? p.deg : 0,
+            instByWs: p.instByWs && typeof p.instByWs === "object" ? p.instByWs : {},
+            zoom: isPhone ? 0.85 : 1.2
+        };
+    }
+    function saveHarmonyPrefs(p) {
+        var out = {}; Object.keys(p).forEach(function (k) { if (k !== "zoom") out[k] = p[k]; });
+        try { localStorage.setItem(HARMONY_PREFS_KEY, JSON.stringify(out)); } catch (e) {}
+    }
+    // Instrument de l'outil : celui choisi dans l'outil pour cet espace, sinon deviné d'après le nom de l'espace (Basse, Guitare, Piano…).
+    function harmInstrumentKey(p) {
+        var ws = getActiveInstrument(), id = ws && ws.id;
+        if (id && p.instByWs[id] && SCALES_INSTRUMENTS.some(function (i) { return i.key === p.instByWs[id]; })) return p.instByWs[id];
+        var nm = (ws && ws.name || "").toLowerCase();
+        if (/piano|clavier/.test(nm)) return "piano";
+        if (/basse|bass/.test(nm)) return /5/.test(nm) ? "bass5" : "bass4";
+        return "guitar";
+    }
+    function harmSize(p) { return p.size === "triad" ? 3 : p.size === "ext" && p.extOn ? (p.extMax === 13 ? 7 : p.extMax === 11 ? 6 : 5) : 4; }
+
+    function openHarmonyPanel() {
+        openModal("harmony-panel", function (panel) {
+            var prefs = loadHarmonyPrefs(), fitObs = null;
+            if (prefs.size === "ext" && !prefs.extOn) prefs.size = "tetrad";
+            function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+            function chip(container, text, title, fn) { var b = el("button", "scales-chip", text); b.type = "button"; if (title) b.title = title; b.addEventListener("click", fn); container.appendChild(b); return b; }
+            function seg(container, items, get, set, title) {
+                var g = el("div", "scales-segmented"); if (title) g.title = title;
+                var bs = items.map(function (it) { var b = chip(g, it[1], it[2] || null, function () { set(it[0]); update(); }); b.dataset.value = String(it[0]); return b; });
+                container.appendChild(g);
+                return { box: g, paint: function () { bs.forEach(function (b) { b.classList.toggle("scales-chip-active", b.dataset.value === String(get())); }); } };
+            }
+            // -- en-tête : titre, instrument
+            var head = el("div", "scales-head");
+            head.appendChild(el("div", "backups-title", "Harmonie"));
+            var instSel = el("select", "scales-select scales-select-inst"); instSel.setAttribute("aria-label", "Instrument");
+            SCALES_INSTRUMENTS.forEach(function (i) { var o = el("option", null, i.label); o.value = i.key; instSel.appendChild(o); });
+            instSel.addEventListener("change", function () { var ws = getActiveInstrument(); if (ws) prefs.instByWs[ws.id] = instSel.value; update(); });
+            head.appendChild(instSel);
+            panel.appendChild(head);
+            // -- réglages : tonique, gamme, taille des accords, affichage, options
+            var controls = el("div", "scales-controls harm-controls");
+            var rootSel = el("select", "scales-select scales-select-root"); rootSel.setAttribute("aria-label", "Tonique");
+            for (var pc = 0; pc < 12; pc++) { var o = el("option", null, rootMenuName(pc)); o.value = String(pc); rootSel.appendChild(o); }
+            rootSel.addEventListener("change", function () { prefs.root = parseInt(rootSel.value, 10); update(); });
+            controls.appendChild(rootSel);
+            var typeSel = el("select", "scales-select harm-select-type"); typeSel.setAttribute("aria-label", "Gamme à harmoniser");
+            var g0 = el("optgroup"); g0.label = "Gammes de base"; typeSel.appendChild(g0);
+            HARM_BASE_SCALES.forEach(function (k) { var o2 = el("option", null, scaleDefByKey(k).label); o2.value = k; g0.appendChild(o2); });
+            HARM_MORE_GROUPS.forEach(function (g) {
+                var og = el("optgroup"); og.label = "Plus de gammes · " + g.title; typeSel.appendChild(og);
+                g.keys.forEach(function (k) { if (!harmScaleOk(k)) return; var o3 = el("option", null, scaleDefByKey(k).label); o3.value = k; og.appendChild(o3); });
+            });
+            typeSel.addEventListener("change", function () { prefs.type = typeSel.value; update(); });
+            controls.appendChild(typeSel);
+            var sizeSeg = seg(controls, [["triad", "Triades", "3 sons : 1-3-5"], ["tetrad", "Tétrades", "4 sons : 1-3-5-7"], ["ext", "Extensions", "9, 11, 13 (voir Options)"]],
+                function () { return prefs.size; }, function (v) { prefs.size = v; }, "Taille des accords");
+            var labelSeg = seg(controls, [["intervals", "Intervalles", "1, 3, 5, 7 de l'accord"], ["notes", "Notes"]], function () { return prefs.labelMode; }, function (v) { prefs.labelMode = v; });
+            var fretSeg = seg(controls, [[12, "12"], [24, "24"]], function () { return prefs.frets; }, function (v) { prefs.frets = parseInt(v, 10); }, "Nombre de cases");
+            var optBtn = chip(controls, "Options", "Fonctions, chiffrage, extensions", function () { optBox.hidden = !optBox.hidden; optBtn.classList.toggle("scales-chip-active", !optBox.hidden); });
+            panel.appendChild(controls);
+            // -- options (repliées)
+            var optBox = el("div", "harm-options"); optBox.hidden = true;
+            function optRow(label) { var r = el("div", "harm-opt-row"); r.appendChild(el("span", "harm-opt-label", label)); optBox.appendChild(r); return r; }
+            var fnSeg = seg(optRow("Fonctions (T / SD / D)"), [[false, "Masquées"], [true, "Affichées"]], function () { return prefs.fn; }, function (v) { prefs.fn = v === "true" || v === true; });
+            var numSeg = seg(optRow("Chiffrage"), [["major", "Relatif au majeur (jazz)", "♭IIImaj7 en mineur"], ["scale", "Relatif à la gamme", "IIImaj7 en mineur"]], function () { return prefs.numeral; }, function (v) { prefs.numeral = v; });
+            var extSeg = seg(optRow("Extensions"), [[false, "Non"], [true, "Oui"]], function () { return prefs.extOn; }, function (v) { prefs.extOn = v === "true" || v === true; if (!prefs.extOn && prefs.size === "ext") prefs.size = "tetrad"; });
+            var extMaxRow = optRow("Jusqu'à");
+            var extMaxSeg = seg(extMaxRow, [[9, "9"], [11, "11"], [13, "13"]], function () { return prefs.extMax; }, function (v) { prefs.extMax = parseInt(v, 10); });
+            var avoidRow = optRow("Notes à éviter (jazz)");
+            var avoidSeg = seg(avoidRow, [[true, "Retirées"], [false, "Gardées"]], function () { return prefs.avoid; }, function (v) { prefs.avoid = v === "true" || v === true; });
+            var scaleSeg = seg(optRow("Reste de la gamme"), [[true, "En grisé"], [false, "Masqué"]], function () { return prefs.showScale; }, function (v) { prefs.showScale = v === "true" || v === true; });
+            panel.appendChild(optBox);
+            // -- gamme, degrés, accord choisi, diagramme, légende
+            var scaleLine = el("div", "scales-summary harm-scale-line"); panel.appendChild(scaleLine);
+            var degs = el("div", "harm-degrees"); degs.setAttribute("role", "listbox"); degs.setAttribute("aria-label", "Degrés de la gamme"); panel.appendChild(degs);
+            var detail = el("div", "harm-detail"); panel.appendChild(detail);
+            var diagramsWrap = el("div", "scales-diagrams"); panel.appendChild(diagramsWrap);
+            var legend = el("div", "scales-legend harm-legend"); panel.appendChild(legend);
+
+            function onNamesChange() { if (!panel.isConnected) { document.removeEventListener("trainhub-prefs", onNamesChange); return; } update(); }
+            document.addEventListener("trainhub-prefs", onNamesChange);
+
+            function update() {
+                saveHarmonyPrefs(prefs);
+                var def = scaleDefByKey(prefs.type), inst = SCALES_INSTRUMENTS.filter(function (i) { return i.key === harmInstrumentKey(prefs); })[0] || SCALES_INSTRUMENTS[2];
+                var spell = spellBest(prefs.root, def), names = spell.notes;
+                instSel.value = inst.key;
+                Array.prototype.forEach.call(rootSel.options, function (o4) { var nm = rootMenuName(parseInt(o4.value, 10)); if (o4.textContent !== nm) o4.textContent = nm; });
+                rootSel.classList.toggle("scales-select-root-solfege", solfegeOn());
+                rootSel.value = String(prefs.root); typeSel.value = prefs.type;
+                sizeSeg.box.querySelector('[data-value="ext"]').hidden = !prefs.extOn;
+                [sizeSeg, labelSeg, fretSeg, fnSeg, numSeg, extSeg, extMaxSeg, avoidSeg, scaleSeg].forEach(function (sg) { sg.paint(); });
+                extMaxRow.hidden = avoidRow.hidden = !prefs.extOn;
+                fretSeg.box.hidden = inst.type === "piano";
+                // gamme harmonisée
+                scaleLine.innerHTML = "";
+                var strong = el("strong", null, noteDisplay(spell.root) + " " + def.label);
+                scaleLine.appendChild(el("span", "scales-kind scales-kind-scale", "Gamme harmonisée"));
+                scaleLine.appendChild(strong);
+                scaleLine.appendChild(document.createTextNode(" · " + names.map(noteDisplay).join(" ")));
+                // les 7 degrés
+                var o = { size: harmSize(prefs), avoid: prefs.avoid, numeral: prefs.numeral };
+                var chords = []; for (var d = 0; d < 7; d++) chords.push(harmDegreeChord(def, d, o));
+                degs.innerHTML = "";
+                chords.forEach(function (ch) {
+                    var b = el("button", "harm-deg" + (ch.deg === prefs.deg ? " harm-deg-on" : "")); b.type = "button";
+                    b.setAttribute("role", "option"); b.setAttribute("aria-selected", ch.deg === prefs.deg ? "true" : "false");
+                    b.appendChild(el("span", "harm-deg-num", ch.numeral));
+                    b.appendChild(el("span", "harm-deg-sym", noteDisplay(names[ch.deg]) + ch.suffix));
+                    b.appendChild(el("span", "harm-deg-notes", ch.tones.map(function (t) { return noteDisplay(names[t.idx]); }).join(" ")));
+                    if (prefs.fn) {
+                        var f = el("span", "harm-deg-fn" + (ch.fn ? " harm-fn-" + ch.fn.toLowerCase() : " harm-fn-none"), ch.fn || "—");
+                        f.title = ch.fn ? HARM_FUNCTIONS[ch.fn] : HARM_TONAL.indexOf(def.key) === -1 ? "Harmonie modale : pas de fonction tonale" : "Zone grise : fonction discutée selon les auteurs";
+                        b.appendChild(f);
+                    }
+                    b.title = "Voir " + noteDisplay(names[ch.deg]) + ch.suffix + " sur le manche";
+                    b.addEventListener("click", function () { prefs.deg = ch.deg; update(); });
+                    degs.appendChild(b);
+                });
+                // l'accord choisi
+                var cur = chords[prefs.deg];
+                detail.innerHTML = "";
+                detail.appendChild(el("strong", "harm-detail-sym", cur.numeral + " · " + noteDisplay(names[cur.deg]) + cur.suffix));
+                detail.appendChild(document.createTextNode(" : " + cur.tones.map(function (t) { return noteDisplay(names[t.idx]) + " (" + t.label + ")"; }).join(" · ")));
+                var facts = [];
+                if (cur.mode) facts.push("Mode : " + noteDisplay(names[cur.deg]) + " " + harmModeName(cur.mode));
+                if (prefs.fn) facts.push("Fonction : " + (cur.fn ? HARM_FUNCTIONS[cur.fn] : HARM_TONAL.indexOf(def.key) === -1 ? "aucune (harmonie modale)" : "zone grise"));
+                if (cur.avoided.length) facts.push("Notes à éviter retirées : " + cur.avoided.join(", "));
+                if (facts.length) detail.appendChild(el("div", "harm-detail-facts", facts.join(" · ")));
+                // diagramme : notes de l'accord en couleur (une couleur par 1, 3, 5, 7, extensions), le reste de la gamme en grisé
+                var rootPc = (prefs.root + def.semis[cur.deg]) % 12, byPc = {};
+                cur.tones.forEach(function (t) { byPc[(rootPc + t.semi) % 12] = t; });
+                var scalePcs = {}; def.semis.forEach(function (st, i) { scalePcs[(prefs.root + st) % 12] = i; });
+                function marks(pc2) {
+                    var t = byPc[pc2];
+                    if (t) return { cls: "harm-" + harmRoleClass(t.num), label: prefs.labelMode === "notes" ? noteDisplay(names[t.idx]) : t.label, root: t.num === 1 };
+                    if (prefs.showScale && scalePcs[pc2] !== undefined) return { cls: "harm-scale", small: true, label: "" };
+                    return null;
+                }
+                diagramsWrap.innerHTML = "";
+                var scroll = el("div", "fretboard-scroll"), svg;
+                if (inst.type === "piano") {
+                    svg = buildPianoScaleSvg(def, prefs.root, prefs.labelMode === "notes" ? "notes" : "degrees", marks);
+                    svg.setAttribute("preserveAspectRatio", "none");
+                    svg.setAttribute("width", Math.round(parseFloat(svg.getAttribute("width")) * prefs.zoom));
+                    svg.setAttribute("height", Math.round(parseFloat(svg.getAttribute("height")) * prefs.zoom));
+                } else {
+                    svg = buildFretboardSvg(inst.tuning, def, prefs.root, prefs.labelMode === "notes" ? "notes" : "degrees", prefs.frets, { s: prefs.zoom, w: 1, h: 1 }, marks);
+                }
+                scroll.appendChild(svg); diagramsWrap.appendChild(scroll);
+                var natW = parseFloat(svg.getAttribute("width")), natH = parseFloat(svg.getAttribute("height")), isPiano = inst.type === "piano";
+                if (fitObs) { fitObs.disconnect(); fitObs = null; }
+                function stretchToFit() {
+                    var avail = scroll.clientWidth - 8;
+                    if (!(natW > 0 && natH > 0 && avail > 0)) return;
+                    var w = isPiano ? Math.min(avail, natW * 2.6) : Math.min(Math.max(natW, avail), natW * 2.6);
+                    svg.style.width = Math.round(w) + "px"; svg.style.height = Math.round(isPiano && w < natW ? natH : natH * w / natW) + "px";
+                }
+                stretchToFit();
+                if (typeof ResizeObserver !== "undefined") { fitObs = new ResizeObserver(stretchToFit); fitObs.observe(scroll); }
+                // légende : seulement les rôles présents
+                legend.innerHTML = "";
+                var seen = {};
+                cur.tones.forEach(function (t) { var rc = harmRoleClass(t.num); if (seen[rc]) return; seen[rc] = true; addLegend("harm-dot-" + rc, rc === "rt" ? "Extensions" : rc === "r1" ? "Fondamentale" : t.num === 3 ? "Tierce" : t.num === 5 ? "Quinte" : "Septième"); });
+                if (prefs.showScale) addLegend("harm-dot-scale", "Reste de la gamme");
+                function addLegend(cls, txt) { var it = el("span", "scales-legend-item"); it.appendChild(el("span", "scales-dot " + cls)); it.appendChild(document.createTextNode(txt)); legend.appendChild(it); }
+            }
+            update();
+            return function () { if (fitObs) fitObs.disconnect(); };
         });
     }
 
@@ -20257,6 +20549,8 @@
     if ($aidesBtn) $aidesBtn.addEventListener("click", openAidesPanel);
     var $scalesBtn = document.getElementById("scales-btn");
     if ($scalesBtn) $scalesBtn.addEventListener("click", openScalesPanel);
+    var $harmonyBtn = document.getElementById("harmony-btn");
+    if ($harmonyBtn) $harmonyBtn.addEventListener("click", openHarmonyPanel);
     var $tunerBtn = document.getElementById("tuner-btn");
     if ($tunerBtn) $tunerBtn.addEventListener("click", openTunerPanel);
     var $recBtn = document.getElementById("rec-btn");

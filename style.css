@@ -4241,3 +4241,40 @@ html[data-glass="1"] .dice-panel button, html[data-glass="1"] .exercise-picker-p
 /* v185 — dé : remarque sous les faces du dé « Exercice » */
 .dice-hint { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.35; }
 .scales-controls .scales-select.scales-select-root.scales-select-root-solfege { width: 124px; }
+
+/* v186 — outil Harmonie : degrés d'une gamme, accord du degré sur le manche entier (une couleur par note de l'accord) */
+.harmony-panel { width: min(calc(100vw - 24px), max(760px, 68vw)); height: auto; max-height: calc(100vh - 24px); min-width: 320px; min-height: 0; display: flex; flex-direction: column; gap: 10px; --sc-h: 36px; overflow: auto; }
+.harm-controls .scales-select.harm-select-type { width: auto; min-width: 150px; max-width: 250px; flex: 0 1 auto; }
+.harm-options { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.harm-options[hidden], .harm-opt-row[hidden] { display: none; }
+.harm-opt-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.harm-opt-label { min-width: 160px; font-size: var(--fs-xs); color: var(--text-muted); }
+.harm-opt-row .scales-chip { height: 30px; font-size: var(--fs-xs); }
+.harm-degrees { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+@media (max-width: 700px) { .harm-degrees { grid-template-columns: repeat(4, minmax(0, 1fr)); } .harm-opt-label { min-width: 0; width: 100%; } }
+button.harm-deg { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 2px; min-width: 0; height: auto; padding: 8px 4px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: transparent; color: var(--text-main); font: inherit; cursor: pointer; text-align: center; box-shadow: none; }
+button.harm-deg:hover { border-color: var(--accent); }
+button.harm-deg.harm-deg-on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.harm-deg-num { font-size: var(--fs-md); font-weight: 800; overflow-wrap: anywhere; }
+.harm-deg-sym { font-size: var(--fs-sm); font-weight: 600; overflow-wrap: anywhere; }
+.harm-deg-notes { font-size: var(--fs-2xs); color: var(--text-muted); overflow-wrap: anywhere; }
+.harm-deg-fn { margin-top: 2px; padding: 0 7px; border: 1px solid currentColor; border-radius: 999px; font-size: var(--fs-2xs); font-weight: 800; }
+.harm-fn-t { color: #3ddc84; } .harm-fn-sd { color: #ffa726; } .harm-fn-d { color: #ef5350; } .harm-fn-none { color: var(--text-muted); opacity: .7; }
+.harm-detail { font-size: var(--fs-sm); line-height: 1.45; overflow-wrap: anywhere; }
+.harm-detail-facts { margin-top: 2px; font-size: var(--fs-xs); color: var(--text-muted); }
+.fretboard-note.harm-r1 { fill: #00e676; stroke: #b9ffd9; }
+.fretboard-note.harm-r3 { fill: #ffb300; stroke: #ffe39a; }
+.fretboard-note.harm-r5 { fill: #29b6f6; stroke: #b3e5fc; }
+.fretboard-note.harm-r7 { fill: #b388ff; stroke: #e3d4ff; }
+.fretboard-note.harm-rt { fill: #ff80ab; stroke: #ffd3e2; }
+.fretboard-note.harm-scale { fill: none; stroke: rgba(160, 170, 185, .75); stroke-width: 1.6; }
+.harm-tone + .fretboard-note-label { fill: #0d1117; }
+.piano-key-white.harm-r1, .piano-key-black.harm-r1 { fill: #00e676; }
+.piano-key-white.harm-r3, .piano-key-black.harm-r3 { fill: #ffb300; }
+.piano-key-white.harm-r5, .piano-key-black.harm-r5 { fill: #29b6f6; }
+.piano-key-white.harm-r7, .piano-key-black.harm-r7 { fill: #b388ff; }
+.piano-key-white.harm-rt, .piano-key-black.harm-rt { fill: #ff80ab; }
+.piano-key-white.harm-scale { fill: #cfd8dc; } .piano-key-black.harm-scale { fill: #607d8b; }
+.piano-key-black[class*="harm-r"] + .piano-key-label-black { fill: #0d1117; }
+.harm-dot-r1 { background: #00e676; } .harm-dot-r3 { background: #ffb300; } .harm-dot-r5 { background: #29b6f6; } .harm-dot-r7 { background: #b388ff; } .harm-dot-rt { background: #ff80ab; } .harm-dot-scale { background: transparent; border: 1.6px solid rgba(160, 170, 185, .85); width: 9px; height: 9px; }
+button.scales-chip[hidden], .harm-controls [hidden] { display: none !important; }
