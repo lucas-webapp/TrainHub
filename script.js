@@ -1416,7 +1416,7 @@
 
     // Visionneuse d'images : une fenêtre flottante NON modale (le métronome, la session… restent visibles et
     // utilisables, et la barre espace garde son effet). Déplaçable à la main, redimensionnable (taille et position
-    // retenues pour la prochaine image), ou en plein écran (bouton ⛶, ou ouverture directe depuis la vignette).
+    // retenues pour la prochaine image), ou en plein écran (bouton ⛶ ou double-clic sur l'image).
     var EXPAND_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/></svg>';
     var imageViewerClose = null;
     function openImageViewer(images, startIndex, startFull) {
@@ -1802,41 +1802,26 @@
         return wrap;
     }
 
-    // ---- images : bouton dans la barre de l'exercice, ouverture dans un onglet du navigateur ----
+    // ---- images : bouton dans la barre de l'exercice, ouverture dans la visionneuse flottante (voir openImageViewer) ----
     var NOTE_BUBBLE_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 8.2V7a3.5 3.5 0 0 1 3.5-3.5H18A3.5 3.5 0 0 1 21.5 7v3a3.5 3.5 0 0 1-3.5 3.5h-.4l.8 3.2-3.9-3.2h-.5"/><path d="M6 8.5h5a3.5 3.5 0 0 1 3.5 3.5v2a3.5 3.5 0 0 1-3.5 3.5H8l-3.6 3.2.7-3.3A3.5 3.5 0 0 1 2.5 14v-2A3.5 3.5 0 0 1 6 8.5Z"/></svg>';
     var IMAGE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 8"/></svg>';
-    function openExerciseImageInTab(meta) {
-        var cached = imageUrlCache[meta.id];
-        if (cached) { window.open(cached, "_blank"); return; }
-        // Pas encore en mémoire : onglet ouvert tout de suite (geste de l'utilisateur), rempli dès que l'image est lue.
-        var w = window.open("", "_blank");
-        getFileBlob(meta.id).then(function (blob) { return blob || cloudFetchImage(meta); }).then(function (blob) {
-            if (!blob) { if (w) w.close(); showToast("Image absente de cet appareil.", 4000); return; }
-            var url = URL.createObjectURL(blob);
-            imageUrlCache[meta.id] = url;
-            if (w) w.location.href = url; else window.open(url, "_blank");
-        });
-    }
+    // Un clic ouvre la visionneuse flottante (fenêtre déplaçable et redimensionnable, bouton plein écran, dernière taille retenue) ;
+    // plusieurs images : on choisit d'abord, puis ‹ › permettent de passer de l'une à l'autre.
     function appendExerciseImageButton(row, ex) {
         var list = ex.images || [];
         if (!list.length) return;
-        // Préchargées en arrière-plan : le clic peut alors ouvrir l'onglet directement.
-        list.forEach(function (m) {
-            if (m.id in imageUrlCache) return;
-            getFileBlob(m.id).then(function (b) { if (b && !(m.id in imageUrlCache)) imageUrlCache[m.id] = URL.createObjectURL(b); });
-        });
         var btn = document.createElement("button");
         btn.type = "button";
         btn.className = "exercise-link-quick exercise-image-quick";
         btn.innerHTML = IMAGE_ICON_SVG + (list.length > 1 ? '<span class="exercise-image-count">' + list.length + "</span>" : "");
-        btn.title = list.length > 1 ? "Ouvrir une image dans un onglet (" + list.length + ")" : "Ouvrir l'image dans un onglet";
+        btn.title = list.length > 1 ? "Voir les images (" + list.length + ")" : "Voir l'image";
         btn.setAttribute("aria-label", btn.title);
         btn.addEventListener("click", function (e) {
             e.stopPropagation();
-            if (list.length === 1) { openExerciseImageInTab(list[0]); return; }
+            if (list.length === 1) { openImageViewer(list, 0, false); return; }
             var rect = btn.getBoundingClientRect();
             openLinksQuickMenu(rect.left, rect.bottom, list.map(function (m, i) {
-                return { label: "Image " + (i + 1) + (m.name ? " · " + m.name : ""), open: function () { openExerciseImageInTab(m); } };
+                return { label: "Image " + (i + 1) + (m.name ? " · " + m.name : ""), open: function () { openImageViewer(list, i, false); } };
             }));
         });
         row.appendChild(btn);
@@ -5107,7 +5092,7 @@
             links.forEach(function (l) { items.push({ label: l.label || l.url, open: function () { openLinkSmart(l, ex); } }); });
             audios.forEach(function (m) { items.push({ label: "♪ " + m.name, open: function () { openAudioWindow(m); } }); });
             others.forEach(function (m) { items.push({ label: "📄 " + m.name, open: function () { fileOpenInTab(m); } }); });
-            images.forEach(function (m, i) { items.push({ label: "▣ " + (m.name || "Image " + (i + 1)), open: function () { openExerciseImageInTab(m); } }); });
+            images.forEach(function (m, i) { items.push({ label: "▣ " + (m.name || "Image " + (i + 1)), open: function () { openImageViewer(images, i, false); } }); });
             var rect = btn.getBoundingClientRect();
             openLinksQuickMenu(rect.right - 200, rect.bottom, items);
         });
