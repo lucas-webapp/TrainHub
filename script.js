@@ -1805,8 +1805,23 @@
     // ---- images : bouton dans la barre de l'exercice, ouverture dans la visionneuse flottante (voir openImageViewer) ----
     var NOTE_BUBBLE_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 8.2V7a3.5 3.5 0 0 1 3.5-3.5H18A3.5 3.5 0 0 1 21.5 7v3a3.5 3.5 0 0 1-3.5 3.5h-.4l.8 3.2-3.9-3.2h-.5"/><path d="M6 8.5h5a3.5 3.5 0 0 1 3.5 3.5v2a3.5 3.5 0 0 1-3.5 3.5H8l-3.6 3.2.7-3.3A3.5 3.5 0 0 1 2.5 14v-2A3.5 3.5 0 0 1 6 8.5Z"/></svg>';
     var IMAGE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 8"/></svg>';
+    // Ouvre l'image dans un onglet du navigateur (clic droit / appui long sur la vignette de la barre d'exercice).
+    function openImageInBrowserTab(meta) {
+        var cached = imageUrlCache[meta.id];
+        if (cached) { window.open(cached, "_blank"); return; }
+        // Pas encore en mémoire : onglet ouvert tout de suite (geste de l'utilisateur), rempli dès que l'image est lue.
+        var w = window.open("", "_blank");
+        getFileBlob(meta.id).then(function (blob) { return blob || cloudFetchImage(meta); }).then(function (blob) {
+            if (!blob) { if (w) w.close(); showToast("Image absente de cet appareil.", 4000); return; }
+            return sniffImageBlob(blob).then(function (fixed) { // vrai type d'après les premiers octets (comme la visionneuse)
+                imageBlobCache[meta.id] = fixed;
+                var url = imageUrlCache[meta.id] = URL.createObjectURL(fixed);
+                if (w) w.location.href = url; else window.open(url, "_blank");
+            });
+        });
+    }
     // Un clic ouvre la visionneuse flottante (fenêtre déplaçable et redimensionnable, bouton plein écran, dernière taille retenue) ;
-    // plusieurs images : on choisit d'abord, puis ‹ › permettent de passer de l'une à l'autre.
+    // plusieurs images : on choisit d'abord, puis ‹ › permettent de passer de l'une à l'autre. Clic droit : ouvrir dans un onglet.
     function appendExerciseImageButton(row, ex) {
         var list = ex.images || [];
         if (!list.length) return;
@@ -1814,16 +1829,22 @@
         btn.type = "button";
         btn.className = "exercise-link-quick exercise-image-quick";
         btn.innerHTML = IMAGE_ICON_SVG + (list.length > 1 ? '<span class="exercise-image-count">' + list.length + "</span>" : "");
-        btn.title = list.length > 1 ? "Voir les images (" + list.length + ")" : "Voir l'image";
+        btn.title = (list.length > 1 ? "Voir les images (" + list.length + ")" : "Voir l'image") + " — clic droit : ouvrir dans un onglet";
         btn.setAttribute("aria-label", btn.title);
         btn.addEventListener("click", function (e) {
             e.stopPropagation();
+            if (suppressNextClick) { suppressNextClick = false; return; } // fin d'un appui long (menu déjà ouvert)
             if (list.length === 1) { openImageViewer(list, 0, false); return; }
             var rect = btn.getBoundingClientRect();
             openLinksQuickMenu(rect.left, rect.bottom, list.map(function (m, i) {
                 return { label: "Image " + (i + 1) + (m.name ? " · " + m.name : ""), open: function () { openImageViewer(list, i, false); } };
             }));
         });
+        bindContextGesture(btn, function (x, y) {
+            openLinksQuickMenu(x, y, list.map(function (m, i) {
+                return { label: list.length > 1 ? "Ouvrir dans un onglet : Image " + (i + 1) + (m.name ? " · " + m.name : "") : "Ouvrir dans un onglet du navigateur", open: function () { openImageInBrowserTab(m); } };
+            }));
+        }, { selfButton: true });
         row.appendChild(btn);
     }
 
