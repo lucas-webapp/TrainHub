@@ -2194,7 +2194,7 @@
     var STAR_FILLED_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.7l2.9 6 6.6.7-4.9 4.5 1.3 6.5L12 17.4l-5.9 3 1.3-6.5-4.9-4.5 6.6-.7Z"/></svg>';
     var ARCHIVE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"/><path d="M10 13h4"/></svg>';
     var FILE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05 12.25 20.24a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
-    var METRONOME_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 21 10 4h4l3 17Z"/><path d="M12 4V2.3"/><path d="M12 18 15.2 6.5"/><circle cx="14.1" cy="10.8" r="1.3" fill="currentColor" stroke="none"/></svg>';
+    var METRONOME_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.6 2.6h2.8l4.1 18.8H6.5Z"/><path d="M7.7 17h8.6"/><path d="M12.1 13.8 18.7 6.2"/></svg>';
     var METRO_PLAY_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5Z"/></svg>';
     var METRO_STOP_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
     var METRO_VOLUME_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v4h4l5 4V6L8 10Z"/><path d="M17 9a4.5 4.5 0 0 1 0 6"/><path d="M19.5 6.5a8.5 8.5 0 0 1 0 11"/></svg>';
@@ -14940,6 +14940,7 @@
             }
             // [touches, description] ; dans « touches », « + » = combinaison, « | » = ou
             group("Clavier", [
+                [["↑", "|", "→", "|", "↓", "|", "←"], "Dans le métronome : ↑ ou → augmente le tempo d'un BPM, ↓ ou ← le diminue (avec Maj : de 10). Sans effet dans un champ, une liste ou un curseur, ni sous une autre fenêtre ; métronome épinglé : après un clic dans le volet."],
                 [["Espace"], "Démarrer / arrêter le métronome. Pendant une session guidée avec le métronome ouvert : appui simple = métronome, double appui rapide = pause / reprise de la session. Sans effet dans un champ de saisie ou sous une fenêtre."],
                 [[MOD, "+", "Z"], "Annuler la dernière modification (aussi dans le calendrier)."],
                 [[MOD, "+", "Y", "|", MOD, "+", "Maj", "+", "Z"], "Rétablir."],
@@ -22248,6 +22249,33 @@
     // on annule donc aussi le keyup d'un Espace déjà pris en charge.
     document.addEventListener("keyup", function (e) {
         if (spaceKeyHandled && isSpaceKeyEvent(e)) { spaceKeyHandled = false; e.preventDefault(); }
+    }, true);
+
+    // Flèches : tempo du métronome (↑ ou → : +1, ↓ ou ← : −1, avec Maj : ±10 comme les boutons −10 / +10). Les flèches ont déjà bien d'autres rôles,
+    // donc ce raccourci s'efface partout où elles servent : dans un champ de saisie, une liste, un curseur (volume), des boutons radio ; sous la
+    // visionneuse d'images (← →), un menu, une boîte de dialogue ou une autre fenêtre ; avec Ctrl / ⌘ / Alt (Alt + flèche = page précédente du navigateur).
+    // Métronome flottant : il agit tant que le métronome est la fenêtre du dessus. Métronome épinglé (volet de la session) : seulement après un clic
+    // dans le volet — sinon ↑ ↓ font défiler la page comme d'habitude.
+    var metroDockFocus = false;
+    document.addEventListener("pointerdown", function (e) { metroDockFocus = !!(closeDockedMetronome && $metroDock && $metroDock.contains(e.target)); }, true);
+    function arrowKeyBelongsToTarget(el) {
+        if (!el || !el.tagName) return false;
+        var tag = el.tagName.toLowerCase();
+        if (tag === "textarea" || tag === "select" || tag === "option" || el.isContentEditable) return true;
+        if (tag === "input") return ["button", "checkbox", "submit", "reset", "image"].indexOf((el.type || "text").toLowerCase()) === -1; // texte, nombre, curseur, radio…
+        return !!(el.closest && el.closest("[role=slider], [role=listbox], [role=menu], [role=tablist], [role=radiogroup], [role=spinbutton], .settings-seg"));
+    }
+    document.addEventListener("keydown", function (e) {
+        var dir = e.key === "ArrowUp" || e.key === "ArrowRight" ? 1 : e.key === "ArrowDown" || e.key === "ArrowLeft" ? -1 : 0;
+        if (!dir || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || e.defaultPrevented) return;
+        if (!metroPanelApi || !metroPanelApi.setBpm) return;
+        if (arrowKeyBelongsToTarget(e.target) || dlgIsOpen() || document.querySelector(".ctx-menu, .img-viewer, .harm-pop")) return;
+        if (closeDockedMetronome) { // épinglé : le focus ou le dernier clic doit être dans le volet ; une autre fenêtre ouverte par-dessus gagne
+            if (closeActiveModal && activeModalKind !== "metronome-panel") return;
+            if (!(metroDockFocus || ($metroDock && $metroDock.contains(document.activeElement)))) return;
+        } else if (!closeActiveModal || activeModalKind !== "metronome-panel") return; // flottant : il doit être la fenêtre du dessus
+        e.preventDefault();
+        metroPanelApi.setBpm((state.settings.metronome.bpm || 80) + dir * (e.shiftKey ? 10 : 1));
     }, true);
 
     var $metronomeBtn = document.getElementById("metronome-btn");
