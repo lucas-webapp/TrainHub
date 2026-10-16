@@ -676,6 +676,24 @@
         logFlat = null;
     }
     logLoadLocal();
+    // Mois du journal pas encore envoyés au cloud : gardés aussi sur disque. Sinon, une séance enregistrée hors connexion puis l'appli fermée
+    // n'était plus reconnue comme « à envoyer » à la reconnexion (le cloud croyait déjà avoir la même révision) et ne partait jamais.
+    var LOG_DIRTY_KEY = "trainhub.logDirty.v1";
+    function logDirtySave() { try { var ms = Object.keys(logDirty); if (ms.length) localStorage.setItem(LOG_DIRTY_KEY, JSON.stringify(ms)); else localStorage.removeItem(LOG_DIRTY_KEY); } catch (e) {} }
+    function logDirtyMark(m) { if (!logDirty[m]) { logDirty[m] = true; logDirtySave(); } }
+    function logDirtyDrop(m) { if (logDirty[m]) { delete logDirty[m]; logDirtySave(); } }
+    (function logDirtyLoad() {
+        try { var a = JSON.parse(localStorage.getItem(LOG_DIRTY_KEY)); if (Array.isArray(a)) a.forEach(function (m) { if (/^\d{4}-\d{2}$/.test(m) && logMonths[m]) logDirty[m] = true; }); } catch (e) {}
+    })();
+    // Séances enregistrées HORS CONNEXION (identifiants) : à la reconnexion, on confirme qu'elles sont bien parties (voir logPendingReport).
+    var LOG_PENDING_KEY = "trainhub.logPending.v1";
+    function logPendingRead() { try { var a = JSON.parse(localStorage.getItem(LOG_PENDING_KEY)); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+    function logPendingWrite(a) { try { if (a.length) localStorage.setItem(LOG_PENDING_KEY, JSON.stringify(a.slice(-50))); else localStorage.removeItem(LOG_PENDING_KEY); } catch (e) {} }
+    function logPendingAdd(rec) { if (!rec || !rec.id) return; var a = logPendingRead(); if (a.indexOf(rec.id) === -1) { a.push(rec.id); logPendingWrite(a); } }
+    function logPendingCount() { // séances en attente d'envoi qui existent encore dans le journal
+        var have = {}; logAll().forEach(function (r) { have[r.id] = true; });
+        return logPendingRead().filter(function (id) { return have[id]; }).length;
+    }
     function logAll() {
         if (!logFlat) {
             logFlat = [];
@@ -684,7 +702,7 @@
         }
         return logFlat;
     }
-    function logTouch(m) { logMonths[m].updatedAt = Date.now(); logFlat = null; logDirty[m] = true; logSaveMonth(m); }
+    function logTouch(m) { logMonths[m].updatedAt = Date.now(); logFlat = null; logDirtyMark(m); logSaveMonth(m); }
     function logAdd(rec) {
         rec = JSON.parse(JSON.stringify(rec)); // sans valeur « undefined » (refusée par Firestore)
         var m = logMonthOf(rec.date), b = logBucket(m);
@@ -748,6 +766,11 @@
     }
     // Enregistre une séance ; une séance libre rejoint celle du même jour s'il y en a déjà une. Renvoie la séance (fusionnée ou non).
     function logAddMergingFree(rec) {
+        var res = logAddMergingFreeRaw(rec);
+        if (!cloudSignedIn()) { logPendingAdd(res); if (typeof updateAuthUI === "function" && $signinBtn) updateAuthUI(null); } // pas connecté : la séance n'existe que sur cet appareil jusqu'à la prochaine connexion
+        return res;
+    }
+    function logAddMergingFreeRaw(rec) {
         if (!rec || !rec.free) { logAdd(rec); return rec; }
         var key = freeGroupKey(rec), same = logAll().filter(function (r) { return r.free && r.id !== rec.id && freeGroupKey(r) === key; });
         if (!same.length) { logAdd(rec); return rec; }
@@ -1041,6 +1064,8 @@
     var cloudFileIssue = {};                           // id de pièce jointe -> "signin" | "network" | "missing" (dernier échec de téléchargement)
     var cloudFetching = {};                            // id -> téléchargement en cours
     var authSettledResolve, authSettled = new Promise(function (r) { authSettledResolve = r; });
+    var authKnown = false; // Firebase a répondu (connecté ou non) : avant, « pas connecté » ne veut encore rien dire
+    authSettled.then(function () { authKnown = true; });
     // Un clic juste après l'ouverture de l'appli attend (8 s au plus) que Firebase sache si l'on est connecté.
     function waitForAuth() { return Promise.race([authSettled, new Promise(function (r) { setTimeout(r, 8000); })]); }
 
@@ -6868,7 +6893,59 @@
         } else {
             $signinBtn.hidden = false;
             $accountInfo.hidden = true;
+            if (signinDefaultTitle === null) signinDefaultTitle = $signinBtn.title;
+            var waiting = logPendingCount();
+            $signinBtn.title = waiting ? waiting + " séance" + (waiting > 1 ? "s" : "") + " enregistrée" + (waiting > 1 ? "s" : "") + " hors connexion : connecte-toi pour " + (waiting > 1 ? "les" : "l'") + "envoyer" : signinDefaultTitle;
         }
+    }
+    var signinDefaultTitle = null;
+    function startGoogleSignIn() { if ($signinBtn && !$signinBtn.hidden) $signinBtn.click(); }
+
+    // Garde-fou : une séance enregistrée alors qu'on n'est pas connecté à Google n'existe que sur cet appareil. On le dit AVANT, avec le choix
+    // de se connecter d'abord ; si on enregistre quand même, elle est notée « à envoyer » et part toute seule à la prochaine connexion.
+    function saveGuardSignedOut(go) {
+        if (cloudSignedIn() || !authKnown) { go(); return; }
+        var canSignIn = !!auth;
+        dlgOpen({ kind: "choice", title: "Pas connecté à Google",
+            message: canSignIn
+                ? "Cette séance sera enregistrée sur cet appareil seulement : elle ne sera ni dans ton compte, ni sur tes autres appareils tant que tu n'es pas connecté."
+                : "Ton compte est injoignable pour l'instant (hors connexion ?). Cette séance sera enregistrée sur cet appareil seulement.",
+            note: "Elle sera envoyée automatiquement à ta prochaine connexion." + (canSignIn ? " Si tu te connectes maintenant, appuie ensuite de nouveau sur « Enregistrer »." : ""),
+            cancelLabel: "Revenir",
+            buttons: (canSignIn ? [{ label: "Me connecter d'abord", kind: "plain", left: true, onClick: function () { startGoogleSignIn(); } }] : [])
+                .concat([{ label: "Enregistrer quand même", kind: "primary", onClick: function () { go(); } }]), wide: true });
+    }
+    // Message après l'enregistrement d'une séance : le même, avec la mention « sur cet appareil seulement » quand on n'est pas connecté.
+    function savedToast(message, ms) {
+        if (!cloudSignedIn() && authKnown) showToast(message + " — sur cet appareil seulement (pas connecté à Google) : elle partira à la prochaine connexion.", 10000, auth ? { label: "Se connecter", run: startGoogleSignIn } : undefined);
+        else showToast(message, ms);
+    }
+    // À la reconnexion : les séances enregistrées hors connexion sont-elles bien parties ? On le dit, et on ne les « oublie » qu'une fois envoyées.
+    function logPendingReport() {
+        var ids = logPendingRead();
+        if (!ids.length) return;
+        var byId = {}; logAll().forEach(function (r) { byId[r.id] = r; });
+        var sent = 0, keep = [];
+        ids.forEach(function (id) {
+            var r = byId[id];
+            if (!r) return; // supprimée depuis : plus rien à confirmer
+            if (logDirty[logMonthOf(r.date)]) keep.push(id); else sent++;
+        });
+        logPendingWrite(keep);
+        if (sent) showToast(sent + (sent > 1 ? " séances enregistrées hors connexion ont bien été envoyées" : " séance enregistrée hors connexion a bien été envoyée") + " vers ton compte.", 7000);
+        else if (keep.length) logPendingFailNotice();
+    }
+    function logPendingFailNotice() {
+        if (logPendingCount()) showToast("Des séances enregistrées hors connexion n'ont pas pu partir : elles restent sur cet appareil et repartiront à la prochaine synchronisation.", 9000);
+    }
+    // À l'ouverture sans connexion : rappel s'il reste des séances en attente d'envoi.
+    var pendingRemindDone = false;
+    function logPendingRemind() {
+        if (pendingRemindDone) return;
+        pendingRemindDone = true;
+        var n = logPendingCount();
+        if (!n) return;
+        showToast("Pas connecté à Google : " + n + (n > 1 ? " séances attendent d'être envoyées" : " séance attend d'être envoyée") + " vers ton compte.", 12000, { label: "Se connecter", run: startGoogleSignIn });
     }
 
     function isRemoteNewer(remote) {
@@ -6883,25 +6960,44 @@
         return Promise.all(Object.keys(logDirty).map(function (m) {
             var b = logMonths[m], at = b.updatedAt;
             return logCloudDoc(m).set({ month: m, records: b.records, deleted: b.deleted, updatedAt: at }).then(function () {
-                if (logMonths[m].updatedAt === at) delete logDirty[m];
+                if (logMonths[m].updatedAt === at) logDirtyDrop(m);
             });
         }));
     }
-    // Fusion d'un lot reçu avec le lot local : union des séances, moins les suppressions des deux côtés.
+    // Une même séance (même identifiant) peut exister en deux versions : une séance libre du jour grossit à chaque bout ajouté (`parts`).
+    // On garde la plus complète ; à égalité, celle du lot le plus récemment modifié (localNewer).
+    function logPickRecord(a, c, localNewer) {
+        var pa = (a.parts || [a.id]).length, pc = (c.parts || [c.id]).length;
+        if (pa !== pc) return pa > pc ? a : c;
+        return localNewer ? a : c;
+    }
+    // Fusion d'un lot reçu avec le lot local : union des séances, moins les suppressions des deux côtés ; une séance présente des deux
+    // côtés mais différente est départagée par logPickRecord (avant, la version locale gagnait sans jamais être renvoyée : le cloud gardait l'ancienne).
     // Renvoie true si le lot local a changé ; marque le lot « à envoyer » si le cloud n'avait pas tout.
     function logMergeRemote(m, data) {
         var b = logBucket(m);
         var del = {};
         b.deleted.concat(data.deleted || []).forEach(function (id) { del[id] = true; });
-        var byId = {};
-        b.records.concat(data.records || []).forEach(function (r) { if (r && r.id && !del[r.id] && !byId[r.id]) byId[r.id] = r; });
-        var merged = Object.keys(byId).map(function (k) { return byId[k]; });
+        var loc = {}, rem = {}, ids = [], localNewer = b.updatedAt >= (data.updatedAt || 0);
+        b.records.forEach(function (r) { if (r && r.id) { loc[r.id] = r; ids.push(r.id); } });
+        (data.records || []).forEach(function (r) { if (r && r.id) { rem[r.id] = r; if (!loc[r.id]) ids.push(r.id); } });
+        var merged = [], changedLocal = false, cloudLacks = false;
+        ids.forEach(function (id) {
+            var a = loc[id], c = rem[id], win;
+            if (del[id]) { if (a) changedLocal = true; if (c) cloudLacks = true; return; } // supprimée d'un côté : elle disparaît partout
+            if (a && c) {
+                if (JSON.stringify(a) === JSON.stringify(c)) win = a;
+                else { win = logPickRecord(a, c, localNewer); if (win === a) cloudLacks = true; else changedLocal = true; }
+            } else if (a) { win = a; cloudLacks = true; }
+            else { win = c; changedLocal = true; }
+            merged.push(win);
+        });
         var delList = Object.keys(del);
-        var changedLocal = merged.length !== b.records.length || delList.length !== b.deleted.length;
-        var cloudLacks = merged.length !== (data.records || []).length || delList.length !== (data.deleted || []).length;
+        if (delList.length !== b.deleted.length) changedLocal = true;
+        if (delList.length !== (data.deleted || []).length) cloudLacks = true;
         b.records = merged; b.deleted = delList; b.updatedAt = Math.max(b.updatedAt, data.updatedAt || 0);
         logFlat = null; logSaveMonth(m);
-        if (cloudLacks) logDirty[m] = true;
+        if (cloudLacks) logDirtyMark(m); else logDirtyDrop(m); // le cloud a déjà tout : rien à renvoyer
         return changedLocal;
     }
     function logSyncFromCloud(remoteRev) {
@@ -6911,18 +7007,19 @@
         Object.keys(remoteRev).forEach(function (m) { months[m] = true; });
         Object.keys(logMonths).forEach(function (m) { months[m] = true; });
         var tasks = Object.keys(months).filter(function (m) {
-            return !logMonths[m] || remoteRev[m] === undefined || remoteRev[m] !== logMonths[m].updatedAt;
+            // un mois resté « à envoyer » (séance enregistrée hors connexion, envoi interrompu…) est toujours repris, même si les révisions concordent
+            return !logMonths[m] || logDirty[m] || remoteRev[m] === undefined || remoteRev[m] !== logMonths[m].updatedAt;
         }).map(function (m) {
-            if (remoteRev[m] === undefined) { logDirty[m] = true; return Promise.resolve(false); } // inconnu du cloud : à envoyer
+            if (remoteRev[m] === undefined && !logDirty[m]) { logDirtyMark(m); return Promise.resolve(false); } // inconnu du cloud : à envoyer
             return logCloudDoc(m).get().then(function (snap) {
-                if (!snap.exists) { if (logMonths[m]) logDirty[m] = true; return false; }
+                if (!snap.exists) { if (logMonths[m]) logDirtyMark(m); return false; }
                 return logMergeRemote(m, snap.data());
             });
         });
         return Promise.all(tasks).then(function (changed) {
             if (consolidateFreeRecords()) changed.push(true); // un autre appareil a pu ajouter un bout d'entraînement libre ce jour-là
-            return logPushDirty().then(function () { if (changed.some(Boolean)) render(); });
-        }).catch(function (e) { console.error("Synchro du journal impossible", e); setSyncStatus("error"); });
+            return logPushDirty().then(function () { logPendingReport(); if (changed.some(Boolean)) render(); });
+        }).catch(function (e) { console.error("Synchro du journal impossible", e); setSyncStatus("error"); logPendingFailNotice(); });
     }
 
     function applyRemoteState(remote) {
@@ -6988,6 +7085,7 @@
         if (!user) {
             docRef = null;
             setSyncStatus(null);
+            logPendingRemind();
             return;
         }
         docRef = db.collection("users").doc(user.uid).collection("apps").doc(FIREBASE_APP_SLUG);
@@ -18563,10 +18661,12 @@
             };
             yes = document.createElement("button"); yes.type = "button"; yes.className = "btn-accent gs-rec-save"; yes.textContent = "Enregistrer";
             yes.addEventListener("click", function () {
-                resolved = true;
-                var out = buildOut(false);
-                close();
-                opts.onSave(out);
+                saveGuardSignedOut(function () {
+                    resolved = true;
+                    var out = buildOut(false);
+                    close();
+                    opts.onSave(out);
+                });
             });
             actions.appendChild(no); actions.appendChild(yes);
             panel.appendChild(guardHint);
@@ -18596,7 +18696,7 @@
             onSave: function (rec) {
                 var res = logAddMergingFree(rec), joined = rec.free && res !== rec;
                 save(); gsLiveClear();
-                showToast(joined ? "Ajouté à la session libre du jour (total " + gsFmtDur(res.totalSec) + ")" : rec.free ? "Entraînement enregistré dans l'historique" : "Session enregistrée dans l'historique", joined ? 5000 : undefined);
+                savedToast(joined ? "Ajouté à la session libre du jour (total " + gsFmtDur(res.totalSec) + ")" : rec.free ? "Entraînement enregistré dans l'historique" : "Session enregistrée dans l'historique", joined ? 5000 : undefined);
             },
             onCancel: function (edited) { park("Non enregistrée", edited); },
             onDismiss: function (edited) { park("Fenêtre fermée sans enregistrer", edited); }
@@ -19025,7 +19125,7 @@
             onSave: function (out) {
                 var res = logAddMergingFree(out), joined = res !== out;
                 save();
-                showToast("Séance du " + calLongDate(calKey(new Date(out.date))) + " ajoutée (" + gsFmtDur(out.totalSec) + (joined ? ", jointe à la séance libre du jour : " + gsFmtDur(res.totalSec) : "") + ")", 6000);
+                savedToast("Séance du " + calLongDate(calKey(new Date(out.date))) + " ajoutée (" + gsFmtDur(out.totalSec) + (joined ? ", jointe à la séance libre du jour : " + gsFmtDur(res.totalSec) : "") + ")", 6000);
                 if (opts.afterClose) opts.afterClose(out);
             },
             onCancel: function () { if (opts.afterClose) opts.afterClose(null); }
@@ -20553,7 +20653,7 @@
                             onSave: function (out) {
                                 var res = logAddMergingFree(out), joined = out.free && res !== out;
                                 recentRunsRemove(e.id); save();
-                                showToast(joined ? "Ajouté à la session libre du jour (total " + gsFmtDur(res.totalSec) + ")" : "Séance enregistrée dans l'historique");
+                                savedToast(joined ? "Ajouté à la session libre du jour (total " + gsFmtDur(res.totalSec) + ")" : "Séance enregistrée dans l'historique");
                                 openSessionHistory();
                             },
                             onCancel: function () { openSessionHistory("recent"); }
