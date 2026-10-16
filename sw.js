@@ -1,4 +1,4 @@
-const CACHE_NAME = "trainhub-v201";
+const CACHE_NAME = "trainhub-v202";
 // Piano du lecteur d'harmonie (17 échantillons, ~1,2 Mo) : un cache à part, gardé d'une version à l'autre (il ne change pas).
 const PIANO_CACHE = "trainhub-piano-v1";
 const PIANO = ["C2", "Ds2", "Fs2", "A2", "C3", "Ds3", "Fs3", "A3", "C4", "Ds4", "Fs4", "A4", "C5", "Ds5", "Fs5", "A5", "C6"].map((n) => "audio/piano/" + n + ".mp3");

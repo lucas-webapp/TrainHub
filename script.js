@@ -575,6 +575,13 @@
     function normalizeState(s) {
         if (!s.settings || typeof s.settings !== "object") s.settings = {};
         normalizeMetronomeSettings(s.settings);
+        // Une fois : la durée de base d'un palier du tempo progressif passe de 20 s à 15 s. Seul le réglage courant du métronome
+        // (resté à 20 s) est touché ; les réglages rangés dans les exercices et les réglages enregistrés gardent leur durée.
+        if (!s.settings.progDelay15) {
+            s.settings.progDelay15 = true;
+            var pg = s.settings.metronome && s.settings.metronome.progressive;
+            if (pg && pg.everySeconds === 20) pg.everySeconds = 15;
+        }
         normalizeGuidedSessions(s);
         normalizeStatsRules(s);
         normalizeTrash(s);
@@ -8437,10 +8444,10 @@
                 name: typeof pr.name === "string" && pr.name.trim() ? pr.name.trim().slice(0, 40) : "Réglage",
                 progressive: {
                     stagesMode: q.stagesMode === true && stages.length > 0,
-                    everySeconds: Math.min(600, Math.max(1, Math.round(Number(q.everySeconds)) || 20)),
+                    everySeconds: Math.min(600, Math.max(1, Math.round(Number(q.everySeconds)) || 15)),
                     limitBpm: Math.min(300, Math.max(0, Math.round(Number(q.limitBpm)) || 0)),
                     restoreOnStop: q.restoreOnStop === true,
-                    stages: stages.map(function (st) { return { inc: 1, every: Math.min(600, Math.max(1, Math.round(Number(st && st.every)) || 20)), until: Math.min(300, Math.max(30, Math.round(Number(st && st.until)) || 100)) }; })
+                    stages: stages.map(function (st) { return { inc: 1, every: Math.min(600, Math.max(1, Math.round(Number(st && st.every)) || 15)), until: Math.min(300, Math.max(30, Math.round(Number(st && st.until)) || 100)) }; })
                 }
             };
         });
@@ -8490,12 +8497,12 @@
         // une DURÉE (toutes les N secondes) et non un nombre de mesures — sinon, à mesure que le tempo
         // monte, les mesures passent plus vite et l'augmentation s'accélère. Voir metroScheduler.
         // Version 2 : passage des mesures aux secondes ; les anciens réglages (en mesures) sont
-        // remplacés une fois par les valeurs par défaut (+1 BPM toutes les 20 s).
+        // remplacés une fois par les valeurs par défaut (+1 BPM toutes les 15 s).
         if (!m.progressive || typeof m.progressive !== "object") m.progressive = {};
         if (typeof m.progressive.enabled !== "boolean") m.progressive.enabled = false;
         if (!(m.progressive.version >= 2)) {
             m.progressive.incrementBpm = 1;
-            m.progressive.everySeconds = 20;
+            m.progressive.everySeconds = 15;
             delete m.progressive.everyMeasures;
         }
         // Version 3 : seuil (le tempo monte jusque-là puis reste), paliers successifs et options.
@@ -8509,10 +8516,11 @@
         pr.stages = pr.stages.filter(function (st) { return st && typeof st === "object"; }).map(function (st) {
             return {
                 inc: Math.min(50, Math.max(1, Math.round(Number(st.inc)) || 1)),
-                every: Math.min(600, Math.max(1, Math.round(Number(st.every)) || 20)),
+                every: Math.min(600, Math.max(1, Math.round(Number(st.every)) || 15)),
                 until: Math.min(300, Math.max(30, Math.round(Number(st.until)) || 100))
             };
         });
+        if (pr.stagesMode && pr.stages.length) pr.limitBpm = 0; // avec des paliers, chacun a son seuil : l'ancien seuil du réglage simple ne doit pas plafonner le tout au premier palier
         pr.stopAtLimit = pr.stopAtLimit === true;   // s'arrête une fois le seuil atteint (après un dernier palier de durée)
         pr.restoreOnStop = pr.restoreOnStop === true; // à l'arrêt, revient au tempo de départ
         // Entraînement (silences) : temps joués, mesures jouées/muettes, subdivisions, hasard, retrait progressif.
@@ -8536,7 +8544,7 @@
         m.progressive.stages.forEach(function (st) { st.inc = 1; });
         m.progressive.stopAtLimit = false;
         tr.enabled = false;
-        if (typeof m.progressive.everySeconds !== "number" || isNaN(m.progressive.everySeconds) || m.progressive.everySeconds <= 0) m.progressive.everySeconds = 20;
+        if (typeof m.progressive.everySeconds !== "number" || isNaN(m.progressive.everySeconds) || m.progressive.everySeconds <= 0) m.progressive.everySeconds = 15;
         return m;
     }
 
@@ -8563,13 +8571,12 @@
     // Liste des paliers effectivement appliqués : les paliers du mode "…" ou, en mode simple, un seul
     // palier (+inc toutes les N s) jusqu'au seuil éventuel. Triés par seuil croissant.
     function metroProgStages(p) {
-        var cap = p.limitBpm > 0 ? p.limitBpm : 300; // le seuil plafonne aussi les paliers
-        if (p.stagesMode && p.stages.length) {
+        if (p.stagesMode && p.stages.length) { // chaque palier a son seuil ; le seuil du réglage simple (limitBpm) n'intervient plus
             return p.stages.slice().sort(function (a, b) { return a.until - b.until; }).map(function (st) {
-                return { inc: 1, every: st.every, until: Math.min(st.until, cap) };
+                return { inc: 1, every: st.every, until: Math.min(st.until, 300) };
             });
         }
-        return [{ inc: 1, every: p.everySeconds, until: cap }];
+        return [{ inc: 1, every: p.everySeconds, until: p.limitBpm > 0 ? p.limitBpm : 300 }];
     }
     // Palier à appliquer au tempo donné : le premier dont le seuil n'est pas encore atteint (-1 = terminé).
     function metroProgStageIndex(stages, bpm) {
@@ -9200,12 +9207,10 @@
     function metroProgressiveTarget(p) {
         var pr = p.progressive;
         if (!pr || !pr.enabled) return null;
-        var cap = pr.limitBpm > 0 ? pr.limitBpm : 0;
-        if (pr.stagesMode && pr.stages && pr.stages.length) {
-            var top = Math.max.apply(null, pr.stages.map(function (st) { return st.until; }));
-            return { limit: cap ? Math.min(cap, top) : top };
+        if (pr.stagesMode && pr.stages && pr.stages.length) { // avec des paliers : le seuil visé est celui du DERNIER palier (le plus haut), pas du premier
+            return { limit: Math.max.apply(null, pr.stages.map(function (st) { return st.until; })) };
         }
-        return { limit: cap };
+        return { limit: pr.limitBpm > 0 ? pr.limitBpm : 0 };
     }
     // Réglage « spécial » (au-delà d'un simple tempo) : progressif, entraînement ou pavé détaillé.
     function metroPresetIsSpecial(p) {
@@ -9256,7 +9261,7 @@
                 else if (pr.stagesMode && pr.stages && pr.stages.length) {
                     var top = pr.stages.reduce(function (a, b) { return b.until > a.until ? b : a; });
                     top.until = n;
-                    if (pr.limitBpm > 0) pr.limitBpm = n;
+                    pr.limitBpm = 0;
                 } else pr.limitBpm = n;
                 cfg.set(p);
             },
@@ -9305,14 +9310,15 @@
                 figEl.textContent = fig;
                 row.appendChild(figEl);
             }
-            var tags = [];
-            if (act.eff.progressive && act.eff.progressive.enabled) tags.push("progressif");
-            if (act.eff.training && act.eff.training.enabled) tags.push("entraînement");
-            if (act.eff.advanced) tags.push("détaillé");
+            var tags = []; // [texte de la vignette, info-bulle]
+            if (act.eff.progressive && act.eff.progressive.enabled) tags.push(["prog.", "Tempo progressif"]);
+            if (act.eff.training && act.eff.training.enabled) tags.push(["entraînement", "Entraînement"]);
+            if (act.eff.advanced) tags.push(["détaillé", "Pavé rythmique détaillé"]);
             tags.forEach(function (t) {
                 var tg = document.createElement("span");
                 tg.className = "metro-preset-tag";
-                tg.textContent = t;
+                tg.textContent = t[0];
+                tg.title = t[1];
                 row.appendChild(tg);
             });
             if (!act.cur && cfg.inherited) {
@@ -9970,7 +9976,7 @@
             progToggle.setAttribute("aria-label", "Tempo progressif");
             toolsRow.appendChild(progToggle);
 
-            // Options à droite du bouton (deux lignes : « +1 BPM toutes les 20 s » puis « Seuil … ⋯ ») ; le reste dessous.
+            // Options à droite du bouton (deux lignes : « +1 BPM toutes les 15 s » puis « Seuil … ⋯ ») ; le reste dessous.
             var progSide = document.createElement("div");
             progSide.className = "metro-prog-side";
             toolsRow.appendChild(progSide);
@@ -10043,7 +10049,7 @@
                     line.className = "metro-prog-stage";
                     var c1 = document.createElement("td"), c2 = document.createElement("td"), c3 = document.createElement("td");
                     c1.appendChild(progNumber(st.every, 1, 600, function (n) {
-                        var v = Math.min(600, Math.max(1, n || 20));
+                        var v = Math.min(600, Math.max(1, n || 15));
                         if (st.simple) p.everySeconds = v; else st.every = v;
                         progChanged(); return v;
                     }, { pxPerStep: 4, label: "Délai en secondes avant chaque hausse de 1 BPM" }));
@@ -10081,15 +10087,16 @@
                 add.type = "button";
                 add.className = "metro-mini-btn metro-prog-add";
                 add.textContent = "+";
-                add.title = "Ajouter un palier (ex. toutes les 10 s jusqu'à 90, puis toutes les 20 s jusqu'à 100)";
+                add.title = "Ajouter un palier (ex. toutes les 10 s jusqu'à 90, puis toutes les 15 s jusqu'à 100)";
                 add.setAttribute("aria-label", "Ajouter un palier");
                 add.addEventListener("click", function () {
                     if (!p.stagesMode) { // premier palier = le réglage simple actuel
                         p.stagesMode = true;
                         p.stages = [{ inc: 1, every: p.everySeconds, until: p.limitBpm || Math.min(300, m.bpm + 20) }];
+                        p.limitBpm = 0; // le seuil devient celui du premier palier (sinon il plafonnerait les suivants)
                     }
                     var last = p.stages[p.stages.length - 1];
-                    p.stages.push({ inc: 1, every: last ? last.every : 20, until: Math.min(300, (last ? last.until : m.bpm) + 10) });
+                    p.stages.push({ inc: 1, every: last ? last.every : 15, until: Math.min(300, (last ? last.until : m.bpm) + 10) });
                     progChanged(); renderProgFields();
                 });
                 // Réglages enregistrés : retrouver d'un clic des paliers souvent utilisés (nommés, renommables).
@@ -11571,6 +11578,7 @@
                 if (ctx.onPick) ctx.onPick(pick);
                 ctx.persist();
                 showResult(); renderHist();
+                showView("draw"); // tiré depuis « Réglages » ou « Préréglages » : on revient voir le résultat (comme le dé d'harmonie)
             });
 
             // ============ vue « Réglages » : le réglage en cours, puis une ligne par dé qui ouvre un popover (comme le dé d'harmonie) ============

@@ -4633,3 +4633,13 @@ html[data-theme="light"] .gs-save-run-panel .gs-rec-item { background: #f6f8f6; 
 .dice-ex-cb, .tempo-goal-cb, .tempo-goal-box { flex: none; box-sizing: border-box; width: 16px; height: 16px; min-width: 0; padding: 0; margin: 0; border: 1.5px solid currentColor; border-radius: 4px; background: transparent; cursor: pointer; -webkit-appearance: none; appearance: none; accent-color: initial; }
 .dice-ex-cb:checked { background-color: var(--accent); border-color: var(--accent); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 6.3l2.4 2.4 4.6-5.2'/%3E%3C/svg%3E"); background-size: 11px; background-position: center; background-repeat: no-repeat; }
 .dice-ex-cb:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ===== v202 : vignettes plus serrées, puce audio plus courte, vignette « prog. » ===== */
+/* Barre d'exercice (et ligne d'exercice d'une session) : un peu moins d'écart entre les vignettes, pour laisser plus de place au titre. */
+.exercise-row-tools { gap: 5px; }
+.gs-step-exdata { gap: 5px; }
+@container exl (max-width: 600px) { .exercise-row-tools { gap: 4px; } }
+/* Puce audio : le nom du morceau est coupé tôt (« Jamiroquai… ») ; le nom entier reste dans l'info-bulle et dans le lecteur. */
+.exercise-audio-quick .exercise-link-quick-label { max-width: 6.6em; }
+/* Vignettes du tempo d'un exercice (« prog. », « détaillé ») : même taille que la figure rythmique (4/4) juste à côté. */
+.metro-preset-row .metro-preset-tag { font-size: var(--fs-xs); padding: 2px 8px; }
