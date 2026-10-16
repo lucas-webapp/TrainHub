@@ -5462,7 +5462,6 @@
         details.appendChild(buildMetronomePresetRow({
             title: ex.title,
             exId: ex.id,
-            goalEx: ex,
             get: function () { return ex.metronome; },
             set: function (p) { setExerciseMetronome(ex, p); }
         }));
@@ -15547,7 +15546,7 @@
         var sum = document.createElement("button"); sum.type = "button"; sum.className = "dice-ex-sum";
         var go = document.createElement("button"); go.type = "button"; go.className = "btn-ghost dice-ex-go"; go.textContent = "Tirer";
         var res = document.createElement("span"); res.className = "dice-ex-res";
-        row.appendChild(lab); row.appendChild(sum); row.appendChild(go); row.appendChild(res);
+        row.appendChild(lab); row.appendChild(buildTempoGoalToggle(ex, false)); row.appendChild(sum); row.appendChild(go); row.appendChild(res); // « Objectif tempo » juste à côté de « Dé » : mêmes cases, même taille
         function paint() {
             var harm = !!(ex.harm && typeof ex.harm === "object");
             ico.innerHTML = harm ? HARM_DICE_SVG : SCALES_DICE_SVG;
