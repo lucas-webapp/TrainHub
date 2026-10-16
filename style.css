@@ -4643,3 +4643,11 @@ html[data-theme="light"] .gs-save-run-panel .gs-rec-item { background: #f6f8f6; 
 .exercise-audio-quick .exercise-link-quick-label { max-width: 6.6em; }
 /* Vignettes du tempo d'un exercice (« prog. », « détaillé ») : même taille que la figure rythmique (4/4) juste à côté. */
 .metro-preset-row .metro-preset-tag { font-size: var(--fs-xs); padding: 2px 8px; }
+
+/* ===== v206 : « Objectif tempo » compact = l'icône seule, sans case ===== */
+/* Dans la ligne d'un exercice de session : même rendu que le dé juste à côté — icône grise sans cadre, verte avec un cadre vert clair quand l'objectif est actif. */
+.gs-step-tempo .tempo-goal-btn.tempo-goal-mini { flex: none; width: 30px; min-width: 30px; height: 30px; padding: 0; margin: 0 6px 0 0; border-color: transparent; background: transparent; color: var(--text-muted); }
+.gs-step-tempo .tempo-goal-btn.tempo-goal-mini .tempo-goal-ico .icon { width: 17px; height: 17px; }
+.gs-step-tempo .tempo-goal-btn.tempo-goal-mini:not(.tempo-goal-on) .tempo-goal-ico { opacity: 1; }
+.gs-step-tempo .tempo-goal-btn.tempo-goal-mini:hover { color: var(--accent); border-color: transparent; }
+.gs-step-tempo .tempo-goal-btn.tempo-goal-mini.tempo-goal-on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: color-mix(in srgb, var(--accent) 10%, transparent); }

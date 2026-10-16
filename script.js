@@ -9562,23 +9562,29 @@
     // confirmation, dans les deux sens (retirer ou ajouter l'objectif).
     function buildTempoGoalToggle(ex, mini, opts) {
         opts = opts || {};
-        var guard = !!opts.guard, cb = null, box = null;
-        var b = document.createElement(guard ? "button" : "label");
-        if (guard) b.type = "button";
+        // Version compacte (mini) : l'icône seule, sans case — elle devient verte quand l'objectif est actif (comme le dé). Version large : case + libellé.
+        var guard = !!opts.guard, cb = null, box = null, asButton = guard || !!mini;
+        var b = document.createElement(asButton ? "button" : "label");
+        if (asButton) b.type = "button";
         b.className = "tempo-goal-btn" + (mini ? " tempo-goal-mini" : "") + (guard ? " tempo-goal-guard" : "");
-        if (guard) { box = document.createElement("span"); box.className = "tempo-goal-box"; box.setAttribute("aria-hidden", "true"); }
-        else { cb = document.createElement("input"); cb.type = "checkbox"; cb.className = "tempo-goal-cb"; }
+        if (!mini) {
+            if (guard) { box = document.createElement("span"); box.className = "tempo-goal-box"; box.setAttribute("aria-hidden", "true"); }
+            else { cb = document.createElement("input"); cb.type = "checkbox"; cb.className = "tempo-goal-cb"; }
+        }
         var icon = document.createElement("span"); icon.className = "tempo-goal-ico"; icon.innerHTML = TARGET_ICON_SVG;
         var txt = null;
         if (!mini) { txt = document.createElement("span"); txt.className = "tempo-goal-txt"; txt.textContent = "Objectif tempo"; }
-        b.appendChild(guard ? box : cb); b.appendChild(icon); if (txt) b.appendChild(txt);
+        if (box || cb) b.appendChild(guard ? box : cb);
+        b.appendChild(icon); if (txt) b.appendChild(txt);
         function paint() {
             var on = tempoGoalOn(ex);
             b.classList.toggle("tempo-goal-on", on);
             if (cb) cb.checked = on;
-            if (guard) b.setAttribute("aria-pressed", on ? "true" : "false");
+            if (asButton) b.setAttribute("aria-pressed", on ? "true" : "false");
             b.title = guard
                 ? (on ? "Objectif tempo : les tempos de cet exercice comptent dans les statistiques — clic droit pour le retirer" : "Pas d'objectif tempo pour cet exercice — clic droit pour l'ajouter")
+                : mini ? (on ? "Objectif tempo actif : les tempos de cet exercice sont suivis dans les statistiques — cliquer pour l'exclure"
+                    : "Pas d'objectif tempo : cet exercice est exclu des statistiques de tempo — cliquer pour le suivre")
                 : on ? "Objectif tempo : les tempos de cet exercice sont suivis dans les statistiques — décocher pour l'exclure"
                 : "Pas d'objectif tempo : cet exercice est exclu des statistiques de tempo — cocher pour le suivre";
             b.setAttribute("aria-label", "Objectif tempo" + (on ? " (activé)" : " (désactivé)"));
@@ -9587,6 +9593,7 @@
         b.addEventListener("click", function (e) {
             e.stopPropagation();
             if (guard) { showToast("Clic droit (ou appui long) pour " + (tempoGoalOn(ex) ? "retirer" : "ajouter") + " l'objectif tempo de « " + ex.title + " ».", 3500); }
+            else if (mini) { setTempoGoal(ex, !tempoGoalOn(ex)); paint(); b.dispatchEvent(new Event("change", { bubbles: true })); } // « change » : comme la case des autres versions (voir la fenêtre d'enregistrement)
         });
         if (cb) cb.addEventListener("change", function () { setTempoGoal(ex, cb.checked); paint(); });
         if (guard) {
