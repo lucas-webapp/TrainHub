@@ -6097,6 +6097,148 @@
         audioAdd(audioLinkTrack(link), { select: !audioCtl || audioCtl.index < 0, play: false, pinned: true });
     }
 
+    // ---------- boucle sans coupure (Web Audio) ----------
+    // L'élément <audio> relance sa boucle avec une petite coupure (le décodeur repart de zéro, surtout en MP3 / M4A) : gênant pour une boucle de
+    // batterie. Quand la boucle est active, la vitesse à 100 % et le fichier enregistré dans l'appli, le morceau est décodé en mémoire et rejoué
+    // par Web Audio (AudioBufferSourceNode.loop : le raccord se fait à l'échantillon près). L'élément <audio> reste le chef d'orchestre de
+    // l'affichage (position, pause, déplacement dans la jauge…) mais il est rendu muet pendant ce temps et recalé sur la position réelle du son.
+    // Dès que la boucle est coupée, que la vitesse change (le ralenti garde la hauteur : seul l'élément sait le faire) ou que le contexte audio
+    // est interrompu par le système, l'élément reprend la main : le son ne disparaît jamais. Pas de moteur pour un lien (lecture protégée par le site).
+    var AUDIO_GAPLESS_MAX_BYTES = 40 * 1024 * 1024; // au-delà, un fichier trop lourd à décoder : la boucle de l'élément reste (sa coupure compte peu sur un long morceau)
+    var audioMutedDesc = typeof HTMLMediaElement !== "undefined" ? Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "muted") : null;
+    function audioEngNew() { return { ctx: null, gain: null, src: null, buf: null, bufId: null, loading: false, mute: false, failed: false, t0: 0, off: 0, timer: null, watch: null }; }
+    function audioEngGain(ctl) {
+        var eng = ctl.eng;
+        if (!eng || !eng.gain) return;
+        eng.gain.gain.value = ctl.userMuted ? 0 : Math.min(1, Math.max(0, audioLsGet(AUDIO_VOL_KEY, 1)));
+    }
+    // « Muet » vu de l'interface = le choix de l'utilisateur ; l'élément, lui, est aussi rendu muet quand Web Audio joue la boucle à sa place.
+    function audioEngApplyMute(ctl) {
+        if (audioMutedDesc && audioMutedDesc.set) audioMutedDesc.set.call(ctl.audio, !!(ctl.userMuted || (ctl.eng && ctl.eng.mute)));
+        audioEngGain(ctl);
+    }
+    function audioEngCtx(ctl) {
+        var eng = ctl.eng;
+        if (!eng.ctx) {
+            var Ctor = window.AudioContext || window.webkitAudioContext;
+            if (!Ctor) return null;
+            try {
+                eng.ctx = new Ctor();
+                eng.gain = eng.ctx.createGain();
+                eng.gain.connect(eng.ctx.destination);
+                audioEngGain(ctl);
+                eng.ctx.onstatechange = function () { if (eng.ctx && eng.ctx.state === "running") eng.failed = false; audioEngRefresh(ctl); }; // le système rend la main : le moteur peut reprendre
+            } catch (e) { eng.ctx = null; return null; }
+        }
+        return eng.ctx;
+    }
+    // Appelé pendant un geste de l'utilisateur (lecture, bouton boucle) : Safari n'autorise le démarrage du contexte qu'à ce moment-là.
+    function audioEngUnlock(ctl) {
+        var eng = ctl.eng;
+        if (!eng || !ctl.engOK || !ctl.audio.loop) return;
+        eng.failed = false;
+        var ctx = audioEngCtx(ctl);
+        if (ctx && ctx.state !== "running") { try { var pr = ctx.resume(); if (pr && pr.then) pr.then(function () { audioEngRefresh(ctl); }, function () {}); } catch (e) {} }
+    }
+    function audioEngDecode(ctx, ab) {
+        return new Promise(function (resolve, reject) {
+            try { var pr = ctx.decodeAudioData(ab, resolve, reject); if (pr && pr.then) pr.then(resolve, reject); } catch (e) { reject(e); }
+        });
+    }
+    function audioBlobBuffer(blob) {
+        if (blob.arrayBuffer) return blob.arrayBuffer();
+        return new Promise(function (resolve, reject) { var fr = new FileReader(); fr.onload = function () { resolve(fr.result); }; fr.onerror = function () { reject(fr.error); }; fr.readAsArrayBuffer(blob); });
+    }
+    // Décode le morceau en cours (une fois) quand la boucle est active.
+    function audioEngPrepare(ctl) {
+        var eng = ctl.eng, audio = ctl.audio, t = audioCur(ctl);
+        if (!eng || !ctl.engOK || !audio.loop || !t || !ctl.curBlob) { audioEngRefresh(ctl); return; }
+        if (eng.loading || (eng.buf && eng.bufId === t.id)) { audioEngRefresh(ctl); return; }
+        if (ctl.curBlob.size > AUDIO_GAPLESS_MAX_BYTES) return;
+        var ctx = audioEngCtx(ctl);
+        if (!ctx) return;
+        var id = t.id, token = ctl.loadToken;
+        eng.loading = true;
+        audioBlobBuffer(ctl.curBlob).then(function (ab) { return audioEngDecode(ctx, ab); }).then(function (buf) {
+            eng.loading = false;
+            if (audioCtl !== ctl || token !== ctl.loadToken || !buf || !(buf.duration > 0)) return;
+            eng.buf = buf; eng.bufId = id;
+            audioEngRefresh(ctl);
+        }, function () { eng.loading = false; });
+    }
+    function audioEngPos(eng) { return (eng.off + (eng.ctx.currentTime - eng.t0)) % eng.buf.duration; }
+    function audioEngDrift(eng, audio) { var dur = eng.buf.duration, d = audio.currentTime - audioEngPos(eng); return d - Math.round(d / dur) * dur; }
+    function audioEngStop(ctl, syncBack) {
+        var eng = ctl.eng;
+        if (!eng) return;
+        if (eng.timer) { clearInterval(eng.timer); eng.timer = null; }
+        if (!eng.src) return;
+        if (syncBack && eng.buf && eng.ctx && Math.abs(audioEngDrift(eng, ctl.audio)) > 0.02) { try { ctl.audio.currentTime = audioEngPos(eng); } catch (e) {} } // l'élément reprend là où le son en était
+        try { eng.src.stop(); } catch (e) {}
+        try { eng.src.disconnect(); } catch (e) {}
+        eng.src = null;
+    }
+    function audioEngStart(ctl, pos) {
+        var eng = ctl.eng;
+        audioEngStop(ctl, false);
+        var dur = eng.buf.duration;
+        if (!isFinite(pos) || pos < 0) pos = 0;
+        pos = pos % dur;
+        var src = eng.ctx.createBufferSource();
+        src.buffer = eng.buf; src.loop = true;
+        src.connect(eng.gain);
+        try { src.start(0, pos); } catch (e) { eng.failed = true; audioEngRefresh(ctl); return; }
+        eng.src = src; eng.t0 = eng.ctx.currentTime; eng.off = pos;
+        audioEngGain(ctl);
+        eng.timer = setInterval(function () { audioEngSync(ctl); }, 200);
+    }
+    // L'élément muet suit le vrai son : son propre raccord de boucle le fait dériver de quelques millisecondes à chaque tour.
+    function audioEngSync(ctl) {
+        var eng = ctl.eng, audio = ctl.audio;
+        if (audioCtl !== ctl || !eng.src) { audioEngStop(ctl, false); return; }
+        if (eng.ctx.state !== "running") { audioEngRefresh(ctl); return; }
+        if (audio.seeking) return;
+        if (Math.abs(audioEngDrift(eng, audio)) > 0.06) { try { audio.currentTime = audioEngPos(eng); } catch (e) {} }
+    }
+    // Décide qui joue : Web Audio (boucle, 100 %, fichier décodé, contexte en marche) ou l'élément.
+    function audioEngRefresh(ctl) {
+        var eng = ctl.eng, audio = ctl.audio, t = audioCur(ctl);
+        if (!eng || audioCtl !== ctl) return;
+        var armed = !!(audio.loop && audio.playbackRate === 1 && eng.buf && t && eng.bufId === t.id && eng.ctx && !eng.failed && eng.ctx.state !== "closed");
+        if (!armed) {
+            audioEngStop(ctl, true);
+            if (eng.watch) { clearTimeout(eng.watch); eng.watch = null; }
+            if (eng.mute) { eng.mute = false; audioEngApplyMute(ctl); }
+            return;
+        }
+        if (!eng.mute) { eng.mute = true; audioEngApplyMute(ctl); } // l'élément se tait avant même de jouer : pas de doublon au départ
+        if (audio.paused) { audioEngStop(ctl, true); return; }
+        if (eng.ctx.state !== "running") {
+            try { eng.ctx.resume(); } catch (e) {}
+            // le contexte ne démarre pas (système, pas de geste) : au bout de 0,8 s l'élément reprend le son plutôt que de laisser le silence
+            if (!eng.watch) eng.watch = setTimeout(function () { eng.watch = null; if (audioCtl === ctl && eng.ctx && eng.ctx.state !== "running") { eng.failed = true; audioEngRefresh(ctl); } }, 800);
+            return;
+        }
+        if (eng.watch) { clearTimeout(eng.watch); eng.watch = null; }
+        if (!eng.src) audioEngStart(ctl, audio.currentTime);
+    }
+    // Nouveau morceau (ou fermeture) : le moteur repart de zéro.
+    function audioEngReset(ctl) {
+        var eng = ctl.eng;
+        if (!eng) return;
+        audioEngStop(ctl, false);
+        if (eng.watch) { clearTimeout(eng.watch); eng.watch = null; }
+        eng.buf = null; eng.bufId = null; eng.failed = false;
+        if (eng.mute) { eng.mute = false; audioEngApplyMute(ctl); }
+        ctl.curBlob = null;
+    }
+    function audioEngDestroy(ctl) {
+        var eng = ctl.eng;
+        if (!eng) return;
+        audioEngReset(ctl);
+        if (eng.ctx) { try { eng.ctx.onstatechange = null; eng.ctx.close(); } catch (e) {} eng.ctx = null; eng.gain = null; }
+    }
+
     function audioEnsureCtl() {
         if (audioCtl) return audioCtl;
         var audio = document.createElement("audio");
@@ -6109,11 +6251,23 @@
         document.body.appendChild(host);
         audio.loop = audioLsGet(AUDIO_LOOP_KEY, 0) === 1;
         audio.volume = Math.min(1, Math.max(0, audioLsGet(AUDIO_VOL_KEY, 1)));
-        var ctl = { audio: audio, host: host, tracks: audioTracksFromSaved(), index: -1, objUrl: null, view: null, keep: false, resumeAt: 0, loadToken: 0 };
+        var ctl = { audio: audio, host: host, tracks: audioTracksFromSaved(), index: -1, objUrl: null, view: null, keep: false, resumeAt: 0, loadToken: 0, curBlob: null, userMuted: false, eng: audioEngNew(), engOK: !!(audioMutedDesc && audioMutedDesc.set && (window.AudioContext || window.webkitAudioContext)) };
+        if (ctl.engOK) {
+            // « muted » : l'interface lit et règle le choix de l'utilisateur ; l'élément peut en plus être rendu muet par le moteur de boucle (voir audioEngApplyMute)
+            try { Object.defineProperty(audio, "muted", { configurable: true, get: function () { return ctl.userMuted; }, set: function (v) { ctl.userMuted = !!v; audioEngApplyMute(ctl); } }); } catch (e) { ctl.engOK = false; }
+        }
         audio.addEventListener("loadedmetadata", function () {
             audio.playbackRate = audioRateFor(audioCur(ctl)); // certains navigateurs remettent la vitesse à 1 au chargement
             if (ctl.resumeAt > 0) { try { audio.currentTime = ctl.resumeAt; } catch (e) {} }
             ctl.resumeAt = 0;
+            audioEngPrepare(ctl);
+        });
+        ["play", "pause", "ratechange"].forEach(function (ev) { audio.addEventListener(ev, function () { audioEngRefresh(ctl); }); });
+        audio.addEventListener("volumechange", function () { audioEngGain(ctl); });
+        // Déplacement dans la jauge : le son suit. Le raccord de la boucle de l'élément, lui, ne change presque rien à la position (écart < 0,15 s) : on l'ignore.
+        audio.addEventListener("seeking", function () {
+            var eng = ctl.eng;
+            if (eng.src && eng.buf && Math.abs(audioEngDrift(eng, audio)) > 0.15) audioEngStart(ctl, audio.currentTime);
         });
         // Google Drive : si le premier mode de téléchargement est refusé, on essaie l'adresse de contenu actuelle avant de renoncer.
         audio.addEventListener("error", function () {
@@ -6139,13 +6293,14 @@
         audioSaveList(ctl);
         audioCtl = null;
         audioBtnSync();
+        audioEngDestroy(ctl);
         try { ctl.audio.pause(); } catch (e) {}
         ctl.audio.removeAttribute("src");
         try { ctl.audio.load(); } catch (e) {}
         if (ctl.objUrl) URL.revokeObjectURL(ctl.objUrl);
         ctl.host.remove();
     }
-    function audioPlay(ctl) { var pr = ctl.audio.play(); if (pr && pr.catch) pr.catch(function () {}); }
+    function audioPlay(ctl) { audioEngUnlock(ctl); var pr = ctl.audio.play(); if (pr && pr.catch) pr.catch(function () {}); }
     // Raccourci Espace (voir transportSpaceTap) : le lecteur n'y participe que s'il a un morceau chargé.
     function audioSpaceActive() { return !!(audioCtl && audioCur(audioCtl) && audioCtl.audio.getAttribute("src")); }
     function audioSpaceToggle() { var c = audioCtl; if (!c) return; if (c.audio.paused) audioPlay(c); else c.audio.pause(); }
@@ -6184,6 +6339,7 @@
         if (!ctl || !ctl.tracks[i]) return;
         o = o || {};
         var audio = ctl.audio;
+        audioEngUnlock(ctl); // encore dans le geste de l'utilisateur (le fichier se charge ensuite, hors geste) : le contexte de la boucle sans coupure peut démarrer
         var prev = audioCur(ctl);
         var wasPlaying = !audio.paused && !audio.ended;
         var t = ctl.tracks[i];
@@ -6194,6 +6350,7 @@
         }
         if (prev) prev.pos = audio.currentTime || 0;
         try { audio.pause(); } catch (e) {}
+        audioEngReset(ctl);
         ctl.index = i;
         t.attempt = 0; t.unavailable = false;
         if (t.rate == null) t.rate = audioLsGet(AUDIO_RATE_KEY, 1); // la vitesse devient propre au morceau dès sa première lecture
@@ -6213,7 +6370,9 @@
             getFileBlob(t.meta.id, t.meta).then(function (blob) {
                 if (token !== ctl.loadToken || audioCtl !== ctl) return; // un autre morceau a été choisi entre-temps
                 if (!blob) { t.unavailable = true; audioRefresh(ctl); return; }
-                ctl.objUrl = URL.createObjectURL(playableBlob(blob, t.meta));
+                var pb = playableBlob(blob, t.meta);
+                ctl.curBlob = pb; // gardé pour la boucle sans coupure (décodée à la demande)
+                ctl.objUrl = URL.createObjectURL(pb);
                 start(ctl.objUrl);
                 audioRefresh(ctl);
             });
@@ -6231,6 +6390,7 @@
         if (!ctl.tracks.length) { audioSaveList(ctl); ctl.keep = false; if (ctl.view) ctl.view.close(); else audioDestroy(); return; }
         if (removingCur) {
             try { ctl.audio.pause(); } catch (e) {}
+            audioEngReset(ctl);
             ctl.audio.removeAttribute("src");
             try { ctl.audio.load(); } catch (e) {}
             ctl.index = -1;
@@ -6438,8 +6598,9 @@
         var playBtn = tbtn("audio-play", METRO_PLAY_ICON_SVG, "Lecture", function () { if (audio.paused) playFrom(null); else audio.pause(); });
         tbtn("audio-skip", "+" + AUDIO_SKIP_S + " s", "Avancer de " + AUDIO_SKIP_S + " secondes", function () { var d = audio.duration; audio.currentTime = isFinite(d) ? Math.min(d, audio.currentTime + AUDIO_SKIP_S) : audio.currentTime + AUDIO_SKIP_S; paintSeek(); });
         tbtn("audio-stop", METRO_STOP_ICON_SVG, "Stop (arrêter et revenir au début)", function () { audio.pause(); try { audio.currentTime = 0; } catch (e) {} paintSeek(); });
-        var loopBtn = tbtn("audio-loop", AUDIO_ICONS.loop, "Répéter le morceau", function () {
+        var loopBtn = tbtn("audio-loop", AUDIO_ICONS.loop, "Répéter le morceau en boucle, sans coupure au raccord (vitesse à 100 %)", function () {
             audio.loop = !audio.loop; audioLsSet(AUDIO_LOOP_KEY, audio.loop ? 1 : 0); paintLoop();
+            audioEngUnlock(ctl); audioEngPrepare(ctl); // boucle sans coupure : décodage du morceau, puis Web Audio prend le relais
         });
         function paintLoop() { loopBtn.classList.toggle("on", audio.loop); loopBtn.setAttribute("aria-pressed", audio.loop ? "true" : "false"); }
         paintLoop();
@@ -6485,7 +6646,7 @@
             volBtn.innerHTML = audio.muted || Number(vol.value) === 0 ? AUDIO_ICONS.muted : METRO_VOLUME_ICON_SVG;
             vol.style.setProperty("--p", vol.value + "%");
         }
-        vol.addEventListener("input", function () { audio.muted = false; audioLsSet(AUDIO_VOL_KEY, vol.value / 100); paintVol(); });
+        vol.addEventListener("input", function () { audio.muted = false; audioLsSet(AUDIO_VOL_KEY, vol.value / 100); paintVol(); audioEngGain(ctl); });
         paintVol();
 
         var rate = document.createElement("input");
