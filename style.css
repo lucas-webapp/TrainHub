@@ -4669,3 +4669,23 @@ html[data-theme="light"] .gs-save-run-panel .gs-rec-item { background: #f6f8f6; 
 .gs-eph-newbar input.gs-eph-date { flex: 0 0 auto; height: 42px; padding: 0 10px; font: inherit; }
 .gs-eph-hint { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.4; margin: 0 0 6px; }
 .gs-tab-ephemeral.active { border-color: color-mix(in srgb, var(--eph) 60%, var(--border)); }
+
+/* ---------- v210 — Enregistreur : point rouge seul, réglages repliables, disquette, prise précédente ---------- */
+button.rec-go { width: 48px; height: 48px; padding: 0; gap: 0; justify-content: center; border-radius: 50%; border-width: 2px; }
+button.rec-go .rec-go-dot { width: 18px; height: 18px; }
+button.rec-go .rec-go-sq { width: 16px; height: 16px; border-radius: 3px; }
+.rec-setup { border: 1px solid var(--border); border-radius: var(--radius-sm); background: rgba(var(--ov), .03); }
+.rec-setup > summary { cursor: pointer; padding: 8px 10px; font-size: var(--fs-sm); font-weight: 700; color: var(--text-dim); }
+.rec-setup[open] > summary { border-bottom: 1px solid var(--border); }
+.rec-setup-body { display: flex; flex-direction: column; gap: 10px; padding: 10px; }
+.rec-metro-hint { line-height: 1.35; }
+.rec-metro-hint[hidden] { display: none; }
+.rec-msg-row { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 6px 8px; }
+.rec-msg-row .rec-msg { flex: 1 1 180px; min-width: 0; }
+button.rec-retry { flex: none; height: 30px; padding: 0 12px; font-weight: 700; }
+button.rec-prev { align-self: flex-start; height: 30px; padding: 0 10px; font-size: var(--fs-sm); font-weight: 700; }
+button.rec-save { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+button.rec-save .icon { width: 16px; height: 16px; flex: none; }
+.rec-take-acts { align-items: center; }
+.rec-fmt > summary { cursor: pointer; font-size: var(--fs-xs); color: var(--text-muted); }
+.rec-fmt-row { margin-top: 6px; }

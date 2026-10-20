@@ -14399,18 +14399,21 @@
 
     // ---------- enregistreur rapide ----------
     // Enregistre ce que capte le micro ou la carte son (choix de l'entrée), avec le métronome en fond si on veut (et, en option, son clic dans
-    // l'enregistrement). À l'arrêt : on nomme la prise, puis on la range — dans l'exercice en cours (celui de la session, du chrono libre ou
-    // ouvert à l'écran : sans rien chercher dans les dossiers), dans un autre exercice, ou dans un NOUVEL exercice d'un dossier au choix.
+    // l'enregistrement). À l'arrêt, RIEN n'est rangé tout seul : on réécoute, on ajuste, on peut refaire une prise (la précédente reste
+    // récupérable), puis le bouton « Enregistrer » (disquette) range la prise — dans l'exercice en cours (celui de la session, du chrono libre
+    // ou ouvert à l'écran : sans rien chercher dans les dossiers), dans un autre exercice, ou dans un NOUVEL exercice d'un dossier au choix.
     // L'enregistrement continue même fenêtre fermée (le bouton de la barre clignote) ; une prise non rangée est gardée, même si l'appli se
     // ferme, jusqu'à ce qu'on la range ou la supprime. Le fichier est une pièce jointe audio comme les autres (lecteur, renommer, cloud).
-    var REC_KEYS = { device: "trainhub.recDevice.v1", dest: "trainhub.recDest.v1", auto: "trainhub.recAuto.v1", metro: "trainhub.recMetro.v1", click: "trainhub.recClick.v1", pending: "trainhub.recPending.v1", fmt: "trainhub.recFmt.v1" };
+    // Le métronome est CELUI de l'appli (même tempo, même moteur) : déjà lancé, il continue ; sinon il démarre et s'arrête avec la prise.
+    var REC_KEYS = { device: "trainhub.recDevice.v1", dest: "trainhub.recDest.v1", metro: "trainhub.recMetro.v1", click: "trainhub.recClick.v1", pending: "trainhub.recPending.v1", fmt: "trainhub.recFmt.v1" };
     function recPref(k, d) { try { var v = localStorage.getItem(REC_KEYS[k]); return v === null ? d : v; } catch (e) { return d; } }
     function recSetPref(k, v) { try { localStorage.setItem(REC_KEYS[k], v); } catch (e) {} }
     var REC_PENDING_BLOB = "rec-pending";
     var REC_MIC_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8.5" y="2.5" width="6" height="11" rx="3"/><path d="M4.5 11a7 7 0 0 0 13 3.6"/><path d="M11.5 18v3.5"/><path d="M8.5 21.5h6"/><circle cx="19" cy="5.5" r="2.3" fill="#ff5252" stroke="none"/></svg>';
-    var rec = { phase: "idle", stream: null, ctx: null, analyser: null, src: null, mr: null, chunks: [], startedAt: 0, ms: 0, timer: null, mime: "", take: null, startedMetro: false, clickDest: null,
-        dest: { mode: "", exId: null, folderId: null }, destAtStart: null, error: "", listeners: [], panelClose: null, meterRaf: null, peaks: [], peakTimer: null, saving: false, stopPlay: null,
-        split: null, anL: null, anR: null, pkL: 0, pkR: 0, mix: null };
+    var REC_SAVE_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>';
+    var rec = { phase: "idle", stream: null, ctx: null, analyser: null, src: null, mr: null, chunks: [], startedAt: 0, ms: 0, timer: null, mime: "", take: null, prevTake: null, startedMetro: false, clickDest: null,
+        dest: { mode: "", exId: null, folderId: null }, error: "", listeners: [], panelClose: null, meterRaf: null, peaks: [], peakT: [], t0: 0, tEnd: 0, peakTimer: null, saving: false, stopPlay: null,
+        split: null, anL: null, anR: null, pkL: 0, pkR: 0, mix: null, openTok: 0 };
     function recEmit() {
         var b = document.getElementById("rec-btn");
         if (b) { b.classList.toggle("rec-live", rec.phase === "recording"); b.classList.toggle("active", !!rec.panelClose); b.classList.toggle("rec-pending", rec.phase === "review"); }
@@ -14589,21 +14592,36 @@
         rec.stopPlay = stop;
         return stop;
     }
-    // Dessin de la prise en cours : une barre par colonne, la plus grande valeur du paquet ; tout tient toujours dans la largeur.
+    // Dessin de la prise en cours : une bande qui DÉFILE à vitesse constante (comme GarageBand). Chaque barre est posée d'après l'instant où elle a
+    // été mesurée — la plus récente à droite, sous le repère rouge — et glisse vers la gauche à chaque image : rien n'est jamais regroupé ni recalculé.
+    var REC_LIVE_PX_MS = 0.075; // 75 px par seconde (une barre de 2 px toutes les 40 ms)
+    var recLiveCol = { at: 0, accent: "#00e676", muted: "#888", red: "#ff5252" };
     function recCanvasPrep(cv) {
         var r = cv.getBoundingClientRect(), dpr = Math.min(3, window.devicePixelRatio || 1), w = Math.max(40, Math.round(r.width)), h = Math.max(30, Math.round(r.height));
         if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
         var g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
-        var cs = getComputedStyle(cv);
-        return { g: g, w: w, h: h, accent: (cs.getPropertyValue("--accent") || "#00e676").trim(), muted: (cs.getPropertyValue("--text-muted") || "#888").trim(), red: "#ff5252" };
+        var now = Date.now();
+        if (now - recLiveCol.at > 1000) { // couleurs relues une fois par seconde seulement (le thème peut changer, mais pas à chaque image)
+            var cs = getComputedStyle(cv);
+            recLiveCol.accent = (cs.getPropertyValue("--accent") || "#00e676").trim(); recLiveCol.muted = (cs.getPropertyValue("--text-muted") || "#888").trim(); recLiveCol.at = now;
+        }
+        return { g: g, w: w, h: h, dpr: dpr, accent: recLiveCol.accent, muted: recLiveCol.muted, red: recLiveCol.red };
     }
     function recBar(g, x, w, h, a, color) { var bh = Math.max(2, Math.pow(a, 0.6) * (h - 6)), y = (h - bh) / 2; g.fillStyle = color; g.fillRect(x, y, w, bh); }
-    function recDrawLive(cv, peaks) {
-        var c = recCanvasPrep(cv), g = c.g, step = 3, cap = Math.max(1, Math.floor(c.w / step));
+    // Instant (ms depuis le début de la prise) auquel la bande est dessinée : figé à l'arrêt.
+    function recLiveNow() { return (rec.phase === "recording" ? performance.now() : (rec.tEnd || performance.now())) - rec.t0; }
+    function recDrawLive(cv) {
+        var c = recCanvasPrep(cv), g = c.g, T = rec.peakT, P = rec.peaks, n = Math.min(T.length, P.length), now = recLiveNow(), right = c.w - 8;
         g.fillStyle = c.muted; g.globalAlpha = 0.25; g.fillRect(0, c.h / 2 - 0.5, c.w, 1); g.globalAlpha = 1;
-        var n = peaks.length; if (!n) return;
-        var per = Math.max(1, Math.ceil(n / cap)), cols = Math.ceil(n / per);
-        for (var i = 0; i < cols; i++) { var pk = 0; for (var j = i * per; j < Math.min(n, (i + 1) * per); j++) if (peaks[j] > pk) pk = peaks[j]; recBar(g, i * step, 2, c.h, pk, pk > 0.92 ? c.red : c.accent); }
+        if (n) {
+            var tMin = now - (right + 4) / REC_LIVE_PX_MS, lo = 0, hi = n; // première barre encore visible (les instants sont croissants)
+            while (lo < hi) { var mid = (lo + hi) >> 1; if (T[mid] < tMin) lo = mid + 1; else hi = mid; }
+            for (var i = lo; i < n; i++) {
+                var x = Math.round((right - (now - T[i]) * REC_LIVE_PX_MS) * c.dpr) / c.dpr; // aligné sur les pixels de l'écran : défilement net
+                recBar(g, x, 2, c.h, P[i], P[i] > 0.92 ? c.red : c.accent);
+            }
+        }
+        g.fillStyle = c.red; g.globalAlpha = 0.85; g.fillRect(right + 3, 0, 1.5, c.h); g.globalAlpha = 1; // repère : « maintenant »
     }
     function recFmtT(sec) { sec = Math.max(0, sec); var m = Math.floor(sec / 60), s = sec - m * 60; return m + ":" + (s < 10 ? "0" : "") + s.toFixed(1); }
 
@@ -14682,14 +14700,34 @@
         if (rec.ctx) { try { rec.ctx.close(); } catch (e) {} rec.ctx = null; }
         rec.analyser = null; rec.split = rec.anL = rec.anR = rec.mix = null; rec.pkL = rec.pkR = 0;
     }
+    // L'entrée est-elle vraiment vivante ? (au retour d'une appli passée en arrière-plan, le système coupe souvent le micro : la piste est « ended »)
+    function recStreamAlive() { return !!(rec.stream && rec.stream.getAudioTracks().some(function (t) { return t.readyState === "live"; })); }
+    function recEnsureStream() { return (rec.phase === "recording" || rec.phase === "finishing" || recStreamAlive()) ? Promise.resolve(!!rec.stream) : recOpenStream(); }
+    function recTrackEnded(stream) {
+        if (rec.stream !== stream || rec.phase === "recording" || rec.phase === "finishing") return;
+        recCloseStream();
+        if (rec.phase === "armed") rec.phase = "idle";
+        rec.error = "L'entrée audio s'est interrompue (appli passée en arrière-plan, casque ou carte son débranché…). Touche « Réessayer ».";
+        recEmit();
+    }
+    function recErrText(err) {
+        var n = err && err.name || "";
+        if (n === "NotAllowedError" || n === "SecurityError") return "Accès au micro refusé. Autorise-le pour cette appli (iPhone : Réglages › Safari › Microphone ; Mac : Safari › Réglages › Sites web › Microphone), puis touche « Réessayer ».";
+        if (n === "NotReadableError" || n === "AbortError") return "Le micro est occupé par une autre appli (appel, vidéo…) ou ne répond pas. Ferme-la, puis touche « Réessayer ».";
+        if (n === "NotFoundError" || n === "OverconstrainedError") return "Aucune entrée audio trouvée : branche un micro ou une carte son, puis touche « Réessayer ».";
+        return "Entrée audio indisponible (" + (n || "erreur") + "). Touche « Réessayer ».";
+    }
     function recOpenStream() {
         recCloseStream();
         rec.error = "";
+        var tok = ++rec.openTok; // une ouverture plus récente annule la précédente (changement d'entrée rapide, retour à l'appli…)
         if (!recSupported()) { rec.error = "Cet appareil ou ce navigateur ne permet pas d'enregistrer le son."; recEmit(); return Promise.resolve(false); }
         var dev = recPref("device", "");
         var audio = { echoCancellation: false, noiseSuppression: false, autoGainControl: false }; // son brut : on enregistre un instrument, pas une conversation
         if (dev) audio.deviceId = { exact: dev };
         return navigator.mediaDevices.getUserMedia({ audio: audio }).then(function (stream) {
+            if (tok !== rec.openTok) { stream.getTracks().forEach(function (t) { t.stop(); }); return false; }
+            stream.getAudioTracks().forEach(function (t) { t.addEventListener("ended", function () { recTrackEnded(stream); }); });
             rec.stream = stream;
             rec.ctx = new (window.AudioContext || window.webkitAudioContext)();
             try { rec.ctx.resume(); } catch (e) {}
@@ -14707,8 +14745,9 @@
             recEmit();
             return true;
         }).catch(function (err) {
+            if (tok !== rec.openTok) return false;
             if (dev && err && (err.name === "OverconstrainedError" || err.name === "NotFoundError")) { recSetPref("device", ""); return recOpenStream(); } // l'entrée choisie n'est plus là
-            rec.error = "Accès au micro / à la carte son refusé ou indisponible (" + (err && err.name || "erreur") + ").";
+            rec.error = recErrText(err);
             rec.phase = rec.phase === "review" ? "review" : "idle";
             recEmit();
             return false;
@@ -14745,10 +14784,12 @@
         rec.mix = null;
     }
     function recStart() {
-        if (rec.phase !== "armed" || !rec.stream) return;
+        if (!rec.stream || (rec.phase !== "armed" && rec.phase !== "review") || rec.saving) return;
+        if (!recStreamAlive()) { recOpenStream(); return; }
         var mime = recPickMime(), srcStream = rec.stream, withMetro = recPref("metro", "0") === "1", withClick = withMetro && recPref("click", "0") === "1";
         rec.chunks = []; rec.mime = mime; rec.clickDest = null; rec.startedMetro = false;
         try {
+            if (rec.ctx && rec.ctx.state !== "running") rec.ctx.resume(); // appui = geste : on réveille le contexte audio (sinon la prise peut sortir muette)
             var mixDest = rec.split && rec.ctx && rec.ctx.createMediaStreamDestination ? recBuildMix() : null;
             if (mixDest) srcStream = mixDest.stream;
             if (withMetro) {
@@ -14769,24 +14810,28 @@
         rec.mime = rec.mr.mimeType || mime || "audio/webm";
         rec.mr.ondataavailable = function (ev) { if (ev.data && ev.data.size) rec.chunks.push(ev.data); };
         rec.mr.onstop = function () { recFinish(); };
-        rec.destAtStart = { mode: rec.dest.mode, exId: rec.dest.exId, folderId: rec.dest.folderId, ctx: (function () { var c = recContextExercise(); return c ? c.ex.id : null; })() };
+        // refaire une prise : celle d'avant n'est pas perdue, elle passe en « prise précédente » (récupérable d'un geste) ; sa forme d'onde décodée
+        // (lourde en mémoire) est lâchée si on n'y a pas touché, elle sera recalculée au retour
+        if (rec.take) { if (rec.stopPlay) rec.stopPlay(); if (rec.take.ed && !rec.take.ed.dirty()) { rec.take.ed = null; rec.take.edFail = false; rec.take.edLoading = false; } rec.prevTake = rec.take; rec.take = null; }
+        rec.error = "";
         rec.startedAt = Date.now(); rec.ms = 0;
         rec.mr.start(1000);
         rec.phase = "recording";
-        rec.peaks = [];
+        rec.peaks = []; rec.peakT = []; rec.t0 = performance.now(); rec.tEnd = 0;
         var pbuf = new Uint8Array(rec.analyser ? rec.analyser.fftSize : 2048);
-        rec.peakTimer = setInterval(function () { // une barre de la forme d'onde toutes les 40 ms, même fenêtre fermée
+        rec.peakTimer = setInterval(function () { // une barre de la forme d'onde toutes les 40 ms, même fenêtre fermée ; datée, pour un défilement à vitesse constante
             if (!rec.analyser) return;
             rec.analyser.getByteTimeDomainData(pbuf);
             var pk = 0; for (var i = 0; i < pbuf.length; i++) { var v = Math.abs(pbuf[i] - 128) / 128; if (v > pk) pk = v; }
-            rec.peaks.push(pk);
+            rec.peaks.push(pk); rec.peakT.push(performance.now() - rec.t0);
         }, REC_PEAK_MS);
         rec.timer = setInterval(function () { rec.ms = Date.now() - rec.startedAt; recEmit(); }, 250);
+        wakeLockSync(); // écran gardé allumé pendant la prise (sur téléphone, l'écran qui se verrouille coupe le micro)
         recEmit();
     }
     function recStop() {
         if (rec.phase !== "recording" || !rec.mr) return;
-        rec.ms = Date.now() - rec.startedAt;
+        rec.ms = Date.now() - rec.startedAt; rec.tEnd = performance.now();
         clearInterval(rec.timer); rec.timer = null;
         if (rec.peakTimer) { clearInterval(rec.peakTimer); rec.peakTimer = null; }
         rec.phase = "finishing";
@@ -14795,21 +14840,28 @@
         rec.startedMetro = false;
         if (rec.clickDest) { try { metroMasterGain.disconnect(rec.clickDest); } catch (e) {} rec.clickDest = null; }
         recDropMix();
+        wakeLockSync();
         recEmit();
     }
     function recFinish() {
         var blob = new Blob(rec.chunks, { type: rec.mime || "audio/webm" });
         rec.chunks = []; rec.mr = null;
-        if (!blob.size) { rec.phase = rec.stream ? "armed" : "idle"; rec.error = "Rien n'a été enregistré."; recEmit(); return; }
+        if (!blob.size) { // rien de capté : on retrouve la prise d'avant, s'il y en avait une
+            if (rec.prevTake) { rec.take = rec.prevTake; rec.prevTake = null; rec.phase = "review"; } else rec.phase = rec.stream ? "armed" : "idle";
+            rec.error = "Rien n'a été enregistré."; wakeLockSync(); recEmit(); return;
+        }
         var d = new Date(), p2 = function (n) { return (n < 10 ? "0" : "") + n; };
         var mons = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
         rec.take = { blob: blob, mime: (rec.mime || blob.type).split(";")[0], ms: rec.ms, name: "Enregistrement " + d.getDate() + " " + mons[d.getMonth()] + " " + p2(d.getHours()) + ":" + p2(d.getMinutes()), at: Date.now() };
         rec.phase = "review";
-        // gardée même si l'appli se ferme avant qu'on la range
-        storeFileBlob(REC_PENDING_BLOB, blob).then(function () { recSetPref("pending", JSON.stringify({ name: rec.take.name, mime: rec.take.mime, ms: rec.take.ms, at: rec.take.at, size: blob.size })); }, function () {});
-        recEmit();
-        // « ranger sans demander » : la prise part tout de suite dans la destination choisie au départ
-        if (recPref("auto", "0") === "1" && recResolveTarget(rec.dest)) recSave(rec.take.name, true);
+        wakeLockSync();
+        recPersistPending(); // gardée même si l'appli se ferme avant qu'on la range
+        recEmit(); // rien n'est rangé tout seul : on réécoute, on ajuste, on refait si besoin, puis « Enregistrer »
+    }
+    function recPersistPending() {
+        var t = rec.take;
+        if (!t) return;
+        storeFileBlob(REC_PENDING_BLOB, t.blob).then(function () { if (rec.take === t) recSetPref("pending", JSON.stringify({ name: t.name, mime: t.mime, ms: t.ms, at: t.at, size: t.blob.size })); }, function () {});
     }
     function recClearPending() { recSetPref("pending", ""); try { localStorage.removeItem(REC_KEYS.pending); } catch (e) {} deleteFileBlob(REC_PENDING_BLOB); }
     function recDiscard() {
@@ -14817,6 +14869,16 @@
         rec.take = null;
         rec.phase = rec.stream ? "armed" : "idle";
         recClearPending();
+        recEmit();
+    }
+    // « Reprendre la prise précédente » : échange la prise affichée et celle d'avant (on peut comparer, ou revenir à la meilleure).
+    function recSwapPrev() {
+        if (!rec.prevTake || rec.phase === "recording" || rec.phase === "finishing" || rec.saving) return;
+        if (rec.stopPlay) rec.stopPlay();
+        var cur = rec.take;
+        rec.take = rec.prevTake; rec.prevTake = cur || null;
+        rec.phase = "review";
+        recPersistPending();
         recEmit();
     }
     // Reprise d'une prise non rangée restée d'une séance précédente.
@@ -14827,6 +14889,7 @@
         if (!meta || !meta.name) return Promise.resolve();
         return getFileBlob(REC_PENDING_BLOB).then(function (blob) {
             if (!blob) { recClearPending(); return; }
+            if (rec.take || rec.phase === "recording" || rec.phase === "finishing") return; // une prise est arrivée entre-temps
             rec.take = { blob: blob, mime: meta.mime || blob.type, ms: meta.ms || 0, name: meta.name, at: meta.at || Date.now() };
             rec.phase = "review"; recEmit();
         }, function () {});
@@ -14845,10 +14908,10 @@
         }, function (err) { if (edited) throw err; return orig; });
     }
     // Range la prise : pièce jointe audio de l'exercice visé, ou d'un nouvel exercice créé dans le dossier visé (« Mes enregistrements » sans exercice à viser).
-    function recSave(name, quiet) {
+    function recSave(name) {
         var take = rec.take;
         if (!take || rec.saving) return;
-        var target = recResolveTarget(quiet && rec.destAtStart ? rec.destAtStart : rec.dest);
+        var target = recResolveTarget(rec.dest);
         name = (name || take.name || "Enregistrement").trim().slice(0, 80) || "Enregistrement";
         rec.saving = true; rec.progress = 0;
         if (rec.stopPlay) rec.stopPlay();
@@ -14887,10 +14950,15 @@
             head.appendChild(x);
             panel.appendChild(head);
 
+            // -- réglages (entrée, métronome) : dépliés tant qu'il n'y a pas de prise, repliés ensuite pour laisser la place à la prise
+            var setup = el("details", "rec-setup"); setup.open = !rec.take;
+            var setupSum = el("summary", "rec-setup-sum", "Entrée et métronome");
+            var setupBody = el("div", "rec-setup-body");
+            setup.appendChild(setupSum); setup.appendChild(setupBody); panel.appendChild(setup);
             // -- entrée (micro / carte son)
             var srcRow = el("label", "rec-row"); srcRow.appendChild(el("span", "rec-lab", "Entrée"));
             var srcSel = el("select", "rec-select"); srcSel.setAttribute("aria-label", "Entrée audio (micro ou carte son)");
-            srcRow.appendChild(srcSel); panel.appendChild(srcRow);
+            srcRow.appendChild(srcSel); setupBody.appendChild(srcRow);
             function fillDevices() {
                 recDevices().then(function (list) {
                     var cur = recPref("device", "");
@@ -14900,7 +14968,7 @@
                     srcSel.value = cur; if (srcSel.value !== cur) srcSel.value = "";
                 });
             }
-            srcSel.addEventListener("change", function () { recSetPref("device", srcSel.value); if (rec.phase !== "recording" && rec.phase !== "finishing") recOpenStream().then(fillDevices); });
+            srcSel.addEventListener("change", function () { recSetPref("device", srcSel.value); if (rec.phase !== "recording" && rec.phase !== "finishing") recOpenStream().then(function () { fillDevices(); paint(); }); });
 
             // -- métronome en fond
             var mRow = el("div", "rec-row rec-metro-row");
@@ -14911,37 +14979,53 @@
             bpmIn.addEventListener("change", function () { var n = Math.min(300, Math.max(30, parseInt(bpmIn.value, 10) || state.settings.metronome.bpm)); bpmIn.value = String(n); state.settings.metronome.bpm = n; saveSoon(); if (metroTempoCallback) metroTempoCallback(); });
             var mUnit = el("span", "rec-unit", "BPM");
             mRow.appendChild(mLab); mRow.appendChild(bpmIn); mRow.appendChild(mUnit);
-            panel.appendChild(mRow);
+            setupBody.appendChild(mRow);
             var cRow = el("div", "rec-row rec-click-row");
             var cLab = el("label", "rec-check"); var cCb = el("input"); cCb.type = "checkbox"; cCb.checked = recPref("click", "0") === "1";
             cLab.appendChild(cCb); cLab.appendChild(el("span", "", "Garder le clic dans l'enregistrement"));
-            cRow.appendChild(cLab); cRow.appendChild(el("span", "rec-hint", "Sinon, il ne sert que de guide (casque conseillé)."));
-            panel.appendChild(cRow);
-            function paintMetro() { cRow.hidden = !mCb.checked; bpmIn.disabled = !mCb.checked; }
+            cRow.appendChild(cLab);
+            setupBody.appendChild(cRow);
+            // Le métronome est celui de l'appli (même tempo, même moteur) : cette ligne dit, en direct, ce qui va se passer à la prochaine prise.
+            var mHint = el("div", "rec-hint rec-metro-hint"); mHint.setAttribute("role", "status");
+            setupBody.appendChild(mHint);
+            function paintMetroHint() {
+                var on = mCb.checked, clk = cCb.checked, playing = !!metroPlaying;
+                var t = on && playing ? "Ton métronome joue déjà : il continue sans s'arrêter, au même tempo (le tempo est commun à toute l'appli)." + (clk ? " Son clic est gardé dans la prise." : " Il ne sert que de guide : casque conseillé.")
+                    : on ? "Le métronome démarre avec la prise et s'arrête avec elle (c'est le même que dans l'appli)." + (clk ? " Son clic est gardé dans la prise." : " Il ne sert que de guide : casque conseillé.")
+                    : playing ? "Ton métronome joue : il n'est pas touché, mais son clic n'est pas gardé dans la prise (coche « Métronome en fond » pour le garder)."
+                    : "";
+                if (mHint.textContent !== t) mHint.textContent = t;
+                mHint.hidden = !t;
+            }
+            function paintSetupSum() {
+                var t = "Entrée et métronome · " + (mCb.checked ? state.settings.metronome.bpm + " BPM" + (metroPlaying ? " (joue déjà)" : "") : "sans métronome");
+                if (setupSum.textContent !== t) setupSum.textContent = t;
+            }
+            function paintMetro() { cRow.hidden = !mCb.checked; bpmIn.disabled = !mCb.checked || rec.phase === "recording" || rec.phase === "finishing"; paintMetroHint(); paintSetupSum(); }
             mCb.addEventListener("change", function () { recSetPref("metro", mCb.checked ? "1" : "0"); paintMetro(); });
-            cCb.addEventListener("change", function () { recSetPref("click", cCb.checked ? "1" : "0"); });
+            cCb.addEventListener("change", function () { recSetPref("click", cCb.checked ? "1" : "0"); paintMetroHint(); });
             paintMetro();
 
-            // -- où ranger
-            var dRow = el("label", "rec-row"); dRow.appendChild(el("span", "rec-lab", "Ranger dans"));
+            // -- où ranger (dans la zone de la prise, à côté du bouton « Enregistrer »)
+            var dRow = el("label", "rec-row rec-dest-row"); dRow.appendChild(el("span", "rec-lab", "Ranger dans"));
             var dSel = el("select", "rec-select rec-dest"); dSel.setAttribute("aria-label", "Où ranger l'enregistrement");
-            dRow.appendChild(dSel); panel.appendChild(dRow);
-            var aRow = el("div", "rec-row rec-auto-row");
-            var aLab = el("label", "rec-check"); var aCb = el("input"); aCb.type = "checkbox"; aCb.checked = recPref("auto", "0") === "1";
-            aLab.appendChild(aCb); aLab.appendChild(el("span", "", "Ranger sans demander à l'arrêt"));
-            aRow.appendChild(aLab); panel.appendChild(aRow);
-            aCb.addEventListener("change", function () { recSetPref("auto", aCb.checked ? "1" : "0"); });
+            dRow.appendChild(dSel);
+            var destSig = "";
             if (!rec.dest.mode) { var m0 = recPref("dest", "ctx"); rec.dest.mode = ["ctx", "lib", "pick", "folder"].indexOf(m0) === -1 ? "ctx" : m0; } // l'ancien « me demander » devient « exercice en cours »
             function paintDest() {
                 var ctx = recContextExercise(), pickF = rec.dest.exId ? findExerciseById(rec.dest.exId) : null, fo = rec.dest.folderId ? findFolderById(getActiveInstrument(), rec.dest.folderId) : null;
-                dSel.innerHTML = "";
-                function opt(v, t) { var o = el("option", "", t); o.value = v; dSel.appendChild(o); }
-                opt("ctx", ctx ? "Exercice en cours : « " + ctx.ex.title + " »" : "Exercice en cours (aucun d'ouvert : « " + REC_LIB_NAME + " »)");
-                opt("lib", "« " + REC_LIB_NAME + " » (un exercice par prise)");
-                opt("pick", pickF ? "Un exercice : « " + pickF.ex.title + " »" : "Un autre exercice…");
-                opt("folder", fo ? "Nouvel exercice dans « " + fo.name + " »" : "Nouvel exercice dans un dossier…");
+                var opts = [
+                    ["ctx", ctx ? "Exercice en cours : « " + ctx.ex.title + " »" : "Exercice en cours (aucun d'ouvert : « " + REC_LIB_NAME + " »)"],
+                    ["lib", "« " + REC_LIB_NAME + " » (un exercice par prise)"],
+                    ["pick", pickF ? "Un exercice : « " + pickF.ex.title + " »" : "Un autre exercice…"],
+                    ["folder", fo ? "Nouvel exercice dans « " + fo.name + " »" : "Nouvel exercice dans un dossier…"]
+                ];
+                var sig = opts.map(function (o) { return o[0] + "|" + o[1]; }).join(";");
+                if (sig !== destSig) { // reconstruit seulement si le texte change : une liste ouverte ne se referme pas toute seule
+                    destSig = sig; dSel.innerHTML = "";
+                    opts.forEach(function (o) { var op = el("option", "", o[1]); op.value = o[0]; dSel.appendChild(op); });
+                }
                 dSel.value = rec.dest.mode;
-                aRow.hidden = false;
             }
             dSel.addEventListener("change", function () {
                 var v = dSel.value, prev = rec.dest.mode;
@@ -14957,11 +15041,25 @@
             var meter = el("div", "rec-meter"); var fill = el("div", "rec-meter-fill"); meter.appendChild(fill);
             main.appendChild(go); main.appendChild(timeEl); main.appendChild(meter);
             panel.appendChild(main);
+            var prevB = el("button", "btn-ghost rec-prev"); prevB.type = "button"; prevB.hidden = true;
+            prevB.addEventListener("click", recSwapPrev);
+            panel.appendChild(prevB);
             var live = el("div", "rec-live-wave"); live.hidden = true;
             var liveCv = el("canvas", "rec-live-cv"); liveCv.setAttribute("aria-label", "Forme d'onde de l'enregistrement en cours"); live.appendChild(liveCv);
             panel.appendChild(live);
-            var msg = el("div", "rec-msg"); msg.setAttribute("role", "status"); panel.appendChild(msg);
-            go.addEventListener("click", function () { if (rec.phase === "recording") recStop(); else if (rec.phase === "armed") recStart(); else if (rec.phase === "idle") recOpenStream(); });
+            var msgRow = el("div", "rec-msg-row");
+            var msg = el("div", "rec-msg"); msg.setAttribute("role", "status"); msgRow.appendChild(msg);
+            var retry = el("button", "btn-ghost rec-retry", "Réessayer"); retry.type = "button"; retry.hidden = true; msgRow.appendChild(retry);
+            panel.appendChild(msgRow);
+            function reopen() { return recOpenStream().then(function (ok) { fillDevices(); paint(); return ok; }); }
+            retry.addEventListener("click", reopen);
+            // Le point rouge : lance la prise (ou l'arrête). Entrée éteinte ou coupée par le système : il la rallume, puis lance la prise.
+            go.addEventListener("click", function () {
+                if (rec.phase === "recording") { recStop(); return; }
+                if (rec.phase === "finishing" || rec.saving) return;
+                if (recStreamAlive()) { recStart(); return; }
+                reopen().then(function (ok) { if (ok && rec.panelClose === close && (rec.phase === "armed" || rec.phase === "review")) recStart(); });
+            });
 
             // -- la prise : écoute, nom, rangement
             var take = el("div", "rec-take"); take.hidden = true;
@@ -14969,20 +15067,27 @@
             var nameIn = el("input", "rec-name"); nameIn.type = "text"; nameIn.maxLength = 80; nameIn.setAttribute("aria-label", "Nom de l'enregistrement"); nameIn.placeholder = "Nom de l'enregistrement";
             var info = el("div", "rec-take-info");
             var acts = el("div", "rec-take-acts");
-            var save = el("button", "btn-accent rec-save", "Enregistrer"); save.type = "button";
+            var save = el("button", "btn-accent rec-save"); save.type = "button";
+            save.innerHTML = REC_SAVE_SVG + '<span class="rec-save-lab">Enregistrer</span>';
+            var saveLab = save.querySelector(".rec-save-lab");
+            // format du fichier : rangé dans un repli (MP3 d'office, on n'y touche presque jamais)
+            var fmt = el("details", "rec-fmt"); var fmtSum = el("summary", "", "Format du fichier : MP3"); fmt.appendChild(fmtSum);
             var fmtRow = el("label", "rec-row rec-fmt-row"); fmtRow.appendChild(el("span", "rec-lab", "Format"));
             var fmtSel = el("select", "rec-select"); fmtSel.setAttribute("aria-label", "Format du fichier enregistré");
             [["mp3", "MP3 (compatible partout)"], ["orig", "Format d'origine de l'appareil"]].forEach(function (o) { var op = el("option", "", o[1]); op.value = o[0]; fmtSel.appendChild(op); });
             fmtSel.value = recPref("fmt", "mp3") === "orig" ? "orig" : "mp3";
-            fmtSel.addEventListener("change", function () { recSetPref("fmt", fmtSel.value); });
-            fmtRow.appendChild(fmtSel);
+            function paintFmt() { fmtSum.textContent = "Format du fichier : " + (fmtSel.value === "orig" ? "format d'origine" : "MP3"); }
+            fmtSel.addEventListener("change", function () { recSetPref("fmt", fmtSel.value); paintFmt(); });
+            paintFmt();
+            fmtRow.appendChild(fmtSel); fmt.appendChild(fmtRow);
             var wave = el("div", "rec-wave"); wave.hidden = true;
             var del = el("button", "btn-ghost rec-del", "Supprimer"); del.type = "button";
             acts.appendChild(del); acts.appendChild(save);
-            take.appendChild(wave); take.appendChild(audio); take.appendChild(nameIn); take.appendChild(fmtRow); take.appendChild(info); take.appendChild(acts);
+            take.appendChild(wave); take.appendChild(audio); take.appendChild(nameIn); take.appendChild(info); take.appendChild(dRow); take.appendChild(acts); take.appendChild(fmt);
             panel.appendChild(take);
             var shownTake = null, audioUrl = null;
             save.addEventListener("click", function () { recSave(nameIn.value); });
+            nameIn.addEventListener("input", function () { if (rec.take) rec.take.name = nameIn.value; }); // le nom tapé suit la prise (si on bascule sur la prise précédente puis qu'on revient)
             nameIn.addEventListener("keydown", function (e) { e.stopPropagation(); if (e.key === "Enter") { e.preventDefault(); recSave(nameIn.value); } });
             del.addEventListener("click", function () { dlgConfirm({ title: "Supprimer cet enregistrement ?", message: (nameIn.value || "Enregistrement") + " · " + recFmtTime(rec.take ? rec.take.ms : 0), confirmLabel: "Supprimer", danger: true }, recDiscard); });
 
@@ -14994,7 +15099,8 @@
                 fill.style.width = Math.min(100, Math.round(Math.sqrt(peak) * 100)) + "%";
                 fill.classList.toggle("rec-hot", peak > 0.92);
             }
-            function loop() { paintLevel(); if (!live.hidden) recDrawLive(liveCv, rec.peaks); rec.meterRaf = (rec.phase === "armed" || rec.phase === "recording") ? requestAnimationFrame(loop) : null; if (!rec.meterRaf) fill.style.width = "0%"; }
+            function metering() { return rec.phase === "armed" || rec.phase === "recording" || (rec.phase === "review" && !!rec.analyser); }
+            function loop() { paintLevel(); if (!live.hidden) recDrawLive(liveCv); rec.meterRaf = metering() ? requestAnimationFrame(loop) : null; if (!rec.meterRaf) fill.style.width = "0%"; }
             // -- éditeur de la prise : forme d'onde (sélection à la souris ou au doigt), couper, volume, fondus
             var builtEd = null, edRedraw = null, edObserver = null;
             function detachEd() {
@@ -15096,9 +15202,9 @@
             // Libellé du bouton d'enregistrement : la sélection (si elle existe) est ce qui sera rangé ; progression de l'encodage.
             function paintSave() {
                 var ed = rec.take && rec.take.ed;
-                if (rec.saving) { save.disabled = true; save.textContent = "Encodage… " + Math.round((rec.progress || 0) * 100) + " %"; }
-                else { save.disabled = false; save.textContent = ed && ed.sel ? "Enregistrer la sélection (" + recFmtT((ed.sel.b - ed.sel.a) / ed.pcm.sr) + ")" : "Enregistrer"; }
-                del.disabled = nameIn.disabled = fmtSel.disabled = !!rec.saving;
+                if (rec.saving) { save.disabled = true; saveLab.textContent = "Encodage… " + Math.round((rec.progress || 0) * 100) + " %"; }
+                else { save.disabled = false; saveLab.textContent = ed && ed.sel ? "Enregistrer la sélection (" + recFmtT((ed.sel.b - ed.sel.a) / ed.pcm.sr) + ")" : "Enregistrer"; }
+                del.disabled = nameIn.disabled = fmtSel.disabled = dSel.disabled = !!rec.saving;
             }
 
             // -- « Mes enregistrements » : les prises rangées là, à renommer d'un clic (le nom de l'exercice ET du fichier audio)
@@ -15129,24 +15235,29 @@
                 });
             }
             function paint() {
-                var ph = rec.phase, recording = ph === "recording", busy = ph === "recording" || ph === "finishing";
+                var ph = rec.phase, recording = ph === "recording", busy = ph === "recording" || ph === "finishing", reviewing = ph === "review";
                 panel.classList.toggle("rec-is-live", recording);
                 live.hidden = !busy;
-                // la prise à ajuster prend toute la place : entrée, métronome et niveau reviennent une fois la prise rangée ou supprimée
-                var reviewing = ph === "review";
-                srcRow.hidden = mRow.hidden = main.hidden = reviewing;
-                cRow.hidden = reviewing || !mCb.checked;
+                // le point rouge reste là, même avec une prise à ranger : on peut refaire une prise (la précédente reste récupérable)
+                var goLab = recording ? "Arrêter l'enregistrement" : ph === "finishing" ? "Finalisation…" : recStreamAlive() ? "Enregistrer une prise" : "Activer l'entrée audio et enregistrer";
                 go.className = "rec-go" + (recording ? " rec-go-stop" : "");
-                go.innerHTML = recording ? '<span class="rec-go-sq"></span>Arrêter' : '<span class="rec-go-dot"></span>' + (ph === "idle" ? "Activer l'entrée" : "Enregistrer");
-                go.disabled = ph === "finishing" || (ph === "review" && !rec.stream);
-                go.hidden = ph === "review";
+                var goHtml = recording ? '<span class="rec-go-sq"></span>' : '<span class="rec-go-dot"></span>';
+                if (go.innerHTML !== goHtml) go.innerHTML = goHtml;
+                go.title = goLab; go.setAttribute("aria-label", goLab);
+                go.disabled = ph === "finishing" || !!rec.saving;
                 timeEl.textContent = recFmtTime(recording || ph === "finishing" ? rec.ms : rec.take ? rec.take.ms : 0);
-                srcSel.disabled = busy; mCb.disabled = busy; cCb.disabled = busy; dSel.disabled = ph === "finishing";
-                msg.textContent = rec.error || (ph === "recording" ? "Enregistrement en cours — tu peux fermer cette fenêtre, il continue." : ph === "finishing" ? "Finalisation…" : ph === "armed" ? "Prêt : lance l'enregistrement quand tu veux." : ph === "idle" ? "Entrée audio éteinte." : "");
+                srcSel.disabled = busy; mCb.disabled = busy; cCb.disabled = busy; bpmIn.disabled = busy || !mCb.checked;
+                if (document.activeElement !== bpmIn) bpmIn.value = String(state.settings.metronome.bpm); // le tempo est celui de l'appli : il suit s'il change ailleurs
+                paintMetroHint(); paintSetupSum();
+                msg.textContent = rec.error || (recording ? "Enregistrement en cours — tu peux fermer cette fenêtre, il continue." : ph === "finishing" ? "Finalisation…" : ph === "armed" ? "Prêt : touche le point rouge quand tu veux." : ph === "idle" ? "Entrée audio éteinte : touche le point rouge pour l'activer." : reviewing && rec.take ? "Le point rouge lance une nouvelle prise ; celle-ci reste récupérable." : "");
                 msg.classList.toggle("rec-msg-err", !!rec.error);
-                var showTake = ph === "review" && rec.take;
+                retry.hidden = !rec.error || busy;
+                prevB.hidden = !rec.prevTake || busy;
+                if (rec.prevTake) prevB.textContent = "↶ Reprendre la prise précédente (" + recFmtTime(rec.prevTake.ms) + ")";
+                var showTake = reviewing && rec.take;
                 take.hidden = !showTake;
                 if (showTake && shownTake !== rec.take) {
+                    if (!shownTake) setup.open = false; // une prise est là : les réglages se replient pour lui laisser la place
                     shownTake = rec.take;
                     detachEd(); wave.innerHTML = ""; wave.hidden = true; audio.hidden = false;
                     var tk = rec.take;
@@ -15156,33 +15267,42 @@
                     }
                     if (audioUrl) URL.revokeObjectURL(audioUrl);
                     audioUrl = URL.createObjectURL(rec.take.blob); audio.src = audioUrl;
-                    nameIn.value = rec.take.name;
+                    nameIn.value = rec.take.name; // pas de focus d'office : sur téléphone, le clavier recouvrirait la prise
                     info.textContent = recFmtTime(rec.take.ms) + " · " + fmtStorage(rec.take.blob.size) + (rec.take.blob.size > CLOUD_FILE_MAX_BYTES ? " — plus de 30 Mo : restera sur cet appareil" : "");
-                    setTimeout(function () { try { nameIn.focus(); nameIn.select(); } catch (e) {} }, 30);
                 }
-                if (!showTake) { shownTake = null; detachEd(); }
+                if (!showTake) { if (shownTake && !busy) setup.open = true; shownTake = null; detachEd(); } // prise rangée ou supprimée : les réglages reviennent
                 else if (rec.take.ed && builtEd !== rec.take.ed) { buildEdUI(rec.take.ed); requestAnimationFrame(function () { clampPanelToViewport(panel); }); } // la fenêtre a grandi : on la rentre dans l'écran
                 else if (rec.take.edLoading) { wave.hidden = false; if (!wave.firstChild) wave.appendChild(el("div", "rec-wave-load", "Analyse de la prise…")); }
-                if ((ph === "armed" || recording) && !rec.meterRaf) loop();
+                if (metering() && !rec.meterRaf) loop();
                 paintDest(); paintLib(); paintSave();
                 requestAnimationFrame(function () { if (panel.isConnected) clampPanelToViewport(panel); }); // la fenêtre a changé de hauteur : on la rentre dans l'écran (un seul déplacement, vers le haut)
             }
             rec.listeners.push(paint);
             rec.panelClose = close;
             recEmit();
-            fillDevices();
-            // à l'ouverture : l'entrée s'allume (comme l'accordeur) sauf si une prise ou un enregistrement est déjà là
-            recRestorePending().then(function () { if (rec.phase === "idle") recOpenStream().then(fillDevices); else fillDevices(); paint(); });
             paint();
-            // le contexte peut changer (autre exercice ouvert) : le choix « exercice en cours » suit
-            var ctxTimer = setInterval(function () { if (rec.phase !== "recording" && rec.phase !== "finishing") paintDest(); }, 1500);
+            // À l'ouverture l'entrée s'allume tout de suite — dans le geste du doigt qui a ouvert la fenêtre (le téléphone l'exige), AVANT de relire
+            // quoi que ce soit — et même s'il reste une prise à ranger d'une séance précédente (avant, elle cachait le bouton : le micro semblait absent).
+            recEnsureStream().then(function () { fillDevices(); paint(); });
+            recRestorePending().then(function () { paint(); });
+            fillDevices();
+            // retour à l'appli (après un tour dans les réglages du téléphone, ou une mise en veille) : si l'entrée a été coupée, on la rallume
+            function onVisible() { if (!document.hidden && rec.phase !== "recording" && rec.phase !== "finishing" && !recStreamAlive()) recEnsureStream().then(function () { fillDevices(); paint(); }); }
+            document.addEventListener("visibilitychange", onVisible);
+            var md = navigator.mediaDevices;
+            if (md && md.addEventListener) md.addEventListener("devicechange", fillDevices); // carte son branchée / débranchée : la liste suit
+            // le contexte peut changer (autre exercice ouvert, métronome lancé ailleurs) : les choix qui en dépendent suivent
+            var ctxTimer = setInterval(function () { if (rec.phase !== "finishing") { paintDest(); paintMetro(); } }, 1500);
             return function () {
                 clearInterval(ctxTimer);
+                document.removeEventListener("visibilitychange", onVisible);
+                if (md && md.removeEventListener) md.removeEventListener("devicechange", fillDevices);
                 detachEd();
                 rec.listeners = rec.listeners.filter(function (fn) { return fn !== paint; });
                 rec.panelClose = null;
                 if (audioUrl) URL.revokeObjectURL(audioUrl);
-                if (rec.phase === "armed" || rec.phase === "idle") { recCloseStream(); rec.phase = "idle"; }
+                // fenêtre fermée : le micro s'éteint (sauf prise en cours) ; une prise à ranger reste gardée, l'entrée se rallume à la réouverture
+                if (rec.phase !== "recording" && rec.phase !== "finishing") { recCloseStream(); if (rec.phase === "armed") rec.phase = "idle"; }
                 recEmit();
             };
         }, { floating: true, noFit: true }); // taille réglée par le CSS seul (hauteur selon le contenu, jusqu'à l'écran) : rien ne la recalcule en boucle
@@ -19085,7 +19205,7 @@
     function wakeLockSupported() { return !!(navigator.wakeLock && navigator.wakeLock.request); }
     function keepAwakeOn() { try { return localStorage.getItem(KEEP_AWAKE_KEY) === "1"; } catch (e) { return false; } }
     function setKeepAwake(on) { try { localStorage.setItem(KEEP_AWAKE_KEY, on ? "1" : "0"); } catch (e) {} wakeLockSync(); }
-    function wakeLockWanted() { return keepAwakeOn() && !document.hidden && !!(gsRunSession || (freeRun && !freeRun.auto)); }
+    function wakeLockWanted() { if (document.hidden) return false; if (rec.phase === "recording") return true; return keepAwakeOn() && !!(gsRunSession || (freeRun && !freeRun.auto)); } // pendant une prise, toujours : l'écran qui se verrouille coupe le micro
     function wakeLockSync() {
         var want = wakeLockWanted();
         if (want && !wakeLockSentinel && !wakeLockPending && wakeLockSupported() && Date.now() >= wakeLockRetryAt) {
