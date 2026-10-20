@@ -4651,3 +4651,14 @@ html[data-theme="light"] .gs-save-run-panel .gs-rec-item { background: #f6f8f6; 
 .gs-step-tempo .tempo-goal-btn.tempo-goal-mini:not(.tempo-goal-on) .tempo-goal-ico { opacity: 1; }
 .gs-step-tempo .tempo-goal-btn.tempo-goal-mini:hover { color: var(--accent); border-color: transparent; }
 .gs-step-tempo .tempo-goal-btn.tempo-goal-mini.tempo-goal-on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+
+/* ===== v208 : téléphone — les boutons du bas ne sont plus calés dans l'angle ===== */
+@media (max-width: 700px) {
+  /* « Fermer » des fenêtres plein écran (calendrier, historique, outils, paramètres…) : avant, un petit texte de 61 × 25 px collé dans l'angle bas droit,
+     sous le pouce, tout près de la barre d'accueil et du coin arrondi de l'écran. Maintenant un vrai bouton sur toute la largeur, 46 px de haut, remonté du bord. */
+  .backups-close-row { justify-content: stretch; margin: 10px 0 18px; }
+  .backups-close-row > button { flex: 1 1 auto; width: 100%; min-height: 46px; font-size: var(--fs-md); font-weight: 700; color: var(--text-main); border: 1px solid var(--border); border-radius: 12px; background: rgba(var(--ov), .06); }
+  /* Écran de session en cours : le « ＋ » du plan (ajouter un exercice) était un petit bouton de 34 × 19 px dans le coin bas droit ; la ligne du plan remonte du bord. */
+  button.gs-plan-add { width: 46px; min-height: 36px; align-self: stretch; }
+  .gs-plan { padding-bottom: 22px; }
+}
