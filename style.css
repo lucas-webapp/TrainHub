@@ -4041,11 +4041,6 @@ button.rec-close { flex: none; width: 28px; height: 28px; padding: 0; color: var
 .rec-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .rec-lab { flex: none; width: 82px; font-size: var(--fs-2xs); font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; white-space: nowrap; }
 select.rec-select { flex: 1; min-width: 0; height: 34px; padding: 0 8px; font-size: var(--fs-sm); }
-.rec-check { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--text-main); cursor: pointer; }
-.rec-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
-input.rec-bpm { width: 64px; height: 30px; padding: 0 6px; text-align: center; font-variant-numeric: tabular-nums; }
-.rec-unit, .rec-hint { font-size: var(--fs-xs); color: var(--text-muted); }
-.rec-click-row { padding-left: 24px; flex-wrap: wrap; row-gap: 2px; }
 .rec-main { display: flex; align-items: center; gap: 10px; }
 button.rec-go { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 18px; border-radius: var(--radius); font-size: var(--fs-md); font-weight: 800; border-color: color-mix(in srgb, #ff5252 55%, var(--border)); background: color-mix(in srgb, #ff5252 14%, transparent); color: var(--text-hi); }
 button.rec-go:disabled { opacity: .5; }
@@ -4062,7 +4057,6 @@ button.rec-go.rec-go-stop { background: color-mix(in srgb, #ff5252 28%, transpar
 .rec-take[hidden] { display: none; }
 audio.rec-audio { width: 100%; height: 36px; }
 input.rec-name { height: 34px; padding: 0 8px; font-weight: 600; }
-.rec-take-info { font-size: var(--fs-xs); color: var(--text-muted); }
 .rec-take-acts { display: flex; justify-content: space-between; gap: 8px; }
 .rec-take-acts button { height: 34px; padding: 0 14px; font-weight: 700; }
 
@@ -4112,7 +4106,6 @@ button.rec-wave-btn:disabled { opacity: .4; cursor: not-allowed; }
 .rec-wave-vol .rec-lab { width: auto; }
 input.rec-wave-vrange { flex: 1 1 120px; min-width: 90px; accent-color: var(--accent); }
 .rec-wave-vval { min-width: 54px; text-align: right; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; color: var(--text-dim); }
-.rec-wave-fade { align-self: flex-start; }
 .rec-wave-load { padding: 22px 0; text-align: center; font-size: var(--fs-sm); color: var(--text-muted); }
 .rec-lib { border: 1px solid var(--border); border-radius: var(--radius-sm); background: rgba(var(--ov), .03); }
 .rec-lib > summary { cursor: pointer; padding: 8px 10px; font-size: var(--fs-sm); font-weight: 700; color: var(--text-dim); }
@@ -4678,8 +4671,6 @@ button.rec-go .rec-go-sq { width: 16px; height: 16px; border-radius: 3px; }
 .rec-setup > summary { cursor: pointer; padding: 8px 10px; font-size: var(--fs-sm); font-weight: 700; color: var(--text-dim); }
 .rec-setup[open] > summary { border-bottom: 1px solid var(--border); }
 .rec-setup-body { display: flex; flex-direction: column; gap: 10px; padding: 10px; }
-.rec-metro-hint { line-height: 1.35; }
-.rec-metro-hint[hidden] { display: none; }
 .rec-msg-row { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 6px 8px; }
 .rec-msg-row .rec-msg { flex: 1 1 180px; min-width: 0; }
 button.rec-retry { flex: none; height: 30px; padding: 0 12px; font-weight: 700; }
@@ -4687,5 +4678,26 @@ button.rec-prev { align-self: flex-start; height: 30px; padding: 0 10px; font-si
 button.rec-save { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
 button.rec-save .icon { width: 16px; height: 16px; flex: none; }
 .rec-take-acts { align-items: center; }
-.rec-fmt > summary { cursor: pointer; font-size: var(--fs-xs); color: var(--text-muted); }
-.rec-fmt-row { margin-top: 6px; }
+
+/* ---------- v211 — Enregistreur : moins de texte, cases au style de l'appli, tout aligné ---------- */
+/* Rangée du métronome : les pastilles « Métronome » / « Garder le clic » sont celles de « Dé » et « Objectif tempo » (mêmes cases, même couleur cochées) ;
+   le tempo est entre les deux. Tout sur une seule rangée alignée à gauche, qui passe à la ligne sans décalage en cascade. */
+.rec-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.rec-opts .rec-toggle { height: 34px; flex: none; }
+.rec-opts [hidden] { display: none; }
+.rec-toggle.rec-off { opacity: .5; pointer-events: none; }
+.rec-bpm-wrap { display: inline-flex; align-items: center; flex: none; }
+.rec-bpm-wrap .num-stepper { height: 34px; }
+select.rec-select { height: 34px; }
+.rec-dest-row, .rec-row { gap: 0; }
+/* Prise : barre d'outils d'une seule rangée (boutons courts, de largeur égale), nom, destination, actions */
+.rec-wave-tools { flex-wrap: wrap; }
+button.rec-wave-btn { flex: 1 1 auto; min-width: 0; height: 34px; padding: 0 8px; }
+.rec-wave-rng { min-height: 0; }
+.rec-wave-vol .rec-wave-btn { flex: none; }
+.rec-take-info { font-size: var(--fs-xs); color: var(--c-orange-text, var(--c-orange)); }
+.rec-take-info[hidden] { display: none; }
+button.rec-prev { height: 34px; }
+button.rec-retry { height: 34px; }
+.backups-panel.recorder-panel { width: min(400px, calc(100vw - 16px)); }
+.rec-opts { gap: 6px; }
