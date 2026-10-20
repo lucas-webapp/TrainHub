@@ -4662,3 +4662,10 @@ html[data-theme="light"] .gs-save-run-panel .gs-rec-item { background: #f6f8f6; 
   button.gs-plan-add { width: 46px; min-height: 36px; align-self: stretch; }
   .gs-plan { padding-bottom: 22px; }
 }
+
+/* ===== v209 : onglet « Éphémères » du mode session ===== */
+.gs-eph-newbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 4px; }
+.gs-eph-newbar .gs-eph-add { flex: 1 1 220px; height: 42px; margin: 0; }
+.gs-eph-newbar input.gs-eph-date { flex: 0 0 auto; height: 42px; padding: 0 10px; font: inherit; }
+.gs-eph-hint { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.4; margin: 0 0 6px; }
+.gs-tab-ephemeral.active { border-color: color-mix(in srgb, var(--eph) 60%, var(--border)); }

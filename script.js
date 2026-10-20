@@ -16606,6 +16606,7 @@
     function gsRunActive() { return !!(gsRunSession && gsScreen === "run"); }
     // ---- sessions éphémères : « Session du 08-10-2026 », créées depuis le calendrier pour un seul jour ----
     var gsAutoPick = null; // id de la session éphémère qu'on vient de créer : on ouvre tout de suite le choix des exercices
+    var gsEphBack = null;  // « tab » : l'éphémère en édition vient de l'onglet « Éphémères » (on y revient) ; sinon du calendrier
     function gsProtectedIds() { var k = {}; if (gsRunSession) k[gsRunSession.id] = true; if (gsEditingSession) k[gsEditingSession.id] = true; return k; }
     function gsEphemeralDateText(key) { var d = calParse(key), p2 = function (n) { return (n < 10 ? "0" : "") + n; }; return p2(d.getDate()) + "-" + p2(d.getMonth() + 1) + "-" + d.getFullYear(); }
     function gsEphemeralName(key) {
@@ -16624,12 +16625,12 @@
         return s;
     }
     // Depuis le calendrier : nouvelle session pour ce jour, puis choix des exercices un à un.
-    function gsStartEphemeral(key) {
+    function gsStartEphemeral(key, fromTab) {
         if (key < calTodayKey()) { showToast("Impossible de programmer dans le passé"); return null; }
         if (gsRunActive()) { showToast("Une session est en cours : termine-la avant d'en préparer une autre.", 4500); return null; }
         var s = gsCreateEphemeral(key);
         gsAutoPick = s.id;
-        gsOpenSessionEditor(s);
+        gsOpenSessionEditor(s, fromTab ? { back: "tab" } : null);
         return s;
     }
     // Retire une session éphémère et sa séance au planning (sans corbeille : elle n'existe que pour ce jour-là ; « Annuler » la rend).
@@ -16701,10 +16702,11 @@
     function gsIsEphemeralRec(rec) { return !!(rec && (rec.ephemeral || gsIsEphemeralId(rec.sessionId))); } // la séance enregistrée garde le repère après la disparition de la session
     function gsNameActionLabel(sess, nm) { return sess && sess.ephemeral ? "Enregistrer dans mes sessions…" : "Renommer « " + nm + " »…"; }
     // Ouvre l'écran d'édition d'une session (ses exercices) en fermant la fenêtre d'où l'on vient.
-    function gsOpenSessionEditor(session) {
+    function gsOpenSessionEditor(session, opts) {
         if (!session) { showToast("Cette session n'existe plus (voir la corbeille)"); return false; }
         if (gsRunActive()) { showToast("Une session est en cours : termine-la avant d'en modifier une.", 4500); return false; }
         function go() {
+            gsEphBack = opts && opts.back === "tab" ? "tab" : null;
             if (closeActiveModal) closeActiveModal();
             closeFolderMenu();
             if (session.instrumentId && session.instrumentId !== state.activeInstrumentId && findById(state.instruments, session.instrumentId)) { state.activeInstrumentId = session.instrumentId; persist(); }
@@ -17337,7 +17339,15 @@
         sessions = sessions.filter(function (gs) { return !gs.archived; });
         var showArchived = gsActiveTab === "__archived__";
         var showUpcoming = gsActiveTab === "upcoming";
-        if (gsActiveTab !== "all" && !showArchived && !showUpcoming && !tabs.some(function (t) { return t.id === gsActiveTab; })) gsActiveTab = "all";
+        var showEph = gsActiveTab === "ephemeral";
+        if (gsActiveTab !== "all" && !showArchived && !showUpcoming && !showEph && !tabs.some(function (t) { return t.id === gsActiveTab; })) gsActiveTab = "all";
+        // Sessions éphémères (un seul jour) de cet espace, à partir d'aujourd'hui, hors celles déjà faites ce jour-là.
+        function ephemeralList() {
+            var today = calTodayKey(), doneIds = {};
+            logAll().forEach(function (e) { if (e.sessionId && calKey(new Date(e.date)) === today) doneIds[e.sessionId] = true; });
+            return allSessions.filter(function (g) { return g.ephemeral && g.instrumentId === activeInstId && g.date >= today && !(g.date === today && doneIds[g.id]); })
+                .sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : (a.createdAt || 0) - (b.createdAt || 0); });
+        }
         var activeTab = tabs.filter(function (t) { return t.id === gsActiveTab; })[0] || null;
 
         var liveIds = exerciseIdSet(); // pour repérer les pas dont l'exercice a été supprimé
@@ -17598,6 +17608,57 @@
             return wrap;
         }
 
+        // Onglet « Éphémères » : créer une session pour un seul jour sans passer par le calendrier, et retrouver celles qui sont prévues.
+        function buildEphemeralTab() {
+            var wrap = document.createElement("div"); wrap.className = "gs-upcoming gs-eph-tab";
+            var bar = document.createElement("div"); bar.className = "gs-eph-newbar";
+            var dateIn = document.createElement("input"); dateIn.type = "date"; dateIn.className = "gs-eph-date"; dateIn.min = calTodayKey(); dateIn.value = calTodayKey(); dateIn.setAttribute("aria-label", "Jour de la session éphémère");
+            var add = document.createElement("button"); add.type = "button"; add.className = "btn-accent gs-eph-add"; add.textContent = "+ Nouvelle session éphémère";
+            add.addEventListener("click", function () { gsStartEphemeral(dateIn.value && dateIn.value >= calTodayKey() ? dateIn.value : calTodayKey(), true); });
+            bar.appendChild(add); bar.appendChild(dateIn);
+            wrap.appendChild(bar);
+            var hint = document.createElement("div"); hint.className = "gs-eph-hint";
+            hint.textContent = "Une session pour un seul jour (aujourd'hui par défaut) : pas de nom ni d'onglet à choisir, on ajoute juste les exercices. Elle disparaît après son jour ; « Enregistrer dans mes sessions… » la garde.";
+            wrap.appendChild(hint);
+            var items = ephemeralList(), lastKey = null;
+            if (!items.length) {
+                var e = document.createElement("div"); e.className = "gs-empty"; e.textContent = "Aucune session éphémère prévue."; wrap.appendChild(e); return wrap;
+            }
+            items.forEach(function (sess) {
+                if (sess.date !== lastKey) { lastKey = sess.date; var h = document.createElement("div"); h.className = "gs-up-day" + (sess.date === calTodayKey() ? " gs-up-today" : ""); h.textContent = calRelLabel(sess.date); wrap.appendChild(h); }
+                var row = document.createElement("div"); row.className = "gs-up-row gs-up-eph"; row.dataset.sessionId = sess.id; row.title = "Modifier les exercices de cette session";
+                var info = document.createElement("div"); info.className = "gs-up-info";
+                var nm = document.createElement("span"); nm.className = "gs-up-name"; nm.textContent = sess.name;
+                var meta = document.createElement("span"); meta.className = "gs-up-meta";
+                meta.textContent = sess.steps.length ? sess.steps.length + " exercice" + (sess.steps.length > 1 ? "s" : "") + " · " + sessionTotalMinutes(sess) + " min" + (sess.steps.some(function (st) { return !liveIds[st.exerciseId]; }) ? " · ⚠ exercice supprimé" : "") : "aucun exercice";
+                info.appendChild(nm); info.appendChild(meta); row.appendChild(info);
+                attachSessionPreview(info, function () { return gsFindSession(sess.id); });
+                var acts = document.createElement("div"); acts.className = "gs-session-actions";
+                function edit() { gsOpenSessionEditor(sess, { back: "tab" }); }
+                function drop() {
+                    gsDropEphemeral(sess); render();
+                    showToast("Session éphémère retirée.", 6000, { label: "Annuler", run: function () { undo(); } });
+                }
+                if (sess.date === calTodayKey() && sess.steps.length) { var pb = svgIconButton(METRO_PLAY_ICON_SVG, "Lancer cette session maintenant", function () { gsStartRun(sess); }); pb.classList.add("gs-session-play-btn"); acts.appendChild(pb); }
+                var ed = iconButton("✎", "Modifier les exercices de cette session", edit); ed.classList.add("gs-up-edit"); acts.appendChild(ed);
+                var keep = svgIconButton(SAVE_ICON_SVG, "Enregistrer dans mes sessions (la garder au-delà de son jour)", function () { gsKeepEphemeral(sess, function () { render(); }); }); keep.classList.add("gs-eph-keep-btn"); acts.appendChild(keep);
+                var rm = iconButton("✕", "Retirer cette session éphémère", drop); acts.appendChild(rm);
+                row.appendChild(acts);
+                row.addEventListener("click", function (ev) { if (ev.target.closest("button")) return; if (suppressNextClick) { suppressNextClick = false; return; } edit(); });
+                bindContextGesture(row, function (x, y) {
+                    var its = [];
+                    if (sess.date === calTodayKey() && sess.steps.length) its.push({ label: "▶ Lancer maintenant", open: function () { gsStartRun(sess); } });
+                    its.push({ label: "✎ Modifier les exercices", open: edit });
+                    its.push({ label: "Enregistrer dans mes sessions…", open: function () { gsKeepEphemeral(sess, function () { render(); }); } });
+                    its.push({ label: "Ouvrir ce jour dans le calendrier", open: function () { openSessionCalendar({ focusDate: sess.date }); } });
+                    its.push({ label: "✕ Retirer", open: drop });
+                    openLinksQuickMenu(x, y, its);
+                });
+                wrap.appendChild(row);
+            });
+            return wrap;
+        }
+
         // ---- barre d'onglets ----
         var bar = document.createElement("div");
         bar.className = "gs-tabbar";
@@ -17614,7 +17675,7 @@
             var c = document.createElement("span"); c.className = "gs-tab-count"; c.textContent = String(count);
             b.appendChild(l); b.appendChild(c);
             b.addEventListener("click", function () { gsActiveTab = id; gsSaveView(); render(); });
-            if (id !== "all" && id !== "upcoming") b.addEventListener("dblclick", function () { renameTab(id); });
+            if (id !== "all" && id !== "upcoming" && id !== "ephemeral") b.addEventListener("dblclick", function () { renameTab(id); });
             bar.appendChild(b);
         }
         function renameTab(id) {
@@ -17626,6 +17687,8 @@
         }
         tabBtn("upcoming", "À venir", calUpcoming(30).length, null); // à gauche de « Tout »
         bar.lastChild.classList.add("gs-tab-upcoming");
+        tabBtn("ephemeral", "Éphémères", ephemeralList().length, null); // à côté de « À venir » : sessions d'un seul jour, créées ici sans passer par le calendrier
+        bar.lastChild.classList.add("gs-tab-ephemeral");
         tabBtn("all", "Tout", sessions.length, "__all__");
         tabs.forEach(function (t) {
             tabBtn(t.id, t.name, sessions.filter(function (gs) { return gs.tabIds.indexOf(t.id) !== -1; }).length, t.id);
@@ -17713,17 +17776,19 @@
             }));
             tools.appendChild(tAct);
         }
-        if (!showUpcoming) content.appendChild(tools);
+        if (!showUpcoming && !showEph) content.appendChild(tools);
 
         // ---- liste ---- (« + Nouvelle session » juste au-dessus des sessions)
         var newBar = document.createElement("div");
         newBar.className = "gs-newbar";
         newBar.appendChild(addBtn);
-        if (!showUpcoming) content.appendChild(newBar);
+        if (!showUpcoming && !showEph) content.appendChild(newBar);
         var visible = gsSortList((showArchived ? archivedAll : sessions).filter(function (gs) {
             return (showArchived || !activeTab || gs.tabIds.indexOf(activeTab.id) !== -1) && gsDurationMatches(gs);
         }));
-        if (showUpcoming) {
+        if (showEph) {
+            content.appendChild(buildEphemeralTab());
+        } else if (showUpcoming) {
             content.appendChild(buildUpcomingList());
         } else if (!visible.length) {
             var empty = document.createElement("div");
@@ -17786,12 +17851,14 @@
 
         function leaveEdit() {
             delete gsDrafts[real.id]; gsEditingSession = null; gsScreen = "list";
-            if (real.ephemeral) { // éphémère : on revient au calendrier, et une session restée vide n'est pas programmée
-                var cur = gsFindSession(real.id), key = real.date, dropped = false;
+            if (real.ephemeral) { // éphémère : on revient à l'onglet « Éphémères » (d'où l'on vient) ou au calendrier ; une session restée vide n'est pas programmée
+                var cur = gsFindSession(real.id), key = real.date, dropped = false, backTab = gsEphBack === "tab";
+                gsEphBack = null;
                 if (cur && cur.ephemeral && !cur.steps.length) { gsDropEphemeral(cur); dropped = true; }
+                if (backTab) { gsActiveTab = "ephemeral"; gsSaveView(); }
                 render();
                 if (dropped) showToast("Session vide : rien n'a été programmé pour ce jour-là.", 4000);
-                if (key) setTimeout(function () { openSessionCalendar({ focusDate: key }); }, 0);
+                if (key && !backTab) setTimeout(function () { openSessionCalendar({ focusDate: key }); }, 0);
                 return;
             }
             render();
@@ -17802,7 +17869,7 @@
         var backBtn = document.createElement("button");
         backBtn.type = "button";
         backBtn.className = "btn-ghost gs-back-btn";
-        backBtn.textContent = real.ephemeral ? "← Retour au calendrier" : "← Retour à la liste";
+        backBtn.textContent = real.ephemeral ? (gsEphBack === "tab" ? "← Retour aux éphémères" : "← Retour au calendrier") : "← Retour à la liste";
         backBtn.addEventListener("click", function () {
             if (gsDraftDirty(real.id)) gsDraftPrompt(real.id, {}, leaveEdit); else leaveEdit();
         });
