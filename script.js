@@ -8925,6 +8925,9 @@
     }
     // Pas sur iPhone / iPad : un élément <audio> y coupe la musique des autres applis (le Web Audio, lui, se mélange) ; le problème décrit ne s'y pose pas.
     var METRO_LIFE_OFF = /iPhone|iPad|iPod/.test(navigator.userAgent || "") || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    // Safari ne démarre un contexte audio neuf que pendant un geste : hors geste il le laisse « suspended », puis on le ferme — des créations / fermetures
+    // à vide, pour rien, qui peuvent brouiller l'état du son du navigateur. Sur Safari, l'échange se fait donc seulement au premier clic ou à la première touche.
+    var METRO_SAFARI = /Safari/.test(navigator.userAgent || "") && !/Chrome|Chromium|Android|Edg|CriOS|FxiOS|OPR/.test(navigator.userAgent || "");
 
     // Un contexte neuf et son volume (pas encore utilisé par le métronome).
     function metroMakeCtx() {
@@ -8945,7 +8948,7 @@
         metroCtxLost = false;
         metroClockProbe = null;
         var built = pair.ctx;
-        audioLog("contexte neuf adopté (" + audioCtxTag(built) + ", " + built.sampleRate + " Hz)");
+        audioLog("contexte neuf adopté (" + audioCtxTag(built) + ", " + built.sampleRate + " Hz, latence " + (built.baseLatency || 0).toFixed(3) + "/" + (built.outputLatency || 0).toFixed(3) + ")");
         built.onstatechange = function () { // coupé puis rendu (vidéo plein écran, appel, autre appli) : on relance le son tout seul
             if (built !== metroAudioCtx) return;
             audioLog("le contexte passe à « " + built.state + " »");
@@ -9032,6 +9035,7 @@
     function metroDropCand(pair) { if (metroSwapCand === pair) metroSwapCand = null; try { pair.ctx.close(); } catch (e) {} }
     function metroTrySwap(inGesture) {
         if (!metroPlaying || metroCtxBusy()) return;
+        if (!inGesture && METRO_SAFARI && !metroSwapCand) { metroSwapWanted = true; audioLog("échange reporté au premier geste (Safari ne démarre pas de contexte neuf hors geste)"); return; }
         if (metroSwapCand) { // essai hors geste en cours : ce geste l'autorise à démarrer
             if (!inGesture) return;
             var c = metroSwapCand;
@@ -9139,7 +9143,7 @@
     }
     document.addEventListener("visibilitychange", function () {
         audioLog(document.hidden ? "page masquée (autre bureau, fenêtre réduite…)" : "page de nouveau visible");
-        if (document.hidden) { metroCtxLost = true; metroLeave(); } else { metroOnReturn(); metroBack(); }
+        if (document.hidden) { metroCtxLost = true; metroLeave(); } else { metroReturnedOnce = true; metroOnReturn(); metroBack(); }
     });
     window.addEventListener("pageshow", function () { metroOnReturn(); metroBack(); });
     window.addEventListener("blur", function () { if (metroPlaying) audioLog("fenêtre sans focus"); metroLeave(); });
@@ -9163,6 +9167,7 @@
     function setMetroVolume(v) {
         state.settings.metronome.volume = v;
         if (metroMasterGain) metroMasterGain.gain.value = v;
+        metroFbVolume();
     }
 
     // Quatre timbres au choix (Paramètres › Métronome). Tous sont synthétisés ici (aucun fichier audio) et
@@ -9177,8 +9182,124 @@
         }
         return ctx._trNoise;
     }
+    // ---------- son de secours ----------
+    // Si le son Web Audio du navigateur est mort (le métronome « joue » sans bruit, alors que les vidéos et les fichiers audio, eux, sonnent), les
+    // clics peuvent être joués par le lecteur audio du navigateur : chaque clic est un petit fichier son (rendu hors ligne avec le timbre choisi),
+    // lancé au bon moment par un élément <audio>. Un peu moins précis que Web Audio, mais il sonne. Réglage par appareil (Paramètres › Métronome).
+    var METRO_FB_KEY = "trainhub.metroFallback.v1", METRO_FB_LEAD_MS = 45, METRO_FB_POOL = 3;
+    var metroFb = { kind: "", urls: null, rendering: null, pool: null, idx: [0, 0, 0], timers: [], hinted: false, samples: [], off: null }, metroFbRendering = false;
+    function metroFbOn() { try { return localStorage.getItem(METRO_FB_KEY) === "1"; } catch (e) { return false; } }
+    function metroFbSet(on) {
+        try { localStorage.setItem(METRO_FB_KEY, on ? "1" : "0"); } catch (e) {}
+        audioLog("son de secours " + (on ? "activé" : "coupé"));
+        if (on) { metroFbPool(); metroFbPrepare(); }
+        else metroFbCancel();
+    }
+    function metroFbCancel() { metroFb.timers.forEach(function (t) { clearTimeout(t); }); metroFb.timers = []; }
+    // Rend, hors ligne (aucune sortie son sollicitée), un clic normal (1) et un clic accentué (2) du timbre choisi, dans les mêmes proportions que Web Audio.
+    function metroFbPrepare() {
+        var kind = state.settings.metronome.sound || "click";
+        if (metroFb.urls && metroFb.kind === kind) return Promise.resolve();
+        if (metroFb.rendering && metroFb.rendering.kind === kind) return metroFb.rendering.p;
+        var Off = window.OfflineAudioContext || window.webkitOfflineAudioContext, sr = 44100;
+        if (!Off) return Promise.reject(new Error("rendu hors ligne indisponible"));
+        var jobs = [1, 2].map(function (level) {
+            var off = new Off(1, Math.round(sr * 0.25), sr), saveC = metroAudioCtx, saveG = metroMasterGain;
+            metroFbRendering = true;
+            try { var g = off.createGain(); g.gain.value = 1; g.connect(off.destination); metroAudioCtx = off; metroMasterGain = g; metroClick(0.005, level); } // le même code que le métronome, sur un contexte hors ligne
+            finally { metroAudioCtx = saveC; metroMasterGain = saveG; metroFbRendering = false; }
+            return off.startRendering().then(function (buf) { return buf.getChannelData(0).slice(); });
+        });
+        var p = Promise.all(jobs).then(function (pcms) {
+            var peak = 0; pcms.forEach(function (d) { for (var i = 0; i < d.length; i++) { var v = d[i] < 0 ? -d[i] : d[i]; if (v > peak) peak = v; } });
+            var k = peak > 0 ? 0.92 / peak : 1; // les deux clics gardent leurs proportions, le plus fort touche 92 %
+            var urls = pcms.map(function (d) { return URL.createObjectURL(recToWav({ sr: sr, chans: [d] }, k)); });
+            if (metroFb.urls) metroFb.urls.forEach(function (u) { try { URL.revokeObjectURL(u); } catch (e) {} });
+            metroFb.urls = urls; metroFb.kind = kind; metroFb.rendering = null;
+            if (metroFb.pool) metroFb.pool.forEach(function (list, li) { list.forEach(function (a) { a.src = urls[li]; try { a.load(); } catch (e) {} }); });
+            audioLog("son de secours : clics rendus (" + kind + ")");
+        }, function (e) { metroFb.rendering = null; audioLog("son de secours : rendu impossible (" + e + ")"); throw e; });
+        metroFb.rendering = { kind: kind, p: p };
+        return p;
+    }
+    // Les éléments <audio> qui jouent les clics. À créer (et « amorcer ») PENDANT un geste : un élément déjà lancé par un geste peut ensuite être relancé
+    // sans geste (même en changeant de fichier).
+    var METRO_FB_SILENT = null;
+    function metroFbSilentUrl() {
+        if (!METRO_FB_SILENT) METRO_FB_SILENT = URL.createObjectURL(recToWav({ sr: 8000, chans: [new Float32Array(800)] }, 1));
+        return METRO_FB_SILENT;
+    }
+    function metroFbPool() {
+        if (!metroFb.pool) {
+            metroFb.pool = [0, 1].map(function (li) {
+                var list = [];
+                for (var i = 0; i < METRO_FB_POOL; i++) { var a = new Audio(); a.preload = "auto"; a.src = metroFb.urls ? metroFb.urls[li] : metroFbSilentUrl(); a.volume = Math.min(1, Math.max(0, state.settings.metronome.volume)); list.push(a); }
+                return list;
+            });
+        }
+        metroFb.pool.forEach(function (list) {
+            list.forEach(function (a) {
+                if (a._trUnlocked) return;
+                a.muted = true; // amorçage muet : le geste en cours autorise ensuite chaque élément à jouer
+                try { var pr = a.play(); if (pr && pr.then) pr.then(function () { a.pause(); a.currentTime = 0; a.muted = false; a._trUnlocked = true; }, function () { a.muted = false; }); } catch (e) { a.muted = false; }
+            });
+        });
+        return metroFb.pool;
+    }
+    // Pas de son après un retour sur la page : à la deuxième mise en route en moins d'une minute, on propose le son de secours (une seule fois par chargement).
+    var metroFbLastStart = 0, metroReturnedOnce = false;
+    function metroFbHint() {
+        var now = Date.now(), prev = metroFbLastStart;
+        metroFbLastStart = now;
+        if (metroFbOn() || metroFb.hinted || !metroReturnedOnce || !prev || now - prev > 60000) return;
+        metroFb.hinted = true;
+        showToast("Pas de son ? Le son de secours joue les clics avec le lecteur audio du navigateur.", 12000, { label: "Activer", run: function () { metroFbSet(true); showToast("Son de secours activé.", 3000); } });
+    }
+    // « Tester le son » : un bip par Web Audio (le chemin du métronome), puis un par le lecteur audio (le chemin du son de secours).
+    function metroSoundTest() {
+        audioLog("test du son");
+        try {
+            var ctx = ensureMetroAudio(true, true), o = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime + 0.05;
+            o.frequency.value = 660; g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.25, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+            o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t + 0.35);
+        } catch (e) { audioLog("test du son : Web Audio impossible (" + e + ")"); }
+        setTimeout(function () {
+            var sr = 22050, n = Math.round(sr * 0.3), d = new Float32Array(n);
+            for (var i = 0; i < n; i++) d[i] = Math.sin(2 * Math.PI * 880 * i / sr) * 0.25 * Math.min(1, i / (sr * 0.01)) * Math.exp(-4 * i / n);
+            var a = new Audio(); a.src = URL.createObjectURL(recToWav({ sr: sr, chans: [d] }, 1));
+            a.onended = function () { URL.revokeObjectURL(a.src); };
+            try { var pr = a.play(); if (pr && pr.catch) pr.catch(function (err) { audioLog("test du son : lecteur audio refusé (" + (err && err.name || err) + ")"); }); } catch (e) {}
+        }, 700);
+        showToast("Deux bips : le 1er par Web Audio (comme le métronome), le 2e par le lecteur audio. Si seul le 2e sonne, active le « Son de secours ».", 10000);
+    }
+    function metroFbVolume() { if (metroFb.pool) metroFb.pool.forEach(function (list) { list.forEach(function (a) { a.volume = Math.min(1, Math.max(0, state.settings.metronome.volume)); }); }); }
+    // L'horloge audio avance par blocs (parfois 20 ms et plus) : pour caler le clic sur l'horloge de la page, on retient le plus petit écart observé entre les deux
+    // horloges sur les 3 dernières secondes (le relevé le plus frais), au lieu de se fier à un relevé périmé.
+    function metroFbSample() {
+        if (!metroAudioCtx || metroFbRendering) return;
+        var w = performance.now(), o = w - metroAudioCtx.currentTime * 1000, sm = metroFb.samples, m = o, i;
+        sm.push({ w: w, o: o });
+        while (sm.length && w - sm[0].w > 3000) sm.shift();
+        for (i = 0; i < sm.length; i++) if (sm[i].o < m) m = sm[i].o;
+        metroFb.off = m;
+    }
+    // Joue un clic : vrai si le lecteur audio s'en est chargé (sinon Web Audio joue comme d'habitude, par exemple pendant que les clics sont rendus).
+    function metroFbClick(time, level) {
+        if (!metroFb.pool || !metroFb.urls) { metroFbPrepare().catch(function () {}); return false; }
+        var li = level >= 2 ? 1 : 0, list = metroFb.pool[li], a = list[metroFb.idx[li]++ % list.length];
+        var delay = 0; // un peu d'avance : le lecteur met quelques dizaines de ms à sortir le son
+        if (metroAudioCtx && !metroFbRendering) delay = (metroFb.off !== null && metroFb.samples.length > 3 ? time * 1000 + metroFb.off - performance.now() : (time - metroAudioCtx.currentTime) * 1000) - METRO_FB_LEAD_MS;
+        var id = setTimeout(function () {
+            metroFb.timers = metroFb.timers.filter(function (t) { return t !== id; });
+            try { a.currentTime = 0; var pr = a.play(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {}
+        }, Math.max(0, delay));
+        metroFb.timers.push(id);
+        return true;
+    }
+
     function metroClick(time, level) {
         if (!level) return; // pas rendu muet
+        if (!metroFbRendering && metroFbOn() && metroFbClick(time, level)) return; // son de secours : le lecteur audio joue le clic
         var ctx = metroAudioCtx, accent = level >= 2, kind = state.settings.metronome.sound || "click";
         if (kind === "wood") { // bloc de bois : un bruit bref coloré par une résonance étroite, plus un petit corps grave
             var src = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), g = ctx.createGain();
@@ -9315,6 +9436,7 @@
     function metroScheduler() {
         metroLastTickAt = performance.now();
         if (!metroAudioCtx) return;
+        if (metroFb.pool && metroFbOn()) metroFbSample();
         var m = state.settings.metronome;
         // Minuteur ralenti (onglet en arrière-plan) : si l'on a pris plus de 0,25 s de retard, on repart de
         // maintenant plutôt que de rattraper d'un coup une rafale de clics.
@@ -9415,6 +9537,8 @@
         metroPlaying = true;
         audioLog("métronome lancé");
         metroLifePlay("lancement");
+        if (metroFbOn()) { metroFbPool(); metroFbPrepare().catch(function () {}); } // son de secours : les éléments audio sont amorcés par ce geste
+        metroFbHint();
         metroCurrentStep = 0;
         metroProgNextAt = null; // le décompte du tempo progressif repart à chaque lancement
         metroProgIdx = -1; metroProgRan = false; metroProgHoldUntil = null;
@@ -9433,6 +9557,7 @@
         if (metroPlaying) { audioLog("métronome arrêté"); metroStopListeners.forEach(function (fn) { try { fn(); } catch (e) {} }); }
         metroPlaying = false;
         metroLifeStop();
+        metroFbCancel(); metroFb.samples.length = 0; metroFb.off = null;
         metroStopTicker();
         metroStopDog();
         if (metroTimer) { clearTimeout(metroTimer); metroTimer = null; }
@@ -15828,6 +15953,8 @@
             card("Cadran");
             field("Pas des gros boutons", segControl(PREF_TEMPO_STEPS.map(function (n) { return [String(n), "±" + n]; }), String(prefs().tempoStep), function (v) { setPref("tempoStep", parseInt(v, 10)); }), "En BPM, de part et d'autre du cadran (les petits boutons font ±1)");
             card("Dépannage");
+            field("Son de secours", switchControl(metroFbOn(), function (on) { metroFbSet(on); }), "À activer si le métronome reste muet alors que les vidéos et les fichiers audio sonnent : les clics passent par le lecteur audio du navigateur (un peu moins précis)");
+            actionRow("Tester le son", "Un bip par Web Audio, puis un par le lecteur audio : si seul le second sonne, active le son de secours", metroSoundTest);
             actionRow("Journal du son", "Si le son se perd : copie ce journal et envoie-le (retours sur la page, états du son)", function () {
                 var txt = audioLogText();
                 function shown() { dlgAlert({ title: "Journal du son", message: "Copie impossible depuis ici. Dernières lignes :", items: audioLogBuf.slice(-14) }); }
