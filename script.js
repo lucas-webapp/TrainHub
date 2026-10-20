@@ -4323,17 +4323,28 @@
         });
         fitInstrumentSelect();
     }
-    // La liste des espaces s'ajuste à la largeur du nom choisi (un <select> prend sinon la largeur du plus long nom).
+    // La liste des espaces s'ajuste à la largeur du nom choisi (un <select> prend sinon la largeur du plus long nom). La largeur est mesurée par le
+    // navigateur lui-même, sur un <select> de contrôle qui n'a que ce nom : texte, marges et flèche exacts, quel que soit le navigateur (Safari
+    // réserve à la flèche plus de place que Chrome : un calcul « à la main » coupait le mot, « Guitare » par exemple).
     function fitInstrumentSelect() {
         var sel = $instrumentSelect, opt = sel.options[sel.selectedIndex];
         if (!opt) return;
-        var cs = window.getComputedStyle(sel), probe = document.createElement("span");
-        probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre;left:-9999px;top:0;font:" + cs.font + ";letter-spacing:" + cs.letterSpacing;
-        probe.textContent = opt.textContent;
+        var cs = window.getComputedStyle(sel), probe = document.createElement("select"), o = document.createElement("option");
+        o.textContent = opt.textContent; probe.appendChild(o);
+        probe.setAttribute("aria-hidden", "true"); probe.tabIndex = -1;
+        probe.style.cssText = "position:absolute;visibility:hidden;left:-9999px;top:0;width:auto;min-width:0;max-width:none;height:auto;";
+        ["fontFamily", "fontSize", "fontWeight", "fontStyle", "letterSpacing", "textTransform", "paddingLeft", "paddingRight", "paddingTop", "paddingBottom", "borderLeftWidth", "borderRightWidth", "borderTopWidth", "borderBottomWidth", "borderStyle", "boxSizing"].forEach(function (k) { probe.style[k] = cs[k]; });
         document.body.appendChild(probe);
         var w = probe.getBoundingClientRect().width;
         probe.remove();
-        if (w > 0) sel.style.width = Math.ceil(w + (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) + 22) + "px"; // 22 px : la flèche
+        if (!(w > 0)) { // repli : mesure du texte seul + marges + une flèche généreuse
+            var sp = document.createElement("span");
+            sp.style.cssText = "position:absolute;visibility:hidden;white-space:pre;left:-9999px;top:0;font:" + cs.font + ";letter-spacing:" + cs.letterSpacing;
+            sp.textContent = opt.textContent; document.body.appendChild(sp);
+            w = sp.getBoundingClientRect().width + (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) + 36;
+            sp.remove();
+        }
+        if (w > 0) sel.style.width = Math.ceil(w + 4) + "px"; // 4 px de marge de sécurité
     }
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { fitInstrumentSelect(); });
 
@@ -23018,6 +23029,46 @@
     if ($tunerBtn) $tunerBtn.addEventListener("click", openTunerPanel);
     var $recBtn = document.getElementById("rec-btn");
     if ($recBtn) $recBtn.addEventListener("click", openRecorderPanel);
+    // Téléphone : la barre du haut tient sur DEUX lignes. Les outils rares sont regroupés derrière deux boutons (« Outils » : gammes, harmonie, aides,
+    // accordeur ; « Plus » : annuler, rétablir, corbeille). Les vrais boutons restent dans la page (masqués par le CSS) : le menu les actionne, donc
+    // rien ne change côté fonctionnement (raccourcis, états grisés, fenêtres).
+    var topMenuEl = null;
+    function closeTopMenu() {
+        if (!topMenuEl) return;
+        document.removeEventListener("keydown", topMenuEl.onKey, true);
+        topMenuEl.backdrop.remove(); topMenuEl.menu.remove(); topMenuEl = null;
+    }
+    function openTopMenu(anchor, items) {
+        closeTopMenu();
+        var backdrop = document.createElement("div"); backdrop.className = "ctx-backdrop top-menu-backdrop";
+        var menu = document.createElement("div"); menu.className = "ctx-menu top-menu"; menu.setAttribute("role", "menu");
+        items.forEach(function (it) {
+            var real = document.getElementById(it.id), b = document.createElement("button");
+            b.type = "button"; b.className = "ctx-item top-menu-item"; b.setAttribute("role", "menuitem");
+            var ico = document.createElement("span"); ico.className = "top-menu-ico"; var svg = real && real.querySelector("svg"); ico.innerHTML = svg ? svg.outerHTML : "";
+            var lab = document.createElement("span"); lab.textContent = it.label;
+            b.appendChild(ico); b.appendChild(lab);
+            b.disabled = !real || real.disabled;
+            b.addEventListener("click", function () { closeTopMenu(); if (real) real.click(); });
+            menu.appendChild(b);
+        });
+        function onKey(e) { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeTopMenu(); } }
+        backdrop.addEventListener("pointerdown", function (e) { e.preventDefault(); closeTopMenu(); });
+        document.body.appendChild(backdrop); document.body.appendChild(menu);
+        document.addEventListener("keydown", onKey, true);
+        topMenuEl = { backdrop: backdrop, menu: menu, onKey: onKey };
+        var r = anchor.getBoundingClientRect(), w = menu.offsetWidth || 220;
+        menu.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + "px";
+        menu.style.top = Math.round(r.bottom + 6) + "px";
+    }
+    var $theoryBtn = document.getElementById("theory-btn");
+    if ($theoryBtn) $theoryBtn.addEventListener("click", function () {
+        openTopMenu($theoryBtn, [{ id: "scales-btn", label: "Gammes et arpèges" }, { id: "harmony-btn", label: "Harmonie" }, { id: "aides-btn", label: "Aides (cercle des quintes…)" }, { id: "tuner-btn", label: "Accordeur" }]);
+    });
+    var $moreBtn = document.getElementById("more-btn");
+    if ($moreBtn) $moreBtn.addEventListener("click", function () {
+        openTopMenu($moreBtn, [{ id: "undo-btn", label: "Annuler" }, { id: "redo-btn", label: "Rétablir" }, { id: "trash-btn", label: "Corbeille" }]);
+    });
     var $audioBtn = document.getElementById("audio-btn");
     if ($audioBtn) $audioBtn.addEventListener("click", openAudioPlayerPanel);
     var $guidedSessionBtn = document.getElementById("guided-session-btn");

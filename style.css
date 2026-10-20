@@ -4720,3 +4720,36 @@ button.dice-ex-btn:focus-visible { outline: 2px solid var(--accent); outline-off
 .dice-ex-row .tempo-goal-btn.tempo-goal-mini:hover { color: var(--text-main); }
 .dice-ex-row .tempo-goal-btn.tempo-goal-mini .tempo-goal-ico .icon { width: 18px; height: 18px; }
 .dice-ex-row .tempo-goal-btn.tempo-goal-mini.tempo-goal-on { color: var(--accent); }
+
+/* ---------- v215 — barre du haut sur téléphone : deux lignes alignées ---------- */
+/* Ligne 1 : logo · espace (qui prend toute la largeur libre) · ＋ · ✎ · compte ; ligne 2 : neuf boutons de même taille, en colonnes égales.
+   Les outils rares sont regroupés derrière « Outils » (gammes, harmonie, aides, accordeur) et « Plus » (annuler, rétablir, corbeille). */
+.phone-only { display: none; }
+@media (max-width: 760px) {
+  .phone-only { display: inline-flex; }
+  .phone-hide { display: none !important; }
+  .top-bar { --bar-h: 38px; padding: 8px 10px; gap: 6px; row-gap: 6px; align-items: center; }
+  .top-bar .logo { flex: none; width: var(--bar-h); height: var(--bar-h); margin: 0; justify-content: center; }
+  .top-bar .logo-mark .icon { width: 34px; height: 34px; }
+  .top-bar .instrument-select-wrap { flex: 1 1 0; min-width: 0; gap: 6px; }
+  .top-bar #instrument-select { flex: 1 1 0; width: auto !important; min-width: 0; font-size: var(--fs-md); } /* !important : la largeur calculée pour l'ordinateur ne vaut pas ici */
+  .top-bar .instrument-select-wrap .icon-btn { flex: none; width: var(--bar-h); height: var(--bar-h); }
+  .top-bar .auth-area { flex: none; }
+  .top-bar .account-info { position: relative; padding: 0; gap: 0; border: 0; background: transparent; }
+  .top-bar .account-info button { width: var(--bar-h); height: var(--bar-h); }
+  .top-bar .account-info .sync-status { position: absolute; top: 5px; right: 5px; font-size: 11px; pointer-events: none; } /* la pastille de synchro, sur l'icône de déconnexion */
+  .top-actions { flex: 1 1 100%; gap: 6px; margin: 0; align-items: stretch; }
+  .top-actions > button { flex: 1 1 0 !important; min-width: 28px !important; height: var(--bar-h) !important; margin: 0 !important; padding: 0 !important; }
+  .top-actions > .free-bar .free-what { margin-right: auto; }
+  .top-actions > .free-bar { flex: 1 1 100% !important; margin: 0 !important; } /* chrono libre : sa propre ligne, les neuf boutons gardent leurs colonnes */
+  .top-break { display: none !important; }
+  .top-actions button .icon, .top-actions button.metronome-btn-highlight .icon { width: 20px; height: 20px; }
+  .top-actions button.session-btn-highlight .icon { height: 18px; width: auto; }
+  #guided-session-btn { order: 1; } #free-btn { order: 2; } #metronome-btn { order: 3; } #rec-btn { order: 4; } #audio-btn { order: 5; }
+  #theory-btn { order: 6; } #search-toggle-btn { order: 7; } #more-btn { order: 8; } #settings-btn { order: 9; }
+}
+.top-menu { min-width: 230px; }
+.top-menu-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; text-align: left; }
+.top-menu-item .top-menu-ico { display: inline-flex; flex: none; width: 22px; justify-content: center; color: var(--text-dim); }
+.top-menu-item .top-menu-ico svg { width: 20px; height: 20px; }
+.top-menu-item:disabled { opacity: .4; cursor: not-allowed; }
