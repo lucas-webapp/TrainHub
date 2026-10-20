@@ -8861,6 +8861,71 @@
     var metroDogTimer = null;       // chien de garde, actif seulement pendant la lecture
     var metroClockProbe = null;     // { ctx, c, w } : l'horloge audio avance-t-elle vraiment ?
     var metroRecoverAt = 0, metroRecoverTries = 0;
+    // ---------- journal du son (diagnostic) ----------
+    // Une ligne par événement qui touche le son du métronome (retours sur la page, états du contexte audio, échanges, relances…), gardées sur
+    // l'appareil (120 dernières). Paramètres › Métronome › « Journal du son » les copie : c'est ce qui permet de voir, après coup, ce que le
+    // navigateur a fait au son quand la fenêtre a changé de bureau.
+    var AUDIO_LOG_KEY = "trainhub.audioLog.v1", audioLogBuf = [], audioLogSaveT = null, audioCtxSeq = 0;
+    try { audioLogBuf = JSON.parse(localStorage.getItem(AUDIO_LOG_KEY) || "[]"); if (!Array.isArray(audioLogBuf)) audioLogBuf = []; } catch (e) { audioLogBuf = []; }
+    function audioCtxTag(c) { if (!c) return "ctx:—"; if (!c._trId) c._trId = ++audioCtxSeq; return "ctx" + c._trId + ":" + c.state + "@" + (c.currentTime || 0).toFixed(1); }
+    function audioLog(what) {
+        var d = new Date(), p2 = function (n, w) { var t = String(n); while (t.length < (w || 2)) t = "0" + t; return t; };
+        var life = metroLife ? (metroLife.paused ? "bouée:pause" : "bouée:joue@" + metroLife.currentTime.toFixed(1)) : "bouée:—";
+        audioLogBuf.push(p2(d.getMonth() + 1) + "-" + p2(d.getDate()) + " " + p2(d.getHours()) + ":" + p2(d.getMinutes()) + ":" + p2(d.getSeconds()) + "." + p2(d.getMilliseconds(), 3)
+            + " " + (document.hidden ? "masquée" : "visible") + (document.hasFocus && document.hasFocus() ? "+focus" : "") + " " + (metroPlaying ? "JOUE" : "arrêt") + " " + audioCtxTag(metroAudioCtx) + " " + life + " | " + what);
+        if (audioLogBuf.length > 120) audioLogBuf.splice(0, audioLogBuf.length - 120);
+        if (!audioLogSaveT) audioLogSaveT = setTimeout(function () { audioLogSaveT = null; try { localStorage.setItem(AUDIO_LOG_KEY, JSON.stringify(audioLogBuf)); } catch (e) {} }, 800);
+    }
+    function audioLogText() {
+        return "TrainHub — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
+    }
+
+    // ---------- bouée audio ----------
+    // Tant que le métronome joue, un petit fichier son quasi silencieux (±1/32768, inaudible) tourne en boucle dans un élément <audio> : pour le
+    // navigateur la page « joue du son » en continu, et non par à-coups de quelques millisecondes. Quand on change de bureau ou qu'on réduit la
+    // fenêtre, Safari peut sinon traiter la page comme muette : il suspend ou coupe son contexte audio, et le son ne revient qu'au prochain clic.
+    // Un élément déjà lancé par un geste peut, lui, être relancé sans geste — c'est aussi lui qui rallume la session audio au retour sur la page.
+    var metroLife = null, metroLifeOwnPauses = 0, metroLifeProbe = null, metroLifeActAt = 0; // metroLifeOwnPauses : pauses demandées par l'appli (leur évènement « pause » arrive plus tard, il ne faut pas le prendre pour une touche média)
+    function metroLifeMake() {
+        if (metroLife) return metroLife;
+        var sr = 8000, n = sr, buf = new ArrayBuffer(44 + n * 2), dv = new DataView(buf), i;
+        function str(o, t) { for (var k = 0; k < t.length; k++) dv.setUint8(o + k, t.charCodeAt(k)); }
+        str(0, "RIFF"); dv.setUint32(4, 36 + n * 2, true); str(8, "WAVE"); str(12, "fmt "); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+        dv.setUint32(24, sr, true); dv.setUint32(28, sr * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); str(36, "data"); dv.setUint32(40, n * 2, true);
+        for (i = 0; i < n; i++) dv.setInt16(44 + i * 2, (i & 1) ? 1 : -1, true);
+        var a = new Audio();
+        a.src = URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+        a.loop = true; a.volume = 1; a.preload = "auto"; a.setAttribute("playsinline", ""); a.setAttribute("aria-hidden", "true");
+        a.addEventListener("pause", function () {
+            if (metroLifeOwnPauses > 0) { metroLifeOwnPauses--; return; }
+            if (!metroPlaying || !a.paused) return;
+            audioLog("bouée mise en pause par le système ou une touche média");
+            if (!document.hidden) { // touche « pause » du clavier / bouton « en cours de lecture » : le métronome s'arrête comme pour n'importe quel lecteur
+                if (metroPanelApi) metroPanelApi.toggle(); else stopMetronome();
+            }
+        });
+        a.addEventListener("error", function () { audioLog("bouée : erreur de lecture"); });
+        metroLife = a;
+        return a;
+    }
+    function metroLifePlay(why) {
+        if (!metroPlaying || METRO_LIFE_OFF) return;
+        var a;
+        try { a = metroLifeMake(); } catch (e) { audioLog("bouée impossible : " + e); return; }
+        if (!a.paused) return;
+        try {
+            var pr = a.play();
+            if (pr && pr.then) pr.then(function () { audioLog("bouée lancée (" + why + ")"); }, function (err) { audioLog("bouée refusée (" + why + ") : " + (err && err.name || err)); });
+        } catch (e) { audioLog("bouée refusée (" + why + ") : " + e); }
+    }
+    function metroLifeStop() {
+        if (!metroLife) return;
+        metroLifeProbe = null;
+        if (!metroLife.paused) { metroLifeOwnPauses++; try { metroLife.pause(); } catch (e) { metroLifeOwnPauses--; } }
+    }
+    // Pas sur iPhone / iPad : un élément <audio> y coupe la musique des autres applis (le Web Audio, lui, se mélange) ; le problème décrit ne s'y pose pas.
+    var METRO_LIFE_OFF = /iPhone|iPad|iPod/.test(navigator.userAgent || "") || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
     // Un contexte neuf et son volume (pas encore utilisé par le métronome).
     function metroMakeCtx() {
         var Ctor = window.AudioContext || window.webkitAudioContext;
@@ -8880,8 +8945,11 @@
         metroCtxLost = false;
         metroClockProbe = null;
         var built = pair.ctx;
+        audioLog("contexte neuf adopté (" + audioCtxTag(built) + ", " + built.sampleRate + " Hz)");
         built.onstatechange = function () { // coupé puis rendu (vidéo plein écran, appel, autre appli) : on relance le son tout seul
-            if (built !== metroAudioCtx || !metroPlaying) return;
+            if (built !== metroAudioCtx) return;
+            audioLog("le contexte passe à « " + built.state + " »");
+            if (!metroPlaying) return;
             if (built.state === "running") metroNextNoteTime = Math.max(metroNextNoteTime, built.currentTime + 0.05);
             else metroReviveAudio();
         };
@@ -8971,16 +9039,17 @@
             metroCommitSwap(c); return;
         }
         var pair;
-        try { pair = metroMakeCtx(); } catch (e) { metroSwapWanted = true; return; }
+        try { pair = metroMakeCtx(); } catch (e) { metroSwapWanted = true; audioLog("échange : contexte neuf impossible (" + e + ")"); return; }
         try { var pr = pair.ctx.resume(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {}
-        if (inGesture || pair.ctx.state === "running") { metroCommitSwap(pair); return; }
+        if (inGesture || pair.ctx.state === "running") { audioLog("échange à chaud" + (inGesture ? " (geste)" : " (contexte neuf démarré tout seul)")); metroCommitSwap(pair); return; }
         metroSwapCand = pair;
+        audioLog("échange : contexte neuf en attente (hors geste, état « " + pair.ctx.state + " »)");
         var t0 = Date.now();
         (function wait() {
             if (metroSwapCand !== pair) return; // déjà échangé pendant un geste
             if (!metroPlaying || metroCtxBusy()) { metroDropCand(pair); return; }
-            if (pair.ctx.state === "running") { metroCommitSwap(pair); return; }
-            if (Date.now() - t0 > 700) { metroDropCand(pair); metroSwapWanted = true; return; } // refusé hors geste : au prochain geste
+            if (pair.ctx.state === "running") { audioLog("échange à chaud (le contexte neuf a fini par démarrer)"); metroCommitSwap(pair); return; }
+            if (Date.now() - t0 > 700) { audioLog("échange refusé hors geste : repris au prochain clic ou à la prochaine touche"); metroDropCand(pair); metroSwapWanted = true; return; } // refusé hors geste : au prochain geste
             setTimeout(wait, 60);
         })();
     }
@@ -8993,6 +9062,7 @@
         var now = Date.now();
         if (now - metroRecoverAt < 1500) return;
         metroRecoverAt = now;
+        audioLog("relance du contexte (essai " + (metroRecoverTries + 1) + ")");
         if (++metroRecoverTries > 3) {
             metroRecoverTries = 0;
             if (metroPanelApi) metroPanelApi.toggle(); else stopMetronome();
@@ -9015,9 +9085,26 @@
             try { metroScheduler(); } catch (e) {}
         }
         var ctx = metroAudioCtx;
-        if (!ctx || ctx.state === "closed") { metroRecover(); return; }
+        if (!ctx || ctx.state === "closed") { audioLog("chien de garde : contexte fermé"); metroRecover(); return; }
         if (ctx.state !== "running") { metroClockProbe = null; metroReviveAudio(); return; }
-        if (document.hidden) { metroClockProbe = null; return; }
+        if (document.hidden) { metroClockProbe = null; metroLifeProbe = null; return; }
+        // La bouée doit avancer : si elle est censée jouer et que son temps est quasi figé pendant 3 s, la sortie audio est bloquée (même si le contexte se
+        // dit « en marche »). Prudent : on ne réagit qu'à un vrai gel, au plus une fois toutes les 30 s ; un son simplement lent ne déclenche rien.
+        if (metroLife && !metroLife.paused) {
+            if (!metroLifeProbe) metroLifeProbe = { c: metroLife.currentTime, w: now };
+            else if (now - metroLifeProbe.w >= 3000) {
+                var adv = Math.abs(metroLife.currentTime - metroLifeProbe.c);
+                if (adv < 0.05) {
+                    audioLog("la bouée est figée (" + adv.toFixed(2) + " s en " + ((now - metroLifeProbe.w) / 1000).toFixed(1) + " s) : sortie audio bloquée ?");
+                    metroLifeProbe = null;
+                    if (now - metroLifeActAt > 30000) {
+                        metroLifeActAt = now;
+                        metroLifeOwnPauses++; try { metroLife.pause(); } catch (e) { metroLifeOwnPauses--; } metroLifePlay("redémarrage");
+                        metroTrySwap(false);
+                    }
+                } else metroLifeProbe = { c: metroLife.currentTime, w: now };
+            }
+        } else metroLifeProbe = null;
         if (!metroClockProbe || metroClockProbe.ctx !== ctx) { metroClockProbe = { ctx: ctx, c: ctx.currentTime, w: now }; return; }
         var wall = (now - metroClockProbe.w) / 1000;
         if (wall < 1.2) return;
@@ -9033,9 +9120,12 @@
     // alors pour repartir, avec un contexte neuf.
     function metroOnReturn() {
         if (!metroAudioCtx) return;
+        audioLog("retour sur la page");
         if (metroAudioCtx.state !== "running") { try { var pr = metroAudioCtx.resume(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {} }
         if (!metroPlaying) return;
+        metroLifePlay("retour"); // la bouée, déjà lancée par un geste, se relance sans geste : elle rallume la session audio
         setTimeout(function () {
+            audioLog("retour : bilan à 0,45 s");
             if (!metroPlaying || document.hidden) return;
             if (metroAudioAlive()) { metroNextNoteTime = Math.max(metroNextNoteTime, metroAudioCtx.currentTime + 0.05); return; }
             if (!metroCtxLost) return; // simple retour de focus, sans passage en arrière-plan : on ne coupe rien
@@ -9048,11 +9138,12 @@
         }, 450);
     }
     document.addEventListener("visibilitychange", function () {
+        audioLog(document.hidden ? "page masquée (autre bureau, fenêtre réduite…)" : "page de nouveau visible");
         if (document.hidden) { metroCtxLost = true; metroLeave(); } else { metroOnReturn(); metroBack(); }
     });
     window.addEventListener("pageshow", function () { metroOnReturn(); metroBack(); });
-    window.addEventListener("blur", metroLeave);
-    window.addEventListener("focus", function () { if (metroAudioCtx && metroAudioCtx.state !== "running") metroOnReturn(); metroBack(); });
+    window.addEventListener("blur", function () { if (metroPlaying) audioLog("fenêtre sans focus"); metroLeave(); });
+    window.addEventListener("focus", function () { if (metroPlaying) audioLog("fenêtre au premier plan"); if (metroAudioCtx && metroAudioCtx.state !== "running") metroOnReturn(); metroBack(); });
     // Sortie son changée (casque branché, haut-parleur Bluetooth, autre appli qui change la fréquence de la carte son…) : le contexte en cours
     // n'est plus fiable — échange à chaud s'il joue, contexte neuf au prochain « Jouer » sinon.
     try { if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener("devicechange", function () { metroCtxLost = true; if (metroPlaying) metroTrySwap(false); }); } catch (e) {}
@@ -9061,8 +9152,10 @@
     ["pointerdown", "keydown", "touchend"].forEach(function (ev) {
         window.addEventListener(ev, function () {
             if (!metroPlaying || !metroAudioCtx) return;
-            if (metroAway || metroSwapWanted || metroSwapCand) { metroAway = false; metroTrySwap(true); return; }
+            if (metroLife && metroLife.paused) metroLifePlay("geste"); // un geste : la bouée peut repartir si le système l'avait coupée
+            if (metroAway || metroSwapWanted || metroSwapCand) { audioLog("premier geste après l'absence : échange du contexte audio"); metroAway = false; metroTrySwap(true); return; }
             if (metroAudioCtx.state === "running") return;
+            audioLog("geste : le contexte n'est pas en marche, on le réveille");
             try { var pr = metroAudioCtx.resume(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {}
         }, { capture: true, passive: true });
     });
@@ -9320,6 +9413,8 @@
         if (metroPlaying) return;
         try { ensureMetroAudio(true, true); } catch (e) { return; }
         metroPlaying = true;
+        audioLog("métronome lancé");
+        metroLifePlay("lancement");
         metroCurrentStep = 0;
         metroProgNextAt = null; // le décompte du tempo progressif repart à chaque lancement
         metroProgIdx = -1; metroProgRan = false; metroProgHoldUntil = null;
@@ -9335,8 +9430,9 @@
 
     var metroStopListeners = []; // appelées à l'arrêt du métronome, AVANT qu'un retour au tempo de départ ne change le BPM
     function stopMetronome() {
-        if (metroPlaying) metroStopListeners.forEach(function (fn) { try { fn(); } catch (e) {} });
+        if (metroPlaying) { audioLog("métronome arrêté"); metroStopListeners.forEach(function (fn) { try { fn(); } catch (e) {} }); }
         metroPlaying = false;
+        metroLifeStop();
         metroStopTicker();
         metroStopDog();
         if (metroTimer) { clearTimeout(metroTimer); metroTimer = null; }
@@ -15731,6 +15827,13 @@
             }, function (v) { metroPreviewSound(v); }));
             card("Cadran");
             field("Pas des gros boutons", segControl(PREF_TEMPO_STEPS.map(function (n) { return [String(n), "±" + n]; }), String(prefs().tempoStep), function (v) { setPref("tempoStep", parseInt(v, 10)); }), "En BPM, de part et d'autre du cadran (les petits boutons font ±1)");
+            card("Dépannage");
+            actionRow("Journal du son", "Si le son se perd : copie ce journal et envoie-le (retours sur la page, états du son)", function () {
+                var txt = audioLogText();
+                function shown() { dlgAlert({ title: "Journal du son", message: "Copie impossible depuis ici. Dernières lignes :", items: audioLogBuf.slice(-14) }); }
+                if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(function () { showToast("Journal du son copié (" + audioLogBuf.length + " lignes).", 5000); }, shown);
+                else shown();
+            });
 
             // ===== Sessions =====
             section("Sessions");
@@ -15971,24 +16074,21 @@
     function buildExerciseDiceRow(ex) {
         var row = document.createElement("div");
         row.className = "dice-ex-row";
-        var lab = document.createElement("label");
-        lab.className = "dice-ex-toggle";
-        var cb = document.createElement("input"); cb.type = "checkbox"; cb.className = "dice-ex-cb";
-        var ico = document.createElement("span"); ico.className = "dice-ex-ico"; ico.innerHTML = SCALES_DICE_SVG;
-        var txt = document.createElement("span"); txt.className = "dice-ex-txt"; txt.textContent = "Dé";
-        lab.appendChild(cb); lab.appendChild(ico); lab.appendChild(txt);
+        // Le dé : une icône seule (pas de case). Grisée = pas de dé ; verte = dé de gammes ; violette = dé d'harmonie. Un clic l'allume (choix du dé) ou l'éteint.
+        var lab = document.createElement("button");
+        lab.type = "button"; lab.className = "dice-ex-btn"; lab.innerHTML = SCALES_DICE_SVG;
         var sum = document.createElement("button"); sum.type = "button"; sum.className = "dice-ex-sum";
         var go = document.createElement("button"); go.type = "button"; go.className = "btn-ghost dice-ex-go"; go.textContent = "Tirer";
         var res = document.createElement("span"); res.className = "dice-ex-res";
-        row.appendChild(lab); row.appendChild(buildTempoGoalToggle(ex, false)); row.appendChild(sum); row.appendChild(go); row.appendChild(res); // « Objectif tempo » juste à côté de « Dé » : mêmes cases, même taille
+        row.appendChild(lab); row.appendChild(buildTempoGoalToggle(ex, true)); row.appendChild(sum); row.appendChild(go); row.appendChild(res); // « Objectif tempo » juste à côté du dé : même icône seule, grisée ou allumée en vert, même taille
         function paint() {
             var harm = !!(ex.harm && typeof ex.harm === "object");
-            ico.innerHTML = harm ? HARM_DICE_SVG : SCALES_DICE_SVG;
-            txt.textContent = harm ? "Harmonie" : "Dé";
+            lab.innerHTML = harm ? HARM_DICE_SVG : SCALES_DICE_SVG;
             lab.classList.toggle("dice-ex-harm", harm);
             if (harm) {
-                cb.checked = true; lab.classList.add("dice-ex-on");
-                lab.title = "Dé d'harmonie : tire au sort une progression, une tonalité et une consigne — décocher pour le retirer";
+                lab.classList.add("dice-ex-on"); lab.setAttribute("aria-pressed", "true");
+                lab.title = "Dé d'harmonie : tire au sort une progression, une tonalité et une consigne — cliquer pour le retirer";
+                lab.setAttribute("aria-label", lab.title);
                 sum.hidden = go.hidden = res.hidden = false;
                 ex.harm.cfg = harmNormCfg(ex.harm.cfg, harmFamilyNow());
                 sum.textContent = harmCfgLabel(ex.harm.cfg); sum.title = "Modifier le dé d'harmonie de cet exercice";
@@ -15997,9 +16097,9 @@
                 return;
             }
             var on = !!(ex.dice && typeof ex.dice === "object");
-            cb.checked = on;
-            lab.classList.toggle("dice-ex-on", on);
-            lab.title = on ? "Un dé tire au sort ce qu'il faut travailler (tonalité, gamme, mode, nombre de notes) : repris dans chaque session qui contient cet exercice — décocher pour le retirer" : "Cocher pour tirer au sort ce qu'il faut travailler (et régler les dés dès maintenant)";
+            lab.classList.toggle("dice-ex-on", on); lab.setAttribute("aria-pressed", on ? "true" : "false");
+            lab.title = on ? "Un dé tire au sort ce qu'il faut travailler (tonalité, gamme, mode, nombre de notes) : repris dans chaque session qui contient cet exercice — cliquer pour le retirer" : "Allumer un dé pour tirer au sort ce qu'il faut travailler (et régler les dés dès maintenant)";
+            lab.setAttribute("aria-label", lab.title);
             sum.hidden = go.hidden = !on;
             res.hidden = !on;
             if (!on) return;
@@ -16010,9 +16110,8 @@
             res.textContent = pick ? dicePickText(pick) : "";
             res.title = pick && diceViewLines(pick).length ? (diceViewLines(pick).length > 1 ? "Voir sur le manche : la gamme ou le mode (au choix)" : "Voir sur le manche") : "";
         }
-        cb.addEventListener("change", function () {
-            if (cb.checked) {
-                cb.checked = false;
+        lab.addEventListener("click", function () {
+            if (!ex.harm && !ex.dice) { // éteint : on l'allume, après avoir demandé lequel
                 dlgChoice({ title: "Quel dé pour « " + ex.title + " » ?", message: "Un exercice a l'un ou l'autre. Le dé de gammes tire une gamme ou un mode ; le dé d'harmonie tire une progression, une tonalité et une consigne de jeu.",
                     buttons: [
                         { label: "Dé de gammes", kind: "primary", onClick: function () { ex.dice = diceNewHolder(); touchExercise(ex); saveSoon(); paint(); openExerciseDiceWindow(ex, paint); } },

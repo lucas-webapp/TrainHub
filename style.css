@@ -4704,3 +4704,19 @@ button.rec-retry { height: 34px; }
 
 /* ---------- v212 — Enregistreur : décompte de 4 temps ---------- */
 .rec-time.rec-counting { color: var(--accent); font-size: 26px; font-weight: 800; }
+
+/* ---------- v213 — Détail d'un exercice : dé en icône seule, vignette « prog. » à la taille des boutons ---------- */
+/* Le dé : grisé = aucun dé ; vert = dé de gammes ; violet = dé d'harmonie (même taille que la ligne : 32 px). */
+button.dice-ex-btn { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 32px; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: transparent; color: var(--text-muted); cursor: pointer; }
+button.dice-ex-btn .icon { width: 18px; height: 18px; display: block; }
+button.dice-ex-btn:hover { color: var(--text-main); border-color: var(--border-hi, var(--text-muted)); }
+button.dice-ex-btn.dice-ex-on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+button.dice-ex-btn.dice-ex-harm.dice-ex-on { color: #c792ea; border-color: color-mix(in srgb, #c792ea 60%, var(--border)); background: color-mix(in srgb, #c792ea 12%, transparent); }
+button.dice-ex-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Vignettes du tempo (« prog. », « détaillé »…) : même hauteur (30 px), même arrondi (8 px) et même filet que les boutons voisins (réglages, lecture, retirer). */
+.metro-preset-row .metro-preset-tag { display: inline-flex; align-items: center; box-sizing: border-box; height: 30px; padding: 0 10px; border-radius: var(--radius-sm); font-weight: 700; }
+/* « Objectif tempo » : comme le dé, une icône seule (grise = pas d'objectif, verte = actif), plus de case à cocher. */
+.dice-ex-row .tempo-goal-btn.tempo-goal-mini { width: 36px; min-width: 36px; height: 32px; padding: 0; gap: 0; justify-content: center; color: var(--text-muted); }
+.dice-ex-row .tempo-goal-btn.tempo-goal-mini:hover { color: var(--text-main); }
+.dice-ex-row .tempo-goal-btn.tempo-goal-mini .tempo-goal-ico .icon { width: 18px; height: 18px; }
+.dice-ex-row .tempo-goal-btn.tempo-goal-mini.tempo-goal-on { color: var(--accent); }
