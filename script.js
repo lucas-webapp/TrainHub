@@ -14405,7 +14405,7 @@
     // L'enregistrement continue même fenêtre fermée (le bouton de la barre clignote) ; une prise non rangée est gardée, même si l'appli se
     // ferme, jusqu'à ce qu'on la range ou la supprime. Le fichier est une pièce jointe audio comme les autres (lecteur, renommer, cloud).
     // Le métronome est CELUI de l'appli (même tempo, même moteur) : déjà lancé, il continue ; sinon il démarre et s'arrête avec la prise.
-    var REC_KEYS = { device: "trainhub.recDevice.v1", dest: "trainhub.recDest.v1", metro: "trainhub.recMetro.v1", click: "trainhub.recClick.v1", pending: "trainhub.recPending.v1" };
+    var REC_KEYS = { device: "trainhub.recDevice.v1", dest: "trainhub.recDest.v1", metro: "trainhub.recMetro.v1", click: "trainhub.recClick.v1", count: "trainhub.recCount.v1", pending: "trainhub.recPending.v1" };
     function recPref(k, d) { try { var v = localStorage.getItem(REC_KEYS[k]); return v === null ? d : v; } catch (e) { return d; } }
     function recSetPref(k, v) { try { localStorage.setItem(REC_KEYS[k], v); } catch (e) {} }
     var REC_PENDING_BLOB = "rec-pending";
@@ -14413,10 +14413,10 @@
     var REC_SAVE_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>';
     var rec = { phase: "idle", stream: null, ctx: null, analyser: null, src: null, mr: null, chunks: [], startedAt: 0, ms: 0, timer: null, mime: "", take: null, prevTake: null, startedMetro: false, clickDest: null,
         dest: { mode: "", exId: null, folderId: null }, error: "", listeners: [], panelClose: null, meterRaf: null, peaks: [], peakT: [], t0: 0, tEnd: 0, peakTimer: null, saving: false, stopPlay: null,
-        split: null, anL: null, anR: null, pkL: 0, pkR: 0, mix: null, openTok: 0 };
+        split: null, anL: null, anR: null, pkL: 0, pkR: 0, mix: null, openTok: 0, count: null };
     function recEmit() {
         var b = document.getElementById("rec-btn");
-        if (b) { b.classList.toggle("rec-live", rec.phase === "recording"); b.classList.toggle("active", !!rec.panelClose); b.classList.toggle("rec-pending", rec.phase === "review"); }
+        if (b) { b.classList.toggle("rec-live", rec.phase === "recording" || rec.phase === "counting"); b.classList.toggle("active", !!rec.panelClose); b.classList.toggle("rec-pending", rec.phase === "review"); }
         rec.listeners.slice().forEach(function (fn) { try { fn(); } catch (e) {} });
     }
     function recSupported() { return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder); }
@@ -14697,9 +14697,10 @@
     }
     // L'entrée est-elle vraiment vivante ? (au retour d'une appli passée en arrière-plan, le système coupe souvent le micro : la piste est « ended »)
     function recStreamAlive() { return !!(rec.stream && rec.stream.getAudioTracks().some(function (t) { return t.readyState === "live"; })); }
-    function recEnsureStream() { return (rec.phase === "recording" || rec.phase === "finishing" || recStreamAlive()) ? Promise.resolve(!!rec.stream) : recOpenStream(); }
+    function recBusy() { return rec.phase === "recording" || rec.phase === "finishing" || rec.phase === "counting"; } // décompte, prise ou finalisation en cours : on n'y touche pas
+    function recEnsureStream() { return (recBusy() || recStreamAlive()) ? Promise.resolve(!!rec.stream) : recOpenStream(); }
     function recTrackEnded(stream) {
-        if (rec.stream !== stream || rec.phase === "recording" || rec.phase === "finishing") return;
+        if (rec.stream !== stream || recBusy()) return;
         recCloseStream();
         if (rec.phase === "armed") rec.phase = "idle";
         rec.error = "L'entrée audio s'est interrompue (appli passée en arrière-plan, casque ou carte son débranché…). Touche « Réessayer ».";
@@ -14778,10 +14779,53 @@
         if (rec.mix && rec.split) { try { rec.split.disconnect(rec.mix.gL); } catch (e) {} try { rec.split.disconnect(rec.mix.gR); } catch (e) {} }
         rec.mix = null;
     }
+    // Décompte : avec le métronome, 4 temps de clic AVANT le départ de la prise (on les compte sur les temps réels du métronome de l'appli, qu'il joue
+    // déjà ou qu'on le lance à l'instant). La prise démarre 0,1 s avant le temps 1 : son clic et l'attaque de la première note y sont, et les 4 clics
+    // du décompte n'y sont pas.
+    var REC_COUNT_BEATS = 4, REC_COUNT_LEAD_MS = 100;
+    function recCountOff() {
+        var c = rec.count;
+        if (!c) return;
+        metroBeatListeners = metroBeatListeners.filter(function (f) { return f !== c.fn; });
+        c.timers.forEach(function (t) { clearTimeout(t); });
+        rec.count = null;
+    }
+    function recCountOn() {
+        var c = rec.count = { n: 0, t: [], fn: null, timers: [] };
+        c.fn = function (step, isBeat) {
+            if (rec.count !== c || !isBeat || rec.phase !== "counting") return;
+            c.n++; c.t.push(performance.now());
+            if (c.n === REC_COUNT_BEATS) {
+                var iv = c.n > 1 ? c.t[c.n - 1] - c.t[c.n - 2] : 60000 / state.settings.metronome.bpm; // durée d'un temps, mesurée
+                iv = Math.min(2500, Math.max(150, iv));
+                c.timers.push(setTimeout(function () { if (rec.count === c) recBegin(); }, Math.max(0, iv - REC_COUNT_LEAD_MS)));
+            }
+            recEmit();
+        };
+        metroBeatListeners.push(c.fn);
+        // filet de sécurité : si les temps n'arrivent pas (onglet figé…), la prise part quand même
+        c.timers.push(setTimeout(function () { if (rec.count === c) recBegin(); }, (REC_COUNT_BEATS + 2) * 60000 / Math.max(30, state.settings.metronome.bpm) + 1500));
+    }
+    // Le métronome qu'on a lancé pour la prise s'arrête, le clic gardé se détache, le mélange est défait.
+    function recReleaseMetro() {
+        if (rec.startedMetro && metroPlaying) { if (metroPanelApi && metroPanelApi.toggle) metroPanelApi.toggle(); else stopMetronome(); }
+        rec.startedMetro = false;
+        if (rec.clickDest) { try { metroMasterGain.disconnect(rec.clickDest); } catch (e) {} rec.clickDest = null; }
+        recDropMix();
+    }
+    // Annule le décompte (le point rouge pendant les 4 temps) : rien n'a été enregistré, la prise d'avant est intacte.
+    function recCancelCount() {
+        if (rec.phase !== "counting") return;
+        recCountOff();
+        rec.mr = null; rec.chunks = [];
+        recReleaseMetro();
+        rec.phase = rec.take ? "review" : rec.stream ? "armed" : "idle";
+        recEmit();
+    }
     function recStart() {
         if (!rec.stream || (rec.phase !== "armed" && rec.phase !== "review") || rec.saving) return;
         if (!recStreamAlive()) { recOpenStream(); return; }
-        var mime = recPickMime(), srcStream = rec.stream, withMetro = recPref("metro", "0") === "1", withClick = withMetro && recPref("click", "0") === "1";
+        var mime = recPickMime(), srcStream = rec.stream, withMetro = recPref("metro", "0") === "1", withClick = withMetro && recPref("click", "0") === "1", withCount = withMetro && recPref("count", "1") === "1";
         rec.chunks = []; rec.mime = mime; rec.clickDest = null; rec.startedMetro = false;
         try {
             if (rec.ctx && rec.ctx.state !== "running") rec.ctx.resume(); // appui = geste : on réveille le contexte audio (sinon la prise peut sortir muette)
@@ -14790,6 +14834,7 @@
             if (withMetro) {
                 // Son du métronome NEUF, créé maintenant que l'entrée est ouverte : Safari change de mode audio quand le micro s'ouvre, et un son créé
                 // avant peut rester muet (c'était le « métronome en fond qu'on n'entend pas »). S'il joue déjà, on passe à chaud sur un son neuf.
+                if (withCount) recCountOn(); // l'écouteur de temps est en place AVANT que le métronome démarre : le temps 1 est compté
                 ensureMetroAudio(true, true);
                 if (metroPlaying) metroTrySwap(true);
                 if (withClick && mixDest && metroAudioCtx && metroMasterGain && metroAudioCtx.createMediaStreamDestination) { // le clic rejoint l'enregistrement : mélange micro + métronome
@@ -14799,12 +14844,19 @@
                     rec.clickDest = md;
                 }
                 if (!metroPlaying) { if (metroPanelApi && metroPanelApi.toggle) metroPanelApi.toggle(); else startMetronome(); rec.startedMetro = metroPlaying; } // via le panneau du métronome s'il est ouvert : son bouton suit
+                if (!metroPlaying) recCountOff(); // le métronome n'a pas pu démarrer : pas de décompte possible, la prise part tout de suite
             }
             rec.mr = mime ? new MediaRecorder(srcStream, { mimeType: mime }) : new MediaRecorder(srcStream);
-        } catch (e) { rec.error = "Impossible de démarrer l'enregistrement (" + (e && e.name || "erreur") + ")."; recEmit(); return; }
+        } catch (e) { recCountOff(); recReleaseMetro(); rec.error = "Impossible de démarrer l'enregistrement (" + (e && e.name || "erreur") + ")."; recEmit(); return; }
         rec.mime = rec.mr.mimeType || mime || "audio/webm";
         rec.mr.ondataavailable = function (ev) { if (ev.data && ev.data.size) rec.chunks.push(ev.data); };
         rec.mr.onstop = function () { recFinish(); };
+        if (rec.count) { rec.error = ""; rec.phase = "counting"; recEmit(); } // 4 temps de clic, puis recBegin()
+        else recBegin();
+    }
+    function recBegin() {
+        if (!rec.mr || (rec.phase !== "counting" && rec.phase !== "armed" && rec.phase !== "review")) return;
+        recCountOff();
         // refaire une prise : celle d'avant n'est pas perdue, elle passe en « prise précédente » (récupérable d'un geste) ; sa forme d'onde décodée
         // (lourde en mémoire) est lâchée si on n'y a pas touché, elle sera recalculée au retour
         if (rec.take) { if (rec.stopPlay) rec.stopPlay(); if (rec.take.ed && !rec.take.ed.dirty()) { rec.take.ed = null; rec.take.edFail = false; rec.take.edLoading = false; } rec.prevTake = rec.take; rec.take = null; }
@@ -14831,10 +14883,7 @@
         if (rec.peakTimer) { clearInterval(rec.peakTimer); rec.peakTimer = null; }
         rec.phase = "finishing";
         try { rec.mr.stop(); } catch (e) { recFinish(); }
-        if (rec.startedMetro && metroPlaying) { if (metroPanelApi && metroPanelApi.toggle) metroPanelApi.toggle(); else stopMetronome(); }
-        rec.startedMetro = false;
-        if (rec.clickDest) { try { metroMasterGain.disconnect(rec.clickDest); } catch (e) {} rec.clickDest = null; }
-        recDropMix();
+        recReleaseMetro();
         wakeLockSync();
         recEmit();
     }
@@ -14868,7 +14917,7 @@
     }
     // « Reprendre la prise précédente » : échange la prise affichée et celle d'avant (on peut comparer, ou revenir à la meilleure).
     function recSwapPrev() {
-        if (!rec.prevTake || rec.phase === "recording" || rec.phase === "finishing" || rec.saving) return;
+        if (!rec.prevTake || recBusy() || rec.saving) return;
         if (rec.stopPlay) rec.stopPlay();
         var cur = rec.take;
         rec.take = rec.prevTake; rec.prevTake = cur || null;
@@ -14878,13 +14927,13 @@
     }
     // Reprise d'une prise non rangée restée d'une séance précédente.
     function recRestorePending() {
-        if (rec.take || rec.phase === "recording" || rec.phase === "finishing") return Promise.resolve();
+        if (rec.take || recBusy()) return Promise.resolve();
         var meta = null;
         try { meta = JSON.parse(localStorage.getItem(REC_KEYS.pending) || "null"); } catch (e) {}
         if (!meta || !meta.name) return Promise.resolve();
         return getFileBlob(REC_PENDING_BLOB).then(function (blob) {
             if (!blob) { recClearPending(); return; }
-            if (rec.take || rec.phase === "recording" || rec.phase === "finishing") return; // une prise est arrivée entre-temps
+            if (rec.take || recBusy()) return; // une prise est arrivée entre-temps
             rec.take = { blob: blob, mime: meta.mime || blob.type, ms: meta.ms || 0, name: meta.name, at: meta.at || Date.now() };
             rec.phase = "review"; recEmit();
         }, function () {});
@@ -14961,7 +15010,7 @@
                     srcSel.value = cur; if (srcSel.value !== cur) srcSel.value = "";
                 });
             }
-            srcSel.addEventListener("change", function () { recSetPref("device", srcSel.value); if (rec.phase !== "recording" && rec.phase !== "finishing") recOpenStream().then(function () { fillDevices(); paint(); }); });
+            srcSel.addEventListener("change", function () { recSetPref("device", srcSel.value); if (!recBusy()) recOpenStream().then(function () { fillDevices(); paint(); }); });
 
             // -- métronome : le même que dans l'appli (même tempo). Déjà lancé, il continue ; sinon il démarre et s'arrête avec la prise.
             // Cases = les pastilles « Dé » / « Objectif tempo » de l'appli (même case, même couleur quand elles sont cochées), sur une seule rangée.
@@ -14980,23 +15029,26 @@
             var bpmWrap = el("span", "rec-bpm-wrap"); bpmWrap.appendChild(bpmIn);
             bindScrubInput(bpmIn, 30, 300, { pxPerStep: 5, wheel: true, emptyStart: 100 });
             bpmIn.addEventListener("change", function () { var n = Math.min(300, Math.max(30, parseInt(bpmIn.value, 10) || state.settings.metronome.bpm)); bpmIn.value = String(n); state.settings.metronome.bpm = n; saveSoon(); if (metroTempoCallback) metroTempoCallback(); paintSetupSum(); });
+            var kT = toggle("rec-count-row", "Décompte", recPref("count", "1") === "1", "4 temps de clic avant le départ de la prise");
+            var kCb = kT.cb;
             var cT = toggle("rec-click-row", "Garder le clic", recPref("click", "0") === "1", "Garder le clic du métronome dans l'enregistrement (sinon il ne sert que de guide : casque conseillé)");
             var cCb = cT.cb;
-            mRow.appendChild(mT.lab); mRow.appendChild(bpmWrap); mRow.appendChild(cT.lab);
+            mRow.appendChild(mT.lab); mRow.appendChild(bpmWrap); mRow.appendChild(kT.lab); mRow.appendChild(cT.lab);
             setupBody.appendChild(mRow);
             function paintSetupSum() {
                 var t = "Entrée et métronome" + (mCb.checked ? " · " + state.settings.metronome.bpm + " BPM" : "");
                 if (setupSum.textContent !== t) setupSum.textContent = t;
             }
             function paintMetro() {
-                var busy = rec.phase === "recording" || rec.phase === "finishing";
-                bpmWrap.hidden = cT.lab.hidden = !mCb.checked; // tempo et « garder le clic » n'ont de sens que métronome coché
+                var busy = recBusy();
+                bpmWrap.hidden = kT.lab.hidden = cT.lab.hidden = !mCb.checked; // tempo, décompte et « garder le clic » n'ont de sens que métronome coché
                 bpmIn.disabled = busy;
-                mT.lab.classList.toggle("rec-off", busy); cT.lab.classList.toggle("rec-off", busy);
+                mT.lab.classList.toggle("rec-off", busy); kT.lab.classList.toggle("rec-off", busy); cT.lab.classList.toggle("rec-off", busy);
                 paintSetupSum();
             }
             mCb.addEventListener("change", function () { recSetPref("metro", mCb.checked ? "1" : "0"); paintMetro(); });
             cCb.addEventListener("change", function () { recSetPref("click", cCb.checked ? "1" : "0"); });
+            kCb.addEventListener("change", function () { recSetPref("count", kCb.checked ? "1" : "0"); });
             paintMetro();
 
             // -- où ranger (dans la zone de la prise, à côté du bouton « Enregistrer »)
@@ -15049,6 +15101,7 @@
             // Le point rouge : lance la prise (ou l'arrête). Entrée éteinte ou coupée par le système : il la rallume, puis lance la prise.
             go.addEventListener("click", function () {
                 if (rec.phase === "recording") { recStop(); return; }
+                if (rec.phase === "counting") { recCancelCount(); return; } // pendant les 4 temps, le même bouton annule
                 if (rec.phase === "finishing" || rec.saving) return;
                 if (recStreamAlive()) { recStart(); return; }
                 reopen().then(function (ok) { if (ok && rec.panelClose === close && (rec.phase === "armed" || rec.phase === "review")) recStart(); });
@@ -15213,17 +15266,18 @@
                 });
             }
             function paint() {
-                var ph = rec.phase, recording = ph === "recording", busy = ph === "recording" || ph === "finishing", reviewing = ph === "review";
+                var ph = rec.phase, recording = ph === "recording", counting = ph === "counting", busy = recBusy(), reviewing = ph === "review";
                 panel.classList.toggle("rec-is-live", recording);
-                live.hidden = !busy;
+                live.hidden = !(recording || ph === "finishing");
                 // le point rouge reste là, même avec une prise à ranger : on peut refaire une prise (la précédente reste récupérable)
-                var goLab = recording ? "Arrêter l'enregistrement" : ph === "finishing" ? "Finalisation…" : recStreamAlive() ? "Enregistrer une prise" : "Activer l'entrée audio et enregistrer";
-                go.className = "rec-go" + (recording ? " rec-go-stop" : "");
-                var goHtml = recording ? '<span class="rec-go-sq"></span>' : '<span class="rec-go-dot"></span>';
+                var goLab = recording ? "Arrêter l'enregistrement" : counting ? "Annuler le décompte" : ph === "finishing" ? "Finalisation…" : recStreamAlive() ? "Enregistrer une prise" : "Activer l'entrée audio et enregistrer";
+                go.className = "rec-go" + (recording || counting ? " rec-go-stop" : "");
+                var goHtml = recording || counting ? '<span class="rec-go-sq"></span>' : '<span class="rec-go-dot"></span>';
                 if (go.innerHTML !== goHtml) go.innerHTML = goHtml;
                 go.title = goLab; go.setAttribute("aria-label", goLab);
                 go.disabled = ph === "finishing" || !!rec.saving;
-                timeEl.textContent = recFmtTime(recording || ph === "finishing" ? rec.ms : rec.take ? rec.take.ms : 0);
+                timeEl.textContent = counting ? String(Math.min(REC_COUNT_BEATS, Math.max(1, rec.count ? rec.count.n : 1))) : recFmtTime(recording || ph === "finishing" ? rec.ms : rec.take ? rec.take.ms : 0); // décompte : le numéro du temps, 1 à 4
+                timeEl.classList.toggle("rec-counting", counting);
                 srcSel.disabled = busy; mCb.disabled = busy; cCb.disabled = busy; bpmIn.disabled = busy || !mCb.checked;
                 if (document.activeElement !== bpmIn) bpmIn.value = String(state.settings.metronome.bpm); // le tempo est celui de l'appli : il suit s'il change ailleurs
                 paintMetro();
@@ -15266,7 +15320,7 @@
             recRestorePending().then(function () { paint(); });
             fillDevices();
             // retour à l'appli (après un tour dans les réglages du téléphone, ou une mise en veille) : si l'entrée a été coupée, on la rallume
-            function onVisible() { if (!document.hidden && rec.phase !== "recording" && rec.phase !== "finishing" && !recStreamAlive()) recEnsureStream().then(function () { fillDevices(); paint(); }); }
+            function onVisible() { if (!document.hidden && !recBusy() && !recStreamAlive()) recEnsureStream().then(function () { fillDevices(); paint(); }); }
             document.addEventListener("visibilitychange", onVisible);
             var md = navigator.mediaDevices;
             if (md && md.addEventListener) md.addEventListener("devicechange", fillDevices); // carte son branchée / débranchée : la liste suit
@@ -15281,7 +15335,7 @@
                 rec.panelClose = null;
                 if (audioUrl) URL.revokeObjectURL(audioUrl);
                 // fenêtre fermée : le micro s'éteint (sauf prise en cours) ; une prise à ranger reste gardée, l'entrée se rallume à la réouverture
-                if (rec.phase !== "recording" && rec.phase !== "finishing") { recCloseStream(); if (rec.phase === "armed") rec.phase = "idle"; }
+                if (!recBusy()) { recCloseStream(); if (rec.phase === "armed") rec.phase = "idle"; }
                 recEmit();
             };
         }, { floating: true, noFit: true }); // taille réglée par le CSS seul (hauteur selon le contenu, jusqu'à l'écran) : rien ne la recalcule en boucle

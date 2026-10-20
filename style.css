@@ -4701,3 +4701,6 @@ button.rec-prev { height: 34px; }
 button.rec-retry { height: 34px; }
 .backups-panel.recorder-panel { width: min(400px, calc(100vw - 16px)); }
 .rec-opts { gap: 6px; }
+
+/* ---------- v212 — Enregistreur : décompte de 4 temps ---------- */
+.rec-time.rec-counting { color: var(--accent); font-size: 26px; font-weight: 800; }
