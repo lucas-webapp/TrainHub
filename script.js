@@ -20287,6 +20287,7 @@
         if (!r.chapterOf || typeof r.chapterOf !== "object") r.chapterOf = {}; // id d'exercice -> id de chapitre (ou STATS_IGNORE)
         if (!r.resolved || typeof r.resolved !== "object") r.resolved = {};    // questions déjà tranchées
         if (["ask", "history", "follow"].indexOf(r.movePolicy) === -1) r.movePolicy = "ask";
+        if (typeof r.since !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(r.since)) r.since = ""; // début des statistiques choisi à la main (vide = premier jour enregistré)
         return r;
     }
     function statsNorm(t) { return String(t || "").replace(/\s*\(copie\)\s*$/i, "").trim().toLowerCase(); }
@@ -20483,10 +20484,31 @@
     function statsShortDate(ts) { var d = new Date(ts); return d.getDate() + "/" + (d.getMonth() + 1); }
     var STATS_MONTHS_SHORT = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
 
-    // Temps de pratique par jour (période courte), par semaine ou par mois (longue).
-    function statsBuckets(recs, range, now, firstTs) {
-        var first = range.start || firstTs || (recs.length ? recs[0].date : now), last = Math.min(range.end - 1, now);
-        var span = Math.ceil((last - first) / STATS_DAY), mode = span <= 35 ? "day" : span <= 400 ? "week" : "month";
+    // Début des statistiques : les jours d'avant ne comptent pas (ni jours sans pratique, ni moyennes, ni graphiques).
+    // Par défaut le premier jour où une séance a été enregistrée ; réglable à la main (réglage gardé avec les données).
+    function statsAutoFloor(log) { if (!log.length) return 0; var d = new Date(log[0].date); d.setHours(0, 0, 0, 0); return d.getTime(); }
+    function statsFloor(log) {
+        var since = statsRules().since;
+        if (since) { var p = since.split("-"); return new Date(+p[0], +p[1] - 1, +p[2]).getTime(); }
+        return statsAutoFloor(log);
+    }
+    function statsClamp(range, floor) {
+        if (!floor) return range;
+        range.start = Math.max(range.start, floor);
+        if (range.end < range.start) range.end = range.start;
+        var c = range.compare;
+        if (c) { c.start = Math.max(c.start, floor); if (c.end < c.start) c.end = c.start; }
+        return range;
+    }
+
+    // Temps de pratique par jour, par semaine ou par mois (selon la période choisie). Le graphique montre TOUT l'historique compté
+    // (du début des statistiques à aujourd'hui) : la période choisie est mise en avant, le reste se découvre en faisant défiler.
+    function statsBuckets(log, range, now, floor) {
+        var recs = log.filter(function (r) { return r.date >= floor; });
+        var pStart = range.start || floor, pEnd = Math.max(pStart, Math.min(range.end - 1, now));
+        var span = Math.ceil((pEnd - pStart) / STATS_DAY), mode = span <= 35 ? "day" : span <= 400 ? "week" : "month";
+        var first = floor || pStart;
+        if (mode === "day" && (now - first) / STATS_DAY > 1100) mode = "week"; // plus de trois ans d'historique : par semaine
         function startOf(ts) {
             var d = new Date(ts); d.setHours(0, 0, 0, 0);
             if (mode === "week") d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
@@ -20494,42 +20516,80 @@
             return d;
         }
         function nextOf(d) { var n = new Date(d); if (mode === "day") n.setDate(n.getDate() + 1); else if (mode === "week") n.setDate(n.getDate() + 7); else n.setMonth(n.getMonth() + 1); return n; }
-        var map = {}, order = [], nowKey = startOf(now).getTime(), cur = -1;
-        for (var d = startOf(first); d.getTime() <= last; d = nextOf(d)) { var k = d.getTime(); if (k === nowKey) cur = order.length; order.push(k); map[k] = { t: k, sec: 0, n: 0 }; }
-        recs.forEach(function (r) { var k = startOf(r.date).getTime(); if (map[k]) { map[k].sec += r.totalSec || 0; map[k].n++; } });
-        return { mode: mode, cur: cur, items: order.map(function (k) { return map[k]; }) };
+        var map = {}, order = [], nowKey = startOf(now).getTime(), cur = -1, iStart = -1, iEnd = -1, ps = startOf(pStart).getTime();
+        for (var d = startOf(first); d.getTime() <= now; d = nextOf(d)) {
+            var k = d.getTime();
+            if (k === nowKey) cur = order.length;
+            if (iStart < 0 && k >= ps) iStart = order.length;
+            if (k <= pEnd) iEnd = order.length;
+            order.push(k); map[k] = { t: k, end: nextOf(d).getTime(), sec: 0, n: 0, recs: [] };
+        }
+        recs.forEach(function (r) { var b = map[startOf(r.date).getTime()]; if (b) { b.sec += r.totalSec || 0; b.n++; b.recs.push(r); } });
+        if (iStart < 0) iStart = 0;
+        if (iEnd < iStart) iEnd = iStart;
+        return { mode: mode, cur: cur, iStart: iStart, iEnd: iEnd, items: order.map(function (k) { return map[k]; }) };
     }
-    function statsBarChart(bk) {
-        var items = bk.items, mode = bk.mode, W = 600, H = 190, L = 44, R = 66, T = 10, B = 26; // marge droite : étiquette de la moyenne
-        var svg = svgNode("svg", { viewBox: "0 0 " + W + " " + H, "class": "st-chart st-bars", role: "img", "aria-label": "Temps de pratique par " + (mode === "day" ? "jour" : mode === "week" ? "semaine" : "mois") });
+    // Barres : l'axe reste en place, le tracé défile (de l'historique compté jusqu'à aujourd'hui). `o` : viewW (largeur visible),
+    // scrollLeft (position retrouvée), onScroll(left), onPick(bucket, i). Le conteneur rendu a select(i) et init() (à appeler une fois dans la page).
+    function statsBarChart(bk, o) {
+        o = o || {};
+        var items = bk.items, mode = bk.mode, n = items.length, H = 190, T = 10, B = 26, AX = 46, plotH = H - T - B;
+        var unitName = mode === "day" ? "jour" : mode === "week" ? "semaine" : "mois";
+        var periodN = Math.max(1, bk.iEnd - bk.iStart + 1), viewW = Math.max(240, (o.viewW || 560) - AX);
+        var bw = Math.max(mode === "day" ? 14 : 12, Math.min(44, viewW / periodN)), W = Math.max(viewW, Math.ceil(n * bw));
+        var barW = Math.max(3, Math.min(28, bw * 0.68)), every = Math.max(1, Math.ceil(46 / bw));
         var maxSec = 60; items.forEach(function (i) { if (i.sec > maxSec) maxSec = i.sec; });
         var hours = maxSec >= 3 * 3600, unit = hours ? 3600 : 60, top = statsNiceMax(maxSec / unit);
-        var plotW = W - L - R, plotH = H - T - B, n = items.length;
+        var box = document.createElement("div"); box.className = "st-chartbox";
+        var wrap = document.createElement("div"); wrap.className = "st-scrollchart"; box.appendChild(wrap);
+        var ax = svgNode("svg", { width: AX, height: H, viewBox: "0 0 " + AX + " " + H, "class": "st-yaxis", "aria-hidden": "true" }, wrap);
+        var sc = document.createElement("div"); sc.className = "st-scroller"; wrap.appendChild(sc);
+        var svg = svgNode("svg", { width: W, height: H, style: "width:" + W + "px;height:" + H + "px", viewBox: "0 0 " + W + " " + H, "class": "st-chart st-bars st-plot", role: "img", "aria-label": "Temps de pratique par " + unitName + " ; fais défiler pour voir d'autres dates, touche une barre pour voir les exercices" }, sc);
         for (var g = 0; g <= 4; g++) {
             var y = T + plotH - plotH * g / 4;
-            svgNode("line", { x1: L, x2: W - R, y1: y, y2: y, "class": "st-grid" }, svg);
-            svgNode("text", { x: L - 6, y: y + 3.5, "class": "st-axis", "text-anchor": "end" }, svg, statsNum(top * g / 4) + (hours ? " h" : " min"));
+            svgNode("line", { x1: 0, x2: W, y1: y, y2: y, "class": "st-grid" }, svg);
+            svgNode("text", { x: AX - 6, y: y + 3.5, "class": "st-axis", "text-anchor": "end" }, ax, statsNum(top * g / 4) + (hours ? " h" : " min"));
         }
-        var bw = plotW / n, barW = Math.max(2, Math.min(28, bw * 0.68)), every = Math.max(1, Math.ceil(n / Math.max(1, Math.floor(plotW / 52))));
-        var sum = 0; items.forEach(function (i) { sum += i.sec; });
-        var avgSec = n ? sum / n : 0;
+        if (bk.iStart > 0 || bk.iEnd < n - 1) svgNode("rect", { x: bk.iStart * bw, y: T, width: periodN * bw, height: plotH, "class": "st-band" }, svg); // la période choisie
+        var selRect = svgNode("rect", { x: 0, y: T, width: bw, height: plotH + B - 6, rx: 3, "class": "st-col-sel", visibility: "hidden" }, svg);
+        var sum = 0;
         items.forEach(function (it, i) {
-            var x = L + i * bw + (bw - barW) / 2, h = it.sec / unit / top * plotH;
-            var d = new Date(it.t);
+            var x = i * bw + (bw - barW) / 2, h = it.sec / unit / top * plotH, d = new Date(it.t);
             var label = mode === "month" ? STATS_MONTHS_SHORT[d.getMonth()] + " " + String(d.getFullYear()).slice(2) : statsShortDate(it.t);
-            var current = i === bk.cur; // période en cours : la donnée importante, en vert clair
-            if (it.sec > 0) svgTip(svgNode("rect", { x: x, y: T + plotH - h, width: barW, height: Math.max(1.5, h), rx: 2, "class": "st-bar" + (current ? " st-bar-hi" : "") }, svg), (mode === "week" ? "semaine du " : "") + label + " : " + gsFmtMin(it.sec) + " · " + it.n + " session" + (it.n > 1 ? "s" : "") + (current ? " (en cours)" : ""));
-            if (i % every === 0) svgNode("text", { x: x + barW / 2, y: H - 8, "class": "st-axis", "text-anchor": "middle" }, svg, label);
+            var current = i === bk.cur, out = i < bk.iStart || i > bk.iEnd; // courante : en vert clair ; hors période : estompée
+            if (i >= bk.iStart && i <= bk.iEnd) sum += it.sec;
+            if (it.sec > 0) svgTip(svgNode("rect", { x: x, y: T + plotH - h, width: barW, height: Math.max(1.5, h), rx: 2, "class": "st-bar" + (current ? " st-bar-hi" : "") + (out ? " st-bar-out" : "") }, svg), (mode === "week" ? "semaine du " : "") + label + " : " + gsFmtMin(it.sec) + " · " + it.n + " séance" + (it.n > 1 ? "s" : "") + " (touche pour voir les exercices)");
+            if (i % every === 0) svgNode("text", { x: i * bw + bw / 2, y: H - 8, "class": "st-axis" + (out ? " st-axis-out" : ""), "text-anchor": "middle" }, svg, label);
         });
-        if (avgSec > 0) { // moyenne de la période : trait pointillé gris
+        var avgSec = sum / periodN;
+        if (avgSec > 0) { // moyenne de la période : trait pointillé gris, sur la période seulement
             var ay = T + plotH - avgSec / unit / top * plotH;
-            svgNode("line", { x1: L, x2: W - R, y1: ay, y2: ay, "class": "st-avg" }, svg);
-            svgNode("text", { x: W - R + 6, y: ay + 3.5, "class": "st-axis st-avg-label", "text-anchor": "start" }, svg, "moy. " + gsFmtMin(avgSec));
+            svgNode("line", { x1: bk.iStart * bw, x2: (bk.iEnd + 1) * bw, y1: ay, y2: ay, "class": "st-avg" }, svg);
         }
-        return svg;
+        svg.addEventListener("click", function (e) {
+            var r = svg.getBoundingClientRect(), i = Math.floor((e.clientX - r.left) * (W / (r.width || W)) / bw);
+            if (i >= 0 && i < n && o.onPick) o.onPick(items[i], i);
+        });
+        // sous le graphique : l'indication, la moyenne, et deux flèches pour parcourir (utile à la souris)
+        var nav = document.createElement("div"); nav.className = "st-chart-nav"; box.appendChild(nav);
+        var hint = document.createElement("span"); hint.className = "st-caption st-chart-hint";
+        hint.textContent = "Fais défiler pour voir d'autres dates · touche une barre pour voir les exercices" + (avgSec > 0 ? " · pointillé : moyenne (" + gsFmtMin(avgSec) + " par " + unitName + ")" : "");
+        nav.appendChild(hint);
+        var prev = stBtn("‹", "btn-ghost st-chart-arrow", function () { sc.scrollBy({ left: -sc.clientWidth * 0.8, behavior: "smooth" }); });
+        var next = stBtn("›", "btn-ghost st-chart-arrow", function () { sc.scrollBy({ left: sc.clientWidth * 0.8, behavior: "smooth" }); });
+        prev.title = "Dates plus anciennes"; next.title = "Dates plus récentes"; prev.setAttribute("aria-label", prev.title); next.setAttribute("aria-label", next.title);
+        nav.appendChild(prev); nav.appendChild(next);
+        function arrows() { prev.disabled = sc.scrollLeft <= 1; next.disabled = sc.scrollLeft >= sc.scrollWidth - sc.clientWidth - 1; }
+        sc.addEventListener("scroll", function () { arrows(); if (o.onScroll) o.onScroll(sc.scrollLeft); });
+        box.select = function (i) {
+            if (i === null || i === undefined || i < 0) { selRect.setAttribute("visibility", "hidden"); return; }
+            selRect.setAttribute("x", i * bw); selRect.setAttribute("visibility", "visible");
+        };
+        box.init = function () { sc.scrollLeft = o.scrollLeft !== undefined && o.scrollLeft !== null ? o.scrollLeft : Math.max(0, (bk.iEnd + 1) * bw - sc.clientWidth); arrows(); };
+        return box;
     }
     // Carte de l'année : une case par jour, 53 semaines (lundi en haut).
-    function statsHeatmap(dayMap, now) {
+    function statsHeatmap(dayMap, now, floor) {
         var cell = 11, gap = 3, L = 26, T = 16, weeks = 53, step = cell + gap;
         var W = L + weeks * step, H = T + 7 * step;
         var svg = svgNode("svg", { viewBox: "0 0 " + W + " " + H, "class": "st-chart st-heat", role: "img", "aria-label": "Jours pratiqués sur les 12 derniers mois" });
@@ -20545,6 +20605,7 @@
             for (d = 0; d < 7; d++) {
                 var day = new Date(startWeek); day.setDate(day.getDate() + w * 7 + d);
                 if (day > today) continue;
+                if (floor && day.getTime() < floor) { svgNode("rect", { x: L + w * step, y: T + d * step, width: cell, height: cell, rx: 2.5, "class": "st-cell st-na" }, svg); continue; } // avant le début des statistiques
                 var sec = dayMap[calKey(day)] || 0, level = sec ? Math.min(4, Math.max(1, Math.ceil(sec / max * 4))) : 0;
                 var r = svgNode("rect", { x: L + w * step, y: T + d * step, width: cell, height: cell, rx: 2.5, "class": "st-cell st-lv" + level + (day.getTime() === today.getTime() ? " st-today" : "") }, svg);
                 svgTip(r, day.getDate() + " " + STATS_MONTHS_SHORT[day.getMonth()] + " " + day.getFullYear() + " : " + (sec ? gsFmtMin(sec) : "rien"));
@@ -20766,6 +20827,7 @@
     function statsSeenLoad() { try { var o = JSON.parse(localStorage.getItem(STATS_SEEN_KEY) || "{}"); return o && typeof o === "object" ? o : {}; } catch (e) { return {}; } }
     function statsSeenSave(o) { try { localStorage.setItem(STATS_SEEN_KEY, JSON.stringify(o)); } catch (e) {} }
     var STATS_TABS = [["overview", "Aperçu"], ["time", "Temps"], ["split", "Répartition"], ["ex", "Exercices"]];
+    var statsPickSel = null, statsScrollMem = null; // barre touchée (détail) et position du défilement du graphique, gardées d'un affichage à l'autre
     var statsTab = "overview", statsSubChapter = "", statsExFilter = "all", statsExSort = "alerts", statsExOpen = {}, statsIssuesOpen = false;
     function stSection(box, title, extra) {
         var h = document.createElement("div"); h.className = "gs-stat-title"; h.textContent = title;
@@ -20795,7 +20857,7 @@
         box.innerHTML = "";
         var now = Date.now(), ctx = statsContext();
         var log = logAll().filter(function (e) { return !e.instrumentId || e.instrumentId === state.activeInstrumentId; });
-        var range = statsPeriod(spec, now), first = log.length ? log[0].date : now;
+        var floor = statsFloor(log), range = statsClamp(statsPeriod(spec, now), floor), first = log.length ? log[0].date : now;
         var rows = statsRows(log, ctx), st = statsCompute(log, rows, ctx, range, now), issues = statsIssues(rows, ctx);
         var rws = rows.filter(function (r) { return r.date >= range.start && r.date < range.end; });
         var exList = statsExerciseReport(rws, rows, now, st.totalSec);
@@ -20832,6 +20894,60 @@
         });
         box.appendChild(bar);
 
+        // Détail par chapitre, premier sous-dossier et exercice : où est passé le temps.
+        function renderTree(parent, rwsX, title) {
+            var tree = statsThemeTree(rwsX), treeTotal = 0; tree.forEach(function (t) { treeTotal += t.sec; });
+            var sd = stSection(parent, title);
+            tree.forEach(function (t, ti) {
+                var tr = stRow(sd, t.name, gsFmtMin(t.sec) + " · " + (treeTotal ? Math.round(t.sec * 100 / treeTotal) : 0) + " %", treeTotal ? t.sec * 100 / treeTotal : 0, ti === 0);
+                tr.classList.add("st-tree-theme");
+                t.subList.forEach(function (sb) {
+                    var lvl = 1;
+                    if (sb.name) { var sr = stRow(sd, sb.name, gsFmtMin(sb.sec)); sr.classList.add("st-tree-sub"); lvl = 2; }
+                    sb.exList.forEach(function (e) {
+                        var er = stRow(sd, e.title, gsFmtMin(e.sec) + (e.n > 1 ? " · " + e.n + "×" : ""));
+                        er.classList.add("st-tree-ex", "st-tree-lv" + lvl);
+                        bindExMenu(er, e.key);
+                    });
+                });
+            });
+        }
+        // Détail d'une barre du graphique (un jour, une semaine ou un mois) : les séances et, dans chacune, les exercices travaillés
+        // (chapitre, temps, tempo), puis la répartition par chapitre.
+        function renderPick(pickBox, item, bk) {
+            pickBox.innerHTML = "";
+            pickBox.hidden = !item;
+            if (!item) return;
+            var recs = item.recs.slice().sort(function (a, b) { return a.date - b.date; });
+            var rwsB = rows.filter(function (r) { return r.date >= Math.max(item.t, floor) && r.date < item.end && r.sec > 0; });
+            var exKeys = {}; rwsB.forEach(function (r) { exKeys[r.exKey] = true; });
+            var nEx = Object.keys(exKeys).length;
+            var head = document.createElement("div"); head.className = "st-pick-head";
+            var ht = document.createElement("strong"); ht.textContent = histPeriodOf(item.t, bk.mode).label;
+            var hs = document.createElement("span"); hs.className = "st-pick-sum";
+            hs.textContent = recs.length ? gsFmtMin(item.sec) + " · " + recs.length + " séance" + (recs.length > 1 ? "s" : "") + " · " + nEx + " exercice" + (nEx > 1 ? "s" : "") : "Aucune séance";
+            var hx = stBtn("✕", "btn-ghost st-pick-close", function () { statsPickSel = null; if (pickBox._chart) pickBox._chart.select(-1); renderPick(pickBox, null, bk); });
+            hx.title = "Fermer le détail"; hx.setAttribute("aria-label", "Fermer le détail");
+            head.appendChild(ht); head.appendChild(hs); head.appendChild(hx);
+            pickBox.appendChild(head);
+            if (!recs.length) return;
+            var sb2 = stSection(pickBox, "Séances et exercices");
+            recs.forEach(function (r) {
+                var when = (bk.mode === "day" ? "" : statsShortDate(r.date) + " · ") + statsHour(r.date);
+                var sr = stRow(sb2, when + " · " + logRecName(r), gsFmtMin(r.totalSec || 0));
+                sr.classList.add("st-tree-sess");
+                rwsB.filter(function (x) { return x.rec === r; }).forEach(function (x) {
+                    var tempo = x.bpmMax && x.tempoGoal !== false ? " · " + (x.bpmFirst && x.bpmFirst !== x.bpmMax ? x.bpmFirst + " → " : "") + x.bpmMax + " BPM" : "";
+                    var er = stRow(sb2, x.title, gsFmtMin(x.sec) + tempo);
+                    er.classList.add("st-tree-ex", "st-tree-lv1");
+                    var path = x.chapterName + (x.subName ? " › " + x.subName : "");
+                    if (path) { var sm = document.createElement("small"); sm.className = "st-tree-path"; sm.textContent = path; er.querySelector(".gs-stat-l").appendChild(sm); }
+                    bindExMenu(er, x.exKey);
+                });
+            });
+            if (rwsB.length) renderTree(pickBox, rwsB, "Par chapitre");
+        }
+
         // ============ APERÇU : l'essentiel ============
         function tabOverview() {
             if (issues.length) renderIssues();
@@ -20867,23 +20983,17 @@
                 cc.textContent = hasPrev ? "Comparé à " + range.compare.label : (range.compare.none || "Aucune séance en " + range.compare.label) + " : pas de comparaison possible.";
                 s0.appendChild(cc);
             }
+            var sn = document.createElement("div"); sn.className = "st-since";
+            var snl = document.createElement("label"); snl.className = "st-since-l"; snl.textContent = "Statistiques comptées à partir du ";
+            var snIn = document.createElement("input"); snIn.type = "date"; snIn.className = "st-since-in"; snIn.setAttribute("aria-label", "Début des statistiques");
+            snIn.value = floor ? calKey(new Date(floor)) : ""; snIn.max = calKey(new Date(now));
+            snIn.title = "Les jours avant cette date ne sont pas comptés : ni les jours sans pratique, ni les moyennes, ni les graphiques";
+            snIn.addEventListener("change", function () { if (!snIn.value) return; statsRules().since = snIn.value; save(); rerender(); });
+            snl.appendChild(snIn); sn.appendChild(snl);
+            if (statsRules().since) { var snAuto = stBtn("Automatique", "btn-ghost st-since-auto", function () { statsRules().since = ""; save(); rerender(); }); snAuto.title = "Reprendre le premier jour où une séance a été enregistrée"; sn.appendChild(snAuto); }
+            s0.appendChild(sn);
             if (isShort && st.sessions) {
-                // Détail par chapitre, premier sous-dossier et exercice : où est passé le temps de la journée
-                var tree = statsThemeTree(rws), treeTotal = 0; tree.forEach(function (t) { treeTotal += t.sec; });
-                var sd = stSection(box, "Détail par chapitre");
-                tree.forEach(function (t, ti) {
-                    var tr = stRow(sd, t.name, gsFmtMin(t.sec) + " · " + (treeTotal ? Math.round(t.sec * 100 / treeTotal) : 0) + " %", treeTotal ? t.sec * 100 / treeTotal : 0, ti === 0);
-                    tr.classList.add("st-tree-theme");
-                    t.subList.forEach(function (sb) {
-                        var lvl = 1;
-                        if (sb.name) { var sr = stRow(sd, sb.name, gsFmtMin(sb.sec)); sr.classList.add("st-tree-sub"); lvl = 2; }
-                        sb.exList.forEach(function (e) {
-                            var er = stRow(sd, e.title, gsFmtMin(e.sec) + (e.n > 1 ? " · " + e.n + "×" : ""));
-                            er.classList.add("st-tree-ex", "st-tree-lv" + lvl);
-                            bindExMenu(er, e.key);
-                        });
-                    });
-                });
+                renderTree(box, rws, "Détail par chapitre");
                 // Séances de la période, la plus récente en premier
                 var ss = stSection(box, "Séances");
                 st.recs.slice().reverse().forEach(function (r) {
@@ -20893,8 +21003,26 @@
             }
             if (st.sessions && !(isShort && spec !== "3")) {
                 var sb = stSection(box, "Temps de pratique dans le temps");
-                var bk = statsBuckets(st.recs, range, now, first);
-                var wrap = document.createElement("div"); wrap.className = "st-chart-wrap"; wrap.appendChild(statsBarChart(bk)); sb.appendChild(wrap);
+                var bk = statsBuckets(log, range, now, floor);
+                var memKey = spec + "|" + bk.mode + "|" + floor;
+                var pickBox = document.createElement("div"); pickBox.className = "st-pick"; pickBox.hidden = true;
+                function pickIndex(t) { for (var q = 0; q < bk.items.length; q++) if (bk.items[q].t === t) return q; return -1; }
+                var chart = statsBarChart(bk, {
+                    viewW: sb.clientWidth || box.clientWidth || 560,
+                    scrollLeft: statsScrollMem && statsScrollMem.key === memKey ? statsScrollMem.left : null,
+                    onScroll: function (left) { statsScrollMem = { key: memKey, left: left }; },
+                    onPick: function (item, i) {
+                        if (statsPickSel && statsPickSel.t === item.t && statsPickSel.mode === bk.mode) { statsPickSel = null; chart.select(-1); renderPick(pickBox, null, bk); return; }
+                        statsPickSel = { spec: spec, mode: bk.mode, t: item.t };
+                        chart.select(i); renderPick(pickBox, item, bk);
+                        pickBox.scrollIntoView({ block: "nearest", behavior: "smooth" });
+                    }
+                });
+                pickBox._chart = chart;
+                sb.appendChild(chart); sb.appendChild(pickBox);
+                chart.init();
+                if (statsPickSel && statsPickSel.spec === spec && statsPickSel.mode === bk.mode && pickIndex(statsPickSel.t) >= 0) { var qi = pickIndex(statsPickSel.t); chart.select(qi); renderPick(pickBox, bk.items[qi], bk); }
+                else statsPickSel = null;
             }
             if (warnCount) {
                 var al = document.createElement("div"); al.className = "st-teaser";
@@ -20963,7 +21091,7 @@
             }
             if (log.length && !isShort) {
                 var sh = stSection(box, "Régularité sur 12 mois");
-                var hw = document.createElement("div"); hw.className = "st-chart-wrap st-heat-wrap"; hw.appendChild(statsHeatmap(st.dayMap, now)); sh.appendChild(hw);
+                var hw = document.createElement("div"); hw.className = "st-chart-wrap st-heat-wrap"; hw.appendChild(statsHeatmap(st.dayMap, now, floor)); sh.appendChild(hw);
                 any = true;
             }
             var withPlan = st.recs.filter(function (r) { return r.plannedSec; }).slice(-10).reverse();

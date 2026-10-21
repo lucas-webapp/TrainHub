@@ -4819,3 +4819,47 @@ button.dice-ex-btn:focus-visible { outline: 2px solid var(--accent); outline-off
 /* Couche du double-clic « plein écran » : sur le milieu de l'image seulement, active pendant la lecture. */
 .gs-yt-dbl { position: absolute; z-index: 2; left: 0; right: 0; top: max(40px, 14%); bottom: max(56px, 16%); pointer-events: none; }
 .gs-yt-dbl.gs-yt-dbl-on { pointer-events: auto; }
+
+/* ===== v218 : statistiques — graphique qui défile, détail d'une barre, début des statistiques, camemberts vifs ===== */
+.st-chartbox { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.st-scrollchart { display: flex; align-items: flex-start; min-width: 0; }
+.st-yaxis { flex: none; display: block; }
+.st-scroller { flex: 1 1 auto; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; }
+.st-chart.st-plot { max-width: none; min-width: 0; flex: none; cursor: pointer; }
+.st-band { fill: color-mix(in srgb, var(--st-hi) 7%, transparent); }
+.st-col-sel { fill: color-mix(in srgb, var(--st-hi) 16%, transparent); stroke: color-mix(in srgb, var(--st-hi) 55%, transparent); stroke-width: 1; pointer-events: none; }
+.st-bar-out { opacity: .5; }
+.st-axis-out { opacity: .6; }
+.st-na { fill: transparent; stroke: color-mix(in srgb, var(--st-data) 16%, transparent); stroke-width: 1; stroke-dasharray: 2 2; }
+.st-chart-nav { display: flex; align-items: center; gap: 6px; }
+.st-chart-hint { flex: 1 1 auto; min-width: 0; padding: 2px 0; }
+button.st-chart-arrow { flex: none; width: 34px; height: 30px; padding: 0; font-size: 18px; line-height: 1; }
+button.st-chart-arrow:disabled { opacity: .35; cursor: default; }
+.st-pick { margin-top: 10px; padding: 8px 10px 10px; border: 1px solid color-mix(in srgb, var(--st-hi) 38%, var(--border)); border-radius: var(--radius-sm); background: var(--card-bg-2); }
+.st-pick[hidden] { display: none; }
+.st-pick-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; padding: 2px 0 6px; }
+.st-pick-head strong { grid-column: 1; color: var(--st-hi); font-size: var(--fs-sm); }
+.st-pick-sum { grid-column: 1; min-width: 0; font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+button.st-pick-close { grid-column: 2; grid-row: 1 / span 2; width: 34px; height: 30px; padding: 0; }
+.st-pick .gs-stat-block { margin-bottom: 6px; }
+.st-tree-path { display: block; margin-top: 1px; font-size: var(--fs-2xs); color: var(--text-muted); font-weight: 400; }
+.st-since { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 2px 0; font-size: var(--fs-xs); color: var(--text-muted); }
+.st-since-l { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.st-since-in { height: 30px; min-width: 0; }
+button.st-since-auto { height: 30px; padding: 0 10px; }
+
+/* camemberts : couleurs vives, bien distinctes (le gris de « Autres » reste en retrait) */
+.gs-history-panel {
+  --pie-0: #22c55e; --pie-1: #3b9cf6; --pie-2: #f59e0b; --pie-3: #ec4899;
+  --pie-4: #8b5cf6; --pie-5: #eab308; --pie-6: #06b6d4; --pie-7: #ef4444;
+}
+.st-pie-0 { fill: var(--pie-0); background: var(--pie-0); }
+.st-pie-1 { fill: var(--pie-1); background: var(--pie-1); }
+.st-pie-2 { fill: var(--pie-2); background: var(--pie-2); }
+.st-pie-3 { fill: var(--pie-3); background: var(--pie-3); }
+.st-pie-4 { fill: var(--pie-4); background: var(--pie-4); }
+.st-pie-5 { fill: var(--pie-5); background: var(--pie-5); }
+.st-pie-6 { fill: var(--pie-6); background: var(--pie-6); }
+.st-pie-7 { fill: var(--pie-7); background: var(--pie-7); }
+.st-pie-o { fill: #8a8f98; background: #8a8f98; }
+.st-pie-top .st-pie-val { color: var(--text-main); }
