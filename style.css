@@ -4815,3 +4815,7 @@ button.dice-ex-btn:focus-visible { outline: 2px solid var(--accent); outline-off
     .gs-yt-side-head { font-size: 11px; letter-spacing: .06em; align-items: center; }
     .gs-yt-side-value { padding: 1px 9px; border-radius: 999px; background: color-mix(in srgb, var(--rc) 18%, transparent); font-size: 12px; line-height: 1.5; }
 }
+
+/* Couche du double-clic « plein écran » : sur le milieu de l'image seulement, active pendant la lecture. */
+.gs-yt-dbl { position: absolute; z-index: 2; left: 0; right: 0; top: max(40px, 14%); bottom: max(56px, 16%); pointer-events: none; }
+.gs-yt-dbl.gs-yt-dbl-on { pointer-events: auto; }

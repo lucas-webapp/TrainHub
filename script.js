@@ -21514,7 +21514,8 @@
         sizeBtn.type = "button";
         sizeBtn.className = "btn-ghost gs-yt-btn gs-yt-icon-btn gs-yt-full-btn";
         sizeBtn.innerHTML = EXPAND_ICON_SVG;
-        sizeBtn.title = "Afficher la vidéo en plein écran (Échap pour en sortir)";
+        var FULL_TITLE = "Afficher la vidéo en plein écran : ce bouton, ou un double-clic sur la vidéo en cours de lecture (Échap pour en sortir)";
+        sizeBtn.title = FULL_TITLE;
         sizeBtn.setAttribute("aria-label", "Plein écran");
         var ytPlayer = null; // lecteur YouTube, une fois prêt
         // Plein écran demandé sur l'iframe de YouTube elle-même (méthode documentée) plutôt que sur notre
@@ -21525,7 +21526,7 @@
         function refreshSizeBtn() {
             var on = inFullscreen() || card.classList.contains("gs-yt-large");
             sizeBtn.innerHTML = on ? COMPRESS_ICON_SVG : EXPAND_ICON_SVG;
-            sizeBtn.title = on ? "Revenir à la taille normale (Échap)" : "Afficher la vidéo en plein écran (Échap pour en sortir)";
+            sizeBtn.title = on ? "Revenir à la taille normale (Échap)" : FULL_TITLE;
             sizeBtn.setAttribute("aria-label", on ? "Réduire" : "Plein écran");
         }
         sizeBtn.addEventListener("click", function () {
@@ -21587,6 +21588,36 @@
         msg.hidden = true;
         frame.appendChild(msg);
         body.appendChild(frame);
+
+        // Double-clic sur la vidéo en cours de lecture = plein écran, comme le bouton. Les clics dans l'iframe
+        // YouTube ne nous parviennent pas : une couche transparente couvre le milieu de l'image (ni le bandeau du
+        // haut, ni les commandes du bas), UNIQUEMENT pendant la lecture et à la souris (au doigt, le double-appui
+        // appartient à YouTube). Un clic simple y met en pause comme sur YouTube (après un court délai, pour ne pas
+        // mettre en pause quand c'est un double-clic) ; un double-clic ouvre le plein écran sans toucher à la lecture.
+        var ytState = -1, dblTimer = 0, dblPausedAt = 0;
+        var dblLayer = null;
+        if (!isIosDevice() && window.matchMedia && window.matchMedia("(hover: hover) and (pointer: fine)").matches) {
+            dblLayer = document.createElement("div");
+            dblLayer.className = "gs-yt-dbl";
+            dblLayer.addEventListener("click", function (e) {
+                clearTimeout(dblTimer);
+                dblTimer = 0;
+                if (e.detail >= 2) {
+                    // double-clic lent : la pause du premier clic a déjà eu lieu, on reprend la lecture
+                    if (dblPausedAt && Date.now() - dblPausedAt < 800) { try { ytPlayer.playVideo(); } catch (er) {} }
+                    dblPausedAt = 0;
+                    sizeBtn.click();
+                    return;
+                }
+                dblTimer = setTimeout(function () {
+                    dblTimer = 0;
+                    if (ytState !== 1) return;
+                    try { if (ytPlayer && ytPlayer.pauseVideo) { dblPausedAt = Date.now(); ytPlayer.pauseVideo(); } } catch (er) {}
+                }, 300);
+            });
+            frame.appendChild(dblLayer);
+        }
+        function refreshDbl() { if (dblLayer) dblLayer.classList.toggle("gs-yt-dbl-on", ytState === 1); }
 
         // Barre de temps + volume, à droite de la vidéo (sous elle sur écran étroit). Pour caler deux
         // vidéos l'une sur l'autre (tablature + morceau sans basse). Prudence vis-à-vis du lecteur :
@@ -21744,6 +21775,7 @@
                 videoId: info.id,
                 playerVars: { playsinline: 1, rel: 0, start: info.start || 0 },
                 events: {
+                    onStateChange: function (e) { ytState = e ? e.data : -1; refreshDbl(); },
                     onReady: function () {
                         // Seule commande envoyée au démarrage : le volume de départ choisi dans les Paramètres
                         // (rien du tout s'il est sur « automatique »). Ni vitesse, ni déplacement.
