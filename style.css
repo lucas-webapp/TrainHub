@@ -4753,3 +4753,65 @@ button.dice-ex-btn:focus-visible { outline: 2px solid var(--accent); outline-off
 .top-menu-item .top-menu-ico { display: inline-flex; flex: none; width: 22px; justify-content: center; color: var(--text-dim); }
 .top-menu-item .top-menu-ico svg { width: 20px; height: 20px; }
 .top-menu-item:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ===== v216 : commandes des vidéos — boutons en icônes plus grands, curseurs colorés et regroupés ===== */
+.gs-yt-head { gap: 8px; }
+.gs-yt-btn.gs-yt-icon-btn { width: 40px; height: 36px; padding: 0; justify-content: center; font-size: var(--fs-sm); }
+.gs-yt-btn.gs-yt-icon-btn .icon { width: 18px; height: 18px; }
+.gs-yt-btn.gs-yt-hide-btn:hover { color: var(--c-red); border-color: color-mix(in srgb, var(--c-red) 60%, var(--border)); background: color-mix(in srgb, var(--c-red) 10%, transparent); }
+.gs-yt-btn.gs-yt-bars-btn-on { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+
+/* Chaque curseur a sa couleur : temps en bleu, volume en vert, vitesse en orange. */
+.gs-yt-side-row { --rc: var(--c-blue); gap: 4px; }
+.gs-yt-side-vol { --rc: var(--c-green); }
+.gs-yt-side-rate { --rc: var(--c-orange); }
+.gs-yt-side-label { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+/* Carte étroite : trois colonnes (le temps, plus long, en a un peu plus) sans retour à la ligne ; très étroite : le temps seul sur la première ligne. */
+.gs-yt-side { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr); gap: 8px 12px; }
+.gs-yt-side-head { font-size: 10px; letter-spacing: .03em; gap: 4px; flex-wrap: nowrap; }
+.gs-yt-side-value { font-size: 11.5px; white-space: nowrap; }
+@container ytcard (max-width: 299px) {
+    .gs-yt-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .gs-yt-side-seek { grid-column: 1 / -1; }
+}
+.gs-yt-side-ic { display: none; flex: none; color: var(--rc); }
+.gs-yt-side-ic .icon { width: 15px; height: 15px; display: block; }
+.gs-yt-side-value { font-weight: 700; }
+.gs-yt-track { position: relative; display: flex; align-items: center; min-width: 0; }
+.gs-yt-side input[type=range] { --bar: var(--rc); position: relative; z-index: 1; height: 22px; }
+.gs-yt-side input[type=range]::-webkit-slider-runnable-track {
+    height: 8px; border-radius: 4px;
+    background: linear-gradient(to right, color-mix(in srgb, var(--bar) 50%, transparent), var(--bar)) 0 0 / var(--p) 100% no-repeat, var(--btn-neutral-border);
+    box-shadow: inset 0 1px 2px rgba(0,0,0,calc(.35 * var(--sh-k)));
+}
+.gs-yt-side input[type=range]::-webkit-slider-thumb {
+    box-sizing: border-box; width: 20px; height: 20px; margin-top: -6px; border-radius: 50%;
+    background: #fff; border: 4px solid var(--bar);
+    box-shadow: 0 1px 5px rgba(0,0,0,calc(.55 * var(--sh-k))), 0 0 0 0 color-mix(in srgb, var(--bar) 35%, transparent);
+    transition: transform .12s ease, box-shadow .12s ease;
+}
+.gs-yt-side input[type=range]:not(:disabled):hover::-webkit-slider-thumb { transform: scale(1.12); box-shadow: 0 1px 5px rgba(0,0,0,calc(.55 * var(--sh-k))), 0 0 0 5px color-mix(in srgb, var(--bar) 28%, transparent); }
+.gs-yt-side input[type=range]:not(:disabled):active::-webkit-slider-thumb { transform: scale(1.18); box-shadow: 0 1px 5px rgba(0,0,0,calc(.55 * var(--sh-k))), 0 0 0 7px color-mix(in srgb, var(--bar) 32%, transparent); }
+.gs-yt-side input[type=range]::-moz-range-track { height: 8px; border-radius: 4px; background: var(--btn-neutral-border); box-shadow: inset 0 1px 2px rgba(0,0,0,calc(.35 * var(--sh-k))); }
+.gs-yt-side input[type=range]::-moz-range-progress { height: 8px; border-radius: 4px; background: linear-gradient(to right, color-mix(in srgb, var(--bar) 50%, transparent), var(--bar)); }
+.gs-yt-side input[type=range]::-moz-range-thumb { box-sizing: border-box; width: 20px; height: 20px; border-radius: 50%; background: #fff; border: 4px solid var(--bar); box-shadow: 0 1px 5px rgba(0,0,0,calc(.55 * var(--sh-k))); }
+/* Repère à 100 % sur la vitesse (la course va de 50 à 125 %). */
+.gs-yt-side-rate .gs-yt-track::before {
+    content: ""; position: absolute; z-index: 2; pointer-events: none; top: 50%; height: 12px; width: 2px; border-radius: 1px;
+    left: calc(10px + (100% - 20px) * 0.66667); transform: translate(-1px, -50%); background: rgba(255,255,255,.55);
+}
+.gs-yt-side-rate input[type=range]:disabled ~ * { opacity: 0; }
+
+/* Carte assez large : les trois curseurs forment un bloc compact, chacun dans sa petite carte teintée,
+   centré à côté de la vidéo (au lieu d'être étirés sur toute la hauteur). */
+@container ytcard (min-width: 720px) {
+    .gs-yt-side { justify-content: center; gap: 10px; padding: 0; }
+    .gs-yt-side-row {
+        gap: 6px; padding: 9px 12px 5px; border-radius: var(--radius-sm);
+        border: 1px solid color-mix(in srgb, var(--rc) 28%, var(--border));
+        background: color-mix(in srgb, var(--rc) 7%, var(--card-bg));
+    }
+    .gs-yt-side-ic { display: inline-flex; }
+    .gs-yt-side-head { font-size: 11px; letter-spacing: .06em; align-items: center; }
+    .gs-yt-side-value { padding: 1px 9px; border-radius: 999px; background: color-mix(in srgb, var(--rc) 18%, transparent); font-size: 12px; line-height: 1.5; }
+}

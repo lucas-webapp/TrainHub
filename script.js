@@ -1439,6 +1439,13 @@
         }
     }
 
+    var COMPRESS_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4v5H4"/><path d="M15 4v5h5"/><path d="M9 20v-5H4"/><path d="M15 20v-5h5"/></svg>';
+    var YT_ICON_CLOSE = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>';
+    var YT_ICON_BARS = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h9"/><path d="M19 7h1"/><circle cx="16" cy="7" r="2.3"/><path d="M4 17h1"/><path d="M11 17h9"/><circle cx="8" cy="17" r="2.3"/></svg>';
+    var YT_ICON_TIME = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>';
+    var YT_ICON_VOLUME = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5L6.5 9H3.5v6h3L11 19z"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6"/><path d="M18.5 6.2a8.2 8.2 0 0 1 0 11.6"/></svg>';
+    var YT_ICON_RATE = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.9 18.2a9 9 0 1 1 14.2 0"/><path d="M12 14l3.6-4.6"/><circle cx="12" cy="14" r="1.1"/></svg>';
+
     // Visionneuse d'images : une fenêtre flottante NON modale (le métronome, la session… restent visibles et
     // utilisables, et la barre espace garde son effet). Déplaçable à la main, redimensionnable (taille et position
     // retenues pour la prochaine image), ou en plein écran (bouton ⛶ ou double-clic sur l'image).
@@ -21505,9 +21512,10 @@
 
         var sizeBtn = document.createElement("button");
         sizeBtn.type = "button";
-        sizeBtn.className = "btn-ghost gs-yt-btn gs-yt-full-btn";
-        sizeBtn.textContent = "⤢ Plein écran";
+        sizeBtn.className = "btn-ghost gs-yt-btn gs-yt-icon-btn gs-yt-full-btn";
+        sizeBtn.innerHTML = EXPAND_ICON_SVG;
         sizeBtn.title = "Afficher la vidéo en plein écran (Échap pour en sortir)";
+        sizeBtn.setAttribute("aria-label", "Plein écran");
         var ytPlayer = null; // lecteur YouTube, une fois prêt
         // Plein écran demandé sur l'iframe de YouTube elle-même (méthode documentée) plutôt que sur notre
         // boîte autour : c'est YouTube qui reçoit alors toute la surface. L'agencement des boutons en plein
@@ -21516,7 +21524,9 @@
         function inFullscreen() { var fe = document.fullscreenElement; return !!fe && (fe === frame || fe === fsTarget()); }
         function refreshSizeBtn() {
             var on = inFullscreen() || card.classList.contains("gs-yt-large");
-            sizeBtn.textContent = on ? "⤡ Réduire" : "⤢ Plein écran";
+            sizeBtn.innerHTML = on ? COMPRESS_ICON_SVG : EXPAND_ICON_SVG;
+            sizeBtn.title = on ? "Revenir à la taille normale (Échap)" : "Afficher la vidéo en plein écran (Échap pour en sortir)";
+            sizeBtn.setAttribute("aria-label", on ? "Réduire" : "Plein écran");
         }
         sizeBtn.addEventListener("click", function () {
             if (inFullscreen()) { document.exitFullscreen(); return; }
@@ -21531,10 +21541,10 @@
 
         var hideBtn = document.createElement("button");
         hideBtn.type = "button";
-        hideBtn.className = "btn-ghost gs-yt-btn gs-yt-hide-btn";
-        hideBtn.textContent = "✕";
-        hideBtn.title = "Ne plus afficher ce lien dans cette session (le lien reste dans l'exercice ; à regérer dans l'édition de la session)";
-        hideBtn.setAttribute("aria-label", "Masquer cette vidéo");
+        hideBtn.className = "btn-ghost gs-yt-btn gs-yt-icon-btn gs-yt-hide-btn";
+        hideBtn.innerHTML = YT_ICON_CLOSE;
+        hideBtn.title = "Fermer la vidéo : elle ne s'affiche plus dans cette session (le lien reste dans l'exercice ; à regérer dans l'édition de la session)";
+        hideBtn.setAttribute("aria-label", "Fermer la vidéo");
         // Pas de « ✕ » dans la liste des exercices (onHide absent) : le masquage par session n'y a pas de sens.
         if (onHide) {
             hideBtn.addEventListener("click", onHide);
@@ -21543,8 +21553,8 @@
         // Interrupteur des barres : coupe aussi toute interrogation du lecteur (voir tick ci-dessous).
         var barsBtn = document.createElement("button");
         barsBtn.type = "button";
-        barsBtn.className = "btn-ghost gs-yt-btn gs-yt-bars-btn";
-        barsBtn.textContent = "⏱";
+        barsBtn.className = "btn-ghost gs-yt-btn gs-yt-icon-btn gs-yt-bars-btn";
+        barsBtn.innerHTML = YT_ICON_BARS;
         barsBtn.setAttribute("aria-label", "Barres temps et volume");
         function refreshBarsBtn() {
             var on = ytBarsEnabled();
@@ -21587,30 +21597,38 @@
         var side = document.createElement("div");
         side.className = "gs-yt-side";
         body.appendChild(side);
-        function sideRow(labelText) {
+        function sideRow(labelText, kind, iconSvg) {
             var r = document.createElement("div");
-            r.className = "gs-yt-side-row";
+            r.className = "gs-yt-side-row gs-yt-side-" + kind;
             var head2 = document.createElement("div");
             head2.className = "gs-yt-side-head";
             var l = document.createElement("span");
-            l.textContent = labelText;
+            l.className = "gs-yt-side-label";
+            var ic = document.createElement("span");
+            ic.className = "gs-yt-side-ic";
+            ic.innerHTML = iconSvg;
+            l.appendChild(ic);
+            l.appendChild(document.createTextNode(labelText));
             var v = document.createElement("span");
             v.className = "gs-yt-side-value";
             head2.appendChild(l);
             head2.appendChild(v);
             var range = document.createElement("input");
             range.type = "range";
+            var track = document.createElement("div");
+            track.className = "gs-yt-track";
+            track.appendChild(range);
             r.appendChild(head2);
-            r.appendChild(range);
+            r.appendChild(track);
             side.appendChild(r);
             return { range: range, value: v };
         }
-        var seekRow = sideRow("Temps");
+        var seekRow = sideRow("Temps", "seek", YT_ICON_TIME);
         seekRow.range.min = "0"; seekRow.range.max = "1000"; seekRow.range.value = "0"; seekRow.range.step = "1";
         seekRow.range.className = "gs-yt-seek";
         seekRow.range.disabled = true;
         seekRow.value.textContent = "–:– / –:–";
-        var volRow = sideRow("Volume");
+        var volRow = sideRow("Volume", "vol", YT_ICON_VOLUME);
         volRow.range.min = "0"; volRow.range.max = "100"; volRow.range.step = "1"; volRow.range.value = "100";
         volRow.range.className = "gs-yt-vol";
         volRow.range.disabled = true;
@@ -21618,7 +21636,7 @@
         // Vitesse : de 50 % à 125 % par pas de 5 %. La commande n'est envoyée qu'UNE fois, au relâchement
         // du curseur (comme le temps) ; l'affichage suit ensuite la vitesse réellement appliquée par
         // YouTube (lue dans tick), au cas où il n'accepterait que certaines valeurs.
-        var rateRow = sideRow("Vitesse");
+        var rateRow = sideRow("Vitesse", "rate", YT_ICON_RATE);
         rateRow.range.min = "50"; rateRow.range.max = "125"; rateRow.range.step = "5"; rateRow.range.value = "100";
         rateRow.range.className = "gs-yt-rate";
         rateRow.range.disabled = true;
