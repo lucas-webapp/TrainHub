@@ -9644,10 +9644,11 @@
     // d'une session). Si on modifie ensuite le métronome, le panneau propose de mettre à jour l'exercice (et donc
     // ses sessions). base = réglage de référence (null : l'exercice n'a pas encore de métronome).
     // metroAutoDelta = BPM ajoutés par le tempo progressif depuis : ce n'est pas une modification de l'utilisateur.
-    var metroLink = null;     // { exId, title, base, fromSession }
+    var metroLink = null;     // { exId, title, base, fromSession, freeCur }
     var metroAutoDelta = 0;
     function setMetroLink(link) {
-        metroLink = link ? { exId: link.exId, title: link.title, base: link.base === undefined ? snapshotMetronome() : link.base, fromSession: !!link.fromSession } : null;
+        // freeCur : l'exercice ouvert en entraînement libre au moment où le réglage a été chargé (voir metroEffectiveLink)
+        metroLink = link ? { exId: link.exId, title: link.title, base: link.base === undefined ? snapshotMetronome() : link.base, fromSession: !!link.fromSession, freeCur: freeRun && freeRun.cur ? freeRun.cur : null } : null;
         metroAutoDelta = 0;
         if (metroLinkRefresh) metroLinkRefresh();
     }
@@ -9655,7 +9656,7 @@
     // Exercice dont le métronome joue le tempo : celui du réglage chargé (▶), sinon l'exercice en cours d'une session, sinon celui de l'entraînement libre.
     // Sert au petit bouton « Objectif tempo » du volet (voir buildTempoGoalToggle).
     function metroGoalExercise() {
-        var f = metroLink ? findExerciseById(metroLink.exId) : null;
+        var link = metroEffectiveLink(), f = link ? findExerciseById(link.exId) : null;
         if (!f && gsRunSession && gsRunSession.steps[gsRunStepIndex]) f = findExerciseById(gsRunSession.steps[gsRunStepIndex].exerciseId);
         if (!f && freeRun && freeRun.cur) f = findExerciseById(freeRun.cur);
         return f;
@@ -9665,19 +9666,34 @@
         p.bpm = Math.min(300, Math.max(30, p.bpm - metroAutoDelta));
         return p;
     }
-    function metroLinkDirty() {
-        if (!metroLink) return false;
-        if (!metroLink.base) return true;
-        return JSON.stringify(metroCurrentAsPreset()) !== JSON.stringify(metroLink.base);
+    // Exercice auquel le réglage se range. D'ordinaire celui dont le réglage a été chargé (▶, ou pas d'une session). En entraînement
+    // libre, c'est l'exercice OUVERT à l'écran : on règle le métronome puis on l'enregistre dans l'exercice qu'on travaille, sans
+    // passer par ▶ ; et un réglage chargé depuis un autre exercice (▶ ailleurs) ne reste pas collé quand on change d'exercice ouvert.
+    function metroEffectiveLink() {
+        var fr = freeRun && freeRun.cur ? freeRun : null;
+        if (!fr || (metroLink && (metroLink.fromSession || metroLink.exId === fr.cur || metroLink.freeCur === fr.cur))) return metroLink;
+        var f = findExerciseById(fr.cur);
+        if (!f) return metroLink;
+        var base = null;
+        if (f.ex.metronome) { base = {}; METRO_PRESET_KEYS.forEach(function (k) { base[k] = f.ex.metronome[k] === undefined ? null : f.ex.metronome[k]; }); }
+        return { exId: f.ex.id, title: f.ex.title, base: base, fromSession: false, freeCur: fr.cur, implicit: true };
+    }
+    function metroLinkDirty(link) {
+        link = link || metroEffectiveLink();
+        if (!link) return false;
+        if (!link.base) return true;
+        return JSON.stringify(metroCurrentAsPreset()) !== JSON.stringify(link.base);
     }
     function saveMetroToLinkedExercise() {
-        if (!metroLink) return;
-        var found = findExerciseById(metroLink.exId);
+        var link = metroEffectiveLink();
+        if (!link) return;
+        var found = findExerciseById(link.exId);
         if (!found) { showToast("Exercice introuvable (supprimé ?).", 4000); setMetroLink(null); return; }
-        if (!metroLinkDirty()) { showToast("Ce réglage est déjà celui de « " + found.ex.title + " ».", 2500); return; }
+        if (!metroLinkDirty(link)) { showToast("Ce réglage est déjà celui de « " + found.ex.title + " ».", 2500); return; }
         var preset = metroCurrentAsPreset();
         setExerciseMetronome(found.ex, preset);
-        metroLink.base = cloneJson(preset);
+        if (link.implicit) metroLink = { exId: link.exId, title: link.title, base: cloneJson(preset), fromSession: false, freeCur: link.freeCur };
+        else metroLink.base = cloneJson(preset);
         if (metroLinkRefresh) metroLinkRefresh();
         showToast("Métronome de « " + found.ex.title + " » mis à jour (exercice et sessions).", 3500);
     }
@@ -10072,13 +10088,14 @@
             }
             function refreshLinkBar() {
                 refreshGoalBtn();
-                if (!metroLink || metroEdit) { linkSave.hidden = true; return; }
-                var dirty = metroLinkDirty();
+                var link = metroEdit ? null : metroEffectiveLink();
+                if (!link) { linkSave.hidden = true; return; }
+                var dirty = metroLinkDirty(link);
                 linkSave.hidden = false;
                 linkSave.classList.toggle("metro-link-dirty", dirty);
                 linkSave.title = dirty
-                    ? (metroLink.base ? "Mettre à jour" : "Enregistrer") + " ce réglage dans l'exercice « " + metroLink.title + " »"
-                    : "Identique au réglage de « " + metroLink.title + " »";
+                    ? (link.base ? "Mettre à jour" : "Enregistrer") + " ce réglage dans l'exercice « " + link.title + " »"
+                    : "Identique au réglage de « " + link.title + " »";
                 linkSave.setAttribute("aria-label", linkSave.title);
             }
             metroLinkRefresh = refreshLinkBar;
