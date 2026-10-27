@@ -4863,3 +4863,9 @@ button.st-since-auto { height: 30px; padding: 0 10px; }
 .st-pie-7 { fill: var(--pie-7); background: var(--pie-7); }
 .st-pie-o { fill: #8a8f98; background: #8a8f98; }
 .st-pie-top .st-pie-val { color: var(--text-main); }
+
+/* ===== v220 : onglets réordonnables à la souris ===== */
+.tabs-sortable .dragging, .gs-tabbar .dragging { opacity: .35; cursor: grabbing; }
+.drag-ghost.gs-tab, .drag-ghost.st-tab, .drag-ghost.media-tab, .drag-ghost.gs-hist-tab, .drag-ghost.settings-tab, .drag-ghost.dice-view-btn {
+    z-index: 1000; background: var(--card-bg); box-shadow: 0 8px 22px rgba(0,0,0,calc(.45 * var(--sh-k))); cursor: grabbing;
+}

@@ -521,6 +521,7 @@
         // Dossiers de sessions (facultatifs, propres à chaque espace) : [{ id, name, instrumentId, collapsed }].
         // Aucun dossier au départ ; une session sans dossier valide reste simplement à la racine.
         if (!Array.isArray(s.settings.sessionFolders)) s.settings.sessionFolders = [];
+        if (!s.settings.gsTabOrder || typeof s.settings.gsTabOrder !== "object" || Array.isArray(s.settings.gsTabOrder)) s.settings.gsTabOrder = {}; // espace -> ordre des onglets de la liste des sessions
         s.settings.sessionFolders = s.settings.sessionFolders.filter(function (f) { return f && typeof f === "object" && typeof f.name === "string"; });
         s.settings.sessionFolders.forEach(function (f) { if (!f.id) f.id = uid(); f.collapsed = f.collapsed === true; });
         s.settings.guidedSessions.forEach(function (gs) {
@@ -1699,11 +1700,11 @@
             var bar = document.createElement("div");
             bar.className = "media-tabs";
             bar.setAttribute("role", "tablist");
-            tabs.forEach(function (t) {
+            tabsInOrder("media", tabs, function (t) { return t.key; }).forEach(function (t) {
                 var b = document.createElement("button");
                 b.type = "button";
                 b.className = "media-tab" + (cur === t.key ? " active" : "");
-                b.dataset.tab = t.key;
+                b.dataset.tab = t.key; b.dataset.reorderId = t.key;
                 b.setAttribute("role", "tab");
                 b.setAttribute("aria-selected", cur === t.key ? "true" : "false");
                 var ico = document.createElement("span"); // vignette-logo du type de média, sur le côté
@@ -1727,6 +1728,7 @@
                 b.addEventListener("click", function () { select(t.key); });
                 bar.appendChild(b);
             });
+            tabsSortable(bar, "media", ".media-tab");
             return bar;
         }
         function ensurePanel(key) {
@@ -4094,6 +4096,46 @@
 
         container.addEventListener("pointerup", finish);
         container.addEventListener("pointercancel", finish);
+    }
+
+    // ---- onglets réordonnables ----
+    // Un système d'onglets se réorganise à la souris : on glisse un onglet à sa nouvelle place. Pour les onglets d'office (réglages,
+    // statistiques, historique…), l'ordre choisi est retenu par appareil sous le nom de la barre ; les onglets qu'il ne connaît pas
+    // (nouveaux, ou présents seulement par moments) gardent leur place d'origine, à la suite. Au doigt, le glisser gênerait le
+    // défilement des barres : réservé à la souris.
+    var TAB_ORDER_KEY = "trainhub.tabOrder.v1";
+    function tabOrderRead() { try { var o = JSON.parse(localStorage.getItem(TAB_ORDER_KEY) || "{}"); return o && typeof o === "object" ? o : {}; } catch (e) { return {}; } }
+    function tabOrderWrite(barKey, ids) { try { var o = tabOrderRead(); o[barKey] = ids; localStorage.setItem(TAB_ORDER_KEY, JSON.stringify(o)); } catch (e) {} }
+    // `list` dans l'ordre d'origine -> copie triée selon `saved` (liste de clés) ; l'ordre d'origine départage les onglets inconnus.
+    function tabsSortBy(saved, list, keyOf) {
+        if (!Array.isArray(saved) || !saved.length) return list.slice();
+        var pos = {}; saved.forEach(function (k, i) { if (pos[k] === undefined) pos[k] = i; });
+        return list.map(function (t, i) { var p = pos[keyOf(t)]; return { t: t, i: i, p: p === undefined ? 1e6 : p }; })
+            .sort(function (a, b) { return a.p - b.p || a.i - b.i; }).map(function (x) { return x.t; });
+    }
+    function tabsInOrder(barKey, list, keyOf) { return tabsSortBy(tabOrderRead()[barKey], list, keyOf); }
+    // L'ordre vu (`ids`, parfois seulement une partie des onglets) remplace l'ordre retenu sans bouger les onglets absents de la vue.
+    function tabOrderMerge(prev, ids) {
+        var inView = {}; ids.forEach(function (k) { inView[k] = true; });
+        var out = [], next = 0;
+        prev.forEach(function (k) { if (inView[k]) out.push(ids[next++]); else out.push(k); });
+        while (next < ids.length) out.push(ids[next++]);
+        return out;
+    }
+    // Un clic qui suit un glisser ne doit pas changer d'onglet (tombe sur l'onglet lâché).
+    function tabsClickGuard(bar, itemSelector) {
+        bar.addEventListener("click", function (e) {
+            if (suppressNextClick && e.target.closest && e.target.closest(itemSelector)) { suppressNextClick = false; e.stopImmediatePropagation(); e.preventDefault(); }
+        }, true);
+    }
+    // À appeler une fois par barre ; chaque onglet porte data-reorder-id (sa clé).
+    function tabsSortable(bar, barKey, itemSelector) {
+        bar.classList.add("tabs-sortable");
+        tabsClickGuard(bar, itemSelector);
+        setupDragReorder(bar, itemSelector, function () { return []; }, "xy", {
+            mouseOnly: true, dragFromButton: itemSelector,
+            onReorder: function (ids) { var prev = tabOrderRead()[barKey]; tabOrderWrite(barKey, tabOrderMerge(Array.isArray(prev) ? prev : [], ids)); }
+        });
     }
 
     // Glisser-déposer (souris) des médias d'un exercice : vidéos, liens, fichiers, images. `field` : "links" | "files" | "images" ;
@@ -11926,11 +11968,12 @@
             panel.appendChild(head);
             var viewsBar = el("div", "dice-views"); viewsBar.setAttribute("role", "tablist");
             var viewBtns = {};
-            [["draw", "Tirage"], ["set", "Réglages"], ["pres", "Préréglages"]].forEach(function (v) {
+            tabsInOrder("dice-views", [["draw", "Tirage"], ["set", "Réglages"], ["pres", "Préréglages"]], function (v) { return v[0]; }).forEach(function (v) {
                 var b = btn("dice-view-btn", v[1], null, function () { showView(v[0]); });
-                b.setAttribute("role", "tab"); b.dataset.view = v[0];
+                b.setAttribute("role", "tab"); b.dataset.view = v[0]; b.dataset.reorderId = v[0];
                 viewBtns[v[0]] = b; viewsBar.appendChild(b);
             });
+            tabsSortable(viewsBar, "dice-views", ".dice-view-btn");
             panel.appendChild(viewsBar);
             var body = el("div", "dice-body"); panel.appendChild(body);
             var views = { draw: el("div", "dice-view dice-view-draw"), set: el("div", "dice-view dice-view-set"), pres: el("div", "dice-view dice-view-pres") };
@@ -14123,10 +14166,11 @@
             panel.appendChild(head);
             var viewsBar = el("div", "dice-views"); viewsBar.setAttribute("role", "tablist");
             var viewBtns = {};
-            [["draw", "Tirage"], ["set", "Réglages"], ["pres", "Préréglages"]].forEach(function (v) {
+            tabsInOrder("dice-views", [["draw", "Tirage"], ["set", "Réglages"], ["pres", "Préréglages"]], function (v) { return v[0]; }).forEach(function (v) {
                 var b = btn("dice-view-btn", v[1], null, function () { showView(v[0]); });
-                b.setAttribute("role", "tab"); b.dataset.view = v[0]; viewBtns[v[0]] = b; viewsBar.appendChild(b);
+                b.setAttribute("role", "tab"); b.dataset.view = v[0]; b.dataset.reorderId = v[0]; viewBtns[v[0]] = b; viewsBar.appendChild(b);
             });
+            tabsSortable(viewsBar, "dice-views", ".dice-view-btn");
             panel.appendChild(viewsBar);
             var body = el("div", "dice-body"); panel.appendChild(body);
             var views = { draw: el("div", "dice-view"), set: el("div", "dice-view"), pres: el("div", "dice-view") };
@@ -15670,11 +15714,12 @@
             var bar = document.createElement("div"); bar.className = "gs-files-bar";
             var tabs = document.createElement("div"); tabs.className = "gs-history-tabs"; tabs.setAttribute("role", "tablist");
             var tab = "all", sortBy = "size", tabEls = {};
-            [["all", "Tout"], ["audio", "Audio"], ["image", "Images"], ["other", "PDF et autres"]].forEach(function (t) {
-                var b = document.createElement("button"); b.type = "button"; b.className = "gs-hist-tab"; b.dataset.tab = t[0]; b.setAttribute("role", "tab");
+            tabsInOrder("files", [["all", "Tout"], ["audio", "Audio"], ["image", "Images"], ["other", "PDF et autres"]], function (t) { return t[0]; }).forEach(function (t) {
+                var b = document.createElement("button"); b.type = "button"; b.className = "gs-hist-tab"; b.dataset.tab = t[0]; b.dataset.reorderId = t[0]; b.setAttribute("role", "tab");
                 b.addEventListener("click", function () { tab = t[0]; fill(); });
                 tabs.appendChild(b); tabEls[t[0]] = b; b.__label = t[1];
             });
+            tabsSortable(tabs, "files", ".gs-hist-tab");
             var sortSel = document.createElement("select"); sortSel.className = "gs-files-sort"; sortSel.setAttribute("aria-label", "Trier les fichiers");
             [["size", "Plus lourds d'abord"], ["name", "Nom"], ["exercise", "Exercice"], ["added", "Plus récents d'abord"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; sortSel.appendChild(op); });
             sortSel.addEventListener("change", function () { sortBy = sortSel.value; fill(); });
@@ -16147,18 +16192,19 @@
                 Array.prototype.forEach.call(tabBar.children, function (btn) { var on = btn.dataset.tab === name; btn.classList.toggle("settings-tab-active", on); btn.setAttribute("aria-selected", on ? "true" : "false"); });
                 body.scrollTop = 0;
             }
-            TAB_ORDER.forEach(function (n) {
+            tabsInOrder("settings", TAB_ORDER, function (n) { return n; }).forEach(function (n) {
                 var tb = document.createElement("button");
                 tb.type = "button";
                 tb.className = "settings-tab";
-                tb.dataset.tab = n;
+                tb.dataset.tab = n; tb.dataset.reorderId = n;
                 tb.setAttribute("role", "tab");
                 tb.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICONS[n] + '</svg>';
                 var lbl = document.createElement("span"); lbl.textContent = n; tb.appendChild(lbl);
                 tb.addEventListener("click", function () { showTab(n); });
                 tabBar.appendChild(tb);
             });
-            showTab(pages[settingsTab] ? settingsTab : TAB_ORDER[0]);
+            tabsSortable(tabBar, "settings", ".settings-tab");
+            showTab(pages[settingsTab] ? settingsTab : tabsInOrder("settings", TAB_ORDER, function (n) { return n; })[0]);
         });
     }
     var settingsTab = "Affichage";
@@ -18084,6 +18130,7 @@
             b.setAttribute("role", "tab");
             b.setAttribute("aria-selected", gsActiveTab === id ? "true" : "false");
             if (dropId) b.setAttribute("data-drop-session-folder", dropId);
+            b.dataset.reorderId = id;
             b.innerHTML = "";
             var l = document.createElement("span"); l.className = "gs-tab-name"; l.textContent = label;
             var c = document.createElement("span"); c.className = "gs-tab-count"; c.textContent = String(count);
@@ -18099,13 +18146,16 @@
                 t.name = n; save(); render();
             });
         }
-        tabBtn("upcoming", "À venir", calUpcoming(30).length, null); // à gauche de « Tout »
-        bar.lastChild.classList.add("gs-tab-upcoming");
-        tabBtn("ephemeral", "Éphémères", ephemeralList().length, null); // à côté de « À venir » : sessions d'un seul jour, créées ici sans passer par le calendrier
-        bar.lastChild.classList.add("gs-tab-ephemeral");
-        tabBtn("all", "Tout", sessions.length, "__all__");
-        tabs.forEach(function (t) {
-            tabBtn(t.id, t.name, sessions.filter(function (gs) { return gs.tabIds.indexOf(t.id) !== -1; }).length, t.id);
+        // Ordre d'origine : « À venir », « Éphémères » (sessions d'un seul jour, créées ici sans passer par le calendrier), « Tout », puis les
+        // onglets de l'utilisateur ; chacun se glisse à sa place (ordre retenu par espace, avec les données).
+        var barTabs = [
+            { id: "upcoming", label: "À venir", count: calUpcoming(30).length, drop: null, cls: "gs-tab-upcoming" },
+            { id: "ephemeral", label: "Éphémères", count: ephemeralList().length, drop: null, cls: "gs-tab-ephemeral" },
+            { id: "all", label: "Tout", count: sessions.length, drop: "__all__" }
+        ].concat(tabs.map(function (t) { return { id: t.id, label: t.name, count: sessions.filter(function (gs) { return gs.tabIds.indexOf(t.id) !== -1; }).length, drop: t.id }; }));
+        tabsSortBy(state.settings.gsTabOrder[state.activeInstrumentId], barTabs, function (t) { return t.id; }).forEach(function (t) {
+            tabBtn(t.id, t.label, t.count, t.drop);
+            if (t.cls) bar.lastChild.classList.add(t.cls);
         });
         bar.appendChild(addTabBtn); // « + Onglet » : à droite des onglets existants
         if (archivedAll.length || showArchived) {
@@ -18113,6 +18163,20 @@
             bar.lastChild.classList.add("gs-tab-archive");
         }
         content.appendChild(bar);
+        // Glisser un onglet pour le déplacer (souris) : l'ordre est retenu, « + Onglet » et « Archivées » restent en bout de barre.
+        tabsClickGuard(bar, ".gs-tab");
+        setupDragReorder(bar, ".gs-tab[data-reorder-id]:not(.gs-tab-archive)", function () { return []; }, "x", {
+            mouseOnly: true, dragFromButton: ".gs-tab",
+            onReorder: function (ids) {
+                state.settings.gsTabOrder[state.activeInstrumentId] = ids;
+                // les onglets de l'utilisateur gardent leurs emplacements dans la liste des dossiers, dans le nouvel ordre
+                var byId = {}, k = 0, arr = state.settings.sessionFolders;
+                tabs.forEach(function (t) { byId[t.id] = t; });
+                var order = ids.filter(function (id) { return byId[id]; });
+                arr.forEach(function (f, i) { if (byId[f.id] === f && order[k]) arr[i] = byId[order[k++]]; });
+                save(); render();
+            }
+        });
 
         // ---- filtre de durée + actions de l'onglet ----
         var tools = document.createElement("div");
@@ -20902,13 +20966,14 @@
 
         // --- barre de sous-onglets
         var bar = document.createElement("div"); bar.className = "st-tabs"; bar.setAttribute("role", "tablist");
-        STATS_TABS.forEach(function (t) {
-            var b = document.createElement("button"); b.type = "button"; b.className = "st-tab" + (statsTab === t[0] ? " active" : ""); b.dataset.tab = t[0];
+        tabsInOrder("stats", STATS_TABS, function (t) { return t[0]; }).forEach(function (t) {
+            var b = document.createElement("button"); b.type = "button"; b.className = "st-tab" + (statsTab === t[0] ? " active" : ""); b.dataset.tab = t[0]; b.dataset.reorderId = t[0];
             b.setAttribute("role", "tab"); b.setAttribute("aria-selected", statsTab === t[0] ? "true" : "false"); b.textContent = t[1];
             if (t[0] === "ex" && unseenWarn) { var bub = document.createElement("span"); bub.className = "gs-tab-count st-issue-count"; bub.textContent = String(unseenWarn); bub.title = unseenWarn + " exercice(s) à surveiller, pas encore consultés"; b.appendChild(bub); }
             b.addEventListener("click", function () { statsTab = t[0]; rerender(); });
             bar.appendChild(b);
         });
+        tabsSortable(bar, "stats", ".st-tab");
         box.appendChild(bar);
 
         // Détail par chapitre, premier sous-dossier et exercice : où est passé le temps.
@@ -21358,13 +21423,14 @@
                 tabs.innerHTML = ""; tabEls = {};
                 var views = HIST_VIEWS.slice(), n = recentCount();
                 if (n) views.push(["recent", "Non enregistrées (" + n + ")", "Séances arrêtées sans être enregistrées, gardées 3 jours"]);
-                views.forEach(function (v) {
-                    var b = document.createElement("button"); b.type = "button"; b.className = "gs-hist-tab" + (v[0] === "recent" ? " gs-hist-tab-recent" : ""); b.dataset.view = v[0]; b.textContent = v[1]; b.title = v[2];
+                tabsInOrder("history", views, function (v) { return v[0]; }).forEach(function (v) {
+                    var b = document.createElement("button"); b.type = "button"; b.className = "gs-hist-tab" + (v[0] === "recent" ? " gs-hist-tab-recent" : ""); b.dataset.view = v[0]; b.dataset.reorderId = v[0]; b.textContent = v[1]; b.title = v[2];
                     b.setAttribute("role", "tab");
                     b.addEventListener("click", function () { mode = v[0]; if (mode !== "recent") histViewSave(mode); fill(); });
                     tabs.appendChild(b); tabEls[v[0]] = b;
                 });
             }
+            tabsSortable(tabs, "history", ".gs-hist-tab"); // la barre persiste, ses onglets sont refaits à chaque affichage
             panel.appendChild(tabs);
             var list = document.createElement("div");
             list.className = "gs-sync-list gs-history-list";
