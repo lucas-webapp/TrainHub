@@ -483,6 +483,7 @@
     var PREF_DEFAULT_MINUTES = [2, 3, 5, 10, 15, 20, 30];
     var PREF_FREE_START_SEC = [0, 5, 10, 15, 30];
     var PREF_FREE_IDLE_MIN = [5, 10, 15, 30, 60];
+    var PREF_FREE_CHANGE = ["none", "remind", "resume"]; // chrono libre en pause à la main, un autre exercice s'affiche : rien / me le rappeler / reprendre tout seul
     var PREF_BELL_LEAD_SEC = [5, 10, 15, 30];   // alerte de fin d'exercice (session sans enchaînement automatique) : combien de secondes avant la fin
     var PREF_MINI_MODES = ["auto", "window"]; // petite fenêtre de session : « auto » = au-dessus des autres applications si le navigateur sait faire, « window » = fenêtre ordinaire cliquable
     var PREF_CLOUD_BUDGET_MB = [250, 500, 800, 1000]; // espace que TrainHub s'autorise dans Firestore (limite gratuite : 1 Gio, partagée avec les autres applis du projet)
@@ -493,13 +494,15 @@
         if (PREF_DEFAULT_MINUTES.indexOf(p.defaultMinutes) === -1) p.defaultMinutes = 5;
         if (PREF_FREE_START_SEC.indexOf(p.freeStartSec) === -1) p.freeStartSec = 10;
         if (PREF_FREE_IDLE_MIN.indexOf(p.freeIdleMin) === -1) p.freeIdleMin = 15;
+        if (PREF_FREE_CHANGE.indexOf(p.freeChangeInPause) === -1) p.freeChangeInPause = "remind";
+        p.metroFollowEx = p.metroFollowEx !== false; // métronome épinglé : il prend le réglage de l'exercice qu'on ouvre (activé d'office)
         if (PREF_CLOUD_BUDGET_MB.indexOf(p.cloudBudgetMB) === -1) p.cloudBudgetMB = 800;
         if (PREF_BELL_LEAD_SEC.indexOf(p.bellLeadSec) === -1) p.bellLeadSec = 10;
         if (PREF_MINI_MODES.indexOf(p.miniMode) === -1) p.miniMode = "auto";
         p.noteNames = p.noteNames === "solfege" ? "solfege" : "letters"; // outil Gammes et tirage : C D E ou Do Ré Mi
         p.pauseOnHidden = p.pauseOnHidden === true; // chrono de session : par défaut il continue quand TrainHub passe au second plan
     }
-    function prefs() { return (state && state.settings && state.settings.prefs) || { tempoStep: 10, defaultMinutes: 5, freeStartSec: 10, freeIdleMin: 15, cloudBudgetMB: 800, bellLeadSec: 10, pauseOnHidden: false, miniMode: "auto", noteNames: "letters" }; }
+    function prefs() { return (state && state.settings && state.settings.prefs) || { tempoStep: 10, defaultMinutes: 5, freeStartSec: 10, freeIdleMin: 15, freeChangeInPause: "remind", metroFollowEx: true, cloudBudgetMB: 800, bellLeadSec: 10, pauseOnHidden: false, miniMode: "auto", noteNames: "letters" }; }
 
     // Une session guidée = un enchaînement d'exercices avec un temps alloué à chacun. Les pas
     // référencent l'exercice par son id (unique dans toute l'appli, voir uid()) plutôt que de
@@ -9753,6 +9756,35 @@
         if ((wasPlaying || opts.play) && metroPanelApi && !metroPlaying) metroPanelApi.toggle();
     }
 
+    // Métronome épinglé à droite : quand l'exercice ouvert change, il prend le réglage enregistré dans cet exercice (réglage « Suivre l'exercice
+    // ouvert »). On ne touche à rien au moment de l'épinglage (le réglage qu'on vient de faire reste) ni en plein défilement : l'exercice doit
+    // rester affiché un instant. Hors session guidée (là, c'est l'enchaînement des exercices qui règle le métronome). Un exercice sans
+    // métronome enregistré laisse le réglage tel quel, mais devient la cible du bouton d'enregistrement du volet.
+    var metroFollow = { cur: undefined, cand: null, since: 0 };
+    function metroFollowTick() {
+        if (!closeDockedMetronome || metroEdit || guidedSessionViewActive || !prefs().metroFollowEx) { metroFollow.cur = undefined; metroFollow.cand = null; return; }
+        var id = freeVisibleExercise();
+        if (metroFollow.cur === undefined) { metroFollow.cur = id; return; }
+        if (id === metroFollow.cur) { metroFollow.cand = null; return; }
+        var now = Date.now();
+        if (metroFollow.cand !== id) { metroFollow.cand = id; metroFollow.since = now; return; }
+        if (now - metroFollow.since < 900) return;
+        metroFollow.cur = id; metroFollow.cand = null;
+        if (id) metroFollowApply(id);
+    }
+    function metroFollowApply(id) {
+        var f = findExerciseById(id);
+        if (!f) return;
+        var link = { exId: f.ex.id, title: f.ex.title };
+        if (!f.ex.metronome) { setMetroLink({ exId: link.exId, title: link.title, base: null }); return; }
+        var prev = snapshotMetronome(), prevLink = metroLink ? { exId: metroLink.exId, title: metroLink.title, base: metroLink.base, fromSession: metroLink.fromSession } : null;
+        loadMetronomePreset(f.ex.metronome, { link: link });
+        showToast("Métronome réglé sur « " + f.ex.title + " » (" + metroPresetSummary(f.ex.metronome) + ").", 6000, {
+            label: "Annuler", run: function () { loadMetronomePreset(prev, {}); setMetroLink(prevLink); }
+        });
+    }
+    setInterval(metroFollowTick, 500);
+
     // Préréglage « vierge » : seulement un tempo, tout le reste par défaut (4/4 simple, sans progressif ni entraînement).
     function blankMetroPreset(bpm) {
         // Par défaut « None » (métronome simple, aucun temps accentué) : le réglage le plus courant.
@@ -16032,6 +16064,8 @@
             }, function (v) { metroPreviewSound(v); }));
             card("Cadran");
             field("Pas des gros boutons", segControl(PREF_TEMPO_STEPS.map(function (n) { return [String(n), "±" + n]; }), String(prefs().tempoStep), function (v) { setPref("tempoStep", parseInt(v, 10)); }), "En BPM, de part et d'autre du cadran (les petits boutons font ±1)");
+            card("Volet épinglé");
+            field("Suivre l'exercice ouvert", switchControl(prefs().metroFollowEx, function (v) { setPref("metroFollowEx", v); }), "Métronome épinglé à droite : quand tu ouvres un autre exercice, il prend le réglage enregistré dans cet exercice (message « Annuler » à chaque changement)");
             card("Dépannage");
             field("Son de secours", switchControl(metroFbOn(), function (on) { metroFbSet(on); }), "À activer si le métronome reste muet alors que les vidéos et les fichiers audio sonnent : les clics passent par le lecteur audio du navigateur (un peu moins précis)");
             actionRow("Tester le son", "Un bip par Web Audio, puis un par le lecteur audio : si seul le second sonne, active le son de secours", metroSoundTest);
@@ -16180,6 +16214,7 @@
             card("Chrono libre", "Hors session, le chrono suit l'exercice affiché.");
             field("Départ du décompte", selectControl(PREF_FREE_START_SEC.map(function (n) { return [String(n), n ? n + " s" : "Immédiat"]; }), String(prefs().freeStartSec), function (v) { setPref("freeStartSec", parseInt(v, 10)); }), "Attente avant de compter");
             field("Pause automatique", selectControl(PREF_FREE_IDLE_MIN.map(function (n) { return [String(n), n >= 60 ? "1 h" : n + " min"]; }), String(prefs().freeIdleMin), function (v) { setPref("freeIdleMin", parseInt(v, 10)); }), "Sans geste ni métronome");
+            field("Autre exercice en pause", selectControl([["none", "Ne rien faire"], ["remind", "Me le rappeler"], ["resume", "Reprendre tout seul"]], prefs().freeChangeInPause, function (v) { setPref("freeChangeInPause", v); }), "Chrono mis en pause à la main, puis un autre exercice s'affiche : message avec « Reprendre », ou reprise automatique (avec l'attente du décompte)");
             card("Écran", "Réglage propre à cet appareil.");
             var awakeSwitch = switchControl(keepAwakeOn() && wakeLockSupported(), function (on) { setKeepAwake(on); });
             if (!wakeLockSupported()) { awakeSwitch.disabled = true; awakeSwitch.title = "Non pris en charge par ce navigateur"; }
@@ -19648,10 +19683,25 @@
         }
         if (!hid) { // au premier plan : l'exercice affiché a peut-être changé (en arrière-plan on garde celui laissé à l'écran)
             var cur = freeVisibleExercise();
-            if (cur !== fr.cur) { fr.cur = cur; fr.countFrom = now + freeStartDelayMs(); if (metroLinkRefresh) metroLinkRefresh(); }
+            if (cur !== fr.cur) { fr.cur = cur; fr.countFrom = now + freeStartDelayMs(); fr.changeInPause = fr.manual && cur ? now : 0; if (metroLinkRefresh) metroLinkRefresh(); }
         }
+        // Un autre exercice s'est affiché alors que le chrono est en pause à la main (on oublie de relancer) : rappel ou reprise,
+        // selon le réglage, une fois l'exercice resté affiché un instant (pas de réaction en plein défilement).
+        if (!fr.manual) fr.changeInPause = 0;
+        else if (fr.changeInPause && fr.cur && now - fr.changeInPause >= 1500) { fr.changeInPause = 0; freePauseGuard(); }
         fr.counting = !!fr.cur && !fr.manual && !fr.auto && now >= fr.countFrom;
         freeRefreshBar();
+    }
+    function freePauseGuard() {
+        var fr = freeRun, mode = prefs().freeChangeInPause, f = fr && fr.cur ? findExerciseById(fr.cur) : null;
+        if (!f || mode === "none") return;
+        if (mode === "resume") {
+            fr.manual = false; fr.auto = false; fr.active = Date.now(); fr.countFrom = fr.active + freeStartDelayMs();
+            freeRefreshBar();
+            showToast("Chrono libre repris sur « " + f.ex.title + " ».", 6000, { label: "Rester en pause", run: function () { if (freeRun && !freeRun.manual && !freeRun.auto) freeTogglePause(); } });
+        } else {
+            showToast("Chrono libre en pause : « " + f.ex.title + " » ne compte pas.", 10000, { label: "Reprendre", run: function () { if (freeRun && (freeRun.manual || freeRun.auto)) freeTogglePause(); } });
+        }
     }
     // Un geste sur l'appli : l'horloge d'inactivité repart ; après une pause automatique, le décompte reprend (avec l'attente
     // habituelle de 10 s). Les boutons de la barre du chrono gèrent leur propre clic.
@@ -21787,6 +21837,37 @@
             document.dispatchEvent(new Event("trainhub-yt-bars"));
         });
         head.insertBefore(barsBtn, head.children[1] || null);
+        // Qui a le clavier ? Un clic dans la vidéo donne le clavier à YouTube (Espace = lecture/pause de la vidéo, flèches, M, F… ) : l'iframe
+        // est d'un autre site, TrainHub ne voit alors plus aucune touche. C'est la règle partout : la vidéo cliquée garde le clavier, tant qu'on
+        // ne clique pas ailleurs. On le montre (la carte s'entoure, une pastille « Clavier : vidéo ») dès qu'un raccourci de TrainHub est en
+        // concurrence (session, chrono libre, métronome ouvert) ; un clic sur la pastille, ou n'importe où ailleurs, rend le clavier à l'application.
+        var kbdBadge = document.createElement("button");
+        kbdBadge.type = "button";
+        kbdBadge.className = "btn-ghost gs-yt-btn gs-yt-kbd-badge";
+        kbdBadge.hidden = true;
+        kbdBadge.textContent = "⌨ Clavier : vidéo";
+        kbdBadge.title = "Espace, flèches… agissent sur la vidéo. Clique ici (ou ailleurs dans la page) pour rendre le clavier à la session et au métronome.";
+        head.insertBefore(kbdBadge, head.children[1] || null);
+        function ytIframe() { return card.querySelector("iframe"); }
+        function refreshKbd() {
+            var f = ytIframe();
+            if (f && document.contains(card)) card._ytSeen = true;
+            var on = !!f && document.activeElement === f && !!(gsRunSession || freeRun || metroPanelApi);
+            card.classList.toggle("gs-yt-kbd", on);
+            kbdBadge.hidden = !on;
+        }
+        function kbdWatch() {
+            if (card._ytSeen && !document.contains(card)) { window.removeEventListener("blur", kbdWatch); window.removeEventListener("focus", kbdWatch); return; }
+            setTimeout(refreshKbd, 0); // le focus a changé : activeElement est à jour juste après
+        }
+        window.addEventListener("blur", kbdWatch);
+        window.addEventListener("focus", kbdWatch);
+        kbdBadge.addEventListener("click", function () {
+            var f = ytIframe();
+            if (f) try { f.blur(); } catch (e) {}
+            try { window.focus(); } catch (e) {}
+            refreshKbd();
+        });
         card.appendChild(head);
 
         var body = document.createElement("div");
@@ -21811,6 +21892,7 @@
             dblLayer = document.createElement("div");
             dblLayer.className = "gs-yt-dbl";
             dblLayer.addEventListener("click", function (e) {
+                var fr0 = ytIframe(); if (fr0) try { fr0.focus(); } catch (er) {} // comme un clic dans la vidéo : le clavier va à la vidéo
                 clearTimeout(dblTimer);
                 dblTimer = 0;
                 if (e.detail >= 2) {

@@ -4869,3 +4869,8 @@ button.st-since-auto { height: 30px; padding: 0 10px; }
 .drag-ghost.gs-tab, .drag-ghost.st-tab, .drag-ghost.media-tab, .drag-ghost.gs-hist-tab, .drag-ghost.settings-tab, .drag-ghost.dice-view-btn {
     z-index: 1000; background: var(--card-bg); box-shadow: 0 8px 22px rgba(0,0,0,calc(.45 * var(--sh-k))); cursor: grabbing;
 }
+
+/* ===== v221 : clavier de la vidéo ===== */
+.gs-yt-card.gs-yt-kbd { border-color: color-mix(in srgb, var(--accent) 65%, var(--border)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+.gs-yt-btn.gs-yt-kbd-badge { height: 30px; padding: 0 10px; color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
+.gs-yt-btn.gs-yt-kbd-badge[hidden] { display: none; }
