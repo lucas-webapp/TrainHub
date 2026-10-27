@@ -474,6 +474,7 @@
         if (METRO_SIZES.indexOf(a.metronomeSize) === -1) a.metronomeSize = "medium";
         if (TREE_FONT_SCALES.indexOf(a.treeFontScale) === -1) a.treeFontScale = 1;
         if (MAIN_LAYOUTS.indexOf(a.mainLayout) === -1) a.mainLayout = "vertical";
+        a.treeCounts = a.treeCounts !== false; // nombre d'exercices à droite des sous-dossiers (bandeau de gauche) : affiché d'office
         if (DENSITIES.indexOf(a.density) === -1) a.density = "comfortable";
     }
 
@@ -4667,12 +4668,16 @@
         row.appendChild(label);
         if (depth >= 1) { // nombre d'exercices du sous-dossier (sous-dossiers compris), à droite, en petit ; pas sur les grands chapitres
             var nEx = countFolderExercises(folder);
-            var cnt = document.createElement("span");
-            cnt.className = "tree-count";
-            cnt.textContent = String(nEx);
-            cnt.title = nEx === 0 ? "Aucun exercice" : nEx + " exercice" + (nEx > 1 ? "s" : "") + (folder.folders.length ? " (sous-dossiers compris)" : "");
-            if (!nEx) cnt.classList.add("tree-count-zero");
-            row.appendChild(cnt);
+            var exTitle = nEx === 0 ? "Aucun exercice" : nEx + " exercice" + (nEx > 1 ? "s" : "") + (folder.folders.length ? " (sous-dossiers compris)" : "");
+            if (!nEx) { row.classList.add("tree-row-empty"); row.title = exTitle; } // dossier vide : nom grisé, même quand les nombres sont masqués
+            if (state.settings.appearance.treeCounts !== false) {
+                var cnt = document.createElement("span");
+                cnt.className = "tree-count";
+                cnt.textContent = String(nEx);
+                cnt.title = exTitle;
+                if (!nEx) cnt.classList.add("tree-count-zero");
+                row.appendChild(cnt);
+            }
         }
         bindFolderMenu(row, function () { return getParentArrayFor(getActiveInstrument(), ancestorPath); }, folder, inst);
 
@@ -10411,9 +10416,14 @@
             // ---------- bascules secondaires : tap / progressif ----------
             // Les deux partagent la même pastille (metro-mini-btn). Le réglage progressif déplie ses
             // champs juste en dessous au clic, plutôt que de les laisser en permanence affichés.
+            // Le bloc du tempo progressif et la ligne des signatures rythmiques partagent un même rail : ils ont exactement la même largeur,
+            // donc leurs bords gauche et droit sont alignés (voir .metro-rail dans le CSS).
+            var railBox = document.createElement("div");
+            railBox.className = "metro-rail";
+            panel.appendChild(railBox);
             var toolsRow = document.createElement("div");
             toolsRow.className = "metro-tools-row";
-            panel.appendChild(toolsRow);
+            railBox.appendChild(toolsRow);
 
             // -- tap tempo --
             var tapTimes = [];
@@ -10496,7 +10506,7 @@
             rhythmBtn.setAttribute("aria-label", "Formules moins courantes et pavé détaillé");
             rhythmBtn.title = "Formules moins courantes et pavé détaillé";
             formulasRow.appendChild(rhythmBtn);
-            panel.appendChild(formulasRow);
+            railBox.appendChild(formulasRow);
 
             function refreshRhythmMode() {
                 formulaBtns.forEach(function (btn, i) {
@@ -16046,6 +16056,7 @@
             field("Taille du texte des dossiers", segControl([["0.85", "Petite"], ["1", "Normale"], ["1.15", "Grande"], ["1.3", "Très grande"]], a.treeFontScale, function (v) {
                 a.treeFontScale = parseFloat(v); save(); render();
             }));
+            field("Nombre d'exercices par sous-dossier", switchControl(a.treeCounts !== false, function (v) { a.treeCounts = v; save(); render(); }), "Petit nombre à droite de chaque sous-dossier du bandeau de gauche. Un dossier sans exercice a toujours son nom grisé");
             field("Densité de l'interface", segControl([["compact", "Compacte"], ["comfortable", "Confortable"], ["spacious", "Spacieuse"]], a.density, function (v) { a.density = v; save(); render(); }));
             card("Disposition");
             field("Écran principal", segControl([["vertical", "Verticale"], ["horizontal", "Horizontale (Finder)"]], a.mainLayout, function (v) { a.mainLayout = v; save(); render(); }));

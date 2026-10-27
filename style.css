@@ -4874,3 +4874,35 @@ button.st-since-auto { height: 30px; padding: 0 10px; }
 .gs-yt-card.gs-yt-kbd { border-color: color-mix(in srgb, var(--accent) 65%, var(--border)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
 .gs-yt-btn.gs-yt-kbd-badge { height: 30px; padding: 0 10px; color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
 .gs-yt-btn.gs-yt-kbd-badge[hidden] { display: none; }
+
+/* ===== v222 : métronome — le tempo progressif s'aligne sur la ligne des signatures, tableau plus compact et plus discret ===== */
+/* Le bloc progressif et la ligne des signatures partagent un rail de même largeur (celle des signatures) : mêmes bords gauche et droit. */
+.metro-rail { align-self: center; width: fit-content; max-width: 100%; display: grid; grid-template-columns: minmax(0, max-content); justify-items: stretch; }
+.metro-rail > .metro-tools-row { contain: inline-size; }
+.metro-rail > .metro-formulas-row { justify-content: space-between; }
+.metro-rail > .metro-tools-row.metro-tools-prog-open { justify-content: space-between; gap: 8px; }
+.metro-tools-row.metro-tools-prog-open button.metro-progressive-toggle,
+.metro-tools-row.metro-tools-prog-open button.metro-progressive-toggle.metro-mini-btn-icon { width: 52px; min-width: 52px; height: 28px; min-height: 0; flex: none; }
+.metro-tools-row.metro-tools-prog-open .metro-prog-side { flex: 1 1 auto; min-width: 0; }
+.metro-rail .metro-prog-grid { border-radius: 8px; border-color: color-mix(in srgb, var(--border) 75%, transparent); }
+.metro-rail .metro-prog-grid table.metro-prog-table th { height: 20px; padding: 0 3px; font-size: 0.62rem; font-weight: 500; letter-spacing: 0; color: color-mix(in srgb, var(--text-muted) 85%, transparent); }
+.metro-rail .metro-prog-grid .num-stepper > input.num-in, .metro-rail .metro-prog-grid input.metro-prog-input { height: 24px; font-size: var(--fs-xs); font-weight: 600; }
+.metro-rail .metro-prog-grid button.num-stepper-btn { width: 16px; min-width: 16px; font-size: 15px; opacity: .6; }
+.metro-rail .metro-prog-grid button.num-stepper-btn:hover { opacity: 1; }
+.metro-rail .metro-prog-grid button.metro-prog-del { height: 24px; font-size: 0.8rem; opacity: .7; }
+.metro-rail .metro-prog-grid button.metro-prog-del:hover { opacity: 1; }
+.metro-rail .metro-prog-grid button.metro-mini-btn.metro-prog-return { height: 20px; }
+.metro-rail .metro-prog-grid button.metro-mini-btn.metro-prog-return .icon { width: 13px; height: 13px; }
+.metro-rail .metro-prog-grid button.metro-mini-btn.metro-prog-add, .metro-rail .metro-prog-grid button.metro-mini-btn.metro-prog-presets { height: 22px; font-size: var(--fs-sm); }
+.metro-rail .metro-prog-grid button.metro-mini-btn.metro-prog-presets .icon { width: 13px; height: 13px; }
+.metro-rail .metro-prog-side .metro-prog-grid table.metro-prog-table td:last-child, .metro-rail .metro-prog-side .metro-prog-grid table.metro-prog-table th:last-child { width: 26px; }
+/* Au doigt, on garde des cibles confortables. */
+@media (pointer: coarse) {
+    .metro-rail .metro-prog-grid .num-stepper > input.num-in, .metro-rail .metro-prog-grid input.metro-prog-input, .metro-rail .metro-prog-grid button.metro-prog-del { height: 30px; }
+    .metro-rail .metro-prog-grid button.num-stepper-btn { width: 22px; min-width: 22px; }
+    .metro-rail .metro-prog-grid button.metro-mini-btn.metro-prog-add, .metro-rail .metro-prog-grid button.metro-mini-btn.metro-prog-presets { height: 28px; }
+}
+
+/* Bandeau de gauche : un sous-dossier sans exercice a son nom grisé (même quand les nombres sont masqués dans les paramètres). */
+.tree-row.tree-row-empty .tree-label { opacity: .5; }
+.tree-row.tree-row-empty.selected .tree-label { opacity: .7; }
