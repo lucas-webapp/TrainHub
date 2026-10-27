@@ -177,6 +177,12 @@
             if (activeToastEl === toast) activeToastEl = null;
         }, durationMs || (action ? 7000 : 3200));
     }
+    // Referme un message précis (celui-ci seulement) : un message devenu sans objet ne doit pas rester affiché jusqu'au bout de son délai.
+    function dismissToast(el) {
+        if (!el) return;
+        el.remove();
+        if (activeToastEl === el) { clearTimeout(activeToastTimer); activeToastEl = null; }
+    }
     // Après un changement important (suppression, déplacement…) : message avec « Annuler ». Le bouton ne défait
     // QUE ce changement-là : si autre chose a été modifié entre-temps, il renvoie vers le bouton ↶ (pas à pas).
     function toastUndo(message) {
@@ -10330,7 +10336,7 @@
             bpmUp10.classList.add("metro-q", "metro-q-br");
             // Texte des boutons en deux parties (signe / nombre) pour pouvoir le styler ; le texte reste « −10 », « +1 »…
             [[bpmDown, "−", ""], [bpmUp, "+", ""], [bpmDown10, "−", String(prefs().tempoStep)], [bpmUp10, "+", String(prefs().tempoStep)]].forEach(function (d) {
-                d[0].innerHTML = '<span class="q-sign' + (d[2] ? "" : " q-sign-big") + '">' + d[1] + "</span>" + (d[2] ? '<span class="q-num">' + d[2] + "</span>" : "");
+                d[0].innerHTML = '<span class="q-sign ' + (d[1] === "+" ? "q-plus" : "q-minus") + (d[2] ? "" : " q-sign-big") + '">' + d[1] + "</span>" + (d[2] ? '<span class="q-num">' + d[2] + "</span>" : ""); // le signe est dessiné en CSS (deux barres nettes, parfaitement centrées) ; le texte reste pour les lecteurs d'écran
             });
             // Les deux gros boutons suivent le pas choisi dans les Paramètres (2, 5 ou 10 BPM), même si la fenêtre est déjà ouverte.
             function paintStepBtns() {
@@ -19701,7 +19707,18 @@
         if (!fr.manual) fr.changeInPause = 0;
         else if (fr.changeInPause && fr.cur && now - fr.changeInPause >= 1500) { fr.changeInPause = 0; freePauseGuard(); }
         fr.counting = !!fr.cur && !fr.manual && !fr.auto && now >= fr.countFrom;
+        freeGuardToastCheck();
         freeRefreshBar();
+    }
+    // Message du garde-fou (ci-dessous) encore affiché : il se referme dès qu'il n'a plus d'objet (l'exercice est refermé ou remplacé par un autre,
+    // le chrono a été relancé à la main, ou arrêté).
+    var freeGuardToast = null;
+    function freeGuardToastCheck() {
+        var g = freeGuardToast;
+        if (!g) return;
+        if (!g.el || !g.el.isConnected) { freeGuardToast = null; return; }
+        var fr = freeRun;
+        if (!fr || fr.cur !== g.exId || (g.paused && !fr.manual && !fr.auto)) { dismissToast(g.el); freeGuardToast = null; }
     }
     function freePauseGuard() {
         var fr = freeRun, mode = prefs().freeChangeInPause, f = fr && fr.cur ? findExerciseById(fr.cur) : null;
@@ -19709,9 +19726,11 @@
         if (mode === "resume") {
             fr.manual = false; fr.auto = false; fr.active = Date.now(); fr.countFrom = fr.active + freeStartDelayMs();
             freeRefreshBar();
-            showToast("Chrono libre repris sur « " + f.ex.title + " ».", 6000, { label: "Rester en pause", run: function () { if (freeRun && !freeRun.manual && !freeRun.auto) freeTogglePause(); } });
+            showToast("Chrono libre repris sur « " + f.ex.title + " ».", 5000, { label: "Rester en pause", run: function () { if (freeRun && !freeRun.manual && !freeRun.auto) freeTogglePause(); } });
+            freeGuardToast = { el: activeToastEl, exId: fr.cur, paused: false };
         } else {
-            showToast("Chrono libre en pause : « " + f.ex.title + " » ne compte pas.", 10000, { label: "Reprendre", run: function () { if (freeRun && (freeRun.manual || freeRun.auto)) freeTogglePause(); } });
+            showToast("Chrono libre en pause : « " + f.ex.title + " » ne compte pas.", 7000, { label: "Reprendre", run: function () { if (freeRun && (freeRun.manual || freeRun.auto)) freeTogglePause(); } });
+            freeGuardToast = { el: activeToastEl, exId: fr.cur, paused: true };
         }
     }
     // Un geste sur l'appli : l'horloge d'inactivité repart ; après une pause automatique, le décompte reprend (avec l'attente
@@ -19834,6 +19853,7 @@
         FREE_ACTIVITY_EVENTS.forEach(function (n) { window.removeEventListener(n, freeActivity, { capture: true }); });
         freeRun = null;
         freeHideBar();
+        freeGuardToastCheck(); // plus de chrono libre : son message de garde-fou n'a plus d'objet
     }
     function freeLeaveSessionsView() {
         if (!guidedSessionViewActive) return;

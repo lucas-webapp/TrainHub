@@ -4906,3 +4906,38 @@ button.st-since-auto { height: 30px; padding: 0 10px; }
 /* Bandeau de gauche : un sous-dossier sans exercice a son nom grisé (même quand les nombres sont masqués dans les paramètres). */
 .tree-row.tree-row-empty .tree-label { opacity: .5; }
 .tree-row.tree-row-empty.selected .tree-label { opacity: .7; }
+
+/* ===== v223 : boutons − + −10 +10 du cadran — signes dessinés (deux barres nettes), contenu centré dans la partie visible, texte plus soigné ===== */
+/* Le contenu est centré dans la partie visible du bouton (entre le bord extérieur et l'arc du cadran), pas dans la partie cachée dessous. */
+.metro-transport-row.metro-transport-quad { --qpad: calc(var(--D) * 0.425 + 4px); }
+button.metro-bpm-btn.metro-q-tl, button.metro-bpm-btn.metro-q-bl { padding: 0 var(--qpad) 0 0; }
+button.metro-bpm-btn.metro-q-tr, button.metro-bpm-btn.metro-q-br { padding: 0 0 0 var(--qpad); }
+button.metro-bpm-btn.metro-q { align-items: center; gap: 3px; }
+/* Signe : le glyphe reste dans le texte (lecteurs d'écran, recherche) mais invisible ; la barre horizontale et la barre verticale sont dessinées. */
+button.metro-bpm-btn.metro-q .q-sign {
+    position: relative; display: inline-block; flex: none; font-size: 0 !important; line-height: 0; transform: none;
+    width: 10px; height: 10px; --qt: 2px;
+    color: var(--text-soft); filter: drop-shadow(0 1px 0 rgba(0,0,0,.35)); transition: color .12s ease, transform .12s ease;
+}
+button.metro-bpm-btn.metro-q .q-sign.q-sign-big { width: 16px; height: 16px; --qt: 2.5px; transform: none; }
+button.metro-bpm-btn.metro-q .q-sign::before, button.metro-bpm-btn.metro-q .q-sign::after {
+    content: ""; position: absolute; left: 50%; top: 50%; background: currentColor; border-radius: 2px; transform: translate(-50%, -50%);
+}
+button.metro-bpm-btn.metro-q .q-sign::before { width: 100%; height: var(--qt); }
+button.metro-bpm-btn.metro-q .q-sign.q-minus::after { display: none; }
+button.metro-bpm-btn.metro-q .q-sign.q-plus::after { width: var(--qt); height: 100%; }
+button.metro-bpm-btn.metro-q:hover .q-sign { color: var(--accent); }
+button.metro-bpm-btn.metro-q:active .q-sign { transform: scale(.9); }
+/* Nombre : chiffres de même largeur, un peu plus gras, ombre légère pour le relief. */
+button.metro-bpm-btn.metro-q .q-num {
+    font-size: 15px; font-weight: 700; line-height: 1; letter-spacing: 0; font-variant-numeric: tabular-nums lining-nums;
+    color: var(--text-soft); text-shadow: 0 1px 0 rgba(0,0,0,.3);
+}
+button.metro-bpm-btn.metro-q:hover .q-num { color: var(--text-main); }
+@media (max-width: 480px) {
+    button.metro-bpm-btn.metro-q .q-sign.q-sign-big { width: 14px; height: 14px; }
+    button.metro-bpm-btn.metro-q .q-num { font-size: 14px; }
+}
+
+/* Exercice replié : la note fixe ne touche plus les vignettes des liens (et le reste de la ligne du titre) */
+.exercise-fixed-view { margin-top: 8px; }
