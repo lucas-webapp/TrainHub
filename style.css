@@ -215,33 +215,8 @@ button.session-btn-highlight {
 button.session-btn-highlight:hover { background: color-mix(in srgb, var(--c-sage) 9%, transparent); }
 
 /* ---------- auth / synchro ---------- */
+/* La pilule de connexion, le menu du compte et la fenêtre de connexion ont leurs propres styles (compte-cloud.js, composant commun aux trois applis). */
 .auth-area { display: flex; align-items: center; }
-.btn-google {
-    background: var(--card-bg-2);
-    border-color: var(--border);
-    font-size: var(--fs-xs);
-    padding: 6px 12px;
-}
-.btn-google .icon { width: 16px; height: 16px; }
-.account-info {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    background: var(--card-bg-2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 4px 6px 4px 12px;
-}
-.account-name { font-size: var(--fs-xs); color: var(--text-muted); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sync-status {
-    font-size: 15px; /* pastille d'état de la sauvegarde : assez grosse pour la repérer d'un coup d'œil */
-    line-height: 1;
-    color: var(--status-a-faire);
-    transition: color .2s ease;
-}
-.sync-status.synced { color: var(--accent); }
-.sync-status.syncing { color: var(--status-en-cours); }
-.sync-status.error { color: var(--c-red); }
 
 /* ---------- layout (bandeau chapitres mobile + arborescence desktop) ---------- */
 .layout {
@@ -2012,16 +1987,12 @@ html.sidebar-hidden .gs-main.gs-main-roomy { max-width: 1200px; }
 
 /* Barre du haut : tous les contrôles à la même hauteur (40px), pour un alignement net. */
 .top-bar { --bar-h: 40px; }
-.top-bar button, .top-bar select, .top-bar .account-info { box-sizing: border-box; height: var(--bar-h); }
+.top-bar button, .top-bar select { box-sizing: border-box; height: var(--bar-h); }
 .top-bar .icon-btn { width: var(--bar-h); padding: 0; }
 .top-bar button.session-btn-highlight { width: auto; padding: 0 11px; }
-.top-bar .btn-google { padding: 0 12px; }
 .top-bar #instrument-select { padding: 0 10px; }
-.top-bar .account-info { padding: 0 4px 0 12px; }
-.top-bar .account-info button { height: 30px; width: 30px; }
 .top-actions .metronome-btn-highlight .icon { width: 22px; height: 22px; }
 .top-actions .icon, .top-bar .icon-btn .icon { width: 21px; height: 21px; }
-.top-bar .btn-google .icon { width: 16px; height: 16px; }
 .top-bar .instrument-select-wrap { gap: 6px; }
 
 .scales-seg-label { align-self: center; padding: 0 8px; font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
@@ -2477,7 +2448,6 @@ button.gs-tab-archive { margin-left: auto; color: var(--text-muted); }
   .top-bar { gap: 8px; }
   .top-bar .instrument-select-wrap { flex: 0 1 auto; min-width: 0; }
   .top-bar #instrument-select { flex: 0 1 auto; min-width: 0; }
-  .top-bar .account-name { max-width: 90px; }
   /* Outils : deux rangées dont chaque bouton s'étire à parts égales pour occuper TOUTE la largeur, quelle que soit celle de l'écran
      (6 boutons en haut, 5 en bas — le saut de ligne est le repère .top-break). Plus de colonnes vides sur la droite. */
   .top-actions { flex: 1 1 100%; margin-left: 0; display: flex; flex-wrap: wrap; align-items: stretch; gap: 0 4px; margin-bottom: -4px; }
@@ -2490,11 +2460,6 @@ button.gs-tab-archive { margin-left: auto; color: var(--text-muted); }
   .top-actions button.session-btn-highlight span { display: none; }
   .top-actions button .icon, .top-actions button.metronome-btn-highlight .icon { width: 18px; height: 18px; }
   .top-actions button.session-btn-highlight .icon { height: 17px; width: auto; }
-}
-@media (max-width: 440px) {
-  .top-bar .btn-google span { display: none; } /* icône Google seule */
-  .top-bar .btn-google { width: var(--bar-h); padding: 0; justify-content: center; }
-  .top-bar .account-name { display: none; }
 }
 .gs-session-row { min-width: 0; }
 .gs-session-info { flex: 1 1 auto; min-width: 0; }
@@ -4735,9 +4700,6 @@ button.dice-ex-btn:focus-visible { outline: 2px solid var(--accent); outline-off
   .top-bar #instrument-select { flex: 1 1 0; width: auto !important; min-width: 0; font-size: var(--fs-md); } /* !important : la largeur calculée pour l'ordinateur ne vaut pas ici */
   .top-bar .instrument-select-wrap .icon-btn { flex: none; width: var(--bar-h); height: var(--bar-h); }
   .top-bar .auth-area { flex: none; }
-  .top-bar .account-info { position: relative; padding: 0; gap: 0; border: 0; background: transparent; }
-  .top-bar .account-info button { width: var(--bar-h); height: var(--bar-h); }
-  .top-bar .account-info .sync-status { position: absolute; top: 5px; right: 5px; font-size: 11px; pointer-events: none; } /* la pastille de synchro, sur l'icône de déconnexion */
   .top-actions { flex: 1 1 100%; gap: 6px; margin: 0; align-items: stretch; }
   .top-actions > button { flex: 1 1 0 !important; min-width: 28px !important; height: var(--bar-h) !important; margin: 0 !important; padding: 0 !important; }
   .top-actions > .free-bar .free-what { margin-right: auto; }

@@ -7088,22 +7088,24 @@
     var remoteLogRev = null;
     var PUSH_DEBOUNCE_MS = 1500;
 
-    var $syncStatus = document.getElementById("sync-status");
-    var $accountInfo = document.getElementById("account-info");
-    var $accountName = document.getElementById("account-name");
-    var $signinBtn = document.getElementById("google-signin-btn");
-    var $signoutBtn = document.getElementById("signout-btn");
+    // Tout ce qui SE VOIT de la connexion (pilule de la barre du haut, menu du compte, fenêtre proposée à l'ouverture) est dessiné par
+    // compte-cloud.js, le composant commun à HarmoHub, TabHub et TrainHub : même rendu partout. Il ne connaît ni Firebase ni les données ;
+    // le moteur de synchro ci-dessous reste le nôtre et se contente de lui dire qui est connecté et où il en est.
+    // Monté AVANT les getElementById qui suivent : ils visent les éléments (#sync-status, #google-signin-btn…) qu'il crée.
+    var compte = monterCompteCloud(document.getElementById("compte-cloud"), {
+        appli: "TrainHub", slug: "trainhub", objets: "séances et exercices",
+        seConnecter: signInWithGoogle,
+        seDeconnecter: function () { if (auth) auth.signOut(); },
+        surIndisponible: function (raison) { showToast(raison); }
+    });
 
+    var $syncStatus = document.getElementById("sync-status");
+    var $signinBtn = document.getElementById("google-signin-btn");
+
+    // mode : "synced" | "pending" (modification en attente d'envoi) | "syncing" | "error" | null (personne de connecté : rien à montrer).
+    // Les classes de #sync-status suivent le mode (le composant les pose) : le garde-fou de fermeture ci-dessous les lit.
     function setSyncStatus(mode) {
-        if (!$syncStatus) return;
-        $syncStatus.classList.remove("synced", "syncing", "error");
-        if (mode) $syncStatus.classList.add(mode);
-        var titles = {
-            synced: "Synchronisé",
-            syncing: "Synchronisation en cours…",
-            error: "Erreur de synchronisation (dernière version conservée en local)"
-        };
-        $syncStatus.title = titles[mode] || "Non synchronisé (hors ligne)";
+        compte.etat(mode || null);
     }
 
     // ---------- garde-fou : fermeture pendant une synchro en cours ou en échec ----------
@@ -7113,28 +7115,21 @@
     // l'appli ailleurs avant que l'envoi n'ait abouti. On prévient dans ce cas précis.
     window.addEventListener("beforeunload", function (e) {
         if (!$syncStatus) return;
-        var pending = $syncStatus.classList.contains("syncing") || $syncStatus.classList.contains("error");
+        var pending = $syncStatus.classList.contains("pending") || $syncStatus.classList.contains("syncing") || $syncStatus.classList.contains("error");
         if (!pending) return;
         e.preventDefault();
         e.returnValue = "";
         return "";
     });
 
+    // Rafraîchit la pilule (compte affiché ou « Se connecter ») ; NE vaut PAS réponse de Firebase (c'est onAuthChanged qui appelle authPrete).
     function updateAuthUI(user) {
-        if (user) {
-            $signinBtn.hidden = true;
-            $accountInfo.hidden = false;
-            $accountName.textContent = user.displayName || user.email || "Connecté";
-        } else {
-            $signinBtn.hidden = false;
-            $accountInfo.hidden = true;
-            if (signinDefaultTitle === null) signinDefaultTitle = $signinBtn.title;
-            var waiting = logPendingCount();
-            $signinBtn.title = waiting ? waiting + " séance" + (waiting > 1 ? "s" : "") + " enregistrée" + (waiting > 1 ? "s" : "") + " hors connexion : connecte-toi pour " + (waiting > 1 ? "les" : "l'") + "envoyer" : signinDefaultTitle;
-        }
+        compte.utilisateur(user);
+        var waiting = user ? 0 : logPendingCount();
+        compte.message(waiting ? waiting + " séance" + (waiting > 1 ? "s" : "") + " enregistrée" + (waiting > 1 ? "s" : "") + " hors connexion : connecte-toi pour " + (waiting > 1 ? "les " : "l'") + "envoyer" : "");
     }
-    var signinDefaultTitle = null;
-    function startGoogleSignIn() { if ($signinBtn && !$signinBtn.hidden) $signinBtn.click(); }
+    // Passe par la pilule du composant plutôt que par signInWithGoogle() : si la connexion est indisponible, c'est elle qui en donne la raison.
+    function startGoogleSignIn() { if ($signinBtn && !cloudSignedIn()) $signinBtn.click(); }
 
     // Garde-fou : une séance enregistrée alors qu'on n'est pas connecté à Google n'existe que sur cet appareil. On le dit AVANT, avec le choix
     // de se connecter d'abord ; si on enregistre quand même, elle est notée « à envoyer » et part toute seule à la prochaine connexion.
@@ -7312,6 +7307,7 @@
     function onAuthChanged(user) {
         currentUser = user;
         authSettledResolve();
+        compte.authPrete(user); // la seule réponse de Firebase : fait apparaître la pilule, et la fenêtre d'accueil si personne n'est connecté
         updateAuthUI(user);
         if (unsubscribeSnapshot) {
             unsubscribeSnapshot();
@@ -7371,6 +7367,7 @@
 
     function pushToCloud() {
         if (!currentUser || !docRef) return;
+        setSyncStatus("syncing");
         // le journal d'abord : un autre appareil qui voit le document principal doit trouver les lots à jour
         logPushDirty().catch(function (e) { console.error("Envoi du journal impossible", e); }).then(function () { return docRef.set(cloudState()); }).then(function () {
             setSyncStatus("synced");
@@ -7382,7 +7379,7 @@
 
     function scheduleCloudPush() {
         if (!currentUser || !docRef) return;
-        setSyncStatus("syncing");
+        setSyncStatus("pending");
         if (pushTimer) clearTimeout(pushTimer);
         pushTimer = setTimeout(pushToCloud, PUSH_DEBOUNCE_MS);
     }
@@ -7391,6 +7388,7 @@
         if (typeof firebase === "undefined" || typeof FIREBASE_CONFIG === "undefined") {
             console.warn("Firebase indisponible : mode local uniquement.");
             authSettledResolve();
+            compte.indisponible("La connexion Google n'a pas pu se charger (hors connexion ?). Tes données restent enregistrées sur cet appareil.");
             return;
         }
         try {
@@ -7401,10 +7399,12 @@
         } catch (e) {
             console.error("Initialisation Firebase impossible", e);
             authSettledResolve();
+            compte.indisponible("La connexion Google n'a pas pu démarrer. Tes données restent enregistrées sur cet appareil.");
         }
     }
 
-    $signinBtn.addEventListener("click", function () {
+    // Appelée par le composant DANS le clic (seConnecter) : le navigateur n'ouvre la fenêtre Google que pendant un geste de l'utilisateur.
+    function signInWithGoogle() {
         if (!auth) { showToast("La connexion se prépare… réessaie dans un instant (ou vérifie ta connexion internet)."); return; }
         var provider = new firebase.auth.GoogleAuthProvider();
         auth.signInWithPopup(provider).catch(function (e) {
@@ -7412,12 +7412,7 @@
             if (e && (e.code === "auth/popup-closed-by-user" || e.code === "auth/cancelled-popup-request")) return; // fenêtre Google fermée : l'utilisateur a annulé, rien à signaler
             dlgAlert({ title: "Connexion impossible", message: e && e.message ? e.message : "Erreur inconnue. Réessaie dans un instant." });
         });
-    });
-
-    $signoutBtn.addEventListener("click", function () {
-        if (!auth) return;
-        auth.signOut();
-    });
+    }
 
     // Firebase (plusieurs centaines de Ko) se charge après le premier affichage : l'application s'ouvre sans
     // attendre ce téléchargement (hors ligne ou réseau lent : plus de blocage au démarrage).
@@ -7435,7 +7430,11 @@
         loadScriptOnce(base + "firebase-app-compat.js")
             .then(function () { return Promise.all([loadScriptOnce(base + "firebase-auth-compat.js"), loadScriptOnce(base + "firebase-firestore-compat.js"), loadScriptOnce("firebase-config.js")]); })
             .then(initFirebase)
-            .catch(function (e) { console.warn("Firebase indisponible : mode local uniquement.", e); authSettledResolve(); });
+            .catch(function (e) {
+                console.warn("Firebase indisponible : mode local uniquement.", e);
+                authSettledResolve();
+                compte.indisponible("La connexion Google n'a pas pu se charger (hors connexion ?). Tes données restent enregistrées sur cet appareil.");
+            });
     }
     (window.requestIdleCallback || function (f) { setTimeout(f, 60); })(loadFirebaseThenInit, { timeout: 1500 });
 
