@@ -6110,12 +6110,12 @@
         return m + ":" + (sec < 10 ? "0" : "") + sec;
     }
     function audioCur(ctl) { return ctl && ctl.tracks[ctl.index] || null; }
-    var AUDIO_RATE_MIN = 25, AUDIO_RATE_MAX = 115; // la jauge s'arrête à 115 % : plus de place pour régler finement les vitesses lentes
+    var AUDIO_RATE_MIN = 25, AUDIO_RATE_MAX = 150; // vitesse de lecture : de 25 % (travail au ralenti) à 150 % (réécoute accélérée), par pas de 5 %
     function audioRateFor(t) {
         var r = t && t.rate != null ? t.rate : audioLsGet(AUDIO_RATE_KEY, 1);
         r = Number(r);
         if (!isFinite(r) || r <= 0) r = 1;
-        return Math.min(AUDIO_RATE_MAX / 100, Math.max(AUDIO_RATE_MIN / 100, r)); // d'anciens morceaux réglés à 150 % sont ramenés à 115 %
+        return Math.min(AUDIO_RATE_MAX / 100, Math.max(AUDIO_RATE_MIN / 100, r)); // la vitesse enregistrée est ramenée dans la plage (une valeur hors plage ne casse pas le lecteur)
     }
 
     // -- les morceaux --
