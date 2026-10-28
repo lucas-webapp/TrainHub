@@ -4903,3 +4903,30 @@ button.metro-bpm-btn.metro-q:hover .q-num { color: var(--text-main); }
 
 /* Exercice replié : la note fixe ne touche plus les vignettes des liens (et le reste de la ligne du titre) */
 .exercise-fixed-view { margin-top: 8px; }
+
+/* ---------- v226 — Modifier le son : éditeur d'un fichier audio joint (forme d'onde de l'enregistreur + repères précis, zoom, boucle) ---------- */
+.backups-panel.audio-edit-panel { width: min(640px, calc(100vw - 16px)); padding: 12px 14px 14px; gap: 10px; text-align: left; max-height: calc(100vh - 24px); overflow-x: hidden; overflow-y: auto; }
+.backups-panel.audio-edit-panel > .panel-drag-handle { margin: -12px -14px 0 -14px; }
+.audio-edit-panel .rec-take { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.audio-edit-panel input.rec-name, .audio-edit-panel .rec-row select { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.rec-edit-sub { font-size: var(--fs-sm); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+canvas.rec-wave-cv.rec-wave-cv-tall { height: 140px; }
+.rec-wave-zoom { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+button.rec-wave-btn.rec-wave-zb { flex: none; min-width: 34px; padding: 0 10px; }
+input.rec-wave-scroll { flex: 1 1 120px; min-width: 90px; accent-color: var(--accent); }
+.rec-wave-edges { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.rec-wave-edges .rec-wave-btn { flex: none; padding: 0 10px; }
+input.rec-wave-t { flex: 1 1 70px; width: 92px; min-width: 64px; height: 34px; padding: 0 8px; box-sizing: border-box; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
+.rec-wave-edge { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.rec-wave-arrow { color: var(--text-muted); }
+button.rec-wave-btn.on { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.audio-edit-panel .rec-edit-opts { gap: 10px; flex-wrap: wrap; }
+select.rec-select.rec-kbps { flex: 0 0 auto; width: auto; min-width: 110px; }
+label.rec-case { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--text-dim); cursor: pointer; }
+label.rec-case input { margin: 0; accent-color: var(--accent); }
+/* Téléphone : outils en grille de trois colonnes, début et fin côte à côte (chacun son bouton « ici » et son champ) */
+@media (max-width: 520px) {
+  .audio-edit-panel .rec-wave-tools { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .rec-wave-edges { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .rec-wave-arrow { display: none; }
+}

@@ -2247,6 +2247,7 @@
     var FOLDER_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>';
     var CHEVRON_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>';
     var PENCIL_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+    var SCISSORS_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>';
     var GRIP_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>';
     var STAR_FILLED_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.7l2.9 6 6.6.7-4.9 4.5 1.3 6.5L12 17.4l-5.9 3 1.3-6.5-4.9-4.5 6.6-.7Z"/></svg>';
     var ARCHIVE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"/><path d="M10 13h4"/></svg>';
@@ -6060,6 +6061,7 @@
         if (isAudioFile(meta)) {
             items.push({ label: "Lire dans TrainHub (lecteur audio)", open: function () { openAudioWindow(meta); } });
             items.push({ label: "Ajouter à la liste de lecture", open: function () { audioAddFileToList(meta); } });
+            items.push({ label: "Modifier le son… (couper, garder une partie)", open: function () { openAudioEditor(meta); } });
         }
         items.push({ label: "Ouvrir dans un onglet du navigateur", open: function () { fileOpenInTab(meta); } });
         items.push({ label: "Ouvrir avec une autre application…", open: function () { fileOpenWithOtherApp(meta); } });
@@ -6578,7 +6580,15 @@
         closeBtn.title = "Fermer le lecteur (arrête la lecture)";
         closeBtn.setAttribute("aria-label", "Fermer le lecteur");
         closeBtn.addEventListener("click", function () { ctl.keep = false; if (ctl.view) ctl.view.close(); });
-        actions.appendChild(pinBtn); actions.appendChild(closeBtn);
+        var editSoundBtn = document.createElement("button");
+        editSoundBtn.type = "button";
+        editSoundBtn.className = "audio-pin audio-edit-sound";
+        editSoundBtn.innerHTML = SCISSORS_ICON_SVG;
+        editSoundBtn.title = "Modifier le son : couper une intro, ne garder qu'une partie, faire une boucle…";
+        editSoundBtn.setAttribute("aria-label", "Modifier le son");
+        editSoundBtn.hidden = true;
+        editSoundBtn.addEventListener("click", function () { var t = cur(); if (t && t.kind === "file") openAudioEditor(t.meta); });
+        actions.appendChild(editSoundBtn); actions.appendChild(pinBtn); actions.appendChild(closeBtn);
         top.appendChild(title); top.appendChild(actions);
         box.appendChild(top);
 
@@ -6881,6 +6891,7 @@
             box.classList.toggle("audio-empty", !t);
             title.textContent = t ? t.name : "Lecteur audio";
             title.title = (t ? t.name : "Lecteur audio") + (mode === "float" ? " — faire glisser pour déplacer la fenêtre" : "");
+            editSoundBtn.hidden = !(t && t.kind === "file"); // un lien (Drive, site…) ne se modifie pas : le son n'est pas chez nous
             renderTabs();
             paintChain();
             if (t) {
@@ -7008,6 +7019,18 @@
             if (pendingRenameKey === "file:" + meta.id) {
                 pendingRenameKey = null;
                 setTimeout(startRenameFile, 0);
+            }
+            if (isAudioFile(meta)) {
+                var soundEditBtn = document.createElement("span");
+                soundEditBtn.className = "link-edit link-edit-sound";
+                soundEditBtn.innerHTML = SCISSORS_ICON_SVG;
+                soundEditBtn.title = "Modifier le son (couper une intro, garder une partie pour la boucler…)";
+                soundEditBtn.addEventListener("click", function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openAudioEditor(meta);
+                });
+                chip.appendChild(soundEditBtn);
             }
             var fileEditBtn = document.createElement("span");
             fileEditBtn.className = "link-edit";
@@ -14810,8 +14833,22 @@
         });
     }
     function recSlicePcm(pcm, a, b) { return { sr: pcm.sr, chans: pcm.chans.map(function (c) { return c.slice(a, b); }) }; }
+    // Coupe [a, b[ : le début et la fin se rejoignent. Le raccord est fondu sur 3 ms (la fin du début glisse vers ce qui précédait la suite) :
+    // deux ondes recollées à un point quelconque font un « clic », ce fondu l'efface sans que le rythme bouge d'un échantillon.
     function recCutPcm(pcm, a, b) {
-        return { sr: pcm.sr, chans: pcm.chans.map(function (c) { var o = new Float32Array(c.length - (b - a)); o.set(c.subarray(0, a), 0); o.set(c.subarray(b), a); return o; }) };
+        var m = Math.max(0, Math.min(Math.round(pcm.sr * 0.003), a, b - a));
+        return { sr: pcm.sr, chans: pcm.chans.map(function (c) {
+            var o = new Float32Array(c.length - (b - a)); o.set(c.subarray(0, a), 0); o.set(c.subarray(b), a);
+            for (var i = 0; i < m; i++) { var w = (i + 1) / (m + 1); o[a - m + i] = c[a - m + i] * (1 - w) + c[b - m + i] * w; }
+            return o;
+        }) };
+    }
+    // Fondu d'entrée et de sortie très court (secondes) sur une COPIE : un fichier qui démarre ou s'arrête au milieu d'une onde « claque », surtout en
+    // boucle. 5 ms ne s'entendent pas, mais suffisent à effacer le clic.
+    function recFadeEdges(pcm, sec) {
+        var n = pcm.chans[0].length, f = Math.min(Math.floor(pcm.sr * sec), Math.floor(n / 2));
+        if (f < 2) return pcm;
+        return { sr: pcm.sr, chans: pcm.chans.map(function (c) { var o = new Float32Array(c); for (var i = 0; i < f; i++) { var k = i / f; o[i] *= k; o[n - 1 - i] *= k; } return o; }) };
     }
     // Crêtes (0…1) de pcm entre les échantillons a et b, réparties en n colonnes : sert au dessin de la forme d'onde.
     function recWaveCols(pcm, n, a, b) {
@@ -14844,13 +14881,13 @@
         var ratio = pcm.sr / to, n = Math.floor(pcm.chans[0].length / ratio);
         return { sr: to, chans: pcm.chans.map(function (c) { var o = new Float32Array(n); for (var i = 0; i < n; i++) { var x = i * ratio, k = Math.floor(x), f = x - k; o[i] = c[k] * (1 - f) + (c[Math.min(k + 1, c.length - 1)]) * f; } return o; }) };
     }
-    // MP3 (128 kbit/s, mono ou stéréo) : encodé par petits blocs pour ne pas figer l'écran ; onProgress(0…1).
-    function recEncodeMp3(pcm, lin, onProgress) {
+    // MP3 (128 kbit/s par défaut, mono ou stéréo) : encodé par petits blocs pour ne pas figer l'écran ; onProgress(0…1).
+    function recEncodeMp3(pcm, lin, onProgress, kbps) {
         return recLoadLame().then(function (lame) {
             var OKRATES = [8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000];
             if (OKRATES.indexOf(pcm.sr) === -1) pcm = recResample(pcm, 44100);
             var n = pcm.chans[0].length, nch = pcm.chans.length >= 2 ? 2 : 1, sr = pcm.sr;
-            var enc = new lame.Mp3Encoder(nch, sr, 128), parts = [], BLOCK = 1152 * 16, pos = 0;
+            var enc = new lame.Mp3Encoder(nch, sr, kbps || 128), parts = [], BLOCK = 1152 * 16, pos = 0;
             function conv(ch, from, to) {
                 var a = new Int16Array(to - from);
                 for (var i = from; i < to; i++) { var v = ch[i] * lin; v = v < -1 ? -1 : v > 1 ? 1 : v; a[i - from] = v < 0 ? v * 0x8000 : v * 0x7FFF; }
@@ -14884,7 +14921,7 @@
         ed.emit = function () { ed.listeners.slice().forEach(function (fn) { try { fn(); } catch (e) {} }); };
         ed.lin = function () { return Math.pow(10, ed.gainDb / 20); };
         ed.dirty = function () { return ed.hist.length > 0 || ed.gainDb !== 0 || !!ed.sel; };
-        function push() { ed.hist.push({ pcm: ed.pcm, sel: ed.sel, head: ed.head }); if (ed.hist.length > REC_HIST_MAX) ed.hist.shift(); }
+        function push() { ed.hist.push({ pcm: ed.pcm, sel: ed.sel, head: ed.head }); if (ed.hist.length > (ed.histMax || REC_HIST_MAX)) ed.hist.shift(); }
         ed.setSel = function (a, b) {
             var n = ed.len();
             a = Math.max(0, Math.min(n, Math.round(a))); b = Math.max(0, Math.min(n, Math.round(b)));
@@ -14907,9 +14944,16 @@
         return ed;
     }
     // Aperçu : joue la sélection (ou depuis le repère jusqu'à la fin) avec le volume choisi. Un contexte audio le temps de la lecture.
-    function recPlayPreview(ed, onTick, onEnd) {
+    // `opts.loop` : boucle SANS COUPURE sur la sélection (ou sur tout si rien n'est sélectionné) — AudioBufferSourceNode.loop raccorde à
+    // l'échantillon près, c'est ce qu'on entendra dans le lecteur : de quoi juger un raccord avant d'enregistrer.
+    // `opts.from` : départ (échantillon) à l'intérieur de la sélection — on réécoute à partir du repère sans perdre la sélection.
+    function recPlayPreview(ed, onTick, onEnd, opts) {
+        if (rec.stopPlay) rec.stopPlay(); // un seul aperçu à la fois (enregistreur ou « Modifier le son »)
+        if (audioCtl) { try { audioCtl.audio.pause(); } catch (e) {} } // et le lecteur se tait : deux sons superposés empêchent de juger une coupure
+        var loop = !!(opts && opts.loop);
         var Ctor = window.AudioContext || window.webkitAudioContext, ctx, src, stopped = false, raf = null;
-        var n = ed.len(), sr = ed.pcm.sr, a = ed.sel ? ed.sel.a : (ed.head >= n - sr * 0.05 ? 0 : ed.head), b = ed.sel ? ed.sel.b : n;
+        var n = ed.len(), sr = ed.pcm.sr, a = ed.sel ? ed.sel.a : (loop ? 0 : (ed.head >= n - sr * 0.05 ? 0 : ed.head)), b = ed.sel ? ed.sel.b : n;
+        var s0 = opts && opts.from != null && opts.from >= a && opts.from < b - sr * 0.05 ? Math.round(opts.from) : a; // départ de la lecture
         function stop(fromEnd) {
             if (stopped) return; stopped = true;
             if (raf) cancelAnimationFrame(raf);
@@ -14924,12 +14968,18 @@
             var buf = ctx.createBuffer(ed.pcm.chans.length, n, sr);
             ed.pcm.chans.forEach(function (c, i) { if (buf.copyToChannel) buf.copyToChannel(c, i); else buf.getChannelData(i).set(c); });
             src = ctx.createBufferSource(); src.buffer = buf;
-            var g = ctx.createGain(), lin = ed.lin(), t0 = ctx.currentTime + 0.05, dur = (b - a) / sr;
+            var g = ctx.createGain(), lin = ed.lin(), t0 = ctx.currentTime + 0.05, dur = (b - s0) / sr;
             g.gain.setValueAtTime(lin, t0);
             src.connect(g); g.connect(ctx.destination);
-            src.onended = function () { stop(true); };
-            src.start(t0, a / sr, dur);
-            (function tick() { if (stopped) return; var el = Math.max(0, ctx.currentTime - t0); if (onTick) onTick(Math.min(b, a + Math.round(el * sr))); raf = requestAnimationFrame(tick); })();
+            if (loop) { src.loop = true; src.loopStart = a / sr; src.loopEnd = b / sr; src.start(t0, s0 / sr); }
+            else { src.onended = function () { stop(true); }; src.start(t0, s0 / sr, dur); }
+            (function tick() {
+                if (stopped) return;
+                var el = Math.max(0, ctx.currentTime - t0);
+                var done = Math.round(el * sr), first = b - s0; // en boucle : on finit d'abord la première passe, puis on tourne sur [a, b[
+                if (onTick) onTick(loop ? (done < first ? s0 + done : a + (done - first) % Math.max(1, b - a)) : Math.min(b, s0 + done));
+                raf = requestAnimationFrame(tick);
+            })();
         } catch (e) { stop(false); return null; }
         rec.stopPlay = stop;
         return stop;
@@ -14965,7 +15015,14 @@
         }
         g.fillStyle = c.red; g.globalAlpha = 0.85; g.fillRect(right + 3, 0, 1.5, c.h); g.globalAlpha = 1; // repère : « maintenant »
     }
-    function recFmtT(sec) { sec = Math.max(0, sec); var m = Math.floor(sec / 60), s = sec - m * 60; return m + ":" + (s < 10 ? "0" : "") + s.toFixed(1); }
+    function recFmtT(sec) { var t = Math.max(0, Math.round(sec * 10)), m = Math.floor(t / 600), s = (t % 600) / 10; return m + ":" + (s < 10 ? "0" : "") + s.toFixed(1); }
+    // Même temps au centième (champs de début et de fin) : de quoi caler une boucle sur un temps de mesure.
+    function recFmtT2(sec) { var t = Math.max(0, Math.round(sec * 100)), m = Math.floor(t / 6000), s = (t % 6000) / 100; return m + ":" + (s < 10 ? "0" : "") + s.toFixed(2); }
+    // « 1:23.45 », « 83,4 » ou « 83 » → secondes ; null si illisible.
+    function recParseT(txt) {
+        var m = /^(?:(\d+):)?(\d+(?:\.\d*)?)$/.exec(String(txt || "").trim().replace(",", "."));
+        return m ? (m[1] ? parseInt(m[1], 10) * 60 : 0) + parseFloat(m[2]) : null;
+    }
 
     function recDevices() {
         if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return Promise.resolve([]);
@@ -15327,6 +15384,399 @@
     }
     window.addEventListener("beforeunload", function () { if (rec.phase === "recording") { try { rec.mr.stop(); } catch (e) {} } });
 
+    // ---------- éditeur de forme d'onde (enregistreur, et « Modifier le son » d'un fichier joint) ----------
+    // Monte dans `wave` la forme d'onde du modèle `ed` (makeRecEditor) : sélection à la souris ou au doigt, écoute, garder / couper, annuler,
+    // volume. o.onRedraw : appelé à chaque changement du modèle ; o.aria : description du dessin. o.precise (fichier à modifier) ajoute ce qu'il
+    // faut pour caler une coupure ou une boucle : début et fin de la sélection au centième de seconde (saisis, ou posés sur le repère rouge
+    // PENDANT l'écoute), zoom avec défilement, écoute en boucle sans coupure. Renvoie { detach, redraw } : detach avant de remonter autre chose.
+    function recEl(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+    function recMountWave(wave, ed, o) {
+        o = o || {};
+        var precise = !!o.precise;
+        wave.innerHTML = ""; wave.hidden = false;
+        var cv = recEl("canvas", "rec-wave-cv" + (precise ? " rec-wave-cv-tall" : "")); cv.setAttribute("aria-label", o.aria || "Forme d'onde : glisser pour sélectionner une partie, cliquer pour placer le repère"); wave.appendChild(cv);
+        var zRow = null, zOut = null, zIn = null, zSel = null, zAll = null, zScroll = null;
+        if (precise) { zRow = recEl("div", "rec-wave-zoom"); wave.appendChild(zRow); }
+        var rng = recEl("div", "rec-wave-rng"); wave.appendChild(rng);
+        var tools = recEl("div", "rec-wave-tools"); wave.appendChild(tools);
+        function tb(label, title, fn, aria) { var b = recEl("button", "btn-ghost rec-wave-btn", label); b.type = "button"; b.title = title; if (aria) b.setAttribute("aria-label", aria); b.addEventListener("click", fn); tools.appendChild(b); return b; }
+
+        // -- partie visible (zoom) : en échantillons ; tout le son tant qu'on ne zoome pas
+        var view = { a: 0, b: ed.len() }, viewPcm = ed.pcm;
+        function minSpan() { return Math.min(ed.len(), Math.max(256, Math.round(ed.pcm.sr * 0.05))); }
+        function clampView() { var n = ed.len(), span = Math.max(minSpan(), Math.min(n, view.b - view.a)); view.a = Math.max(0, Math.min(n - span, view.a)); view.b = view.a + span; }
+        function fitView() { view.a = 0; view.b = ed.len(); }
+        function zoomTo(a, b) { var span = Math.max(minSpan(), (b - a) * 1.2), c = (a + b) / 2; view.a = c - span / 2; view.b = c + span / 2; clampView(); redraw(); }
+        function zoomBy(f, center) {
+            var span = view.b - view.a, c = center != null ? center : ed.sel ? (ed.sel.a + ed.sel.b) / 2 : (ed.head >= view.a && ed.head <= view.b ? ed.head : view.a + span / 2);
+            var ns = Math.max(minSpan(), Math.min(ed.len(), span / f)), rel = (c - view.a) / span;
+            view.a = c - rel * ns; view.b = view.a + ns; clampView(); redraw();
+        }
+        function followHead(pos) { if (precise && (pos < view.a || pos > view.b)) { var span = view.b - view.a; view.a = pos - span * 0.1; view.b = view.a + span; clampView(); } } // écoute : la vue suit le repère
+
+        // -- écoute (avec le volume choisi) ; en boucle, sans coupure, sur la sélection ou sur tout
+        var playing = false, looping = false;
+        function startPlay() {
+            playing = true;
+            var stop = recPlayPreview(ed, function (pos) { ed.head = pos; followHead(pos); drawOnly(); }, function (fromEnd) { playing = false; if (fromEnd && !ed.sel) ed.head = 0; redraw(); }, { loop: looping, from: precise && ed.sel ? ed.head : null });
+            if (!stop) playing = false;
+            redraw();
+        }
+        var playB = tb("▶ Écouter", "Écouter la sélection, ou depuis le repère jusqu'à la fin (avec le volume choisi)", function () {
+            if (playing) { if (rec.stopPlay) rec.stopPlay(); return; }
+            startPlay();
+        });
+        playB.classList.add("rec-wave-play");
+        var loopB = null;
+        if (precise) loopB = tb("⟲ Boucle", "Écouter en boucle, sans coupure : la sélection, ou tout le son si rien n'est sélectionné — pour juger un raccord avant d'enregistrer", function () {
+            looping = !looping;
+            if (playing) { if (rec.stopPlay) rec.stopPlay(); startPlay(); } else redraw();
+        });
+        var allB = tb("Tout", "Sélectionner toute la prise", function () { if (rec.stopPlay) rec.stopPlay(); ed.setSel(0, ed.len()); }, "Tout sélectionner");
+        var keepB = tb("Garder", "Garder la sélection : tout le reste est coupé", function () { if (rec.stopPlay) rec.stopPlay(); ed.keep(); }, "Garder la sélection");
+        var cutB = tb("Couper", "Couper la sélection (le début et la fin se rejoignent)", function () { if (rec.stopPlay) rec.stopPlay(); ed.cut(); }, "Couper la sélection");
+        var undoB = tb("↶", "Annuler la dernière coupe", function () { if (rec.stopPlay) rec.stopPlay(); ed.undo(); }, "Annuler la dernière coupe");
+
+        // -- début et fin de la sélection (précis) : champs au centième de seconde, ↑ ↓ = ±0,01 s (Maj : ±0,1 s) ; boutons « ici » = repère rouge
+        var aIn = null, bIn = null;
+        if (precise) {
+            var eRow = recEl("div", "rec-wave-edges"); wave.appendChild(eRow);
+            var curA = function () { return ed.sel ? ed.sel.a : 0; }, curB = function () { return ed.sel ? ed.sel.b : ed.len(); };
+            var minSel = function () { return Math.round(ed.pcm.sr * 0.02); };
+            var mkT = function (aria, ph) { var i = recEl("input", "rec-wave-t"); i.type = "text"; i.inputMode = "decimal"; i.autocomplete = "off"; i.spellcheck = false; i.setAttribute("aria-label", aria); i.placeholder = ph; return i; };
+            var applyEdge = function (which, sec) {
+                var sr = ed.pcm.sr, n = ed.len(), min = minSel(), s = Math.max(0, Math.min(n, Math.round(sec * sr))), a = curA(), b = curB();
+                if (which === "a") { a = s; if (b - a < min) b = Math.min(n, a + min); if (b - a < min) a = Math.max(0, b - min); }
+                else { b = s; if (b - a < min) a = Math.max(0, b - min); if (b - a < min) b = Math.min(n, a + min); }
+                ed.setSel(a, b);
+            };
+            var bindT = function (inp, which) {
+                function commit() { delete inp.dataset.typing; var v = recParseT(inp.value); if (v == null) redraw(); else applyEdge(which, v); }
+                inp.addEventListener("input", function () { inp.dataset.typing = "1"; });
+                inp.addEventListener("change", commit);
+                inp.addEventListener("blur", function () { if (inp.dataset.typing) commit(); });
+                inp.addEventListener("keydown", function (e) {
+                    e.stopPropagation(); // les raccourcis de l'appli (espace, flèches…) ne doivent pas prendre la main dans ce champ
+                    if (e.key === "Enter") { e.preventDefault(); commit(); inp.blur(); }
+                    else if (e.key === "Escape") { delete inp.dataset.typing; redraw(); inp.blur(); }
+                    else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                        e.preventDefault();
+                        var cur = recParseT(inp.value); if (cur == null) cur = (which === "a" ? curA() : curB()) / ed.pcm.sr;
+                        delete inp.dataset.typing;
+                        applyEdge(which, cur + (e.shiftKey ? 0.1 : 0.01) * (e.key === "ArrowUp" ? 1 : -1));
+                    }
+                });
+            };
+            var aBtn = recEl("button", "btn-ghost rec-wave-btn", "Début ici"); aBtn.type = "button"; aBtn.title = "Poser le début de la sélection sur le repère rouge (même pendant l'écoute : on peut « taper » au bon moment)";
+            aBtn.addEventListener("click", function () { var h = Math.round(ed.head), n = ed.len(); if (h > n - minSel()) return; ed.setSel(h, ed.sel && ed.sel.b - h >= minSel() ? ed.sel.b : n); });
+            aIn = mkT("Début de la sélection (minutes:secondes)", "0:00.00"); bindT(aIn, "a");
+            bIn = mkT("Fin de la sélection (minutes:secondes)", "fin"); bindT(bIn, "b");
+            var bBtn = recEl("button", "btn-ghost rec-wave-btn", "Fin ici"); bBtn.type = "button"; bBtn.title = "Poser la fin de la sélection sur le repère rouge (même pendant l'écoute)";
+            bBtn.addEventListener("click", function () { var h = Math.round(ed.head); if (h < minSel()) return; ed.setSel(ed.sel && h - ed.sel.a >= minSel() ? ed.sel.a : 0, h); });
+            var gA = recEl("div", "rec-wave-edge"), gB = recEl("div", "rec-wave-edge"); // deux groupes : début (bouton + champ), fin (champ + bouton) ; côte à côte, ou en grille sur téléphone
+            gA.appendChild(aBtn); gA.appendChild(aIn); gB.appendChild(bIn); gB.appendChild(bBtn);
+            eRow.appendChild(gA); eRow.appendChild(recEl("span", "rec-wave-arrow", "→")); eRow.appendChild(gB);
+
+            // zoom : − + sélection / tout voir ; une barre de défilement quand on est zoomé ; Ctrl + molette zoome sous le curseur, molette seule défile
+            var zb = function (label, title, fn) { var b = recEl("button", "btn-ghost rec-wave-btn rec-wave-zb", label); b.type = "button"; b.title = title; b.setAttribute("aria-label", title); b.addEventListener("click", fn); zRow.appendChild(b); return b; };
+            zOut = zb("−", "Dézoomer", function () { zoomBy(0.5); });
+            zIn = zb("+", "Zoomer (autour de la sélection, ou du repère)", function () { zoomBy(2); });
+            zSel = zb("Sélection", "Zoomer sur la sélection", function () { if (ed.sel) zoomTo(ed.sel.a, ed.sel.b); });
+            zAll = zb("Tout voir", "Voir tout le son", function () { fitView(); redraw(); });
+            zScroll = recEl("input", "rec-wave-scroll"); zScroll.type = "range"; zScroll.min = "0"; zScroll.max = "1000"; zScroll.step = "1"; zScroll.value = "0"; zScroll.setAttribute("aria-label", "Faire défiler la partie zoomée");
+            zScroll.addEventListener("input", function () { var n = ed.len(), span = view.b - view.a; view.a = zScroll.value / 1000 * (n - span); view.b = view.a + span; clampView(); drawOnly(); });
+            zRow.appendChild(zScroll);
+            cv.addEventListener("wheel", function (e) {
+                var n = ed.len(), span = view.b - view.a;
+                if (e.ctrlKey || e.metaKey) { e.preventDefault(); zoomBy(e.deltaY < 0 ? 1.25 : 0.8, xSample(e.clientX)); }
+                else if (span < n) { e.preventDefault(); var d = (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) / Math.max(1, cv.getBoundingClientRect().width) * span; view.a += d; view.b += d; clampView(); redraw(); }
+            }, { passive: false });
+        }
+
+        var vRow = recEl("div", "rec-wave-vol");
+        vRow.appendChild(recEl("span", "rec-lab", "Volume"));
+        var vIn = recEl("input", "rec-wave-vrange"); vIn.type = "range"; vIn.min = "-12"; vIn.max = "24"; vIn.step = "1"; vIn.value = String(ed.gainDb); vIn.setAttribute("aria-label", "Volume de l'enregistrement (dB)");
+        var vVal = recEl("span", "rec-wave-vval");
+        var normB = recEl("button", "btn-ghost rec-wave-btn", "Normaliser"); normB.type = "button"; normB.title = "Amener le son le plus fort juste sous la saturation (sur la partie qui sera enregistrée)";
+        vRow.appendChild(vIn); vRow.appendChild(vVal); vRow.appendChild(normB);
+        wave.appendChild(vRow);
+        vIn.addEventListener("input", function () { ed.gainDb = parseInt(vIn.value, 10) || 0; redraw(); });
+        normB.addEventListener("click", function () { ed.normalize(); });
+
+        // sélection : glisser dans le vide = nouvelle sélection ; glisser une poignée = l'ajuster ; clic = placer le repère
+        var drag = null;
+        function xSample(clientX) { var r = cv.getBoundingClientRect(); return view.a + Math.max(0, Math.min(1, (clientX - r.left) / Math.max(1, r.width))) * (view.b - view.a); }
+        function grabPx() { return 10 / Math.max(1, cv.getBoundingClientRect().width) * (view.b - view.a); }
+        cv.addEventListener("pointerdown", function (e) {
+            e.preventDefault();
+            try { cv.setPointerCapture(e.pointerId); } catch (er) {}
+            var sm = xSample(e.clientX), sel = ed.sel, g = grabPx();
+            if (sel && Math.abs(sm - sel.a) <= g) drag = { fixed: sel.b };
+            else if (sel && Math.abs(sm - sel.b) <= g) drag = { fixed: sel.a };
+            else drag = { anchor: sm, x0: e.clientX, moved: false };
+        });
+        cv.addEventListener("pointermove", function (e) {
+            if (!drag) { var sm = xSample(e.clientX), g = grabPx(); cv.style.cursor = ed.sel && (Math.abs(sm - ed.sel.a) <= g || Math.abs(sm - ed.sel.b) <= g) ? "ew-resize" : "crosshair"; return; }
+            if (drag.fixed !== undefined) { ed.setSel(drag.fixed, xSample(e.clientX)); return; }
+            if (!drag.moved && Math.abs(e.clientX - drag.x0) < 4) return;
+            if (!drag.moved) { drag.moved = true; if (rec.stopPlay) rec.stopPlay(); }
+            ed.setSel(drag.anchor, xSample(e.clientX));
+        });
+        function endDrag() {
+            if (!drag) return;
+            var d = drag; drag = null;
+            if (d.fixed === undefined && !d.moved) { // simple clic : repère de lecture ; hors de la sélection elle s'efface (en précis, dedans elle reste : on pose « Début ici » puis « Fin ici »)
+                if (!(precise && ed.sel && d.anchor > ed.sel.a && d.anchor < ed.sel.b)) ed.sel = null;
+                ed.head = Math.round(d.anchor); ed.emit();
+            }
+            else if (ed.sel && ed.sel.b - ed.sel.a < ed.pcm.sr * 0.05) ed.clearSel(); // sélection minuscule : écartée
+        }
+        cv.addEventListener("pointerup", endDrag); cv.addEventListener("pointercancel", endDrag);
+
+        var cache = { pcm: null, n: 0, a: 0, b: 0, v: null };
+        function drawOnly() {
+            var c = recCanvasPrep(cv), g = c.g, n = ed.len(), cols = Math.max(10, Math.floor(c.w / 3));
+            var va = Math.round(view.a), vb = Math.max(va + 1, Math.round(view.b)), span = vb - va;
+            if (cache.pcm !== ed.pcm || cache.n !== cols || cache.a !== va || cache.b !== vb) cache = { pcm: ed.pcm, n: cols, a: va, b: vb, v: recWaveCols(ed.pcm, cols, va, vb) };
+            function px(s) { return (s - va) / span * c.w; }
+            var sa = ed.sel ? px(ed.sel.a) : -1, sb = ed.sel ? px(ed.sel.b) : -1, bw = Math.max(1.5, c.w / cols - 1);
+            g.fillStyle = c.muted; g.globalAlpha = 0.25; g.fillRect(0, c.h / 2 - 0.5, c.w, 1); g.globalAlpha = 1;
+            if (ed.sel && sb > 0 && sa < c.w) { var x0 = Math.max(0, sa), x1 = Math.min(c.w, sb); g.fillStyle = c.accent; g.globalAlpha = 0.18; g.fillRect(x0, 0, x1 - x0, c.h); g.globalAlpha = 1; }
+            for (var i = 0; i < cols; i++) { var x = i * c.w / cols, on = !ed.sel || (x + bw >= sa && x <= sb); recBar(g, x, bw, c.h, cache.v[i], on ? c.accent : c.muted); }
+            if (ed.sel) { g.fillStyle = c.accent; [sa, sb].forEach(function (x) { if (x < -1 || x > c.w + 1) return; g.fillRect(x - 1, 0, 2, c.h); g.fillRect(x - 4, c.h / 2 - 11, 8, 22); }); }
+            var hx = px(ed.head); if (hx >= 0 && hx <= c.w) { g.fillStyle = c.red; g.fillRect(Math.min(c.w - 1, hx) - 0.5, 0, 1.5, c.h); }
+            if (precise && span < n) { g.fillStyle = c.muted; g.globalAlpha = 0.6; g.font = "10px sans-serif"; g.fillText("zoom ×" + (n / span).toFixed(n / span < 10 ? 1 : 0), 6, 12); g.globalAlpha = 1; }
+        }
+        function redraw() {
+            if (viewPcm !== ed.pcm) { viewPcm = ed.pcm; fitView(); } else clampView();
+            drawOnly();
+            var n = ed.len(), sr = ed.pcm.sr;
+            rng.textContent = ed.sel ? "Sélection " + recFmtT(ed.sel.a / sr) + " → " + recFmtT(ed.sel.b / sr) + " · " + recFmtT((ed.sel.b - ed.sel.a) / sr) : recFmtT(n / sr);
+            playB.textContent = playing ? "■ Arrêter" : "▶ Écouter";
+            if (loopB) { loopB.classList.toggle("on", looping); loopB.setAttribute("aria-pressed", looping ? "true" : "false"); }
+            keepB.disabled = !ed.sel; cutB.disabled = !ed.sel || (ed.sel.b - ed.sel.a >= n); allB.disabled = !!(ed.sel && ed.sel.a === 0 && ed.sel.b === n);
+            undoB.disabled = !ed.hist.length;
+            vVal.textContent = (ed.gainDb > 0 ? "+" : ed.gainDb < 0 ? "−" : "") + Math.abs(ed.gainDb) + " dB";
+            if (parseInt(vIn.value, 10) !== ed.gainDb) vIn.value = String(ed.gainDb);
+            if (precise) {
+                if (!aIn.dataset.typing) aIn.value = ed.sel ? recFmtT2(ed.sel.a / sr) : "";
+                if (!bIn.dataset.typing) bIn.value = ed.sel ? recFmtT2(ed.sel.b / sr) : "";
+                bIn.placeholder = recFmtT2(n / sr);
+                var span = view.b - view.a, zoomed = span < n - 1;
+                zOut.disabled = !zoomed; zIn.disabled = span <= minSpan() + 1; zSel.disabled = !ed.sel; zAll.disabled = !zoomed;
+                zScroll.hidden = !zoomed; if (zoomed) zScroll.value = String(Math.round(view.a / Math.max(1, n - span) * 1000));
+            }
+            if (o.onRedraw) o.onRedraw();
+        }
+        var observer = null;
+        if (window.ResizeObserver) { observer = new ResizeObserver(function () { drawOnly(); }); observer.observe(cv); }
+        ed.listeners.push(redraw);
+        redraw();
+        return {
+            redraw: redraw,
+            detach: function () {
+                ed.listeners = ed.listeners.filter(function (fn) { return fn !== redraw; });
+                if (observer) { observer.disconnect(); observer = null; }
+                if (rec.stopPlay) rec.stopPlay();
+            }
+        };
+    }
+
+    // ---------- modifier le son d'un fichier audio joint ----------
+    // Couper une intro trop longue, ne garder qu'une partie pour la boucler, retirer un passage, régler le volume, faire un backing track sur mesure :
+    // le fichier s'ouvre dans l'éditeur de forme d'onde de l'enregistreur (sélection, garder / couper, annuler, zoom, début et fin au centième de
+    // seconde, écoute en boucle sans coupure). Le résultat est ré-encodé en MP3 puis rangé comme une pièce jointe ordinaire : à côté de l'original
+    // (qu'on garde : choix par défaut), à sa place, ou dans un autre exercice. Le fichier d'origine n'est jamais touché avant l'enregistrement.
+    var AUDIO_EDIT_MAX_MS = 10 * 60 * 1000;   // au-delà, le son décodé (≈ 21 Mo par minute en stéréo) serait trop lourd en mémoire, surtout sur téléphone
+    var AUDIO_EDIT_KBPS = [128, 192, 256, 320];
+    var AUDIO_EDIT_FADE_KEY = "trainhub.audioEditFade.v1";
+    var audioEdit = null; // { meta, close } tant que la fenêtre est ouverte (une seule à la fois)
+    function ownerExerciseOfFile(id) {
+        var all = allAttachmentMetas();
+        for (var i = 0; i < all.length; i++) if (all[i].kind === "file" && !all[i].trash && all[i].meta.id === id) return all[i].ex || null;
+        return null;
+    }
+    // Durée d'un fichier d'après ses seules métadonnées (sans le décoder) : sert à refuser un son trop long AVANT de remplir la mémoire. null si inconnue.
+    function audioEditProbe(blob) {
+        return new Promise(function (resolve) {
+            var a = new Audio(), url = URL.createObjectURL(blob), done = false, tm = null;
+            function end(v) { if (done) return; done = true; clearTimeout(tm); a.onloadedmetadata = a.onerror = null; a.removeAttribute("src"); try { a.load(); } catch (e) {} URL.revokeObjectURL(url); resolve(v); }
+            tm = setTimeout(function () { end(null); }, 5000);
+            a.preload = "metadata";
+            a.onloadedmetadata = function () { end(isFinite(a.duration) && a.duration > 0 ? a.duration : null); };
+            a.onerror = function () { end(null); };
+            a.src = url;
+        });
+    }
+    function audioEditBase(name) { return String(name || "Son").replace(/\.[A-Za-z0-9]{1,5}$/, "") || "Son"; }
+    function openAudioEditor(meta) {
+        if (!meta) return;
+        if (audioEdit) { if (audioEdit.meta.id !== meta.id) showToast("Un son est déjà en cours de modification : enregistre-le ou ferme sa fenêtre d'abord.", 4500); return; }
+        var owner = ownerExerciseOfFile(meta.id);
+        if (!owner) { showToast("Ce fichier n'est rangé dans aucun exercice : impossible de le modifier.", 4500); return; }
+        if (audioCtl) { try { audioCtl.audio.pause(); } catch (e) {} } // le lecteur se tait : l'éditeur a son propre aperçu
+        var closeFn = openModal("audio-edit-panel", function (panel, close) {
+            var ed = null, handle = null, closed = false, saving = false, progress = 0, kbps = 192, srcDur = null;
+            var destMode = "copy", destEx = null, nameTouched = false, base = audioEditBase(meta.name);
+            audioEdit = { meta: meta, close: close };
+
+            var head = recEl("div", "backups-title rec-title");
+            head.appendChild(recEl("span", "rec-title-ico")); head.firstChild.innerHTML = SCISSORS_ICON_SVG;
+            head.appendChild(recEl("span", "rec-title-text", "Modifier le son"));
+            var x = recEl("button", "btn-ghost rec-close", "✕"); x.type = "button"; x.title = "Fermer (le fichier d'origine n'est pas touché)"; x.setAttribute("aria-label", "Fermer");
+            head.appendChild(x); panel.appendChild(head);
+            var sub = recEl("div", "rec-edit-sub", meta.name); panel.appendChild(sub);
+            var msg = recEl("div", "rec-msg", "Analyse du fichier…"); msg.setAttribute("role", "status"); panel.appendChild(msg);
+            var take = recEl("div", "rec-take"); take.hidden = true; panel.appendChild(take);
+            var wave = recEl("div", "rec-wave"); take.appendChild(wave);
+
+            var nameIn = recEl("input", "rec-name"); nameIn.type = "text"; nameIn.maxLength = 80; nameIn.setAttribute("aria-label", "Nom du nouveau fichier"); nameIn.placeholder = "Nom du nouveau fichier"; nameIn.value = base + " (modifié)";
+            nameIn.addEventListener("input", function () { nameTouched = true; });
+            nameIn.addEventListener("keydown", function (e) { e.stopPropagation(); if (e.key === "Enter") { e.preventDefault(); doSave(); } });
+            take.appendChild(nameIn);
+            var dSel = recEl("select", "rec-select rec-dest"); dSel.setAttribute("aria-label", "Où ranger le son modifié");
+            var dRow = recEl("div", "rec-row rec-dest-row"); dRow.appendChild(dSel); take.appendChild(dRow);
+            var destSig = "";
+            function paintDest() {
+                var opts = [["copy", "Nouveau fichier dans « " + owner.title + " » (l'original est gardé)"], ["replace", "Remplacer l'original « " + base + " »"], ["pick", destEx ? "Un autre exercice : « " + destEx.title + " »" : "Dans un autre exercice…"]];
+                var sig = opts.map(function (o) { return o[0] + "|" + o[1]; }).join(";");
+                if (sig !== destSig) { destSig = sig; dSel.innerHTML = ""; opts.forEach(function (o) { var op = recEl("option", "", o[1]); op.value = o[0]; dSel.appendChild(op); }); }
+                dSel.value = destMode;
+            }
+            function setName() { if (!nameTouched) nameIn.value = destMode === "replace" ? base : base + " (modifié)"; }
+            dSel.addEventListener("change", function () {
+                var v = dSel.value;
+                if (v === "pick") openExercisePickerModal("Ranger le son modifié dans…", { onCancel: paintDest }, function (ex) { destMode = "pick"; destEx = ex; setName(); paintDest(); });
+                else { destMode = v; setName(); paintDest(); }
+            });
+            // débit du MP3 produit (le son est ré-encodé) et fondu des extrémités
+            var oRow = recEl("div", "rec-row rec-edit-opts");
+            var kSel = recEl("select", "rec-select rec-kbps"); kSel.setAttribute("aria-label", "Qualité du MP3");
+            AUDIO_EDIT_KBPS.forEach(function (k) { var op = recEl("option", "", k + " kbit/s"); op.value = String(k); kSel.appendChild(op); });
+            kSel.addEventListener("change", function () { kbps = parseInt(kSel.value, 10) || 192; });
+            var fadeLab = recEl("label", "rec-case"); fadeLab.title = "Un son qui démarre ou s'arrête au milieu d'une onde « claque », surtout quand on le répète en boucle : 5 ms de fondu suffisent à l'effacer, sans s'entendre.";
+            var fadeCb = recEl("input"); fadeCb.type = "checkbox";
+            try { fadeCb.checked = localStorage.getItem(AUDIO_EDIT_FADE_KEY) !== "0"; } catch (e) { fadeCb.checked = true; }
+            fadeCb.addEventListener("change", function () { try { localStorage.setItem(AUDIO_EDIT_FADE_KEY, fadeCb.checked ? "1" : "0"); } catch (e) {} });
+            fadeLab.appendChild(fadeCb); fadeLab.appendChild(recEl("span", "", "Adoucir le début et la fin (5 ms)"));
+            oRow.appendChild(kSel); oRow.appendChild(fadeLab); take.appendChild(oRow);
+            var acts = recEl("div", "rec-take-acts");
+            var cancel = recEl("button", "btn-ghost rec-del", "Fermer"); cancel.type = "button";
+            var saveBtn = recEl("button", "btn-accent rec-save"); saveBtn.type = "button"; saveBtn.innerHTML = REC_SAVE_SVG + '<span class="rec-save-lab">Enregistrer</span>';
+            var saveLab = saveBtn.querySelector(".rec-save-lab");
+            acts.appendChild(cancel); acts.appendChild(saveBtn); take.appendChild(acts);
+            paintDest();
+
+            function paintSave() {
+                if (!saveBtn.isConnected) return;
+                var dirty = !!(ed && ed.dirty());
+                if (saving) { saveBtn.disabled = true; saveLab.textContent = "Encodage… " + Math.round(progress * 100) + " %"; }
+                else {
+                    saveBtn.disabled = !dirty;
+                    saveBtn.title = dirty ? "" : "Rien n'est modifié : sélectionne la partie à garder, ou coupe un passage";
+                    saveLab.textContent = ed && ed.sel ? "Enregistrer la sélection (" + recFmtT((ed.sel.b - ed.sel.a) / ed.pcm.sr) + ")" : "Enregistrer";
+                }
+                nameIn.disabled = dSel.disabled = kSel.disabled = fadeCb.disabled = !!saving;
+            }
+            function askClose() {
+                if (saving) return;
+                if (ed && ed.dirty()) dlgConfirm({ title: "Abandonner les modifications ?", message: "Le fichier d'origine n'est pas touché.", confirmLabel: "Abandonner", danger: true }, close);
+                else close();
+            }
+            x.addEventListener("click", askClose); cancel.addEventListener("click", askClose);
+            saveBtn.addEventListener("click", doSave);
+            function fail(text) { msg.hidden = false; msg.textContent = text; msg.classList.add("rec-msg-err"); take.hidden = true; }
+
+            function doSave() {
+                if (!ed || saving || !ed.dirty()) return;
+                var name = (nameIn.value || "").trim().slice(0, 80) || base + " (modifié)";
+                if (destMode === "replace") {
+                    dlgConfirm({ title: "Remplacer l'original ?", message: "« " + meta.name + " » sera remplacé par cette version (" + recFmtT(ed.exportPcm().chans[0].length / ed.pcm.sr) + "). L'original sera supprimé de l'exercice et du compte.", confirmLabel: "Remplacer", danger: true }, function () { run(name); });
+                    return;
+                }
+                run(name);
+            }
+            function run(name) {
+                saving = true; progress = 0;
+                if (rec.stopPlay) rec.stopPlay();
+                paintSave();
+                var pcm = ed.exportPcm(), lin = ed.lin(), outSec = pcm.chans[0].length / pcm.sr;
+                if (fadeCb.checked) pcm = recFadeEdges(pcm, 0.005);
+                recEncodeMp3(pcm, lin, function (p) { progress = p; paintSave(); }, kbps).then(
+                    function (b) { return { blob: b, mime: "audio/mpeg", ext: ".mp3", wav: false }; },
+                    function () { return { blob: recToWav(pcm, lin), mime: "audio/wav", ext: ".wav", wav: true }; }
+                ).then(function (out) {
+                    var file;
+                    try { file = new File([out.blob], name + out.ext, { type: out.mime }); } catch (e) { file = out.blob; file.name = name + out.ext; }
+                    var target = destMode === "pick" && destEx ? destEx : owner, replace = destMode === "replace";
+                    return attachFileToExercise(target, file, name).then(function (nm) {
+                        var oldMeta = meta;
+                        if (replace) { // le nouveau fichier prend la place de l'ancien dans la liste, puis l'ancien disparaît (comme « Retirer ce fichier »)
+                            target.files = target.files.filter(function (f) { return f.id !== nm.id; });
+                            var at = target.files.findIndex(function (f) { return f.id === oldMeta.id; });
+                            target.files.splice(at < 0 ? target.files.length : at, at < 0 ? 0 : 1, nm);
+                        }
+                        exerciseMediaTab[target.id] = "links";
+                        touchExercise(target); // d'abord : les exercices liés perdent aussi l'ancien, sinon son fichier passerait pour « utilisé »
+                        if (replace) {
+                            if (!attachmentIdInUse("file", oldMeta.id)) deleteFileBlob(oldMeta.id);
+                            cloudDeleteFile(oldMeta);
+                            if (audioCtl) { // l'ancien morceau du lecteur n'existe plus : le nouveau le remplace (même place, même statut)
+                                var ti = audioCtl.tracks.findIndex(function (t) { return t.kind === "file" && t.id === oldMeta.id; });
+                                if (ti !== -1) { var pinned = audioCtl.tracks[ti].pinned; audioRemoveTrack(ti); if (pinned) audioAddFileToList(nm); }
+                            }
+                        }
+                        save();
+                        refreshExerciseMedia(target);
+                        saving = false;
+                        ed.gainDb = 0; ed.hist = []; ed.sel = null; // plus rien à enregistrer : la fermeture ne demande pas de confirmation
+                        close();
+                        var where = target === owner ? "« " + target.title + " »" : "« " + target.title + " » (autre exercice)";
+                        showToast((replace ? "Original remplacé dans " : "Enregistré dans ") + where + " : « " + name + " » · " + recFmtT(outSec) + (out.wav ? " (WAV : encodeur MP3 indisponible)" : "") + (file.size > CLOUD_FILE_MAX_BYTES ? " — plus de 30 Mo : restera sur cet appareil" : "") + ".", 7000, { label: "Écouter", run: function () { openAudioWindow(nm); } });
+                    });
+                }).catch(function () {
+                    saving = false; paintSave();
+                    dlgAlert({ title: "Son non enregistré", message: "Stockage plein, navigation privée activée, ou conversion impossible sur cet appareil. Tes modifications sont encore là : tu peux réessayer." });
+                });
+            }
+
+            // -- chargement : le fichier (ou son téléchargement depuis le compte), sa durée, puis le décodage
+            getFileBlob(meta.id, meta).then(function (blob) {
+                if (closed) return null;
+                if (!blob) { close(); dlgFileUnavailable(meta.name, meta, function () { openAudioEditor(meta); }); return null; }
+                return audioEditProbe(playableBlob(blob, meta)).then(function (dur) {
+                    if (closed) return null;
+                    srcDur = dur;
+                    if ((dur != null && dur * 1000 > AUDIO_EDIT_MAX_MS) || (dur == null && blob.size > 25 * 1024 * 1024)) {
+                        fail("Ce son " + (dur != null ? "dure " + recFmtTime(dur * 1000) : "est très lourd") + " : au-delà de " + Math.round(AUDIO_EDIT_MAX_MS / 60000) + " min, il serait trop lourd à modifier sur cet appareil. Découpe-le d'abord avec un autre logiciel.");
+                        return null;
+                    }
+                    return recDecode(blob).then(function (pcm) {
+                        if (closed) return;
+                        if (pcm.chans[0].length / pcm.sr * 1000 > AUDIO_EDIT_MAX_MS) { fail("Ce son est trop long pour être modifié ici (maximum " + Math.round(AUDIO_EDIT_MAX_MS / 60000) + " min)."); return; }
+                        ed = makeRecEditor(pcm); ed.histMax = 5;
+                        var est = srcDur ? blob.size * 8 / srcDur / 1000 : 192; // débit de l'original : le nouveau fichier s'en approche
+                        kbps = AUDIO_EDIT_KBPS.reduce(function (best, k) { return Math.abs(k - est) < Math.abs(best - est) ? k : best; }, 192);
+                        kSel.value = String(kbps);
+                        sub.textContent = meta.name + " · " + recFmtT(pcm.chans[0].length / pcm.sr) + (pcm.chans.length > 1 ? " · stéréo" : " · mono");
+                        msg.hidden = true; take.hidden = false;
+                        handle = recMountWave(wave, ed, { precise: true, aria: "Forme d'onde du son : glisser pour sélectionner une partie, cliquer pour placer le repère", onRedraw: paintSave });
+                        paintSave();
+                        requestAnimationFrame(function () { clampPanelToViewport(panel); });
+                    });
+                });
+            }).catch(function () { if (!closed) fail("Impossible de lire ce fichier pour le modifier (format non pris en charge par ce navigateur)."); });
+            paintSave();
+            return function () {
+                closed = true;
+                if (handle) handle.detach();
+                if (rec.stopPlay) rec.stopPlay();
+                audioEdit = null;
+            };
+        }, { floating: true, noFit: true });
+        return closeFn;
+    }
+
     function openRecorderPanel() {
         if (rec.panelClose) { rec.panelClose(); return; }
         var closeFn = openModal("recorder-panel", function (panel, close) {
@@ -15484,98 +15934,18 @@
             }
             function metering() { return rec.phase === "armed" || rec.phase === "recording" || (rec.phase === "review" && !!rec.analyser); }
             function loop() { paintLevel(); if (!live.hidden) recDrawLive(liveCv); rec.meterRaf = metering() ? requestAnimationFrame(loop) : null; if (!rec.meterRaf) fill.style.width = "0%"; }
-            // -- éditeur de la prise : forme d'onde (sélection à la souris ou au doigt), couper, volume, fondus
-            var builtEd = null, edRedraw = null, edObserver = null;
+            // -- éditeur de la prise : forme d'onde (sélection à la souris ou au doigt), couper, volume — voir recMountWave
+            var builtEd = null, edHandle = null;
             function detachEd() {
-                if (builtEd && edRedraw) builtEd.listeners = builtEd.listeners.filter(function (fn) { return fn !== edRedraw; });
-                if (edObserver) { edObserver.disconnect(); edObserver = null; }
+                if (edHandle) edHandle.detach();
                 if (rec.stopPlay) rec.stopPlay();
-                builtEd = null; edRedraw = null;
+                builtEd = null; edHandle = null;
             }
             function buildEdUI(ed) {
                 detachEd();
                 builtEd = ed;
-                wave.innerHTML = ""; wave.hidden = false; audio.hidden = true;
-                var cv = el("canvas", "rec-wave-cv"); cv.setAttribute("aria-label", "Forme d'onde de la prise : glisser pour sélectionner une partie, cliquer pour placer le repère"); wave.appendChild(cv);
-                var rng = el("div", "rec-wave-rng"); wave.appendChild(rng);
-                var tools = el("div", "rec-wave-tools"); wave.appendChild(tools);
-                function tb(label, title, fn, aria) { var b = el("button", "btn-ghost rec-wave-btn", label); b.type = "button"; b.title = title; if (aria) b.setAttribute("aria-label", aria); b.addEventListener("click", fn); tools.appendChild(b); return b; }
-                var playing = false;
-                var playB = tb("▶ Écouter", "Écouter la sélection, ou depuis le repère jusqu'à la fin (avec le volume et les fondus choisis)", function () {
-                    if (playing) { if (rec.stopPlay) rec.stopPlay(); return; }
-                    playing = true;
-                    var stop = recPlayPreview(ed, function (pos) { ed.head = pos; drawOnly(); }, function (fromEnd) { playing = false; if (fromEnd && !ed.sel) ed.head = 0; redraw(); });
-                    if (!stop) playing = false;
-                    redraw();
-                });
-                playB.classList.add("rec-wave-play");
-                var allB = tb("Tout", "Sélectionner toute la prise", function () { if (rec.stopPlay) rec.stopPlay(); ed.setSel(0, ed.len()); }, "Tout sélectionner");
-                var keepB = tb("Garder", "Garder la sélection : tout le reste est coupé", function () { if (rec.stopPlay) rec.stopPlay(); ed.keep(); }, "Garder la sélection");
-                var cutB = tb("Couper", "Couper la sélection (le début et la fin se rejoignent)", function () { if (rec.stopPlay) rec.stopPlay(); ed.cut(); }, "Couper la sélection");
-                var undoB = tb("↶", "Annuler la dernière coupe", function () { if (rec.stopPlay) rec.stopPlay(); ed.undo(); }, "Annuler la dernière coupe");
-                var vRow = el("div", "rec-wave-vol");
-                vRow.appendChild(el("span", "rec-lab", "Volume"));
-                var vIn = el("input", "rec-wave-vrange"); vIn.type = "range"; vIn.min = "-12"; vIn.max = "24"; vIn.step = "1"; vIn.value = String(ed.gainDb); vIn.setAttribute("aria-label", "Volume de l'enregistrement (dB)");
-                var vVal = el("span", "rec-wave-vval");
-                var normB = el("button", "btn-ghost rec-wave-btn", "Normaliser"); normB.type = "button"; normB.title = "Amener le son le plus fort juste sous la saturation (sur la partie qui sera enregistrée)";
-                vRow.appendChild(vIn); vRow.appendChild(vVal); vRow.appendChild(normB);
-                wave.appendChild(vRow);
-                vIn.addEventListener("input", function () { ed.gainDb = parseInt(vIn.value, 10) || 0; redraw(); });
-                normB.addEventListener("click", function () { ed.normalize(); });
-
-                // sélection : glisser dans le vide = nouvelle sélection ; glisser une poignée = l'ajuster ; clic = placer le repère
-                var drag = null;
-                function xSample(clientX) { var r = cv.getBoundingClientRect(); return Math.max(0, Math.min(1, (clientX - r.left) / Math.max(1, r.width))) * ed.len(); }
-                function grabPx() { return 10 / Math.max(1, cv.getBoundingClientRect().width) * ed.len(); }
-                cv.addEventListener("pointerdown", function (e) {
-                    e.preventDefault();
-                    try { cv.setPointerCapture(e.pointerId); } catch (er) {}
-                    var sm = xSample(e.clientX), sel = ed.sel, g = grabPx();
-                    if (sel && Math.abs(sm - sel.a) <= g) drag = { fixed: sel.b };
-                    else if (sel && Math.abs(sm - sel.b) <= g) drag = { fixed: sel.a };
-                    else drag = { anchor: sm, x0: e.clientX, moved: false };
-                });
-                cv.addEventListener("pointermove", function (e) {
-                    if (!drag) { var sm = xSample(e.clientX), g = grabPx(); cv.style.cursor = ed.sel && (Math.abs(sm - ed.sel.a) <= g || Math.abs(sm - ed.sel.b) <= g) ? "ew-resize" : "crosshair"; return; }
-                    if (drag.fixed !== undefined) { ed.setSel(drag.fixed, xSample(e.clientX)); return; }
-                    if (!drag.moved && Math.abs(e.clientX - drag.x0) < 4) return;
-                    if (!drag.moved) { drag.moved = true; if (rec.stopPlay) rec.stopPlay(); }
-                    ed.setSel(drag.anchor, xSample(e.clientX));
-                });
-                function endDrag(e) {
-                    if (!drag) return;
-                    var d = drag; drag = null;
-                    if (d.fixed === undefined && !d.moved) { ed.sel = null; ed.head = Math.round(d.anchor); ed.emit(); } // simple clic : repère de lecture
-                    else if (ed.sel && ed.sel.b - ed.sel.a < ed.pcm.sr * 0.05) ed.clearSel(); // sélection minuscule : écartée
-                }
-                cv.addEventListener("pointerup", endDrag); cv.addEventListener("pointercancel", endDrag);
-
-                var cache = { pcm: null, n: 0, v: null };
-                function drawOnly() {
-                    var c = recCanvasPrep(cv), g = c.g, n = ed.len(), cols = Math.max(10, Math.floor(c.w / 3));
-                    if (cache.pcm !== ed.pcm || cache.n !== cols) cache = { pcm: ed.pcm, n: cols, v: recWaveCols(ed.pcm, cols, 0, n) };
-                    var sa = ed.sel ? ed.sel.a / n * c.w : -1, sb = ed.sel ? ed.sel.b / n * c.w : -1, bw = Math.max(1.5, c.w / cols - 1);
-                    g.fillStyle = c.muted; g.globalAlpha = 0.25; g.fillRect(0, c.h / 2 - 0.5, c.w, 1); g.globalAlpha = 1;
-                    if (ed.sel) { g.fillStyle = c.accent; g.globalAlpha = 0.18; g.fillRect(sa, 0, sb - sa, c.h); g.globalAlpha = 1; }
-                    for (var i = 0; i < cols; i++) { var x = i * c.w / cols, on = !ed.sel || (x + bw >= sa && x <= sb); recBar(g, x, bw, c.h, cache.v[i], on ? c.accent : c.muted); }
-                    if (ed.sel) { g.fillStyle = c.accent; [sa, sb].forEach(function (x) { g.fillRect(x - 1, 0, 2, c.h); g.fillRect(x - 4, c.h / 2 - 11, 8, 22); }); }
-                    var hx = Math.min(c.w - 1, ed.head / n * c.w); g.fillStyle = c.red; g.fillRect(hx - 0.5, 0, 1.5, c.h);
-                }
-                function redraw() {
-                    drawOnly();
-                    var n = ed.len(), sr = ed.pcm.sr;
-                    rng.textContent = ed.sel ? "Sélection " + recFmtT(ed.sel.a / sr) + " → " + recFmtT(ed.sel.b / sr) + " · " + recFmtT((ed.sel.b - ed.sel.a) / sr) : recFmtT(n / sr);
-                    playB.textContent = playing ? "■ Arrêter" : "▶ Écouter";
-                    keepB.disabled = !ed.sel; cutB.disabled = !ed.sel || (ed.sel.b - ed.sel.a >= n); allB.disabled = !!(ed.sel && ed.sel.a === 0 && ed.sel.b === n);
-                    undoB.disabled = !ed.hist.length;
-                    vVal.textContent = (ed.gainDb > 0 ? "+" : ed.gainDb < 0 ? "−" : "") + Math.abs(ed.gainDb) + " dB";
-                    if (parseInt(vIn.value, 10) !== ed.gainDb) vIn.value = String(ed.gainDb);
-                    paintSave();
-                }
-                edRedraw = redraw;
-                ed.listeners.push(redraw);
-                if (window.ResizeObserver) { edObserver = new ResizeObserver(function () { drawOnly(); }); edObserver.observe(cv); }
-                redraw();
+                audio.hidden = true;
+                edHandle = recMountWave(wave, ed, { aria: "Forme d'onde de la prise : glisser pour sélectionner une partie, cliquer pour placer le repère", onRedraw: paintSave });
             }
             // Libellé du bouton d'enregistrement : la sélection (si elle existe) est ce qui sera rangé ; progression de l'encodage.
             function paintSave() {
