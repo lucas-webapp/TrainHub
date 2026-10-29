@@ -5572,14 +5572,18 @@
         details.className = "exercise-details";
 
         // Tempo cible / métronome prédéfini : juste sous le titre, c'est le réglage le plus utile en un coup d'œil.
-        details.appendChild(buildMetronomePresetRow({
+        // Dé de gamme et objectif tempo : le tirage se règle ici, une fois (triades, modes…), et se retrouve dans chaque session. Ils se rangent sur
+        // la MÊME ligne que le métronome quand il y a la place, et passent dessous sinon (téléphone, fenêtre étroite) : voir .ex-tools-line.
+        var toolsLine = document.createElement("div");
+        toolsLine.className = "ex-tools-line";
+        toolsLine.appendChild(buildMetronomePresetRow({
             title: ex.title,
             exId: ex.id,
             get: function () { return ex.metronome; },
             set: function (p) { setExerciseMetronome(ex, p); }
         }));
-        // Dé de gamme : le tirage se règle ici, une fois (triades, modes…), et se retrouve dans chaque session.
-        details.appendChild(buildExerciseDiceRow(ex));
+        toolsLine.appendChild(buildExerciseDiceRow(ex));
+        details.appendChild(toolsLine);
 
         // Notes fixes : consignes importantes, sans date, toujours visibles (aussi exercice replié et en session).
         var fixedLabel = document.createElement("div");

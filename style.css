@@ -4930,3 +4930,18 @@ label.rec-case input { margin: 0; accent-color: var(--accent); }
   .rec-wave-edges { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
   .rec-wave-arrow { display: none; }
 }
+
+/* ---------- v227 — Fiche d'un exercice : dé et objectif tempo sur la ligne du métronome ; boutons de la fiche de même hauteur ---------- */
+/* Le métronome, le dé et l'objectif tempo partagent une ligne quand elle est assez large ; sinon le dé passe dessous, comme avant. */
+.ex-tools-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0; }
+.ex-tools-line > .metro-preset-row { flex: 0 1 auto; min-width: 0; }
+.ex-tools-line > .dice-ex-row { flex: 0 1 auto; min-width: 0; margin: 0; }
+/* Rangée des liens (champ, +, trombone, Coller) : une seule hauteur, la même que les boutons Archives et calendrier juste au-dessus. */
+.add-link-row > input, .add-link-row > button, .add-link-row .add-file-row > button { height: 30px; box-sizing: border-box; }
+.add-link-row > button.icon-btn, .add-link-row .add-file-row > button.icon-btn { width: 30px; min-width: 30px; padding: 0; }
+button.add-paste-btn { height: 30px; padding: 0 12px; }
+.section-label .notes-archive-btn, .note-date-btn { height: 30px; box-sizing: border-box; }
+/* En-tête « Notes mobiles » : le titre et ses deux boutons (calendrier, Archives) sont centrés sur la même ligne, même taille de texte que « Coller ». */
+.section-label:has(> .notes-archive-btn) { display: flex; align-items: center; gap: 6px; }
+.section-label:has(> .notes-archive-btn) > .notes-archive-btn { float: none; order: 3; font-size: var(--fs-xs); }
+.section-label:has(> .notes-archive-btn) > .note-date-btn { float: none; order: 2; margin: 0 0 0 auto; }
