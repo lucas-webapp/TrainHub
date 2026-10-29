@@ -8959,23 +8959,57 @@
     var metroCtxLost = false;       // la page a quitté l'avant-plan : le contexte est peut-être mort
     var metroLastTickAt = 0;        // dernier passage du planificateur (Worker ou repli) : repère un Worker mort ou gelé
     var metroDogTimer = null;       // chien de garde, actif seulement pendant la lecture
+    var metroWatchPrev = 0;         // dernier passage du chien de garde : un grand écart = page gelée ou ordinateur en veille
     var metroClockProbe = null;     // { ctx, c, w } : l'horloge audio avance-t-elle vraiment ?
     var metroRecoverAt = 0, metroRecoverTries = 0;
     // ---------- journal du son (diagnostic) ----------
     // Une ligne par événement qui touche le son du métronome (retours sur la page, états du contexte audio, échanges, relances…), gardées sur
     // l'appareil (120 dernières). Paramètres › Métronome › « Journal du son » les copie : c'est ce qui permet de voir, après coup, ce que le
     // navigateur a fait au son quand la fenêtre a changé de bureau.
-    var AUDIO_LOG_KEY = "trainhub.audioLog.v1", audioLogBuf = [], audioLogSaveT = null, audioCtxSeq = 0;
+    var AUDIO_LOG_KEY = "trainhub.audioLog.v1", audioLogBuf = [], audioLogSaveT = null, audioCtxSeq = 0, audioLogLast = null, AUDIO_LOG_MAX = 220;
     try { audioLogBuf = JSON.parse(localStorage.getItem(AUDIO_LOG_KEY) || "[]"); if (!Array.isArray(audioLogBuf)) audioLogBuf = []; } catch (e) { audioLogBuf = []; }
     function audioCtxTag(c) { if (!c) return "ctx:—"; if (!c._trId) c._trId = ++audioCtxSeq; return "ctx" + c._trId + ":" + c.state + "@" + (c.currentTime || 0).toFixed(1); }
+    // Une même ligne qui se répète (« la bouée est figée » toutes les 3 s pendant une minute) n'occupe plus qu'une ligne, suivie de « ×N » et de l'heure de la
+    // dernière : sinon elle chassait du journal tout ce qui avait précédé (le lancement, le réveil de l'ordinateur), justement ce qu'on cherche.
     function audioLog(what) {
         var d = new Date(), p2 = function (n, w) { var t = String(n); while (t.length < (w || 2)) t = "0" + t; return t; };
         var life = metroLife ? (metroLife.paused ? "bouée:pause" : "bouée:joue@" + metroLife.currentTime.toFixed(1)) : "bouée:—";
-        audioLogBuf.push(p2(d.getMonth() + 1) + "-" + p2(d.getDate()) + " " + p2(d.getHours()) + ":" + p2(d.getMinutes()) + ":" + p2(d.getSeconds()) + "." + p2(d.getMilliseconds(), 3)
-            + " " + (document.hidden ? "masquée" : "visible") + (document.hasFocus && document.hasFocus() ? "+focus" : "") + " " + (metroPlaying ? "JOUE" : "arrêt") + " " + audioCtxTag(metroAudioCtx) + " " + life + " | " + what);
-        if (audioLogBuf.length > 120) audioLogBuf.splice(0, audioLogBuf.length - 120);
+        var clock = p2(d.getHours()) + ":" + p2(d.getMinutes()) + ":" + p2(d.getSeconds());
+        var line = p2(d.getMonth() + 1) + "-" + p2(d.getDate()) + " " + clock + "." + p2(d.getMilliseconds(), 3)
+            + " " + (document.hidden ? "masquée" : "visible") + (document.hasFocus && document.hasFocus() ? "+focus" : "") + " " + (metroPlaying ? "JOUE" : "arrêt") + " " + audioCtxTag(metroAudioCtx) + " " + life + " | " + what;
+        var key = String(what).replace(/[0-9.,]+/g, "#"), now = Date.now();
+        if (audioLogLast && audioLogLast.key === key && audioLogLast.idx === audioLogBuf.length - 1 && now - audioLogLast.at < 90000) {
+            audioLogLast.n++; audioLogLast.at = now;
+            audioLogBuf[audioLogLast.idx] = audioLogLast.first + "  ×" + audioLogLast.n + " (la dernière à " + clock + ")";
+        } else {
+            audioLogBuf.push(line);
+            audioLogLast = { key: key, first: line, n: 1, idx: audioLogBuf.length - 1, at: now };
+        }
+        if (audioLogBuf.length > AUDIO_LOG_MAX) { audioLogBuf.splice(0, audioLogBuf.length - AUDIO_LOG_MAX); if (audioLogLast) audioLogLast.idx = audioLogBuf.length - 1; }
         if (!audioLogSaveT) audioLogSaveT = setTimeout(function () { audioLogSaveT = null; try { localStorage.setItem(AUDIO_LOG_KEY, JSON.stringify(audioLogBuf)); } catch (e) {} }, 800);
     }
+    // Signe de vie : tant que le métronome joue, le chien de garde note toutes les 2 s l'heure et l'état du son ; la fermeture normale de la page l'efface. S'il en reste
+    // un au chargement suivant, la page précédente s'est arrêtée sans prévenir (plantage, page gelée puis rechargée par Safari) : le journal le dit, avec le dernier
+    // état connu — ce que rien d'autre ne laisse, puisqu'une page gelée n'écrit plus rien.
+    var AUDIO_ALIVE_KEY = "trainhub.audioAlive.v1", audioAliveAt = 0;
+    function audioAliveBeat(force) {
+        var now = Date.now();
+        if (!force && now - audioAliveAt < 2000) return;
+        audioAliveAt = now;
+        try { localStorage.setItem(AUDIO_ALIVE_KEY, JSON.stringify({ t: now, ctx: audioCtxTag(metroAudioCtx), life: metroLife ? (metroLife.paused ? "pause" : "joue@" + metroLife.currentTime.toFixed(1)) : "—", fb: metroFbOn(), hidden: document.hidden, bpm: state.settings.metronome.bpm })); } catch (e) {}
+    }
+    function audioAliveClear() { audioAliveAt = 0; try { localStorage.removeItem(AUDIO_ALIVE_KEY); } catch (e) {} }
+    window.addEventListener("pagehide", audioAliveClear);
+    (function audioAliveCheck() {
+        try {
+            var raw = localStorage.getItem(AUDIO_ALIVE_KEY);
+            if (!raw) return;
+            localStorage.removeItem(AUDIO_ALIVE_KEY);
+            var o = JSON.parse(raw), d = new Date(o.t), p2 = function (n) { return (n < 10 ? "0" : "") + n; };
+            audioLog("la page précédente s'est arrêtée sans prévenir (plantage, ou page gelée puis rechargée) : dernier signe de vie à " + p2(d.getHours()) + ":" + p2(d.getMinutes()) + ":" + p2(d.getSeconds())
+                + ", métronome en lecture, " + o.ctx + ", bouée " + o.life + ", son de secours " + (o.fb ? "activé" : "coupé") + (o.hidden ? ", page masquée" : "") + ", " + o.bpm + " BPM");
+        } catch (e) {}
+    })();
     function audioLogText() {
         return "TrainHub — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }
@@ -8985,6 +9019,7 @@
     // navigateur la page « joue du son » en continu, et non par à-coups de quelques millisecondes. Quand on change de bureau ou qu'on réduit la
     // fenêtre, Safari peut sinon traiter la page comme muette : il suspend ou coupe son contexte audio, et le son ne revient qu'au prochain clic.
     // Un élément déjà lancé par un geste peut, lui, être relancé sans geste — c'est aussi lui qui rallume la session audio au retour sur la page.
+    var metroLifeGap = 30000, metroLifeMoveSince = 0, metroBlockedHintAt = 0, metroBlockedPrompts = 0; // redémarrages de la bouée de plus en plus espacés ; rappels « son bloqué » à l'utilisateur
     var metroLife = null, metroLifeOwnPauses = 0, metroLifeProbe = null, metroLifeActAt = 0; // metroLifeOwnPauses : pauses demandées par l'appli (leur évènement « pause » arrive plus tard, il ne faut pas le prendre pour une touche média)
     function metroLifeMake() {
         if (metroLife) return metroLife;
@@ -8994,7 +9029,8 @@
         dv.setUint32(24, sr, true); dv.setUint32(28, sr * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); str(36, "data"); dv.setUint32(40, n * 2, true);
         for (i = 0; i < n; i++) dv.setInt16(44 + i * 2, (i & 1) ? 1 : -1, true);
         var a = new Audio();
-        a.src = URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+        a._trUrl = URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+        a.src = a._trUrl;
         a.loop = true; a.volume = 1; a.preload = "auto"; a.setAttribute("playsinline", ""); a.setAttribute("aria-hidden", "true");
         a.addEventListener("pause", function () {
             if (metroLifeOwnPauses > 0) { metroLifeOwnPauses--; return; }
@@ -9017,6 +9053,34 @@
             var pr = a.play();
             if (pr && pr.then) pr.then(function () { audioLog("bouée lancée (" + why + ")"); }, function (err) { audioLog("bouée refusée (" + why + ") : " + (err && err.name || err)); });
         } catch (e) { audioLog("bouée refusée (" + why + ") : " + e); }
+    }
+    function metroLifeState() { var a = metroLife; return a ? "pause=" + a.paused + " prêt=" + a.readyState + " réseau=" + a.networkState + " saut=" + a.seeking + " fini=" + a.ended + " muet=" + a.muted + " volume=" + a.volume : "—"; }
+    // Son bloqué (bouée immobile) : le navigateur n'accepte de le rallumer que pendant un geste, et rien à l'écran ne le disait : on le dit, avec le bouton qui
+    // fait ce geste. Si le son reste bloqué, on propose le son de secours. Au plus un rappel toutes les 2 minutes ; aucun si le son de secours est déjà actif.
+    function metroBlockedHint() {
+        var now = Date.now();
+        if (document.hidden || metroFbOn() || now - metroBlockedHintAt < 120000) return;
+        metroBlockedHintAt = now;
+        if (++metroBlockedPrompts === 1) showToast("Le son du métronome semble bloqué (souvent après la veille de l'ordinateur). Un clic permet de le rétablir.", 15000, { label: "Rétablir le son", run: metroUnblock });
+        else showToast("Le son est toujours bloqué. Le son de secours joue les clics avec le lecteur audio du navigateur : à essayer.", 15000, { label: "Activer le son de secours", run: function () { metroFbSet(true); showToast("Son de secours activé.", 3000); } });
+    }
+    // Exécuté DANS le clic du bouton : l'élément audio est remplacé par un neuf, et le contexte audio par un neuf lui aussi.
+    function metroUnblock() {
+        audioLog("« Rétablir le son » demandé");
+        metroLifeReplace();
+        metroAway = false;
+        if (metroPlaying) metroTrySwap(true);
+    }
+    // Remplace l'élément par un neuf (et rend l'ancien). À ne faire QUE pendant un geste : un élément neuf n'a pas encore le droit de démarrer tout seul.
+    function metroLifeReplace() {
+        var old = metroLife;
+        if (old) {
+            if (!old.paused) { metroLifeOwnPauses++; try { old.pause(); } catch (e) { metroLifeOwnPauses--; } }
+            try { old.removeAttribute("src"); old.load(); } catch (e) {}
+            try { if (old._trUrl) URL.revokeObjectURL(old._trUrl); } catch (e) {}
+        }
+        metroLife = null; metroLifeProbe = null;
+        metroLifePlay("remplacée");
     }
     function metroLifeStop() {
         if (!metroLife) return;
@@ -9183,6 +9247,9 @@
     function metroWatch() {
         if (!metroPlaying) { metroStopDog(); return; }
         var now = performance.now();
+        if (metroWatchPrev && now - metroWatchPrev > 2500 && !document.hidden) audioLog("minuterie en retard de " + ((now - metroWatchPrev) / 1000).toFixed(1) + " s (page gelée, ou ordinateur en veille ?)");
+        metroWatchPrev = now;
+        audioAliveBeat();
         if (now - metroLastTickAt > 400) { // le planificateur ne passe plus : Worker neuf + passage immédiat sur le fil principal
             metroLastTickAt = now;
             metroStartTicker();
@@ -9192,23 +9259,28 @@
         if (!ctx || ctx.state === "closed") { audioLog("chien de garde : contexte fermé"); metroRecover(); return; }
         if (ctx.state !== "running") { metroClockProbe = null; metroReviveAudio(); return; }
         if (document.hidden) { metroClockProbe = null; metroLifeProbe = null; return; }
-        // La bouée doit avancer : si elle est censée jouer et que son temps est quasi figé pendant 3 s, la sortie audio est bloquée (même si le contexte se
-        // dit « en marche »). Prudent : on ne réagit qu'à un vrai gel, au plus une fois toutes les 30 s ; un son simplement lent ne déclenche rien.
+        // La bouée doit avancer : on la lit à chaque passage du chien de garde (300 ms). Tant que son temps bouge, tout va bien ; s'il n'a pas bougé du tout pendant 3 s
+        // alors qu'elle est censée jouer, la sortie audio est bloquée (même si le contexte se dit « en marche »). On regarde le MOUVEMENT d'un passage à l'autre, pas
+        // l'avance totale : la bouée tourne en boucle sur une seconde, et deux relevés espacés d'un nombre entier de secondes retombent au même endroit.
+        // Prudent : rien n'est tenté plus d'une fois par `metroLifeGap` (30 s, puis le double à chaque échec, jusqu'à 4 min) : relancer sans cesse l'élément audio
+        // d'une page qui joue du son peut elle-même le hacher.
         if (metroLife && !metroLife.paused) {
-            if (!metroLifeProbe) metroLifeProbe = { c: metroLife.currentTime, w: now };
-            else if (now - metroLifeProbe.w >= 3000) {
-                var adv = Math.abs(metroLife.currentTime - metroLifeProbe.c);
-                if (adv < 0.05) {
-                    audioLog("la bouée est figée (" + adv.toFixed(2) + " s en " + ((now - metroLifeProbe.w) / 1000).toFixed(1) + " s) : sortie audio bloquée ?");
-                    metroLifeProbe = null;
-                    if (now - metroLifeActAt > 30000) {
-                        metroLifeActAt = now;
-                        metroLifeOwnPauses++; try { metroLife.pause(); } catch (e) { metroLifeOwnPauses--; } metroLifePlay("redémarrage");
-                        metroTrySwap(false);
-                    }
-                } else metroLifeProbe = { c: metroLife.currentTime, w: now };
+            var lt = metroLife.currentTime;
+            if (!metroLifeProbe || Math.abs(lt - metroLifeProbe.c) >= 0.02) {
+                metroLifeProbe = { c: lt, w: now };
+                if (!metroLifeMoveSince) metroLifeMoveSince = now;
+                else if (now - metroLifeMoveSince > 20000) metroLifeGap = 30000; // elle tourne depuis 20 s : les prochaines relances reviendront vite
+            } else if (now - metroLifeProbe.w >= 3000) {
+                audioLog("la bouée est figée (immobile à " + lt.toFixed(2) + " s depuis " + ((now - metroLifeProbe.w) / 1000).toFixed(1) + " s) : sortie audio bloquée ? [" + metroLifeState() + "]");
+                metroLifeProbe = null; metroLifeMoveSince = 0;
+                metroBlockedHint();
+                if (now - metroLifeActAt > metroLifeGap) {
+                    metroLifeActAt = now; metroLifeGap = Math.min(240000, metroLifeGap * 2);
+                    metroLifeOwnPauses++; try { metroLife.pause(); } catch (e) { metroLifeOwnPauses--; } metroLifePlay("redémarrage");
+                    metroTrySwap(false);
+                }
             }
-        } else metroLifeProbe = null;
+        } else { metroLifeProbe = null; metroLifeMoveSince = 0; }
         if (!metroClockProbe || metroClockProbe.ctx !== ctx) { metroClockProbe = { ctx: ctx, c: ctx.currentTime, w: now }; return; }
         var wall = (now - metroClockProbe.w) / 1000;
         if (wall < 1.2) return;
@@ -9216,7 +9288,7 @@
         metroClockProbe = { ctx: ctx, c: ctx.currentTime, w: now };
         metroRecoverTries = 0; // tout va bien
     }
-    function metroStartDog() { metroStopDog(); metroLastTickAt = performance.now(); metroClockProbe = null; metroRecoverTries = 0; metroDogTimer = setInterval(metroWatch, 300); }
+    function metroStartDog() { metroStopDog(); metroLastTickAt = performance.now(); metroClockProbe = null; metroRecoverTries = 0; metroWatchPrev = 0; metroLifeGap = 30000; metroLifeMoveSince = 0; metroDogTimer = setInterval(metroWatch, 300); }
     function metroStopDog() { if (metroDogTimer) { clearInterval(metroDogTimer); metroDogTimer = null; } metroClockProbe = null; }
 
     // Retour sur la page : le métronome qui « jouait » a pu être coupé par le système. On tente de réveiller le son (puis de reconstruire le
@@ -9636,6 +9708,8 @@
         try { ensureMetroAudio(true, true); } catch (e) { return; }
         metroPlaying = true;
         audioLog("métronome lancé");
+        metroBlockedPrompts = 0; metroBlockedHintAt = 0;
+        audioAliveBeat(true);
         metroLifePlay("lancement");
         if (metroFbOn()) { metroFbPool(); metroFbPrepare().catch(function () {}); } // son de secours : les éléments audio sont amorcés par ce geste
         metroFbHint();
@@ -9656,6 +9730,7 @@
     function stopMetronome() {
         if (metroPlaying) { audioLog("métronome arrêté"); metroStopListeners.forEach(function (fn) { try { fn(); } catch (e) {} }); }
         metroPlaying = false;
+        audioAliveClear();
         metroLifeStop();
         metroFbCancel(); metroFb.samples.length = 0; metroFb.off = null;
         metroStopTicker();
