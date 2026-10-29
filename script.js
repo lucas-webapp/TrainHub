@@ -16567,6 +16567,12 @@
             field("Volume de départ", selectControl(volOptions, curStartVol === null ? "auto" : String(Math.round(curStartVol / 10) * 10), function (v) {
                 setYtStartVolume(v === "auto" ? null : parseInt(v, 10));
             }));
+            actionRow("Journal des vidéos", "Si une vidéo se comporte mal (plein écran, pause…) : copie ce journal et envoie-le (état de la lecture, focus, plein écran)", function () {
+                var txt = videoLogText();
+                function shown() { dlgAlert({ title: "Journal des vidéos", message: "Copie impossible depuis ici. Dernières lignes :", items: videoLogBuf.slice(-14) }); }
+                if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(function () { showToast("Journal des vidéos copié (" + videoLogBuf.length + " lignes).", 5000); }, shown);
+                else shown();
+            });
 
             // ===== Images =====
             section("Images");
@@ -22208,6 +22214,22 @@
         } catch (e) { return null; }
     }
 
+    // ---------- journal des vidéos (diagnostic) ----------
+    // Le lecteur YouTube est une page d'un autre site : TrainHub ne voit ni ses clics ni ses réglages, seulement ce que l'API lui rapporte (lecture, pause) et ce que
+    // fait la fenêtre (focus, plein écran). Ces lignes, gardées sur l'appareil (80 dernières), permettent de voir après coup dans quel ordre les choses se sont passées
+    // quand une vidéo se comporte mal (plein écran qui demande deux clics, lecture qui s'arrête…). Paramètres › Vidéos › « Journal des vidéos » les copie.
+    var VIDEO_LOG_KEY = "trainhub.videoLog.v1", videoLogBuf = [], videoLogSaveT = null;
+    try { videoLogBuf = JSON.parse(localStorage.getItem(VIDEO_LOG_KEY) || "[]"); if (!Array.isArray(videoLogBuf)) videoLogBuf = []; } catch (e) { videoLogBuf = []; }
+    function videoLog(what) {
+        var d = new Date(), p2 = function (n, w) { var t = String(n); while (t.length < (w || 2)) t = "0" + t; return t; };
+        videoLogBuf.push(p2(d.getMonth() + 1) + "-" + p2(d.getDate()) + " " + p2(d.getHours()) + ":" + p2(d.getMinutes()) + ":" + p2(d.getSeconds()) + "." + p2(d.getMilliseconds(), 3)
+            + " " + (document.hidden ? "masquée" : "visible") + (document.hasFocus && document.hasFocus() ? "+focus" : "") + (document.fullscreenElement ? " plein-écran:" + document.fullscreenElement.tagName : "") + " | " + what);
+        if (videoLogBuf.length > 80) videoLogBuf.splice(0, videoLogBuf.length - 80);
+        if (!videoLogSaveT) videoLogSaveT = setTimeout(function () { videoLogSaveT = null; try { localStorage.setItem(VIDEO_LOG_KEY, JSON.stringify(videoLogBuf)); } catch (e) {} }, 800);
+    }
+    function videoLogText() { return "TrainHub — journal des vidéos\n" + (navigator.userAgent || "") + "\n" + videoLogBuf.join("\n"); }
+    var YT_STATE_NAMES = { "-1": "pas démarrée", "0": "terminée", "1": "lecture", "2": "pause", "3": "mise en mémoire", "5": "en attente" };
+
     function loadYouTubeApi() {
         if (window.YT && window.YT.Player) return Promise.resolve();
         if (ytApiPromise) return ytApiPromise;
@@ -22258,6 +22280,10 @@
         sizeBtn.title = FULL_TITLE;
         sizeBtn.setAttribute("aria-label", "Plein écran");
         var ytPlayer = null; // lecteur YouTube, une fois prêt
+        var vlabel = String(link.label || info.id || "vidéo").slice(0, 24);
+        // Plein écran demandé PAR TRAINHUB (bouton ou double-clic) : YouTube, qui ne l'a pas lancé lui-même, peut y réagir en mettant la lecture en pause (constaté sur
+        // Safari). `fsMove` retient l'instant du dernier changement et si la vidéo jouait alors : une pause qui suit de près est reprise (voir onStateChange).
+        var fsMove = null, fsOurs = false, fsWasMine = false;
         // Plein écran demandé sur l'iframe de YouTube elle-même (méthode documentée) plutôt que sur notre
         // boîte autour : c'est YouTube qui reçoit alors toute la surface. L'agencement des boutons en plein
         // écran (réglages, volume…) reste dessiné par YouTube, hors de notre contrôle.
@@ -22270,14 +22296,33 @@
             sizeBtn.setAttribute("aria-label", on ? "Réduire" : "Plein écran");
         }
         sizeBtn.addEventListener("click", function () {
-            if (inFullscreen()) { document.exitFullscreen(); return; }
+            if (inFullscreen()) {
+                fsOurs = true; fsMove = { at: Date.now(), playing: ytState === 1 };
+                videoLog(vlabel + " : bouton TrainHub, sortie du plein écran (état : " + (YT_STATE_NAMES[ytState] || ytState) + ")");
+                document.exitFullscreen();
+                return;
+            }
             if (card.classList.contains("gs-yt-large")) { setYtOverlay(card, false); refreshSizeBtn(); return; }
             var ft = fsTarget();
+            fsOurs = true; fsMove = { at: Date.now(), playing: ytState === 1 };
+            videoLog(vlabel + " : bouton TrainHub, demande de plein écran sur " + (ft.tagName || "?") + " (état : " + (YT_STATE_NAMES[ytState] || ytState) + ")");
             var req = ft.requestFullscreen ? ft.requestFullscreen() : null;
-            if (req && req.catch) req.catch(function () { setYtOverlay(card, true); refreshSizeBtn(); });
-            else if (!req) { setYtOverlay(card, true); refreshSizeBtn(); }
+            if (req && req.then) req.then(function () { videoLog(vlabel + " : plein écran accordé"); }, function (err) { fsOurs = false; videoLog(vlabel + " : plein écran refusé (" + (err && err.name || err) + ") : repli sur le grand lecteur"); setYtOverlay(card, true); refreshSizeBtn(); });
+            else if (!req) { fsOurs = false; setYtOverlay(card, true); refreshSizeBtn(); }
         });
-        document.addEventListener("fullscreenchange", refreshSizeBtn);
+        function onFsChange() {
+            if (card.isConnected) card._ytSeen = true;
+            else if (card._ytSeen) { document.removeEventListener("fullscreenchange", onFsChange); return; } // la carte a disparu de la page : on se désabonne
+            refreshSizeBtn();
+            var mine = inFullscreen();
+            if (mine || fsWasMine || fsOurs) {
+                videoLog(vlabel + " : " + (mine ? "plein écran entré" : "plein écran quitté") + " (" + (fsOurs ? "demandé par TrainHub" : "demandé par YouTube") + ", état : " + (YT_STATE_NAMES[ytState] || ytState) + ")");
+                if (fsOurs) fsMove = { at: Date.now(), playing: ytState === 1 || !!(fsMove && fsMove.playing && Date.now() - fsMove.at < 3000) };
+                if (!mine) fsOurs = false;
+            }
+            fsWasMine = mine;
+        }
+        document.addEventListener("fullscreenchange", onFsChange);
         head.appendChild(sizeBtn);
 
         var hideBtn = document.createElement("button");
@@ -22337,7 +22382,10 @@
         }
         function kbdWatch() {
             if (card._ytSeen && !document.contains(card)) { window.removeEventListener("blur", kbdWatch); window.removeEventListener("focus", kbdWatch); return; }
-            setTimeout(refreshKbd, 0); // le focus a changé : activeElement est à jour juste après
+            setTimeout(function () {
+                if (document.contains(card)) videoLog(vlabel + " : " + (document.hasFocus && document.hasFocus() ? "fenêtre au premier plan" : "fenêtre sans focus (clic dans la vidéo ?)") + (document.activeElement === ytIframe() ? ", focus dans la vidéo" : ""));
+                refreshKbd();
+            }, 0); // le focus a changé : activeElement est à jour juste après
         }
         window.addEventListener("blur", kbdWatch);
         window.addEventListener("focus", kbdWatch);
@@ -22375,6 +22423,7 @@
                 clearTimeout(dblTimer);
                 dblTimer = 0;
                 if (e.detail >= 2) {
+                    videoLog(vlabel + " : double-clic sur la vidéo → plein écran");
                     // double-clic lent : la pause du premier clic a déjà eu lieu, on reprend la lecture
                     if (dblPausedAt && Date.now() - dblPausedAt < 800) { try { ytPlayer.playVideo(); } catch (er) {} }
                     dblPausedAt = 0;
@@ -22547,7 +22596,18 @@
                 videoId: info.id,
                 playerVars: { playsinline: 1, rel: 0, start: info.start || 0 },
                 events: {
-                    onStateChange: function (e) { ytState = e ? e.data : -1; refreshDbl(); },
+                    onStateChange: function (e) {
+                        var st = e ? e.data : -1, now = Date.now();
+                        ytState = st; refreshDbl();
+                        videoLog(vlabel + " : " + (YT_STATE_NAMES[st] || st));
+                        // Pause qui suit de près un plein écran lancé par TrainHub alors que la vidéo jouait : ce n'est pas un choix de l'utilisateur (YouTube ne sait pas que sa
+                        // fenêtre vient de passer en plein écran). On reprend, une seule fois ; une pause voulue (clic sur la vidéo) n'est jamais défaite.
+                        if (st === 2 && fsMove && fsMove.playing && now - fsMove.at < 1800 && !(dblPausedAt && now - dblPausedAt < 1500)) {
+                            fsMove = null;
+                            videoLog(vlabel + " : pause juste après un changement de plein écran → reprise automatique");
+                            setTimeout(function () { try { ytPlayer.playVideo(); } catch (er) {} }, 0);
+                        }
+                    },
                     onReady: function () {
                         // Seule commande envoyée au démarrage : le volume de départ choisi dans les Paramètres
                         // (rien du tout s'il est sur « automatique »). Ni vitesse, ni déplacement.
