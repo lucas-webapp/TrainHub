@@ -541,6 +541,10 @@
             gs.tabIds = gs.tabIds.filter(function (id, i, arr) { return arr.indexOf(id) === i && s.settings.sessionFolders.some(function (f) { return f.id === id; }); });
             if (!gs.id) gs.id = uid();
             if (typeof gs.name !== "string" || !gs.name.trim()) gs.name = "Session guidée";
+            // Note (1 à 5 étoiles) et commentaire de la session elle-même (voir « note de la session ») : une valeur invalide est simplement retirée.
+            var gsRate = Math.round(Number(gs.rating));
+            if (gsRate >= 1 && gsRate <= 5) gs.rating = gsRate; else delete gs.rating;
+            if (typeof gs.comment === "string" && gs.comment.trim()) gs.comment = gs.comment.trim().slice(0, 500); else delete gs.comment; // 500 = RATING_COMMENT_MAX
             if (!Array.isArray(gs.steps)) gs.steps = [];
             gs.steps.forEach(function (step) {
                 if (!step.id) step.id = uid();
@@ -8210,6 +8214,9 @@
     }
     window.addEventListener("resize", function () { if ($metroDock && !$metroDock.hidden) applyMetroDockSize(); else updateMetroDockMetrics(); });
     if ($metroDock && typeof ResizeObserver !== "undefined") new ResizeObserver(updateMetroDockMetrics).observe($metroDock);
+    // La barre du haut change de hauteur toute seule (le bouton de compte s'élargit, la barre passe sur deux lignes…) : --topbar-h la suit, sinon les barres collées
+    // sous elle (écran d'édition d'une session) se retrouvent cachées derrière.
+    (function () { var tb = document.querySelector(".top-bar"); if (tb && typeof ResizeObserver !== "undefined") new ResizeObserver(updateMetroDockMetrics).observe(tb); })();
 
     // ---------- taille des fenêtres flottantes (redimensionnables à la main) ----------
     // Persisté par "famille" de fenêtre (métronome, cercle des quintes, gammes…), pas par instance :
@@ -17784,6 +17791,31 @@
         paint();
         return { el: wrap, paint: paint };
     }
+    // ---------- note de la SESSION (le modèle d'enchaînement, pas une séance réalisée) ----------
+    // La session elle-même porte une note et un commentaire (champs `rating` / `comment` de la session) : on peut la noter sans l'avoir lancée, et la liste
+    // des sessions montre les étoiles à côté du nom pour repérer d'un coup d'œil celles qui sont bien ou à revoir. Une note ne change ni les exercices ni les
+    // durées : elle est enregistrée tout de suite (pas besoin de « Enregistrer » dans l'écran d'édition) et ne compte pas comme une modification de la session.
+    // À la fin d'une session lancée, la note et le commentaire donnés à la séance deviennent aussi ceux de la session (la dernière note l'emporte).
+    function gsNote(id) { var g = gsFindSession(id); return { rating: recRating(g), comment: recComment(g) }; }
+    function gsApplyNote(g, patch) {
+        if ("rating" in patch) { if (patch.rating) g.rating = patch.rating; else delete g.rating; }
+        if ("comment" in patch) { var c = String(patch.comment || "").trim().slice(0, RATING_COMMENT_MAX); if (c) g.comment = c; else delete g.comment; }
+    }
+    // soon : frappe au clavier (écriture groupée, une seule entrée dans l'historique d'annulation à la pause)
+    function gsSetNote(id, patch, soon) {
+        var g = gsFindSession(id);
+        if (!g) return;
+        gsApplyNote(g, patch);
+        if (soon) saveSoon(); else save();
+    }
+    function gsNoteFromRun(rec) { // appelée juste avant le save() qui enregistre la séance de fin de session
+        if (!rec || rec.free || rec.manual || !rec.sessionId) return;
+        var g = gsFindSession(rec.sessionId), patch = {};
+        if (!g || g.ephemeral) return;
+        if (recRating(rec)) patch.rating = recRating(rec);
+        if (recComment(rec)) patch.comment = recComment(rec);
+        gsApplyNote(g, patch);
+    }
     function logRecName(rec) {
         var g = rec && rec.sessionId ? gsFindSession(rec.sessionId) : null;
         return g ? g.name : (rec && rec.name) || "(session)";
@@ -18426,6 +18458,32 @@
             meta.className = "gs-session-meta";
             meta.textContent = session.steps.length + " exercice" + (session.steps.length > 1 ? "s" : "") + " · " + sessionTotalMinutes(session) + " min";
             info.appendChild(name);
+            // Note de la session : étoiles cliquables dans la barre de titre (sans ouvrir la session), bulle pour le commentaire, qui s'affiche dessous.
+            var rateBox = document.createElement("span");
+            rateBox.className = "gs-session-rate";
+            var cmtLine = document.createElement("span");
+            cmtLine.className = "gs-session-comment";
+            var cmtBtn = iconButton("", "", function () {
+                var n = gsNote(session.id);
+                dlgPrompt({ title: "Commentaire sur la session", message: "« " + session.name + " »", value: n.comment, placeholder: "Exercice trop long, bon enchaînement, à revoir…", confirmLabel: "Enregistrer", maxLength: RATING_COMMENT_MAX,
+                    extra: n.comment ? { label: "Effacer", onClick: function () { gsSetNote(session.id, { comment: "" }); paintNote(); } } : null },
+                    function (v) { gsSetNote(session.id, { comment: v }); paintNote(); });
+            });
+            cmtBtn.classList.add("gs-session-cmt-btn");
+            cmtBtn.innerHTML = NOTE_BUBBLE_SVG;
+            cmtBtn.setAttribute("aria-label", "Commentaire sur la session");
+            function paintNote() {
+                var n = gsNote(session.id);
+                cmtLine.textContent = n.comment; cmtLine.title = n.comment; cmtLine.hidden = !n.comment;
+                cmtBtn.classList.toggle("on", !!n.comment);
+                cmtBtn.title = n.comment ? "Commentaire : " + n.comment + " (cliquer pour le modifier)" : "Ajouter un commentaire sur la session (exercice trop long, bon enchaînement…)";
+            }
+            var rateStars = buildRatingStars(function () { return gsNote(session.id).rating; }, function (n) { gsSetNote(session.id, { rating: n }); }, { small: true });
+            rateStars.el.setAttribute("aria-label", "Note de la session");
+            rateBox.appendChild(rateStars.el);
+            rateBox.appendChild(cmtBtn);
+            paintNote();
+            info.appendChild(rateBox);
             info.appendChild(meta);
             attachSessionPreview(info, function () { return session; });
             var plannedToday = state.settings.sessionPlan.some(function (pe) { return pe.sessionId === session.id && pe.date === calKey(new Date()); });
@@ -18449,6 +18507,7 @@
                 unsaved.title = "Des modifications de cette session n'ont pas été enregistrées : ouvre-la pour les enregistrer ou les annuler";
                 info.appendChild(unsaved);
             }
+            info.appendChild(cmtLine); // le commentaire de la session, sur sa propre ligne
             row.appendChild(info);
             bindContextGesture(row, function (x, y) {
                 if (sessSelCount() > 1 && sessSel[session.id]) openLinksQuickMenu(x, y, sessSelActions().map(function (a) { return { label: a.text, open: function () { a.run(row); } }; }));
@@ -18502,7 +18561,7 @@
             items.push({ label: "Dupliquer", open: function () {
                 var copy = cloneJson(session);
                 copy.id = uid(); copy.createdAt = Date.now(); copy.runCount = 0; copy.name = session.name + " (copie)";
-                delete copy.updatedAt; delete copy.sig; delete copy.lastRunAt;
+                delete copy.updatedAt; delete copy.sig; delete copy.lastRunAt; delete copy.rating; delete copy.comment; // une copie est une nouvelle session : pas la note de l'originale
                 copy.steps.forEach(function (st) { st.id = uid(); });
                 allSessions.push(copy);
                 save(); render();
@@ -18574,7 +18633,7 @@
                 closeFolderMenu();
                 var copy = JSON.parse(JSON.stringify(session));
                 copy.id = uid();
-                copy.createdAt = Date.now(); copy.runCount = 0; delete copy.updatedAt; delete copy.sig;
+                copy.createdAt = Date.now(); copy.runCount = 0; delete copy.updatedAt; delete copy.sig; delete copy.rating; delete copy.comment;
                 copy.name = session.name + " (copie)";
                 copy.steps.forEach(function (st) { st.id = uid(); });
                 copy.tabIds = target ? [target.id] : (activeTab ? session.tabIds.slice() : []);
@@ -18953,7 +19012,20 @@
             render();
         });
         topRow.appendChild(saveBtn);
+        // Repère juste au-dessus de la barre : tant qu'il est visible, la barre est à sa place (elle se fond dans la page) ; dès qu'il passe sous la barre
+        // du haut de l'appli, elle est collée en haut par-dessus le contenu qui défile (classe gs-edit-stuck : fond « verre » flou, voir le CSS).
+        var topMark = document.createElement("div");
+        topMark.className = "gs-edit-topmark";
+        content.appendChild(topMark);
         content.appendChild(topRow);
+        function updateStuck() {
+            if (!topMark.isConnected) { window.removeEventListener("scroll", updateStuck, true); window.removeEventListener("resize", updateStuck); return; } // l'écran a été remplacé
+            var stick = parseFloat(getComputedStyle(topRow).top) || 0;
+            topRow.classList.toggle("gs-edit-stuck", topMark.getBoundingClientRect().top < stick - 0.5);
+        }
+        window.addEventListener("scroll", updateStuck, { passive: true, capture: true });
+        window.addEventListener("resize", updateStuck);
+        setTimeout(updateStuck, 0); // l'écran peut être redessiné alors que la page est déjà défilée
         function refreshDirty() {
             var dirty = gsDraftDirty(real.id);
             saveBtn.disabled = !dirty;
@@ -18987,7 +19059,28 @@
             session.name = nameInput.value.trim() || session.name;
             save();
         });
-        if (!real.ephemeral) content.appendChild(nameInput);
+        if (!real.ephemeral) {
+            // Barre de titre : le nom, et la note de la session (étoiles) ; en dessous, un commentaire libre. Note et commentaire sont enregistrés tout de suite
+            // (la session n'a pas besoin d'être lancée, ni d'être « enregistrée » : ce ne sont pas des modifications de ses exercices).
+            var gsnRow = document.createElement("div");
+            gsnRow.className = "gs-name-row";
+            gsnRow.appendChild(nameInput);
+            var gsnRate = document.createElement("div");
+            gsnRate.className = "gs-name-rate";
+            var gsnStars = buildRatingStars(function () { return gsNote(real.id).rating; }, function (n) { gsSetNote(real.id, { rating: n }); }, { showLabel: true });
+            gsnStars.el.setAttribute("aria-label", "Note de la session");
+            gsnRate.appendChild(gsnStars.el);
+            gsnRow.appendChild(gsnRate);
+            content.appendChild(gsnRow);
+            var gsnIn = document.createElement("textarea");
+            gsnIn.className = "gs-note-comment";
+            gsnIn.rows = 2; gsnIn.maxLength = RATING_COMMENT_MAX;
+            gsnIn.placeholder = "Commentaire sur la session (exercice trop long, bon enchaînement, à revoir…)";
+            gsnIn.setAttribute("aria-label", "Commentaire sur la session");
+            gsnIn.value = gsNote(real.id).comment;
+            gsnIn.addEventListener("input", function () { gsSetNote(real.id, { comment: gsnIn.value }, true); });
+            content.appendChild(gsnIn);
+        }
 
         var sessTabs = real.ephemeral ? [] : state.settings.sessionFolders.filter(function (f) { return f.instrumentId === session.instrumentId; });
         if (sessTabs.length) {
@@ -20013,6 +20106,7 @@
             onProgress: function (edited) { gsLiveWrite({ v: 1, kind: "record", savedAt: Date.now(), record: edited.record, extraSteps: edited.extra }); }, // la trace de secours suit les modifications
             onSave: function (rec) {
                 var res = logAddMergingFree(rec), joined = rec.free && res !== rec;
+                gsNoteFromRun(rec); // la note donnée à la séance devient celle de la session (visible dans la liste)
                 save(); gsLiveClear();
                 savedToast(joined ? "Ajouté à la session libre du jour (total " + gsFmtDur(res.totalSec) + ")" : rec.free ? "Entraînement enregistré dans l'historique" : "Session enregistrée dans l'historique", joined ? 5000 : undefined);
             },
@@ -20142,7 +20236,7 @@
             { label: "Enregistrer", kind: canResume ? "plain" : "primary", cls: "gs-live-save", onClick: function () {
                 openRunRecordEditor(rec, {
                     title: "Enregistrer cette séance ?", extraSteps: extra,
-                    onSave: function (out) { logAdd(out); save(); gsLiveClear(); showToast("Séance enregistrée dans l'historique"); },
+                    onSave: function (out) { logAdd(out); gsNoteFromRun(out); save(); gsLiveClear(); showToast("Séance enregistrée dans l'historique"); },
                     onCancel: function () { recentRunsAdd(rec, extra, "Non enregistrée"); gsLiveClear(); recentRunsToast(); }
                 });
             } }

@@ -3418,12 +3418,12 @@ html[data-glass="1"][data-glass-bg]:not([data-glass-bg="aurora"])[data-theme="li
 html[data-glass="1"] body { background: var(--g-ambient); background-attachment: fixed; }
 
 /* grandes surfaces : flou + teinte */
-html[data-glass="1"] :is(.top-bar, .sidebar-tree, .chapter-bar, .backups-panel, .ctx-menu, .toast, .tempo-pop, .scales-picker, .gs-preview, .app-dialog, .update-banner, .sel-bar, .audio-dock) {
+html[data-glass="1"] :is(.top-bar, .sidebar-tree, .chapter-bar, .gs-edit-topbar, .backups-panel, .ctx-menu, .toast, .tempo-pop, .scales-picker, .gs-preview, .app-dialog, .update-banner, .sel-bar, .audio-dock) {
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
     backdrop-filter: blur(var(--glass-blur)) saturate(150%);
 }
 html[data-glass="1"] .top-bar { background: var(--glass-bar); }
-html[data-glass="1"] .chapter-bar { background: var(--glass-bar); }
+html[data-glass="1"] :is(.chapter-bar, .gs-edit-topbar) { background: var(--glass-bar); }
 /* l'arborescence est un peu plus sombre que le reste : le coin éclairé par le fond ne gêne plus la lecture des dossiers */
 html[data-glass="1"] .sidebar-tree { background: linear-gradient(var(--glass-side), var(--glass-side)), var(--card-bg); }
 html[data-glass="1"] :is(.backups-panel, .ctx-menu, .toast, .tempo-pop, .scales-picker, .gs-preview, .app-dialog, .update-banner, .sel-bar, .audio-dock) { background: var(--glass-pop); box-shadow: var(--glass-hi), 0 24px 50px -24px rgba(0, 0, 0, .65); }
@@ -3455,7 +3455,7 @@ html[data-glass="1"] :is(.notes-fixed-textarea, .exercise-fixed-view, .gs-run-fi
     html[data-glass="1"][data-theme="light"] { --glass-bar: #f1f6f9 !important; --glass-pop: #ffffff !important; --card-bg: #f4f8fb; --card-bg-2: #ffffff; }
 }
 @media (prefers-reduced-transparency: reduce) {
-    html[data-glass="1"] :is(.top-bar, .sidebar-tree, .chapter-bar, .backups-panel, .ctx-menu, .toast, .tempo-pop, .scales-picker, .gs-preview, .app-dialog, .update-banner, .sel-bar, .audio-dock) { -webkit-backdrop-filter: none; backdrop-filter: none; }
+    html[data-glass="1"] :is(.top-bar, .sidebar-tree, .chapter-bar, .gs-edit-topbar, .backups-panel, .ctx-menu, .toast, .tempo-pop, .scales-picker, .gs-preview, .app-dialog, .update-banner, .sel-bar, .audio-dock) { -webkit-backdrop-filter: none; backdrop-filter: none; }
     html[data-glass="1"]:not([data-theme="light"]) { --glass-bar: #0d1520 !important; --glass-pop: #121c2b !important; --card-bg: #101a28; --card-bg-2: #15202f; }
     html[data-glass="1"][data-theme="light"] { --glass-bar: #f1f6f9 !important; --glass-pop: #ffffff !important; --card-bg: #f4f8fb; --card-bg-2: #ffffff; }
 }
@@ -4966,3 +4966,20 @@ button.gs-history-cmt-btn.on { color: var(--accent); }
 .cal-recap-rate { margin: 6px 0 2px; font-size: var(--fs-sm); color: var(--text-dim); }
 .cal-recap-stars { color: var(--status-en-cours); letter-spacing: 1px; }
 .cal-recap-comment { margin-top: 3px; font-style: italic; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ===== v232 : note et commentaire de la SESSION (liste des sessions et écran d'édition) ===== */
+.gs-session-rate { display: inline-flex; align-items: center; gap: 2px; align-self: center; }
+.gs-session-info .rate-stars-sm button.rate-star { width: 22px; height: 22px; font-size: 17px; }
+button.gs-session-cmt-btn { flex: none; width: 24px; height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent; color: var(--text-muted); opacity: .6; }
+button.gs-session-cmt-btn:hover { opacity: 1; }
+button.gs-session-cmt-btn .icon { width: 15px; height: 15px; }
+button.gs-session-cmt-btn.on { color: var(--accent); opacity: 1; }
+.gs-session-comment { flex: 1 0 100%; min-width: 0; font-size: var(--fs-xs); font-style: italic; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gs-name-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; margin-bottom: 8px; }
+.gs-name-row .gs-name-input { flex: 1 1 240px; width: auto; min-width: 0; margin-bottom: 0; }
+.gs-name-rate { flex: none; display: inline-flex; align-items: center; min-height: 40px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card-bg-2); }
+.gs-name-rate .rate-label { min-width: 5.2em; margin-left: 6px; }
+textarea.gs-note-comment { display: block; width: 100%; box-sizing: border-box; min-height: 50px; resize: vertical; padding: 8px 10px; margin-bottom: 12px; font: inherit; font-size: var(--fs-sm); }
+/* barre du haut de l'écran d'édition, thème verre : transparente à sa place (elle se fond dans le dégradé), fond « verre » flou seulement quand elle est collée en haut par-dessus le contenu qui défile */
+.gs-edit-topmark { height: 0; margin: 0; padding: 0; }
+html[data-glass="1"] .gs-edit-topbar:not(.gs-edit-stuck) { background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
