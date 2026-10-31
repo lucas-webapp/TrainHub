@@ -759,9 +759,11 @@
     // Fusionne le groupe : la séance la plus ancienne reste (même identifiant), les autres sont retirées du journal. Renvoie la séance obtenue.
     function mergeFreeGroup(recs) {
         recs = recs.slice().sort(function (a, b) { return a.date - b.date; });
-        var counted = {}, base = null, steps = [], total = 0, planned = 0, last = 0, parts = [], removeIds = [];
+        var counted = {}, base = null, steps = [], total = 0, planned = 0, last = 0, parts = [], removeIds = [], rated = 0, notes = [];
         recs.forEach(function (r) {
             if (counted[r.id]) { removeIds.push(r.id); return; } // déjà compté dans une séance fusionnée
+            if (recRating(r)) rated = recRating(r); // la plus récente fait foi (les séances sont triées de la plus ancienne à la plus récente)
+            if (recComment(r) && notes.indexOf(recComment(r)) === -1) notes.push(recComment(r));
             (r.parts || [r.id]).forEach(function (id) { counted[id] = true; if (parts.indexOf(id) === -1) parts.push(id); });
             if (!base) base = r; else removeIds.push(r.id);
             steps = steps.concat(r.steps || []);
@@ -771,6 +773,8 @@
         out.steps = mergeFreeSteps(steps);
         out.totalSec = total; out.plannedSec = planned; out.endedAt = last;
         out.parts = parts;
+        if (rated) out.rating = rated; else delete out.rating;
+        if (notes.length) out.comment = notes.join("\n").slice(0, RATING_COMMENT_MAX); else delete out.comment;
         removeIds.forEach(function (id) { if (id !== out.id) logRemove(id); });
         logAdd(out);
         return out;
@@ -17745,6 +17749,41 @@
     }
     // Nom à afficher pour une séance enregistrée : celui d'aujourd'hui si la session existe encore, sinon celui
     // d'alors (figé dans le journal). `frozen` : le nom d'alors, s'il diffère.
+    // ---------- note et commentaire d'une séance ----------
+    // Une séance enregistrée peut recevoir une note de 1 à 5 (étoiles) et un commentaire libre (« exercice trop long », « bon tempo »…) : de quoi se rappeler, parmi beaucoup
+    // de séances, lesquelles ont été bonnes ou bien adaptées. Champs `rating` (1 à 5 ; absent = pas de note) et `comment` (texte) de la séance : ils suivent l'historique
+    // (cloud, export) comme le reste, sans rien changer d'autre.
+    var RATING_LABELS = ["", "À revoir", "Moyen", "Correct", "Bien", "Très bien"];
+    var RATING_COMMENT_MAX = 500;
+    function recRating(rec) { var n = Math.round(Number(rec && rec.rating)); return n >= 1 && n <= 5 ? n : 0; }
+    function recComment(rec) { return rec && typeof rec.comment === "string" ? rec.comment.trim() : ""; }
+    // Cinq étoiles cliquables. get() : la note actuelle ; set(n) : n de 1 à 5, ou 0 pour l'effacer (un clic sur l'étoile déjà choisie). Renvoie { el, paint }.
+    function buildRatingStars(get, set, opts) {
+        opts = opts || {};
+        var wrap = document.createElement("span");
+        wrap.className = "rate-stars" + (opts.small ? " rate-stars-sm" : "");
+        wrap.setAttribute("role", "radiogroup"); wrap.setAttribute("aria-label", "Note de la séance");
+        var btns = [], lab = null;
+        [1, 2, 3, 4, 5].forEach(function (k) {
+            var b = document.createElement("button");
+            b.type = "button"; b.className = "rate-star"; b.setAttribute("role", "radio"); b.dataset.k = String(k); b.textContent = "★";
+            b.addEventListener("click", function (e) { e.stopPropagation(); set(get() === k ? 0 : k); paint(); });
+            wrap.appendChild(b); btns.push(b);
+        });
+        if (opts.showLabel) { lab = document.createElement("span"); lab.className = "rate-label"; wrap.appendChild(lab); }
+        function paint() {
+            var n = get();
+            btns.forEach(function (b, i) {
+                b.classList.toggle("on", i < n);
+                b.setAttribute("aria-checked", i + 1 === n ? "true" : "false");
+                b.title = (i + 1) + " sur 5 : " + RATING_LABELS[i + 1] + (i + 1 === n ? " (cliquer pour effacer la note)" : "");
+                b.setAttribute("aria-label", b.title);
+            });
+            if (lab) lab.textContent = n ? RATING_LABELS[n] : "Pas de note";
+        }
+        paint();
+        return { el: wrap, paint: paint };
+    }
     function logRecName(rec) {
         var g = rec && rec.sessionId ? gsFindSession(rec.sessionId) : null;
         return g ? g.name : (rec && rec.name) || "(session)";
@@ -19794,6 +19833,25 @@
                 list.appendChild(box);
             }
             items.forEach(renderItem);
+            // Note (étoiles) et commentaire libre sur la séance : à la fin d'une session, quand on s'en souvient, ou plus tard en la modifiant.
+            var rate = recRating(record);
+            var rateBox = document.createElement("div"); rateBox.className = "gs-rec-rate";
+            var rateHead = document.createElement("div"); rateHead.className = "gs-rec-rate-head";
+            var rateTitle = document.createElement("span"); rateTitle.className = "gs-rec-rate-title"; rateTitle.textContent = "Comment c'était ?";
+            var stars = buildRatingStars(function () { return rate; }, function (n) {
+                var prev = rate;
+                if (n === prev) return;
+                rate = n;
+                histPush({ undo: function () { rate = prev; stars.paint(); }, redo: function () { rate = n; stars.paint(); } });
+                refresh();
+            }, { showLabel: true });
+            rateHead.appendChild(rateTitle); rateHead.appendChild(stars.el);
+            var noteIn = document.createElement("textarea"); noteIn.className = "gs-rec-comment"; noteIn.rows = 2; noteIn.maxLength = RATING_COMMENT_MAX;
+            noteIn.placeholder = "Commentaire libre (facultatif) : exercice trop long, trop difficile, bon tempo…"; noteIn.value = recComment(record); noteIn.setAttribute("aria-label", "Commentaire sur la séance");
+            noteIn.addEventListener("input", refresh);
+            noteIn.addEventListener("keydown", function (e) { e.stopPropagation(); }); // les raccourcis de l'appli (espace, flèches…) n'ont rien à faire dans ce champ
+            rateBox.appendChild(rateHead); rateBox.appendChild(noteIn);
+            panel.appendChild(rateBox);
             // Retour en arrière (Ctrl/⌘+Z) et rétablir (Ctrl/⌘+Y ou Maj+Z) propres à cette fenêtre : retirer un exercice par mégarde, ou changer une durée / un
             // tempo / un nom. Sans cela, ces touches défaisaient la dernière modification de l'appli DERRIÈRE la fenêtre, sans rien rendre ici.
             var undoStack = [], redoStack = [], committed = new Map();
@@ -19824,7 +19882,7 @@
                 });
             }
             items.forEach(function (it) { [it.mi, it.si, it.bi].forEach(trackField); });
-            [nameIn, dateIn, timeIn].forEach(trackField);
+            [nameIn, dateIn, timeIn, noteIn].forEach(trackField);
             function onUndoKeys(e) {
                 if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
                 var k = e.key.toLowerCase(), isUndo = k === "z" && !e.shiftKey, isRedo = k === "y" || (k === "z" && e.shiftKey);
@@ -19832,14 +19890,14 @@
                 e.stopPropagation(); // le retour en arrière de l'appli ne doit rien défaire derrière cette fenêtre
                 if (dlgIsOpen()) return;
                 var t = e.target;
-                if (t && t.tagName === "INPUT" && committed.has(t) && t.value !== committed.get(t)) return; // saisie en cours dans ce champ : c'est son propre retour en arrière (navigateur)
+                if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA") && committed.has(t) && t.value !== committed.get(t)) return; // saisie en cours dans ce champ : c'est son propre retour en arrière (navigateur)
                 e.preventDefault();
                 if (isUndo) histUndo(); else histRedo();
             }
             document.addEventListener("keydown", onUndoKeys, true);
             // Ce qui est saisi, en l'état : sert à repérer des modifications non enregistrées, et à les garder si la séance part dans les « non enregistrées ».
             function sig() {
-                return JSON.stringify([nameIn ? nameIn.value : "", dateIn ? dateIn.value : "", timeIn ? timeIn.value : "", items.map(function (it) { return [it.removed ? 1 : 0, it.mi.value, it.si.value, it.bi.value, it.st.chapterId || "", it.answered ? 1 : 0]; })]);
+                return JSON.stringify([nameIn ? nameIn.value : "", dateIn ? dateIn.value : "", timeIn ? timeIn.value : "", rate, noteIn.value, items.map(function (it) { return [it.removed ? 1 : 0, it.mi.value, it.si.value, it.bi.value, it.st.chapterId || "", it.answered ? 1 : 0]; })]);
             }
             function snapshot() {
                 var edited = buildOut(true, true), keep = [], extra = [], i = 0;
@@ -19875,6 +19933,9 @@
                     var dt = new Date(+dp[0], +dp[1] - 1, +dp[2], +tp[0] || 0, +tp[1] || 0, 0, 0);
                     if (!isNaN(dt.getTime())) out.date = Math.min(dt.getTime(), Date.now());
                 }
+                if (rate) out.rating = rate; else delete out.rating;
+                var cmt = noteIn.value.trim().slice(0, RATING_COMMENT_MAX);
+                if (cmt) out.comment = cmt; else delete out.comment;
                 if (opts.manual) out.endedAt = out.date + out.totalSec * 1000;
                 return out;
             }
@@ -20560,6 +20621,12 @@
             pop.appendChild(h); pop.appendChild(sub);
             if (logRecOldName(rec)) { var was = document.createElement("div"); was.className = "cal-recap-was"; was.textContent = "Nom au moment de la séance : « " + logRecOldName(rec) + " »"; pop.appendChild(was); }
             pop.appendChild(tot);
+            if (recRating(rec) || recComment(rec)) { // note et commentaire de la séance (modifiables dans l'historique ou « Modifier la séance »)
+                var rt = document.createElement("div"); rt.className = "cal-recap-rate";
+                if (recRating(rec)) { var rs = document.createElement("span"); rs.className = "cal-recap-stars"; rs.textContent = "★★★★★".slice(0, recRating(rec)) + "☆☆☆☆☆".slice(0, 5 - recRating(rec)); rs.title = recRating(rec) + " sur 5 : " + RATING_LABELS[recRating(rec)]; rt.appendChild(rs); rt.appendChild(document.createTextNode(" " + RATING_LABELS[recRating(rec)])); }
+                if (recComment(rec)) { var rc = document.createElement("div"); rc.className = "cal-recap-comment"; rc.textContent = recComment(rec); rt.appendChild(rc); }
+                pop.appendChild(rt);
+            }
             var list = document.createElement("div"); list.className = "cal-recap-list";
             (rec.steps || []).forEach(function (st) {
                 var r = document.createElement("div"); r.className = "cal-recap-row";
@@ -22036,10 +22103,24 @@
                     });
                     var edit = iconButton("✎", "Modifier cette séance (durées, tempo)", function () { editLoggedRecord(e, function () { openSessionHistory(); }); });
                     head.appendChild(nm); head.appendChild(du); head.appendChild(edit); head.appendChild(del);
+                    // note et commentaire : les étoiles se règlent d'un clic, sans ouvrir la séance
+                    var cur = e, rateRow = document.createElement("div"); rateRow.className = "gs-history-rate";
+                    var cmt = document.createElement("div"); cmt.className = "gs-history-comment";
+                    function paintComment() { var c = recComment(cur); cmt.textContent = c; cmt.hidden = !c; cmtBtn.title = c ? "Modifier le commentaire" : "Ajouter un commentaire (exercice trop long, bon tempo…)"; cmtBtn.classList.toggle("on", !!c); }
+                    function change(fn) { var r = cloneJson(cur); fn(r); logAdd(r); cur = r; save(); paintComment(); }
+                    var stars = buildRatingStars(function () { return recRating(cur); }, function (n) { change(function (r) { if (n) r.rating = n; else delete r.rating; }); }, { small: true });
+                    var cmtBtn = iconButton("", "", function () {
+                        dlgPrompt({ title: "Commentaire sur la séance", message: logRecName(cur) + " · " + gsFmtDate(cur.date), value: recComment(cur), placeholder: "Exercice trop long, trop difficile, bon tempo…", confirmLabel: "Enregistrer", maxLength: RATING_COMMENT_MAX,
+                            extra: recComment(cur) ? { label: "Effacer", onClick: function () { change(function (r) { delete r.comment; }); } } : null },
+                            function (v) { change(function (r) { r.comment = v.trim().slice(0, RATING_COMMENT_MAX); }); });
+                    });
+                    cmtBtn.classList.add("gs-history-cmt-btn"); cmtBtn.innerHTML = NOTE_BUBBLE_SVG; cmtBtn.setAttribute("aria-label", "Commentaire sur la séance");
+                    rateRow.appendChild(stars.el); rateRow.appendChild(cmtBtn);
+                    paintComment();
                     var det = document.createElement("div");
                     det.className = "gs-history-steps";
                     det.textContent = e.steps.map(function (st) { return logStepTitle(st) + " (" + gsFmtDur(st.actualSec) + (st.bpmMax && stepBpmShown(st) ? ", " + (st.bpmFirst && st.bpmFirst !== st.bpmMax ? st.bpmFirst + "→" : "") + st.bpmMax + " BPM" : "") + ")"; }).join(" · ");
-                    box.appendChild(head); box.appendChild(det);
+                    box.appendChild(head); box.appendChild(rateRow); box.appendChild(cmt); box.appendChild(det);
                     var g = gsFindSession(e.sessionId);
                     if (g) bindContextGesture(box, function (x, y) {
                         openLinksQuickMenu(x, y, [

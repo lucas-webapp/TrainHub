@@ -4945,3 +4945,24 @@ button.add-paste-btn { height: 30px; padding: 0 12px; }
 .section-label:has(> .notes-archive-btn) { display: flex; align-items: center; gap: 6px; }
 .section-label:has(> .notes-archive-btn) > .notes-archive-btn { float: none; order: 3; font-size: var(--fs-xs); }
 .section-label:has(> .notes-archive-btn) > .note-date-btn { float: none; order: 2; margin: 0 0 0 auto; }
+
+/* ---------- v231 — note (1 à 5 étoiles) et commentaire libre d'une séance ---------- */
+.rate-stars { display: inline-flex; align-items: center; gap: 2px; }
+button.rate-star { flex: none; width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent; font-size: 22px; line-height: 1; color: var(--text-muted); opacity: .5; cursor: pointer; transition: transform .1s ease, color .1s ease, opacity .1s ease; }
+button.rate-star.on { color: var(--status-en-cours); opacity: 1; }
+button.rate-star:hover { transform: scale(1.15); opacity: 1; }
+button.rate-star:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 6px; }
+.rate-stars-sm button.rate-star { width: 24px; height: 24px; font-size: 18px; }
+.rate-label { margin-left: 8px; min-width: 5.5em; font-size: var(--fs-sm); font-weight: 600; color: var(--text-dim); }
+.gs-rec-rate { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.gs-rec-rate-head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; }
+.gs-rec-rate-title { font-size: var(--fs-sm); font-weight: 700; }
+textarea.gs-rec-comment { width: 100%; box-sizing: border-box; min-height: 56px; resize: vertical; padding: 8px 10px; font: inherit; font-size: var(--fs-sm); }
+.gs-history-rate { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+button.gs-history-cmt-btn { flex: none; width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--text-muted); }
+button.gs-history-cmt-btn .icon { width: 16px; height: 16px; }
+button.gs-history-cmt-btn.on { color: var(--accent); }
+.gs-history-comment { margin-top: 2px; font-size: var(--fs-xs); font-style: italic; color: var(--text-dim); white-space: pre-wrap; overflow-wrap: anywhere; }
+.cal-recap-rate { margin: 6px 0 2px; font-size: var(--fs-sm); color: var(--text-dim); }
+.cal-recap-stars { color: var(--status-en-cours); letter-spacing: 1px; }
+.cal-recap-comment { margin-top: 3px; font-style: italic; white-space: pre-wrap; overflow-wrap: anywhere; }
