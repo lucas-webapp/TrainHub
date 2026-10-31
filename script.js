@@ -9004,13 +9004,20 @@
     // état connu — ce que rien d'autre ne laisse, puisqu'une page gelée n'écrit plus rien.
     var AUDIO_ALIVE_KEY = "trainhub.audioAlive.v1", audioAliveAt = 0, audioAliveStep = "";
     // `étape` : l'opération risquée en cours (relance de la bouée, échange du contexte audio), écrite AVANT de la faire.
-    function audioStep(label) { audioAliveStep = label || ""; audioAliveBeat(true); }
+    // Le lancement compte aussi (`metroStarting`) : c'est là que les deux derniers gels ont été constatés, dans les deux secondes qui suivent l'appui sur Jouer.
+    var metroStarting = false;
+    function audioStep(label) { audioAliveStep = label || ""; if (metroPlaying || metroStarting) audioAliveBeat(true); }
+    // Écrit le journal TOUT DE SUITE (d'ordinaire l'écriture attend 0,8 s) : une page qui se fige juste après avait perdu ses dernières lignes (lancement, contexte neuf…).
+    function audioLogFlush() {
+        if (audioLogSaveT) { clearTimeout(audioLogSaveT); audioLogSaveT = null; }
+        try { localStorage.setItem(AUDIO_LOG_KEY, JSON.stringify(audioLogBuf)); } catch (e) {}
+    }
     function audioAliveBeat(force) {
         var now = Date.now();
         if (!force && now - audioAliveAt < 2000) return;
         audioAliveAt = now;
         try { localStorage.setItem(AUDIO_ALIVE_KEY, JSON.stringify({ t: now, ctx: audioCtxTag(metroAudioCtx), life: metroLife ? (metroLife.paused ? "pause" : "joue@" + metroLife.currentTime.toFixed(1)) : "—", fb: metroFbOn(), hidden: document.hidden, bpm: state.settings.metronome.bpm,
-            timers: metroFb.timers.length, lag: Math.round(performance.now() - metroLastTickAt), step: audioAliveStep })); } catch (e) {}
+            timers: metroFb.timers.length, lag: Math.round(performance.now() - metroLastTickAt), step: audioAliveStep, play: metroPlaying })); } catch (e) {}
     }
     function audioAliveClear() { audioAliveAt = 0; try { localStorage.removeItem(AUDIO_ALIVE_KEY); } catch (e) {} }
     window.addEventListener("pagehide", audioAliveClear);
@@ -9021,7 +9028,7 @@
             localStorage.removeItem(AUDIO_ALIVE_KEY);
             var o = JSON.parse(raw), d = new Date(o.t), p2 = function (n) { return (n < 10 ? "0" : "") + n; };
             audioLog("la page précédente s'est arrêtée sans prévenir (plantage, ou page gelée puis rechargée) : dernier signe de vie à " + p2(d.getHours()) + ":" + p2(d.getMinutes()) + ":" + p2(d.getSeconds())
-                + ", métronome en lecture, " + o.ctx + ", bouée " + o.life + ", son de secours " + (o.fb ? "activé" : "coupé") + (o.hidden ? ", page masquée" : "") + ", " + o.bpm + " BPM"
+                + ", " + (o.play === false ? "métronome en cours de lancement" : "métronome en lecture") + ", " + o.ctx + ", bouée " + o.life + ", son de secours " + (o.fb ? "activé" : "coupé") + (o.hidden ? ", page masquée" : "") + ", " + o.bpm + " BPM"
                 + ", " + (o.timers || 0) + " clic(s) de secours en attente, planificateur en retard de " + (o.lag || 0) + " ms, dernière étape : " + (o.step || "lecture normale"));
         } catch (e) {}
     })();
@@ -9066,7 +9073,7 @@
     }
     // Réglage par appareil (Paramètres › Métronome › Dépannage) : la bouée peut être coupée pour voir si elle est en cause quand le son saccade ou que l'appli se fige.
     var METRO_LIFE_KEY = "trainhub.metroLife.v1";
-    function metroLifeOn() { try { return localStorage.getItem(METRO_LIFE_KEY) !== "0"; } catch (e) { return true; } }
+    function metroLifeOn() { try { return localStorage.getItem(METRO_LIFE_KEY) === "1"; } catch (e) { return false; } } // désactivée par défaut : voir le réglage (Paramètres › Métronome)
     function metroLifeSet(on) {
         try { localStorage.setItem(METRO_LIFE_KEY, on ? "1" : "0"); } catch (e) {}
         audioLog("bouée audio " + (on ? "activée" : "désactivée"));
@@ -9167,8 +9174,11 @@
         var old = metroAudioCtx;
         // L'ancien contexte est fermé AVANT d'en créer un neuf : les navigateurs plafonnent le nombre de contextes ouverts
         // (Safari, Chrome), et un plafond atteint donnerait un métronome muet jusqu'au redémarrage de l'appli.
+        audioStep("contexte audio : fermeture de l'ancien");
         if (old) { try { old.onstatechange = null; old.close(); } catch (e) {} metroAudioCtx = null; }
+        audioStep("contexte audio : création du neuf");
         metroAdopt(metroMakeCtx());
+        if (!metroStarting) audioStep(""); // (au lancement, l'étape suivante prend le relais)
     }
     // Le contexte sert aussi au lecteur d'harmonie et au clic mêlé à un enregistrement : tant qu'ils l'utilisent, on ne le remplace pas.
     function metroCtxBusy() { return !!harmPlay || !!(rec && rec.clickDest); }
@@ -9753,14 +9763,22 @@
 
     function startMetronome() {
         if (metroPlaying) return;
-        try { ensureMetroAudio(true, true); } catch (e) { return; }
+        // Chaque étape du lancement est notée dans le signe de vie AVANT d'être faite : si la page se fige (ce qui est arrivé à Safari dans les deux secondes qui
+        // suivent l'appui sur Jouer), le journal suivant dit laquelle. Le journal est écrit tout de suite, pour que ses dernières lignes ne se perdent pas non plus.
+        metroStarting = true;
+        metroLastTickAt = performance.now(); // le signe de vie ne doit pas hériter du dernier passage de la lecture précédente (il affichait « en retard de 7 s »)
+        audioStep("lancement : contexte audio (fermeture de l'ancien, création du neuf)");
+        try { ensureMetroAudio(true, true); } catch (e) { metroStarting = false; audioAliveClear(); return; }
         metroPlaying = true;
         audioLog("métronome lancé (bouée " + (METRO_LIFE_OFF ? "inutile sur iPhone/iPad" : metroLifeOn() ? "active" : "désactivée") + ", son de secours " + (metroFbOn() ? "activé" : "coupé") + ")");
+        audioLogFlush();
         metroBlockedPrompts = 0; metroBlockedHintAt = 0;
-        audioAliveBeat(true);
+        audioStep("lancement : bouée");
         metroLifePlay("lancement");
+        audioStep("lancement : son de secours");
         if (metroFbOn()) { metroFbPool(); metroFbPrepare().catch(function () {}); } // son de secours : les éléments audio sont amorcés par ce geste
         metroFbHint();
+        audioStep("lancement : planificateur");
         metroCurrentStep = 0;
         metroProgNextAt = null; // le décompte du tempo progressif repart à chaque lancement
         metroProgIdx = -1; metroProgRan = false; metroProgHoldUntil = null;
@@ -9772,12 +9790,14 @@
         metroStartDog();
         metroStartTicker();
         metroScheduler();
+        metroStarting = false;
+        audioStep("");
     }
 
     var metroStopListeners = []; // appelées à l'arrêt du métronome, AVANT qu'un retour au tempo de départ ne change le BPM
     function stopMetronome() {
         if (metroPlaying) { audioLog("métronome arrêté"); metroStopListeners.forEach(function (fn) { try { fn(); } catch (e) {} }); }
-        metroPlaying = false;
+        metroPlaying = false; metroStarting = false;
         audioAliveClear();
         metroLifeStop();
         metroFbCancel(); metroFb.samples.length = 0; metroFb.off = null;
@@ -16580,7 +16600,7 @@
             card("Volet épinglé");
             field("Suivre l'exercice ouvert", switchControl(prefs().metroFollowEx, function (v) { setPref("metroFollowEx", v); }), "Métronome épinglé à droite : quand tu ouvres un autre exercice, il prend le réglage enregistré dans cet exercice (message « Annuler » à chaque changement)");
             card("Dépannage");
-            field("Bouée audio", switchControl(metroLifeOn() && !METRO_LIFE_OFF, function (on) { metroLifeSet(on); }), "Petit son inaudible qui garde le son actif quand on change de bureau ou réduit la fenêtre. À couper pour essai si le son saccade ou si l'appli se fige pendant le métronome");
+            field("Bouée audio (essai)", switchControl(metroLifeOn() && !METRO_LIFE_OFF, function (on) { metroLifeSet(on); }), "Petit son inaudible qui garde le son actif quand on change de bureau ou réduit la fenêtre. Désactivée par défaut : sur Safari, l'appli s'est figée à plusieurs reprises juste après l'appui sur Jouer, et ce lecteur audio caché en est un suspect. À n'activer que pour essai");
             field("Son de secours", switchControl(metroFbOn(), function (on) { metroFbSet(on); }), "À activer si le métronome reste muet alors que les vidéos et les fichiers audio sonnent : les clics passent par le lecteur audio du navigateur (un peu moins précis)");
             actionRow("Tester le son", "Un bip par Web Audio, puis un par le lecteur audio : si seul le second sonne, active le son de secours", metroSoundTest);
             actionRow("Journal du son", "Si le son se perd : copie ce journal et envoie-le (retours sur la page, états du son)", function () {
