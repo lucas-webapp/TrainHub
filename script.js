@@ -9017,12 +9017,20 @@
         if (audioLogSaveT) { clearTimeout(audioLogSaveT); audioLogSaveT = null; }
         try { localStorage.setItem(AUDIO_LOG_KEY, JSON.stringify(audioLogBuf)); } catch (e) {}
     }
+    // Contexte de la page au dernier signe de vie : session libre ou non, taille de la page (éléments), durée du dernier affichage — de quoi vérifier si les gels viennent surtout
+    // des sessions libres (grande page d'exercices ouverte) ou de la lecture elle-même.
+    var audioNodesAt = 0, audioNodesN = 0;
+    function audioAliveNodes() {
+        var t = Date.now();
+        if (t - audioNodesAt > 20000) { audioNodesAt = t; try { audioNodesN = document.getElementsByTagName("*").length; } catch (e) {} }
+        return audioNodesN;
+    }
     function audioAliveBeat(force) {
         var now = Date.now();
         if (!force && now - audioAliveAt < 2000) return;
         audioAliveAt = now;
         try { localStorage.setItem(AUDIO_ALIVE_KEY, JSON.stringify({ t: now, ctx: audioCtxTag(metroAudioCtx), life: metroLife ? (metroLife.paused ? "pause" : "joue@" + metroLife.currentTime.toFixed(1)) : "—", fb: metroFbOn(), hidden: document.hidden, bpm: state.settings.metronome.bpm,
-            timers: metroFb.timers.length, lag: Math.round(performance.now() - metroLastTickAt), step: audioAliveStep, play: metroPlaying })); } catch (e) {}
+            timers: metroFb.timers.length, lag: Math.round(performance.now() - metroLastTickAt), step: audioAliveStep, play: metroPlaying, free: !!freeRun, nodes: audioAliveNodes(), renderMs: Math.round(lastRenderMs || 0) })); } catch (e) {}
     }
     function audioAliveClear() { audioAliveAt = 0; try { localStorage.removeItem(AUDIO_ALIVE_KEY); } catch (e) {} }
     window.addEventListener("pagehide", audioAliveClear);
@@ -9034,7 +9042,8 @@
             var o = JSON.parse(raw), d = new Date(o.t), p2 = function (n) { return (n < 10 ? "0" : "") + n; };
             audioLog("la page précédente s'est arrêtée sans prévenir (plantage, ou page gelée puis rechargée) : dernier signe de vie à " + p2(d.getHours()) + ":" + p2(d.getMinutes()) + ":" + p2(d.getSeconds())
                 + ", " + (o.play === false ? "métronome en cours de lancement" : "métronome en lecture") + ", " + o.ctx + ", bouée " + o.life + ", son de secours " + (o.fb ? "activé" : "coupé") + (o.hidden ? ", page masquée" : "") + ", " + o.bpm + " BPM"
-                + ", " + (o.timers || 0) + " clic(s) de secours en attente, planificateur en retard de " + (o.lag || 0) + " ms, dernière étape : " + (o.step || "lecture normale"));
+                + ", " + (o.timers || 0) + " clic(s) de secours en attente, planificateur en retard de " + (o.lag || 0) + " ms, dernière étape : " + (o.step || "lecture normale")
+                + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
     function audioLogText() {
@@ -23575,6 +23584,38 @@
     }
     window.addEventListener("resize", function () { gsDockClockSync(); });
 
+    // Exercices à venir, en petit sous la barre d'avancement (titres seuls) : où l'on en est d'un coup d'œil, sans descendre jusqu'au « Plan de la session » (qui sert à les modifier).
+    // Une fenêtre autour de l'exercice en cours : le précédent (grisé), l'exercice en cours (en évidence), les quatre suivants ; ce qui dépasse est résumé en une ligne
+    // (« ↑ 3 faits avant », « ↓ 2 à venir ensuite »). Une session courte est montrée en entier.
+    var GS_UPNEXT_AHEAD = 4, GS_UPNEXT_BEHIND = 1;
+    function buildRunUpNext(session) {
+        var box = document.createElement("div");
+        box.className = "gs-run-upnext";
+        box.setAttribute("role", "list");
+        box.setAttribute("aria-label", "Exercices de la session");
+        var n = session.steps.length, cur = gsRunStepIndex;
+        var from = Math.max(0, cur - GS_UPNEXT_BEHIND), to = Math.min(n - 1, cur + GS_UPNEXT_AHEAD);
+        // près du début, il n'y a pas d'exercice précédent à montrer : la place profite aux suivants (autant de lignes) ; près de la fin, on ne remplit pas avec du passé
+        var span = GS_UPNEXT_BEHIND + 1 + GS_UPNEXT_AHEAD;
+        if (from === 0 && to - from + 1 < span) to = Math.min(n - 1, span - 1);
+        function line(cls, num, text, tip) {
+            var r = document.createElement("div"); r.className = "gs-run-up-row " + cls; r.setAttribute("role", "listitem");
+            var nm = document.createElement("span"); nm.className = "gs-run-up-num"; nm.textContent = num;
+            var tt = document.createElement("span"); tt.className = "gs-run-up-title"; tt.textContent = text;
+            r.appendChild(nm); r.appendChild(tt); if (tip) r.title = tip;
+            return r;
+        }
+        if (from > 0) box.appendChild(line("gs-run-up-more", "↑", from + " fait" + (from > 1 ? "s" : "") + " avant", "Exercices déjà passés"));
+        for (var i = from; i <= to; i++) {
+            var st = session.steps[i], f = findExerciseById(st.exerciseId), title = f ? f.ex.title : "(exercice supprimé)";
+            var cls = i < cur ? "gs-run-up-done" : i === cur ? "gs-run-up-cur" : "gs-run-up-next";
+            var row = line(cls, i === cur ? "▶" : String(i + 1), title, title + " — " + st.minutes + " min" + (i === cur ? " (en cours)" : ""));
+            if (i === cur) row.setAttribute("aria-current", "step");
+            box.appendChild(row);
+        }
+        if (to < n - 1) { var k = n - 1 - to; box.appendChild(line("gs-run-up-more", "↓", k + " à venir ensuite", "Voir le « Plan de la session » plus bas pour la liste complète")); }
+        return box;
+    }
     function renderGsRunScreen(content) {
         var session = gsRunSession;
         var step = session.steps[gsRunStepIndex];
@@ -23615,6 +23656,7 @@
             runBar.title = pct + " % de la durée prévue : " + gsFormatTotal(inf.pos * 1000) + " sur " + gsFormatTotal(inf.total * 1000) + " (exercice " + (gsRunStepIndex + 1) + " sur " + session.steps.length + ")";
         }
         runHead.appendChild(runBar);
+        runHead.appendChild(buildRunUpNext(session));
         content.appendChild(runHead);
 
         if (found) content.appendChild(gsThemeBadge(found.pathNames, found.chapterColor));
