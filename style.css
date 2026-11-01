@@ -1002,7 +1002,7 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
         max-width: none;
         margin: 0;
         flex: 1;
-        padding: 28px 32px;
+        padding: 24px 20px; /* 28px 32px avant : trop d'espace perdu entre le bandeau des dossiers, le contenu et le métronome épinglé */
         gap: 16px;
     }
     .sidebar-resizer { display: block; }
@@ -1425,7 +1425,7 @@ button.scales-more-btn { min-width: 44px; padding: 0 10px; font-size: var(--fs-m
     align-self: flex-start;
     position: sticky;
     top: calc(var(--topbar-h, 64px) + 12px);
-    margin: 12px 16px 12px 0;
+    margin: 12px 12px 12px 0;
     box-sizing: border-box;
 }
 .metro-dock .backups-panel.panel-docked {
@@ -1981,7 +1981,7 @@ button.tempo-chip-special { color: var(--c-orange); border-color: color-mix(in s
 
 /* Préparation des sessions : on profite de la largeur disponible (le métronome épinglé reste à droite,
    la zone principale en flex s'adapte) ; les titres d'exercice passent à la ligne au lieu d'être coupés. */
-.gs-main.gs-main-roomy { max-width: 1000px; }
+.gs-main.gs-main-roomy { max-width: 1120px; } /* 1000px avant : plus de place pour la liste et la préparation des sessions, moins de bande vide à côté du bandeau */
 html.sidebar-hidden .gs-main.gs-main-roomy { max-width: 1200px; }
 .gs-step-row .gs-step-details { cursor: default; }
 
@@ -4988,3 +4988,20 @@ textarea.gs-note-comment { display: block; width: 100%; box-sizing: border-box; 
 /* barre du haut de l'écran d'édition, thème verre : transparente à sa place (elle se fond dans le dégradé), fond « verre » flou seulement quand elle est collée en haut par-dessus le contenu qui défile */
 .gs-edit-topmark { height: 0; margin: 0; padding: 0; }
 html[data-glass="1"] .gs-edit-topbar:not(.gs-edit-stuck) { background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
+
+/* ===== v236 : espaces entre les fenêtres, seuil de taille des icônes du métronome ===== */
+/* Métronome épinglé à droite (écran assez large pour une colonne) : le contenu n'a plus que 12 px d'écart avec lui (20 px de marge + 16 px de marge du volet avant). */
+@media (min-width: 1100px) {
+    html.metro-docked .main { padding-right: 12px; }
+    /* La colonne de la session est centrée entre le bandeau des dossiers et le métronome : plafonnée à 560 px, tout l'espace gagné sur les marges (ci-dessus) partait
+       dans de larges bandes vides de chaque côté. Avec le métronome épinglé à côté, elle occupe la place disponible (plafond relevé). */
+    html.metro-docked .gs-main { max-width: 860px; }
+    html.metro-docked .gs-main.gs-main-wide { max-width: 960px; }
+}
+/* Seuil des « logos » : le contenu du métronome grossit avec le volet (zoom, voir fitPanelContentZoom), mais la rangée du haut (logo, volume, enregistrer,
+   épingle, fermer), le chronomètre et l'objectif tempo s'arrêtent à 1,4 fois leur taille normale — fitPanelContentZoom pose --icon-z, le contre-zoom qui les y ramène.
+   Le cadran, le tempo, les temps et le bouton Jouer, eux, continuent de grossir pour remplir le volet. */
+.panel-fit-inner > .metro-header-row,
+.panel-fit-inner .metro-chrono-icon,
+.panel-fit-inner button.metro-chrono-reset,
+.panel-fit-inner .metro-goal-slot { zoom: var(--icon-z, 1); }

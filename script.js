@@ -8363,6 +8363,7 @@
     // les mesures de l'élément zoomé lui-même ne sont pas exprimées pareil partout.
     var PANEL_FIT_MIN_ZOOM = 0.3;
     var PANEL_FIT_MAX_ZOOM = 2.4;
+    var PANEL_ICON_MAX_ZOOM = 1.4; // seuil des icônes : au-delà, --icon-z (contre-zoom, voir style.css) les empêche de grossir avec le reste
     // `allowGrow` : seulement quand la HAUTEUR de la boîte est imposée (fenêtre flottante à taille fixée, volet dont la
     // hauteur a été choisie). Sinon (volet « auto »), un contenu qui grossit agrandirait la boîte, qui laisserait encore
     // grossir le contenu… jusqu'au maximum : on garde alors le comportement d'avant (jamais au-delà de 100 %).
@@ -8371,6 +8372,7 @@
         var maxZ = allowGrow ? PANEL_FIT_MAX_ZOOM : 1;
         function fitsAt(z) {
             inner.style.zoom = z === 1 ? "" : String(z);
+            if (z > PANEL_ICON_MAX_ZOOM) inner.style.setProperty("--icon-z", String(Math.round(PANEL_ICON_MAX_ZOOM / z * 1000) / 1000)); else inner.style.removeProperty("--icon-z");
             return box.scrollHeight <= box.clientHeight + 1 && box.scrollWidth <= box.clientWidth + 1;
         }
         // Déjà bien ajusté (le zoom actuel tient et un cran de plus ne tiendrait plus) : rien à recalculer — évite une
