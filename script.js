@@ -9963,14 +9963,32 @@
         showToast("Métronome de « " + found.ex.title + " » mis à jour (exercice et sessions).", 3500);
     }
 
+    // Préréglage appliqué : le panneau est reconstruit pour afficher le nouveau réglage. Avant, il se fermait, ce qui ARRÊTAIT le métronome (et détruisait son contexte audio),
+    // puis un contexte audio NEUF était créé pour le relancer — en quelques millisecondes, à chaque changement d'exercice affiché (« Suivre l'exercice ouvert » en session libre) ou
+    // d'exercice de la session : le journal montrait « métronome arrêté » puis « contexte neuf adopté » et « métronome lancé » 32 ms plus tard. Un métronome qui joue continue
+    // maintenant de jouer pendant la reconstruction : le planificateur relit le réglage à chaque temps, seuls le décompte du tempo progressif et la mesure repartent (metroSoftRestart).
+    var metroKeepPlayingOnClose = false;
+    var metroChronoCarryMs = null; // temps déjà affiché au chronomètre du panneau reconstruit pendant la lecture (il repart de là, pas de zéro)
+    function metroSoftRestart() {
+        var m = state.settings.metronome;
+        metroCurrentStep = 0; // le nouvel exercice commence sur le prochain temps (temps 1)
+        metroProgNextAt = null; metroProgIdx = -1; metroProgRan = false; metroProgHoldUntil = null; // même remise à zéro que startMetronome
+        metroMeasureIdx = 0; metroTrainRemoved = []; metroTrainNextAt = null;
+        metroProgStartBpm = (m.progressive.enabled && m.progressive.restoreOnStop) ? m.bpm : null;
+        metroAutoDelta = 0;
+    }
     function loadMetronomePreset(preset, opts) {
         opts = opts || {};
-        var wasOpen = !!metroPanelApi, wasPlaying = metroPlaying;
+        var wasOpen = !!metroPanelApi, wasPlaying = metroPlaying, keep = wasOpen && wasPlaying;
         if (wasOpen) {
-            if (closeDockedMetronome) closeDockedMetronome();
-            else if (closeActiveModal && activeModalKind === "metronome-panel") closeActiveModal();
+            metroKeepPlayingOnClose = keep;
+            try {
+                if (closeDockedMetronome) closeDockedMetronome();
+                else if (closeActiveModal && activeModalKind === "metronome-panel") closeActiveModal();
+            } finally { metroKeepPlayingOnClose = false; }
         }
         applyMetronomePresetToSettings(preset);
+        if (keep && metroPlaying) metroSoftRestart();
         if (opts.link) setMetroLink(opts.link); // base = réglage normalisé, juste appliqué
         if (wasOpen || opts.open) openMetronomePanel();
         if ((wasPlaying || opts.play) && metroPanelApi && !metroPlaying) metroPanelApi.toggle();
@@ -11167,8 +11185,8 @@
                 var mm = Math.floor(totalSec / 60), ss = totalSec % 60;
                 chronoValue.textContent = (mm < 10 ? "0" : "") + mm + ":" + (ss < 10 ? "0" : "") + ss;
             }
-            function startChrono() {
-                chronoElapsedMs = 0; // chaque lancement repart de zéro (pas de chrono long)
+            function startChrono(from) {
+                chronoElapsedMs = from || 0; // chaque lancement repart de zéro (pas de chrono long) ; `from` : panneau reconstruit en pleine lecture
                 chronoStartTs = Date.now();
                 if (chronoInterval) clearInterval(chronoInterval);
                 chronoInterval = setInterval(refreshChrono, 250);
@@ -11209,6 +11227,7 @@
             playBtn.addEventListener("click", toggleMetroPlayback);
             metroPanelApi = { toggle: toggleMetroPlayback, setBpm: function (v) { setBpm(v); } };
             panel.appendChild(playBtn);
+            if (metroPlaying) { startChrono(metroChronoCarryMs); metroChronoCarryMs = null; } // panneau reconstruit pendant la lecture (nouveau préréglage) : le chronomètre continue où il en était
 
             function setBpm(v) {
                 v = Math.min(300, Math.max(30, v));
@@ -11224,9 +11243,9 @@
             refreshBpmUI();
 
             // On arrête le métronome en fermant le panneau : pas de son qui continue en arrière-plan
-            // sans qu'on le voie.
+            // sans qu'on le voie. Sauf quand le panneau est seulement reconstruit pour un nouveau préréglage (voir loadMetronomePreset) : le métronome continue de jouer.
             return function () {
-                stopMetronome();
+                if (metroKeepPlayingOnClose) metroChronoCarryMs = chronoCurrentMs(); else stopMetronome();
                 window.removeEventListener("pointerup", onPanelPointerUp);
                 if (metroLinkRefresh === refreshLinkBar) metroLinkRefresh = null;
                 // Fermé pendant l'édition d'un préréglage (sans Enregistrer) : annulation, réglages d'avant rétablis.
