@@ -21282,7 +21282,7 @@
     function statsRows(log, ctx) {
         var rows = [], rules = ctx.rules;
         log.forEach(function (rec) {
-            (rec.steps || []).forEach(function (st) {
+            (rec.steps || []).forEach(function (st, stepIdx) {
                 var id0 = st.exerciseId || null, id = id0, guard = 0;
                 while (id && rules.alias[id] && guard++ < 8) id = rules.alias[id];
                 var live = id ? ctx.ex[id] : null;
@@ -21302,7 +21302,7 @@
                 else { subId = (st.pathIds && st.pathIds[1]) || null; subName = (st.path && st.path[1]) || null; }
                 if (subId && ctx.folders[subId]) subName = ctx.folders[subId].name; // renommé depuis : nom actuel
                 rows.push({
-                    rec: rec, date: rec.date,
+                    rec: rec, recId: rec.id, stepIdx: stepIdx, date: rec.date,
                     exKey: id || ("t:" + (st.title || "?")),
                     title: live ? live.ex.title : (st.title || "(sans titre)"),
                     frozenTitle: st.title || "(sans titre)",
@@ -21583,7 +21583,52 @@
         return svg;
     }
     // Progression du tempo d'un exercice : meilleur BPM de chaque séance.
-    function statsTempoChart(pts) {
+    // Retire le tempo d'UN point du graphique (une séance, un exercice) : temps passé et reste de la séance intacts, comme quand on vide la case BPM
+    // dans la correction d'une séance. `done(msg)` : l'écran se redessine ; le message propose « Annuler » (remet la séance telle qu'elle était).
+    function statsDropTempo(p, done) {
+        var cur = logAll().filter(function (r) { return r.id === p.recId; })[0], st = cur && cur.steps && cur.steps[p.stepIdx];
+        if (!st || st.bpmMax !== p.bpm) { showToast("Ce point a déjà changé : rien n'a été retiré."); done(); return; } // séance modifiée ou fusionnée depuis l'affichage
+        var before = cloneJson(cur), r = cloneJson(cur), s = r.steps[p.stepIdx];
+        s.bpmFirst = null; s.bpmMax = null; s.bpmEnd = null;
+        delete s.bpmHow; delete s.bpmShort; delete s.bpmTarget; delete s.bpmStop;
+        logAdd(r); save();
+        done();
+        showToast("Point du " + gsFmtDate(p.date) + " (" + p.bpm + " BPM) retiré des statistiques", 8000, { label: "Annuler", run: function () { logAdd(before); save(); done(); showToast("Point remis dans les statistiques"); } });
+    }
+    // Petit menu posé sous le curseur (même habillage que le menu d'un exercice) : un titre, un texte, des actions.
+    function statsPointMenu(x, y, p, exTitle, done) {
+        closeFolderMenu();
+        var backdrop = document.createElement("div");
+        backdrop.className = "ctx-backdrop";
+        backdrop.addEventListener("pointerdown", function (e) { e.preventDefault(); closeFolderMenu(); });
+        backdrop.addEventListener("contextmenu", function (e) { e.preventDefault(); closeFolderMenu(); });
+        var menu = document.createElement("div");
+        menu.className = "ctx-menu st-pt-ctx";
+        menu.setAttribute("role", "menu");
+        menu.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+        if (closeActiveModal) { backdrop.classList.add("ctx-over-modal"); menu.classList.add("ctx-over-modal"); } // ouvert depuis les statistiques (une fenêtre) : au-dessus d'elle
+        var title = document.createElement("div"); title.className = "ctx-title";
+        title.textContent = gsFmtDate(p.date) + " · " + p.bpm + " BPM";
+        menu.appendChild(title);
+        var msg = document.createElement("div"); msg.className = "ctx-message ctx-warn";
+        msg.textContent = exTitle + (p.recName ? " — séance « " + p.recName + " »" : "") + ". Seul le tempo de cette séance est retiré : le temps passé reste compté.";
+        menu.appendChild(msg);
+        var b = document.createElement("button"); b.type = "button"; b.className = "ctx-item ctx-danger"; b.textContent = "Retirer ce point des statistiques";
+        var armed = false;
+        b.addEventListener("pointerdown", function () { armed = true; });
+        b.addEventListener("click", function (e) { if (!armed && e.detail !== 0) return; armed = false; closeFolderMenu(); statsDropTempo(p, done); });
+        menu.appendChild(b);
+        function onKey(e) { if (e.key === "Escape") closeFolderMenu(); }
+        document.body.appendChild(backdrop);
+        document.body.appendChild(menu);
+        document.addEventListener("keydown", onKey, true);
+        openMenu = { backdrop: backdrop, menu: menu, onKey: onKey };
+        var w = menu.offsetWidth || 240, h = menu.offsetHeight || 120;
+        menu.style.left = Math.min(Math.max(8, x + 6), Math.max(8, window.innerWidth - w - 8)) + "px";
+        menu.style.top = Math.min(Math.max(8, y + 6), Math.max(8, window.innerHeight - h - 8)) + "px";
+        b.focus();
+    }
+    function statsTempoChart(pts, onPoint) {
         var W = 600, H = 190, L = 44, R = 14, T = 12, B = 26, plotW = W - L - R, plotH = H - T - B;
         var svg = svgNode("svg", { viewBox: "0 0 " + W + " " + H, "class": "st-chart st-tempo", role: "img", "aria-label": "Progression du tempo" });
         var vals = pts.map(function (p) { return p.bpm; }), mn = Math.min.apply(null, vals), mx = Math.max.apply(null, vals);
@@ -21599,7 +21644,15 @@
         function xOf(t) { return pts.length === 1 || t1 === t0 ? L + plotW / 2 : L + (t - t0) / dt * plotW; }
         svgNode("polyline", { points: pts.map(function (p) { return xOf(p.date).toFixed(1) + "," + yOf(p.bpm).toFixed(1); }).join(" "), "class": "st-line", fill: "none" }, svg);
         pts.forEach(function (p, i) {
-            svgTip(svgNode("circle", { cx: xOf(p.date), cy: yOf(p.bpm), r: 4, "class": "st-dot" + (i === pts.length - 1 ? " st-dot-hi" : "") }, svg), statsShortDate(p.date) + " : " + p.bpm + " BPM" + (p.first && p.first !== p.bpm ? " (départ " + p.first + ")" : ""));
+            var tip = statsShortDate(p.date) + " : " + p.bpm + " BPM" + (p.first && p.first !== p.bpm ? " (départ " + p.first + ")" : "");
+            var g = svgNode("g", { "class": "st-pt" + (onPoint && p.recId ? " st-pt-menu" : "") }, svg);
+            if (onPoint && p.recId) { // clic droit (appui long sur téléphone) : retirer ce point ; zone élargie, un point de 8 px est trop petit à viser
+                svgNode("circle", { cx: xOf(p.date), cy: yOf(p.bpm), r: 12, "class": "st-hit" }, g);
+                g.setAttribute("tabindex", "0"); g.setAttribute("aria-label", tip + " — menu : retirer ce point");
+                bindContextGesture(g, function (x, y) { onPoint(p, x, y); });
+            }
+            svgNode("circle", { cx: xOf(p.date), cy: yOf(p.bpm), r: 4, "class": "st-dot" + (i === pts.length - 1 ? " st-dot-hi" : "") }, g);
+            svgTip(g, tip);
             if (i === 0 || i === pts.length - 1) svgNode("text", { x: xOf(p.date), y: yOf(p.bpm) - 9, "class": "st-axis st-axis-strong" + (i === pts.length - 1 ? " st-axis-hi" : ""), "text-anchor": i === 0 && pts.length > 1 ? "start" : "end" }, svg, String(p.bpm));
         });
         svgNode("text", { x: L, y: H - 8, "class": "st-axis", "text-anchor": "start" }, svg, statsShortDate(t0));
@@ -21732,7 +21785,7 @@
             var o = by[r.exKey] || (by[r.exKey] = { key: r.exKey, title: r.title, chapterName: r.chapterName, rows: [], sec: 0, plannedSec: 0, plannedN: 0, realOfPlanned: 0, pts: [] });
             o.rows.push(r); o.sec += r.sec; o.title = r.title; o.chapterName = r.chapterName;
             if (r.plannedSec) { o.plannedSec += r.plannedSec; o.plannedN++; o.realOfPlanned += r.sec; }
-            if (r.bpmMax && r.tempoGoal !== false && r.exKey.indexOf("t:") !== 0) o.pts.push({ date: r.date, bpm: r.bpmMax, first: r.bpmFirst, end: r.bpmEnd });
+            if (r.bpmMax && r.tempoGoal !== false && r.exKey.indexOf("t:") !== 0) o.pts.push({ date: r.date, bpm: r.bpmMax, first: r.bpmFirst, end: r.bpmEnd, recId: r.recId, stepIdx: r.stepIdx, recName: r.rec && r.rec.name });
         });
         function mins(sec) { var m = sec / 60; return m < 10 ? Math.max(1, Math.round(m)) : Math.max(5, Math.round(m / 5) * 5); }
         var nEx = Object.keys(by).length;
@@ -22174,7 +22227,10 @@
                     } else { var fine = document.createElement("div"); fine.className = "st-ex-fine"; fine.textContent = "Rien à signaler : durées et tempo sont réguliers."; body.appendChild(fine); }
                     if (o.pts.length >= 2) {
                         var t1 = document.createElement("div"); t1.className = "st-sub-title"; t1.textContent = "Progression du tempo (meilleur BPM de chaque séance)"; body.appendChild(t1);
-                        var tw = document.createElement("div"); tw.className = "st-chart-wrap"; tw.appendChild(statsTempoChart(o.pts)); body.appendChild(tw);
+                        var tw = document.createElement("div"); tw.className = "st-chart-wrap";
+                        tw.appendChild(statsTempoChart(o.pts, function (p, x, y) { statsPointMenu(x, y, p, o.title, function () { if (box.isConnected) { rerender(); refreshStatsBadge(); } }); }));
+                        body.appendChild(tw);
+                        var hint = document.createElement("div"); hint.className = "st-hint"; hint.textContent = "Erreur d'enregistrement ? Clic droit (appui long sur téléphone) sur un point pour le retirer."; body.appendChild(hint);
                     }
                     var t2 = document.createElement("div"); t2.className = "st-sub-title"; t2.textContent = "Durée réelle de chaque séance" + (o.plannedN ? " (trait = durée prévue)" : ""); body.appendChild(t2);
                     var dw = document.createElement("div"); dw.className = "st-chart-wrap"; dw.appendChild(statsDurationChart(o.rows.map(function (r) { return { date: r.date, sec: r.sec, plannedSec: r.plannedSec }; }))); body.appendChild(dw);

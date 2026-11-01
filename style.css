@@ -2687,6 +2687,11 @@ button.gs-hist-tab .gs-tab-count, button.gs-history-btn .gs-tab-count { margin-l
 .st-line { stroke: var(--st-data); }
 .st-dot { stroke: var(--st-data); }
 .st-dot-hi { fill: var(--st-hi); stroke: var(--st-hi); }
+.st-hit { fill: transparent; stroke: none; }
+.st-pt-menu { cursor: context-menu; outline: none; }
+.st-pt-menu:hover .st-hit, .st-pt-menu:focus-visible .st-hit { fill: color-mix(in srgb, var(--st-hi) 22%, transparent); stroke: var(--st-hi); stroke-width: 1; }
+.st-hint { margin: 2px 0 0; font-size: var(--fs-xs, 12px); color: var(--text-muted); }
+.st-pt-ctx { max-width: 320px; }
 .st-axis-hi { fill: var(--st-hi); }
 .st-cell { fill: color-mix(in srgb, var(--st-data) 11%, transparent); }
 .st-lv1 { fill: color-mix(in srgb, var(--st-data) 30%, transparent); }
