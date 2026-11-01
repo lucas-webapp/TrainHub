@@ -17994,6 +17994,26 @@
                 if (!q && pickTabMem === "all") { node(wrap, inst.categories, 0, null); paintPicked(); return; }
                 var res = collectExercises(inst, function (ex) { return !ex.archived && exclude.indexOf(ex.id) === -1 && (pickTabMem !== "fav" || !!ex.favorite) && (!q || ex.title.toLowerCase().indexOf(q) !== -1); });
                 if (!res.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = pickTabMem === "fav" && !q ? "Aucun favori : marque un exercice d'une étoile (clic droit › Marquer en favori)." : "Aucun exercice ne correspond."; wrap.appendChild(none); return; }
+                if (pickTabMem === "fav") { // favoris : rangés par dossier (avec « Tout » par dossier en choix multiple)
+                    pickGroupByFolder(inst, res).forEach(function (g) {
+                        var all = null;
+                        if (multi) {
+                            all = document.createElement("button"); all.type = "button"; all.className = "gs-pick-folder-all"; all.textContent = "Tout";
+                            all.title = "Choisir (ou retirer) tous les favoris de « " + g.pathNames.join(" › ") + " »";
+                            all.addEventListener("click", function (e) {
+                                e.stopPropagation();
+                                var every = g.items.every(function (r) { return !!picked[r.ex.id]; });
+                                g.items.forEach(function (r) { if (every) delete picked[r.ex.id]; else picked[r.ex.id] = r.ex; });
+                                paintPicked();
+                            });
+                        }
+                        var h = pickFavGroupHead(g, refresh, all);
+                        if (h.kids) g.items.forEach(function (r) { h.kids.appendChild(exButton(r.ex)); });
+                        wrap.appendChild(h.node);
+                    });
+                    paintPicked();
+                    return;
+                }
                 res.forEach(function (r) { var root = findById(inst.categories, r.pathIds[0]); wrap.appendChild(exButton(r.ex, r.pathNames, (root && root.color) || "#00e676")); });
                 paintPicked();
             }
@@ -19534,6 +19554,79 @@
         el.title = ex.notes;
         return el;
     }
+    // Une ligne d'exercice du choix d'une session (arborescence « Tous » et favoris rangés par dossier) : un clic le choisit, Ctrl/⌘/Maj + clic en
+    // sélectionne plusieurs, clic droit / appui long ouvre son menu, et on peut le glisser vers un dossier.
+    function gsPickExerciseButton(ex, folder, inst) {
+        var exBtn = document.createElement("button");
+        exBtn.type = "button";
+        exBtn.className = "gs-pick-exercise-row" + (ex.id in exSel ? " selected" : "");
+        exBtn.dataset.exId = ex.id;
+        var exTitle = document.createElement("span");
+        exTitle.className = "gs-pick-ex-title";
+        exTitle.textContent = ex.title;
+        exBtn.appendChild(exTitle);
+        var prev = gsNotePreview(ex);
+        if (prev) exBtn.appendChild(prev);
+        exBtn.addEventListener("click", function (e) {
+            if (suppressNextClick) { suppressNextClick = false; return; }
+            if (gsPickMulti && exSelWantsClick(e)) { exSelClick(e, ex.id); return; } // Ctrl/⌘/Maj + clic : sélection multiple
+            gsPickCallback(ex);
+            gsScreen = "edit";
+            render();
+        });
+        bindPickGesture(exBtn, function (x, y) {
+            if (exSelCount() > 1 && ex.id in exSel) openLinksQuickMenu(x, y, exSelActions().map(function (a) { return { label: a.text, open: function () { a.run(exBtn); } }; }));
+            else openExerciseMenu(x, y, ex, folder, { reveal: true, noAddToSession: true, noSelect: !gsPickMulti });
+        }, function (destId, x, y) {
+            var dest = findFolderById(inst, destId);
+            if (dest && exSelCount() > 1 && (ex.id in exSel)) openExercisesDropMenu(x, y, exSelItems(), dest);
+            else if (dest) openExerciseDropMenu(x, y, ex, folder, dest);
+        });
+        return exBtn;
+    }
+    // Favoris des choix d'exercice : les exercices d'un même dossier sont rangés ensemble sous le titre de ce dossier (chemin complet), dans l'ordre des chapitres de
+    // la barre latérale puis des dossiers — comme la vue « Favoris » de la fenêtre principale — et non plus en vrac dans une liste à plat. Dans un dossier : l'ordre de ses exercices.
+    function pickGroupByFolder(inst, results) {
+        var chapterOrder = {}, groups = [], byFolder = {};
+        orderedChapterItems(inst).forEach(function (item, i) { chapterOrder[item.id] = i; });
+        results.forEach(function (r) {
+            var g = byFolder[r.folder.id];
+            if (!g) {
+                var root = findById(inst.categories, r.pathIds[0]);
+                g = byFolder[r.folder.id] = { folder: r.folder, pathNames: r.pathNames, pathIds: r.pathIds, color: (root && root.color) || "#00e676", items: [], rank: chapterOrder[r.pathIds[0]], seq: groups.length };
+                groups.push(g);
+            }
+            g.items.push(r);
+        });
+        groups.sort(function (a, b) {
+            var ra = a.rank === undefined ? 1e9 : a.rank, rb = b.rank === undefined ? 1e9 : b.rank;
+            return ra - rb || a.seq - b.seq;
+        });
+        return groups;
+    }
+    // Titre d'un groupe de favoris : le chemin du dossier, le nombre d'exercices, et un chevron pour replier le groupe (état retenu, à part de la barre latérale).
+    // `extra` : bouton supplémentaire (« Tout » du choix multiple). Rend { node, kids } : les exercices se posent dans `kids`.
+    function pickFavGroupHead(g, onToggle, extra) {
+        var key = "xfav:" + g.folder.id, open = treeExpanded[key] !== false;
+        var node = document.createElement("div"); node.className = "gs-pick-node gs-pick-favgroup"; node.dataset.group = g.folder.id;
+        var row = document.createElement("div"); row.className = "gs-pick-tree-row gs-pick-fav-head";
+        row.style.borderLeft = "3px solid " + g.color; row.style.background = "color-mix(in srgb, " + g.color + " 6%, transparent)";
+        row.dataset.pickFolder = g.folder.id; // le dossier reste une cible de glisser-déposer, comme dans l'arborescence
+        var tw = document.createElement("button"); tw.type = "button"; tw.className = "tree-twisty" + (open ? " expanded" : ""); tw.innerHTML = CHEVRON_ICON_SVG;
+        tw.setAttribute("aria-label", open ? "Replier" : "Déplier"); tw.setAttribute("aria-expanded", open ? "true" : "false");
+        var lb = document.createElement("span"); lb.className = "tree-label"; lb.textContent = g.pathNames.join(" › ");
+        var ct = document.createElement("span"); ct.className = "result-group-count"; ct.textContent = String(g.items.length);
+        row.appendChild(tw); row.appendChild(lb); row.appendChild(ct);
+        if (extra) row.appendChild(extra);
+        row.addEventListener("click", function () {
+            if (suppressNextClick) { suppressNextClick = false; return; }
+            treeExpanded[key] = !open; onToggle();
+        });
+        node.appendChild(row);
+        var kids = null;
+        if (open) { kids = document.createElement("div"); kids.className = "gs-pick-tree-children"; node.appendChild(kids); }
+        return { node: node, kids: kids };
+    }
     function renderGsPickTree(container, folders, depth, rootColor) {
         var inst = getActiveInstrument(), parentList = folders;
         folders.forEach(function (folder) {
@@ -19580,34 +19673,7 @@
             if (expanded && hasContent) {
                 var childWrap = document.createElement("div");
                 childWrap.className = "gs-pick-tree-children";
-                visibleExercises.forEach(function (ex) {
-                    var exBtn = document.createElement("button");
-                    exBtn.type = "button";
-                    exBtn.className = "gs-pick-exercise-row" + (ex.id in exSel ? " selected" : "");
-                    exBtn.dataset.exId = ex.id;
-                    var exTitle = document.createElement("span");
-                    exTitle.className = "gs-pick-ex-title";
-                    exTitle.textContent = ex.title;
-                    exBtn.appendChild(exTitle);
-                    var prev = gsNotePreview(ex);
-                    if (prev) exBtn.appendChild(prev);
-                    exBtn.addEventListener("click", function (e) {
-                        if (suppressNextClick) { suppressNextClick = false; return; }
-                        if (gsPickMulti && exSelWantsClick(e)) { exSelClick(e, ex.id); return; } // Ctrl/⌘/Maj + clic : sélection multiple
-                        gsPickCallback(ex);
-                        gsScreen = "edit";
-                        render();
-                    });
-                    bindPickGesture(exBtn, function (x, y) {
-                        if (exSelCount() > 1 && ex.id in exSel) openLinksQuickMenu(x, y, exSelActions().map(function (a) { return { label: a.text, open: function () { a.run(exBtn); } }; }));
-                        else openExerciseMenu(x, y, ex, folder, { reveal: true, noAddToSession: true, noSelect: !gsPickMulti });
-                    }, function (destId, x, y) {
-                        var dest = findFolderById(inst, destId);
-                        if (dest && exSelCount() > 1 && (ex.id in exSel)) openExercisesDropMenu(x, y, exSelItems(), dest);
-                        else if (dest) openExerciseDropMenu(x, y, ex, folder, dest);
-                    });
-                    childWrap.appendChild(exBtn);
-                });
+                visibleExercises.forEach(function (ex) { childWrap.appendChild(gsPickExerciseButton(ex, folder, inst)); });
                 renderGsPickTree(childWrap, folder.folders, depth + 1, color);
                 node.appendChild(childWrap);
             }
@@ -19654,6 +19720,15 @@
                 empty.className = "gs-empty";
                 empty.textContent = pickTabMem === "fav" && !q ? "Aucun favori : marque un exercice d'une étoile (clic droit › Marquer en favori)." : "Aucun exercice ne correspond.";
                 resultsWrap.appendChild(empty);
+                return;
+            }
+            if (pickTabMem === "fav") { // favoris : rangés par dossier, comme dans la fenêtre principale
+                resultsWrap.className = "gs-pick-tree gs-pick-favs";
+                pickGroupByFolder(inst, results).forEach(function (g) {
+                    var h = pickFavGroupHead(g, refreshResults);
+                    if (h.kids) g.items.forEach(function (r) { h.kids.appendChild(gsPickExerciseButton(r.ex, r.folder, inst)); });
+                    resultsWrap.appendChild(h.node);
+                });
                 return;
             }
             results.forEach(function (r) {
