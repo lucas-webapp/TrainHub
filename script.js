@@ -4373,6 +4373,7 @@
         renderChapterBar();
         renderSidebarTree();
         renderMain();
+        gsDockClockSync();
         updateUndoRedoButtons();
         autoGrowAllNotes();
         autoSizeAllExerciseTitles();
@@ -8152,7 +8153,7 @@
         } else {
             if (typeof sz.w === "number") st.setProperty("--metro-dock-w", Math.min(Math.round(window.innerWidth * 0.6), 760, Math.max(300, sz.w)) + "px");
             if (typeof sz.h === "number") {
-                var smax = window.innerHeight - topbar - 28;
+                var smax = window.innerHeight - topbar - 28 - gsClockReserve(); // la carte des temps de la session, sous le métronome, prend sa place
                 st.setProperty("--metro-panel-h", Math.min(smax, Math.max(220, sz.h)) + "px");
                 st.setProperty("--metro-dock-max-h", smax + "px");
             }
@@ -8202,12 +8203,14 @@
         $metroDock.hidden = false;
         document.documentElement.classList.add("metro-docked");
         applyMetroDockSize();
+        gsDockClockSync();
     }
     function releaseMetroDock() {
         closeDockedMetronome = null;
         if ($metroDock) {
             $metroDock.hidden = true;
             Array.prototype.forEach.call($metroDock.querySelectorAll(".metro-dock-grip"), function (g) { g.remove(); });
+            $metroDock.style.removeProperty("--gs-clock-h");
         }
         document.documentElement.classList.remove("metro-docked");
         document.documentElement.style.removeProperty("--metro-dock-h");
@@ -23512,11 +23515,73 @@
         refreshMiniButtons();
     }
 
+    // ---------- avancement de la session (barre verte) et horloge sous le métronome ----------
+    // Position dans la session PAR LA DURÉE (et non par le nombre d'exercices : le 7e sur 9 peut être loin de la fin si le dernier est très long) : les exercices
+    // terminés comptent pour leur durée prévue, l'exercice en cours pour le temps déjà passé (au plus sa durée, rallongée ou raccourcie par −1/+1 min).
+    function gsRunProgressInfo() {
+        var steps = gsRunSession.steps, cur = gsRunStepIndex, total = 0, done = 0;
+        var weights = steps.map(function (st, i) { return i === cur ? gsRunAllocatedSec : st.minutes * 60; });
+        weights.forEach(function (w, i) { total += w; if (i < cur) done += w; });
+        var el = Math.floor(gsRunElapsedNowMs() / 1000), pos = done + Math.min(el, gsRunAllocatedSec);
+        return { weights: weights, total: total, before: done, pos: pos, frac: total > 0 ? Math.min(1, pos / total) : 0, exElapsed: el, exLeft: gsRunAllocatedSec - el, left: Math.max(0, total - pos) };
+    }
+    // Carte sous le métronome épinglé (colonne de droite, écran large) : les temps de la session d'un coup d'œil. Elle occupe la place restée vide sous le métronome.
+    var gsClockCard = null, gsClockLast = {};
+    function gsClockReserve() { return gsClockCard && gsClockCard.isConnected && $metroDock && !$metroDock.hidden ? gsClockCard.offsetHeight + 10 : 0; } // hauteur prise au volet du métronome
+    function gsDockClockSync() {
+        var want = !!(gsRunSession && gsScreen === "run" && guidedSessionViewActive && $metroDock && !$metroDock.hidden && !metroDockIsBottom());
+        var before = gsClockReserve();
+        if (!want) {
+            if (gsClockCard && gsClockCard.parentNode) gsClockCard.parentNode.removeChild(gsClockCard);
+            if (before) { $metroDock.style.removeProperty("--gs-clock-h"); applyMetroDockSize(); }
+            return;
+        }
+        if (!gsClockCard) {
+            var card = document.createElement("div");
+            card.className = "gs-dock-clock"; card.setAttribute("role", "group"); card.setAttribute("aria-label", "Temps de la session");
+            var head = document.createElement("div"); head.className = "gs-clock-head";
+            var ti = document.createElement("span"); ti.className = "gs-clock-title"; ti.textContent = "Session";
+            var sub = document.createElement("span"); sub.className = "gs-clock-sub"; sub.dataset.k = "sub";
+            head.appendChild(ti); head.appendChild(sub); card.appendChild(head);
+            var grid = document.createElement("div"); grid.className = "gs-clock-grid";
+            [["total", "Temps de session", "Durée de pratique depuis le début (s'arrête pendant la pause)"], ["left", "Reste (prévu)", "Durée prévue qu'il reste à faire, d'après le temps alloué à chaque exercice"],
+             ["ex", "Temps d'exercice", "Temps passé sur l'exercice en cours"], ["exleft", "Reste dans l'exercice", "Temps qu'il reste sur l'exercice en cours (+ : dépassé)"]].forEach(function (c) {
+                var cell = document.createElement("div"); cell.className = "gs-clock-cell"; cell.title = c[2];
+                var lb = document.createElement("span"); lb.className = "gs-clock-label"; lb.textContent = c[1];
+                var v = document.createElement("span"); v.className = "gs-clock-val"; v.dataset.k = c[0];
+                cell.appendChild(lb); cell.appendChild(v); grid.appendChild(cell);
+            });
+            card.appendChild(grid);
+            var foot = document.createElement("div"); foot.className = "gs-clock-foot"; foot.dataset.k = "foot"; card.appendChild(foot);
+            gsClockCard = card; gsClockLast = {};
+        }
+        if (gsClockCard.parentNode !== $metroDock || $metroDock.lastElementChild !== gsClockCard) $metroDock.appendChild(gsClockCard); // toujours SOUS le métronome
+        gsDockClockRefresh();
+        var now = gsClockReserve();
+        if (now !== before) { $metroDock.style.setProperty("--gs-clock-h", now + "px"); applyMetroDockSize(); }
+    }
+    function gsDockClockRefresh() {
+        if (!gsClockCard || !gsClockCard.isConnected || !gsRunSession) return;
+        var inf = gsRunProgressInfo(), n = gsRunSession.steps.length;
+        function put(k, t, cls) { if (gsClockLast[k] !== t) { gsClockLast[k] = t; var el = gsClockCard.querySelector('[data-k="' + k + '"]'); if (el) el.textContent = t; } if (cls !== undefined) { var e2 = gsClockCard.querySelector('[data-k="' + k + '"]'); if (e2) e2.classList.toggle("gs-clock-over", !!cls); } }
+        var left = inf.exLeft, over = left < 0, a = Math.abs(left);
+        put("sub", "Exercice " + (gsRunStepIndex + 1) + " / " + n + " · " + Math.round(inf.frac * 100) + " %");
+        put("total", gsFormatTotal(gsTotalNowMs()));
+        put("left", gsFormatTotal(inf.left * 1000));
+        put("ex", gsFormatTotal(inf.exElapsed * 1000));
+        put("exleft", (over ? "+" : "") + gsFormatTotal(a * 1000), over);
+        var end = new Date(Date.now() + inf.left * 1000), hh = end.getHours(), mm = end.getMinutes();
+        put("foot", "Durée prévue " + gsFormatTotal(inf.total * 1000) + (gsRunPaused ? " · en pause" : " · fin vers " + (hh < 10 ? "0" : "") + hh + ":" + (mm < 10 ? "0" : "") + mm));
+    }
+    window.addEventListener("resize", function () { gsDockClockSync(); });
+
     function renderGsRunScreen(content) {
         var session = gsRunSession;
         var step = session.steps[gsRunStepIndex];
         var found = findExerciseById(step.exerciseId);
 
+        var runHead = document.createElement("div"); // ligne du haut + barre d'avancement : dans la même colonne que les boutons (le bouton « fenêtre flottante » n'est plus rejeté au bord de la page)
+        runHead.className = "gs-run-head";
         var topLine = document.createElement("div");
         topLine.className = "gs-run-topline";
         var progress = document.createElement("div");
@@ -23531,7 +23596,26 @@
         miniBtn.setAttribute("aria-label", "Fenêtre flottante de session");
         miniBtn.addEventListener("click", openMiniWindow);
         topLine.appendChild(miniBtn);
-        content.appendChild(topLine);
+        runHead.appendChild(topLine);
+        // Barre d'avancement verte : où l'on en est dans la durée prévue de la session ; un repère entre chaque exercice (écart proportionnel à sa durée) et l'exercice en cours en plus clair.
+        var runBar = document.createElement("div");
+        runBar.className = "gs-run-bar"; runBar.setAttribute("role", "progressbar"); runBar.setAttribute("aria-label", "Avancement de la session"); runBar.setAttribute("aria-valuemin", "0"); runBar.setAttribute("aria-valuemax", "100");
+        var runBarCur = document.createElement("div"); runBarCur.className = "gs-run-bar-cur";
+        var runBarFill = document.createElement("div"); runBarFill.className = "gs-run-bar-fill";
+        runBar.appendChild(runBarCur); runBar.appendChild(runBarFill);
+        var runBarTicks = [];
+        for (var bt = 0; bt < session.steps.length - 1; bt++) { var tk = document.createElement("i"); tk.className = "gs-run-bar-tick"; runBar.appendChild(tk); runBarTicks.push(tk); }
+        function paintRunBar() {
+            var inf = gsRunProgressInfo(), acc = 0, pct = Math.round(inf.frac * 100);
+            runBarFill.style.width = (inf.frac * 100).toFixed(2) + "%";
+            runBarCur.style.left = (inf.total ? inf.before / inf.total * 100 : 0).toFixed(2) + "%";
+            runBarCur.style.width = (inf.total ? inf.weights[gsRunStepIndex] / inf.total * 100 : 0).toFixed(2) + "%";
+            runBarTicks.forEach(function (t, i) { acc += inf.weights[i]; t.style.left = (inf.total ? acc / inf.total * 100 : 0).toFixed(2) + "%"; });
+            runBar.setAttribute("aria-valuenow", String(pct));
+            runBar.title = pct + " % de la durée prévue : " + gsFormatTotal(inf.pos * 1000) + " sur " + gsFormatTotal(inf.total * 1000) + " (exercice " + (gsRunStepIndex + 1) + " sur " + session.steps.length + ")";
+        }
+        runHead.appendChild(runBar);
+        content.appendChild(runHead);
 
         if (found) content.appendChild(gsThemeBadge(found.pathNames, found.chapterColor));
 
@@ -23701,6 +23785,8 @@
             timerEl.textContent = (overtime ? "+" : "") + (mm < 10 ? "0" : "") + mm + ":" + (ss < 10 ? "0" : "") + ss;
             timerEl.classList.toggle("gs-run-timer-overtime", overtime);
             totalEl.textContent = "Total " + gsFormatTotal(gsTotalNowMs());
+            paintRunBar();
+            gsDockClockRefresh();
             gsAutoAdvanceTick(remaining, step, session);
         }
         refreshTimer();

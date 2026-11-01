@@ -177,7 +177,7 @@ textarea { resize: vertical; min-height: 60px; width: 100%; }
 .logo { display: flex; align-items: center; gap: 8px; color: var(--text-main); text-decoration: none; margin-right: 8px; }
 .logo-mark { color: var(--accent); display: inline-flex; }
 .logo-mark .icon { width: 30px; height: 30px; }
-.logo-text { font-weight: 800; font-size: var(--fs-lg); letter-spacing: .2px; }
+.logo-text { display: none; } /* le logo seul (titre et nom accessible gardés sur le lien) : de la place pour la barre du haut */
 
 .instrument-select-wrap { display: flex; align-items: center; gap: 4px; }
 #instrument-select {
@@ -1418,7 +1418,7 @@ button.scales-more-btn { min-width: 44px; padding: 0 10px; font-size: var(--fs-m
    étroit : bandeau fixe en bas, la zone principale gagne une marge pour ne rien cacher derrière.
    --topbar-h et --metro-dock-h sont tenues à jour par script.js (updateMetroDockMetrics). */
 .metro-dock {
-    --metro-dock-max-h: calc(100vh - var(--topbar-h, 64px) - 28px);
+    --metro-dock-max-h: calc(100vh - var(--topbar-h, 64px) - 28px - var(--gs-clock-h, 0px));
     flex: none;
     /* 380px minimum : c'est la largeur dont a besoin la rangée −10 / − / cadran / + / +10. */
     width: var(--metro-dock-w, clamp(380px, 32vw, 440px));
@@ -2360,7 +2360,7 @@ button.metro-progressive-toggle, .metro-tools-row button.metro-progressive-toggl
 }
 
 /* Écran de guidage : contrôles en grille 2 colonnes (gauche souple, droite 150 px), largeur maximale, rideau discret */
-.gs-main { --gs-run-max: 560px; }
+.gs-main { --gs-run-max: 440px; } /* 560px avant : les rangées de boutons (Reprendre, Métronome, Précédent / Suivant, −1 / +1 min) étaient inutilement larges */
 .gs-run-controls { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) var(--gs-btn-compact); column-gap: 16px; row-gap: 8px; align-items: center; max-width: var(--gs-run-max); margin: 0 auto 12px; }
 .gs-run-controls::before { content: ""; position: absolute; top: 4px; bottom: 4px; right: calc(var(--gs-btn-compact) + 8px); width: 1px; background: var(--border); pointer-events: none; }
 .gs-run-controls .gs-run-pause-btn, .gs-run-controls .gs-run-metro-btn { width: 100%; flex: none; }
@@ -5005,3 +5005,28 @@ html[data-glass="1"] .gs-edit-topbar:not(.gs-edit-stuck) { background: transpare
 .panel-fit-inner .metro-chrono-icon,
 .panel-fit-inner button.metro-chrono-reset,
 .panel-fit-inner .metro-goal-slot { zoom: var(--icon-z, 1); }
+
+/* ===== v238 : barre d'avancement de la session, ligne du haut dans la colonne des boutons, carte des temps sous le métronome ===== */
+.gs-run-head { max-width: var(--gs-run-max); margin: 0 auto 14px; }
+.gs-run-head .gs-run-topline { margin: 0; }
+.gs-run-head .gs-run-progress { margin-bottom: 8px; text-align: left; }
+.gs-run-bar { position: relative; height: 7px; border-radius: 4px; background: rgba(var(--ov), .13); overflow: hidden; }
+.gs-run-bar-cur { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--accent) 24%, transparent); }
+.gs-run-bar-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); border-radius: 4px 0 0 4px; transition: width .35s linear; }
+.gs-run-bar-tick { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--bg); opacity: .85; }
+@media (prefers-reduced-motion: reduce) { .gs-run-bar-fill { transition: none; } }
+
+.gs-dock-clock { margin-top: 10px; box-sizing: border-box; padding: 12px 14px; background: var(--card-bg-2); border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; gap: 10px; }
+.gs-clock-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.gs-clock-title { font-size: var(--fs-xs); font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+.gs-clock-sub { font-size: var(--fs-xs); color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.gs-clock-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+.gs-clock-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.gs-clock-label { font-size: var(--fs-2xs); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gs-clock-val { font-size: var(--fs-lg); font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: .01em; }
+.gs-clock-val.gs-clock-over { color: var(--c-red); }
+.gs-clock-foot { font-size: var(--fs-2xs); color: var(--text-muted); font-variant-numeric: tabular-nums; border-top: 1px dashed var(--border); padding-top: 8px; }
+html[data-glass="1"] .gs-dock-clock { background: var(--glass-pop); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%); backdrop-filter: blur(var(--glass-blur)) saturate(150%); box-shadow: var(--glass-hi); }
+@media (min-width: 1100px) {
+    .metro-dock-grip-h { bottom: calc(var(--gs-clock-h, 0px) - 8px); } /* la poignée de hauteur reste au bas du métronome, au-dessus de la carte des temps */
+}
