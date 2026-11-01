@@ -4968,17 +4968,22 @@ button.gs-history-cmt-btn.on { color: var(--accent); }
 .cal-recap-comment { margin-top: 3px; font-style: italic; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* ===== v232 : note et commentaire de la SESSION (liste des sessions et écran d'édition) ===== */
-.gs-session-rate { display: inline-flex; align-items: center; gap: 2px; align-self: center; }
-.gs-session-info .rate-stars-sm button.rate-star { width: 22px; height: 22px; font-size: 17px; }
-button.gs-session-cmt-btn { flex: none; width: 24px; height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent; color: var(--text-muted); opacity: .6; }
+.gs-session-rate { display: inline-flex; align-items: center; gap: 1px; align-self: center; }
+/* étoiles de la liste : plus petites que la hauteur d'une ligne de texte, pour ne plus agrandir le cadre ni décentrer le titre et la durée */
+.gs-session-info .rate-stars { gap: 0; }
+.gs-session-info .rate-stars-sm button.rate-star { width: 15px; height: 15px; font-size: 13px; }
+button.icon-btn.btn-ghost.gs-session-cmt-btn { min-width: 0; min-height: 0; } /* `button.icon-btn.btn-ghost` impose 28 px minimum : la bulle agrandissait la ligne du titre et le décentrait */
+button.gs-session-cmt-btn { flex: none; width: 18px; height: 18px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent; color: var(--text-muted); opacity: .6; }
 button.gs-session-cmt-btn:hover { opacity: 1; }
-button.gs-session-cmt-btn .icon { width: 15px; height: 15px; }
+button.gs-session-cmt-btn .icon { width: 13px; height: 13px; }
 button.gs-session-cmt-btn.on { color: var(--accent); opacity: 1; }
 .gs-session-comment { flex: 1 0 100%; min-width: 0; font-size: var(--fs-xs); font-style: italic; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.gs-name-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; margin-bottom: 8px; }
+.gs-name-row { display: flex; align-items: stretch; flex-wrap: wrap; gap: 8px 10px; margin-bottom: 8px; }
 .gs-name-row .gs-name-input { flex: 1 1 240px; width: auto; min-width: 0; margin-bottom: 0; }
-.gs-name-rate { flex: none; display: inline-flex; align-items: center; min-height: 40px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card-bg-2); }
-.gs-name-rate .rate-label { min-width: 5.2em; margin-left: 6px; }
+.gs-name-rate { flex: none; display: inline-flex; align-items: center; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card-bg-2); } /* même hauteur que le champ du nom (la rangée étire ses deux éléments) */
+.gs-name-rate .rate-stars { gap: 0; }
+.gs-name-rate .rate-stars button.rate-star { width: 19px; height: 19px; font-size: 15px; }
+.gs-name-rate .rate-label { min-width: 4.6em; margin-left: 4px; font-size: var(--fs-xs); }
 textarea.gs-note-comment { display: block; width: 100%; box-sizing: border-box; min-height: 50px; resize: vertical; padding: 8px 10px; margin-bottom: 12px; font: inherit; font-size: var(--fs-sm); }
 /* barre du haut de l'écran d'édition, thème verre : transparente à sa place (elle se fond dans le dégradé), fond « verre » flou seulement quand elle est collée en haut par-dessus le contenu qui défile */
 .gs-edit-topmark { height: 0; margin: 0; padding: 0; }
