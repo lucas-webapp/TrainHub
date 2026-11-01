@@ -9415,7 +9415,7 @@
     // clics peuvent être joués par le lecteur audio du navigateur : chaque clic est un petit fichier son (rendu hors ligne avec le timbre choisi),
     // lancé au bon moment par un élément <audio>. Un peu moins précis que Web Audio, mais il sonne. Réglage par appareil (Paramètres › Métronome).
     var METRO_FB_KEY = "trainhub.metroFallback.v1", METRO_FB_LEAD_MS = 45, METRO_FB_POOL = 3;
-    var metroFb = { kind: "", urls: null, rendering: null, pool: null, idx: [0, 0, 0], timers: [], hinted: false, samples: [], off: null }, metroFbRendering = false;
+    var metroFb = { kind: "", urls: null, rendering: null, pool: null, idx: [0, 0, 0], timers: [], hinted: false, samples: [], off: null, stats: null }, metroFbRendering = false;
     function metroFbOn() { try { return localStorage.getItem(METRO_FB_KEY) === "1"; } catch (e) { return false; } }
     function metroFbSet(on) {
         try { localStorage.setItem(METRO_FB_KEY, on ? "1" : "0"); } catch (e) {}
@@ -9511,19 +9511,39 @@
         for (i = 0; i < sm.length; i++) if (sm[i].o < m) m = sm[i].o;
         metroFb.off = m;
     }
+    // Le navigateur a refusé de lancer ce clic (« play() » rejeté : lecteur pas « débloqué » après un retour d'une autre fenêtre, lecture interrompue…) : avant, la note sautait
+    // sans la moindre trace. Elle est maintenant jouée par Web Audio (un peu en retard plutôt que jamais) et le journal le dit.
+    function metroFbRefused(err, time, level) {
+        if (metroFb.stats) metroFb.stats.refused++;
+        audioLog("son de secours : lecture refusée par le navigateur (" + ((err && err.name) || err) + "), le clic est joué par Web Audio");
+        var ctx = metroAudioCtx;
+        if (!metroPlaying || !ctx || ctx.state !== "running") return;
+        try { metroClickWeb(Math.max(time, ctx.currentTime + 0.003), level); } catch (e) {}
+    }
+    // Une ligne à l'arrêt du métronome : ce que le son de secours a vraiment fait pendant la lecture (clics, retards, refus).
+    function metroFbReport() {
+        var s = metroFb.stats;
+        metroFb.stats = null;
+        if (!s || !s.clicks) return;
+        audioLog("son de secours : bilan de la lecture — " + s.clicks + " clic(s), " + s.late + " en retard de plus de 60 ms" + (s.late ? " (jusqu'à " + Math.round(s.lateMax) + " ms)" : "") + ", " + s.refused + " refusé(s) par le navigateur" + (s.refused ? " (rejoués par Web Audio)" : "") + ", " + s.dropped + " abandonné(s)");
+    }
     // Joue un clic : vrai si le lecteur audio s'en est chargé (sinon Web Audio joue comme d'habitude, par exemple pendant que les clics sont rendus).
     function metroFbClick(time, level) {
         if (!metroFb.pool || !metroFb.urls) { metroFbPrepare().catch(function () {}); return false; }
         // Garde-fou : en temps normal 1 à 3 clics attendent (45 ms d'avance). Bien davantage = le fil principal ou le lecteur du navigateur n'avance plus : empiler des
         // demandes de lecture ne ferait qu'aggraver, et elles partiraient toutes d'un coup au réveil. Le clic est abandonné.
-        if (metroFb.timers.length > 12) { if (!metroFb.dropLogged) { metroFb.dropLogged = true; audioLog("son de secours : " + metroFb.timers.length + " clics en attente, les suivants sont abandonnés"); } return true; }
+        if (metroFb.timers.length > 12) { if (metroFb.stats) metroFb.stats.dropped++; if (!metroFb.dropLogged) { metroFb.dropLogged = true; audioLog("son de secours : " + metroFb.timers.length + " clics en attente, les suivants sont abandonnés"); } return true; }
         metroFb.dropLogged = false;
         var li = level >= 2 ? 1 : 0, list = metroFb.pool[li], a = list[metroFb.idx[li]++ % list.length];
         var delay = 0; // un peu d'avance : le lecteur met quelques dizaines de ms à sortir le son
         if (metroAudioCtx && !metroFbRendering) delay = (metroFb.off !== null && metroFb.samples.length > 3 ? time * 1000 + metroFb.off - performance.now() : (time - metroAudioCtx.currentTime) * 1000) - METRO_FB_LEAD_MS;
+        var due = performance.now() + Math.max(0, delay);
         var id = setTimeout(function () {
             metroFb.timers = metroFb.timers.filter(function (t) { return t !== id; });
-            try { a.currentTime = 0; var pr = a.play(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {}
+            var st = metroFb.stats, late = performance.now() - due;
+            if (st) { st.clicks++; if (late > 60) { st.late++; if (late > st.lateMax) st.lateMax = late; } } // minuterie en retard : page ralentie (retour d'une autre fenêtre…)
+            function refused(err) { metroFbRefused(err, time, level); }
+            try { a.currentTime = 0; var pr = a.play(); if (pr && pr.catch) pr.catch(refused); } catch (e) { refused(e); }
         }, Math.max(0, delay));
         metroFb.timers.push(id);
         return true;
@@ -9532,6 +9552,11 @@
     function metroClick(time, level) {
         if (!level) return; // pas rendu muet
         if (!metroFbRendering && metroFbOn() && metroFbClick(time, level)) return; // son de secours : le lecteur audio joue le clic
+        metroClickWeb(time, level);
+    }
+    // Le clic par Web Audio (le chemin normal du métronome ; le son de secours y revient quand le navigateur refuse de lancer un clic).
+    function metroClickWeb(time, level) {
+        if (!level) return;
         var ctx = metroAudioCtx, accent = level >= 2, kind = state.settings.metronome.sound || "click";
         if (kind === "wood") { // bloc de bois : un bruit bref coloré par une résonance étroite, plus un petit corps grave
             var src = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), g = ctx.createGain();
@@ -9778,6 +9803,7 @@
         audioStep("lancement : bouée");
         metroLifePlay("lancement");
         audioStep("lancement : son de secours");
+        metroFb.stats = metroFbOn() ? { clicks: 0, late: 0, lateMax: 0, refused: 0, dropped: 0 } : null;
         if (metroFbOn()) { metroFbPool(); metroFbPrepare().catch(function () {}); } // son de secours : les éléments audio sont amorcés par ce geste
         metroFbHint();
         audioStep("lancement : planificateur");
@@ -9802,7 +9828,7 @@
         metroPlaying = false; metroStarting = false;
         audioAliveClear();
         metroLifeStop();
-        metroFbCancel(); metroFb.samples.length = 0; metroFb.off = null;
+        metroFbReport(); metroFbCancel(); metroFb.samples.length = 0; metroFb.off = null;
         metroStopTicker();
         metroStopDog();
         if (metroTimer) { clearTimeout(metroTimer); metroTimer = null; }
