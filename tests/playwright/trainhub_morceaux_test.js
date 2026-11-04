@@ -496,10 +496,11 @@ const comptesArbre = page => page.locator('.song-tree-node .tree-count').allInne
     // ============ J. Une note de musique devant le nom d'un chapitre de morceaux ============
     {
         const a = await ouvrir(browser, { etat: etatMorceaux() });
-        const n = await a.page.evaluate(() => ({ morceaux: !!Array.from(document.querySelectorAll('.tree-node > .tree-row')).find(r => /Morceaux/.test(r.textContent)).querySelector('.tree-songs-icon svg'), autres: Array.from(document.querySelectorAll('.tree-node > .tree-row')).filter(r => !/Morceaux|Favoris|Archivés/.test(r.textContent)).filter(r => r.querySelector('.tree-songs-icon')).length }));
-        check(n.morceaux && n.autres === 0, 'J. barre latérale : le chapitre de morceaux porte une note de musique, pas les chapitres classiques');
-        const avant = await a.page.locator('.tree-node > .tree-row', { hasText: 'Morceaux' }).first().evaluate(r => r.querySelector('.tree-label').getBoundingClientRect().left - r.getBoundingClientRect().left);
-        check(avant > 20, 'J. l\'icône précède le nom (nom décalé de ' + Math.round(avant) + ' px)');
+        const n = await a.page.evaluate(() => ({ entete: !!document.querySelector('.tree-zone.tz-songs .tz-head .tz-icon svg'), exo: !!document.querySelector('.tree-zone.tz-ex .tz-head .tz-icon svg'), dansChap: document.querySelectorAll('.tree-zone .tree-row .tree-songs-icon').length }));
+        check(n.entete && n.exo && n.dansChap === 0, 'J. barre latérale : le dossier principal « Morceaux » porte la note de musique et « Exercices » l\'haltère ; plus d\'icône devant chaque chapitre')
+        const grp = await a.page.evaluate(() => ({ ex: [...document.querySelectorAll('.tree-zone.tz-ex .tree-row-d0 .tree-label')].map(e => e.textContent).join(), so: [...document.querySelectorAll('.tree-zone.tz-songs .tree-row-d0 .tree-label')].map(e => e.textContent).join(), top: !!document.querySelector('.tree-title-top .tree-label'), bottom: !!document.querySelector('.tree-title-bottom .tree-label') }));
+        check(grp.ex === 'Technique' && grp.so === 'Morceaux' && grp.top && grp.bottom, 'J. chapitres rangés sous leur dossier principal (Exercices : ' + grp.ex + ' · Morceaux : ' + grp.so + '), Favoris en haut et Archivés en bas'
+        )
         check(a.erreurs.length === 0, 'J. aucune erreur JavaScript ' + JSON.stringify(a.erreurs));
         await a.ctx.close();
         const m = await ouvrir(browser, { etat: etatMorceaux(), viewport: { width: 390, height: 800 } });
@@ -543,7 +544,7 @@ const comptesArbre = page => page.locator('.song-tree-node .tree-count').allInne
         await b.page.getByRole('button', { name: 'Transformer' }).click(); await b.page.waitForTimeout(700); await attendreSauvegarde(b.page);
         const st = await etat(b.page), cats = st.instruments[0].categories, nouveau = cats.find(c => c.kind === 'songs');
         check(!!nouveau && nouveau.name === 'Mes morceaux' && nouveau.exercises.length === 1 && nouveau.exercises[0].artist === 'Jamiroquai', 'K. un nouveau chapitre « Mes morceaux » (« Morceaux » est pris) contient le morceau');
-        check(await b.page.locator('.tree-node > .tree-row', { hasText: 'Mes morceaux' }).locator('.tree-songs-icon').count() === 1, 'K. et il porte la note de musique');
+        check(await b.page.locator('.tree-zone.tz-songs .tree-row-d0', { hasText: 'Mes morceaux' }).count() === 1, 'K. et il est rangé sous le dossier principal « Morceaux »');
         check(b.erreurs.length === 0, 'K. aucune erreur JavaScript ' + JSON.stringify(b.erreurs));
         await b.ctx.close();
     }

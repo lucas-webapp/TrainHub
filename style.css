@@ -5130,3 +5130,41 @@ html[data-glass="1"] .gs-dock-clock { background: var(--glass-pop); -webkit-back
 .gs-eph-past-row { cursor: pointer; }
 .gs-eph-past-row .gs-up-name { color: var(--text-dim); }
 .gs-eph-past-none { padding-top: 4px; }
+
+/* ============================================================
+   Dossiers principaux du volet de gauche (v255) : Favoris et Archivés = titres à part (texte, trait de séparation, ni cadre ni halo) ;
+   Exercices (vert) et Morceaux (violet) = groupes avec une icône sur l'en-tête (repliable), un fond diffus léger et une lumière sur le bord
+   gauche qui s'éteint au premier tiers de la largeur (maquette, variante D). Teintes foncées et pastel, discrètes. Les barres de chapitre
+   passent AU-DESSUS de cette lumière (fond opaque sous chaque chapitre) et gardent leur couleur et leur halo.
+   ============================================================ */
+.tree-zone { --z: #5f9f80; --zt: #8dc3a6; position: relative; display: flex; flex-direction: column; gap: 4px; margin: 8px 0 4px; padding: 4px 4px 6px 12px; border-radius: 10px; }
+.tree-zone.tz-songs { --z: #8b74c4; --zt: #b5a4e0; }
+.tree-zone::before, .tree-zone::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; z-index: 0; pointer-events: none; border-radius: 10px; }
+.tree-zone::before { right: 0; background: linear-gradient(180deg, color-mix(in srgb, var(--z) 7%, transparent), color-mix(in srgb, var(--z) 2%, transparent)); }
+.tree-zone::after { width: 33%; background: linear-gradient(to right, color-mix(in srgb, var(--z) 52%, transparent) 0, color-mix(in srgb, var(--z) 28%, transparent) 12%, color-mix(in srgb, var(--z) 10%, transparent) 38%, color-mix(in srgb, var(--z) 3%, transparent) 72%, transparent 100%); }
+.tree-zone > * { position: relative; z-index: 1; }
+/* les barres de chapitre sont au-dessus de la lumière : un fond plein (celui du volet) sous chaque chapitre */
+.tree-zone .tree-node { background: var(--card-bg); border-radius: 8px; }
+html[data-glass="1"] .tree-zone .tree-node { background: color-mix(in srgb, var(--card-bg) 60%, transparent); }
+.tz-head { display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 6px 0 2px; border: 0; border-radius: 6px; background: transparent; color: var(--zt); font: inherit; font-weight: 800; font-size: var(--fs-xs); letter-spacing: .08em; text-transform: uppercase; cursor: pointer; text-align: left; }
+.tz-head:hover { background: color-mix(in srgb, var(--z) 14%, transparent); }
+.tz-head:focus-visible { outline: 2px solid var(--zt); outline-offset: 1px; }
+.tz-chev { width: 14px; height: 14px; flex: none; display: inline-flex; color: var(--text-muted); transition: transform .15s ease; transform: rotate(90deg); }
+.tz-chev .icon { width: 14px; height: 14px; }
+.tree-zone[data-open="false"] .tz-chev { transform: rotate(0deg); }
+.tz-icon { width: 20px; height: 20px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+.tz-icon .icon { width: 19px; height: 19px; }
+.tz-label { min-width: 0; }
+.tz-count { margin-left: auto; font-size: var(--fs-xs); letter-spacing: 0; font-weight: 600; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.tree-zone[data-open="false"] > .tree-list { display: none; }
+@media (prefers-reduced-motion: reduce) { .tz-chev { transition: none; } }
+/* Favoris (en haut) et Archivés (en bas) : titres à part */
+.tree-node.tree-title-top { padding-bottom: 8px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.tree-node.tree-title-bottom { padding-top: 8px; border-top: 1px solid var(--border); margin-top: 6px; }
+:root .tree-node:is(.tree-title-top, .tree-title-bottom) > .tree-row-fixed { --g-gp: 0%; --g-a3: 0%; --g-contour: 0 0 0 0 transparent; background: transparent; height: 34px; padding-left: 8px; border-radius: 6px; }
+:root .tree-node:is(.tree-title-top, .tree-title-bottom) > .tree-row-fixed::before { display: none; }
+.tree-node:is(.tree-title-top, .tree-title-bottom) > .tree-row-fixed .tree-label { font-size: var(--fs-xs); font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.tree-node:is(.tree-title-top, .tree-title-bottom) > .tree-row-fixed .tree-fixed-icon .icon { width: 16px; height: 16px; }
+.tree-node:is(.tree-title-top, .tree-title-bottom) > .tree-row-fixed.selected { background: color-mix(in srgb, var(--hc) 14%, transparent); }
+html[data-glass="1"] .tree-node:is(.tree-title-top, .tree-title-bottom) > .tree-row-fixed.tree-row-fixed { --g-edge: 0 0 0 0 transparent; box-shadow: none; background: transparent !important; -webkit-backdrop-filter: none; backdrop-filter: none; }
+html[data-glass="1"] .tree-node:is(.tree-title-top, .tree-title-bottom) > .tree-row-fixed.tree-row-fixed.selected { background: color-mix(in srgb, var(--hc) 14%, transparent) !important; }

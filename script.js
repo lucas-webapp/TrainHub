@@ -2275,6 +2275,7 @@
     var SCISSORS_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>';
     var GRIP_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>';
     var STAR_FILLED_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.7l2.9 6 6.6.7-4.9 4.5 1.3 6.5L12 17.4l-5.9 3 1.3-6.5-4.9-4.5 6.6-.7Z"/></svg>';
+    var DUMBBELL_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/></svg>'; // dossier principal « Exercices »
     var SONGS_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3" fill="currentColor"/><circle cx="17" cy="16" r="3" fill="currentColor"/></svg>'; // chapitre de morceaux : note de musique devant le nom
     var ARCHIVE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"/><path d="M10 13h4"/></svg>';
     var FILE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05 12.25 20.24a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
@@ -3474,6 +3475,15 @@
     // Menu d'un exercice (clic droit / appui long), le même partout : liste des exercices, choix d'un exercice
     // pour une session, statistiques. `opts.reveal` : proposer « Ouvrir dans son dossier » ; `opts.after` :
     // rafraîchir la fenêtre d'où l'on vient ; `opts.noAddToSession` : déjà en train de choisir pour une session.
+    // Ouvre un exercice : tous les autres exercices ouverts à l'écran se referment.
+    function exCollapseOthers(keepId) {
+        Array.prototype.forEach.call(document.querySelectorAll(".exercise:not(.collapsed)[data-ex-id]"), function (el) {
+            var id = el.dataset.exId;
+            if (!id || id === keepId) return;
+            var f = findExerciseById(id);
+            if (f && !f.ex.collapsed) { f.ex.collapsed = true; touchExercise(f.ex); }
+        });
+    }
     function openExerciseMenu(x, y, ex, folder, opts) {
         opts = opts || {};
         closeFolderMenu();
@@ -4555,13 +4565,26 @@
         return { id: FAVORITES_ID, name: "Favoris", color: "#ffd60a", icon: STAR_FILLED_SVG, cls: "virtual-favorites" };
     }
 
+    // Dossiers principaux du volet de gauche : Favoris (titre, en haut), Exercices (chapitres ordinaires), Morceaux (chapitres de morceaux), Archivés (titre, en bas).
+    // L'ordre choisi à la main (pinnedOrder) ne joue qu'à l'intérieur de chaque groupe.
+    function chapterGroupOf(item) {
+        if (item.id === FAVORITES_ID) return 0;
+        if (item.id === ARCHIVED_ID) return 3;
+        return isSongsChapter(item) ? 2 : 1;
+    }
     function orderedChapterItems(inst) {
         normalizePinnedOrder(inst);
-        return inst.pinnedOrder.map(function (id) {
+        var items = inst.pinnedOrder.map(function (id) {
             if (id === FAVORITES_ID || id === ARCHIVED_ID) return virtualChapterMeta(id);
             return findById(inst.categories, id);
         }).filter(Boolean);
+        return items.map(function (it, i) { return { it: it, i: i, g: chapterGroupOf(it) }; })
+            .sort(function (a, b) { return a.g - b.g || a.i - b.i; }).map(function (x) { return x.it; });
     }
+    // Repli des dossiers principaux (Exercices, Morceaux) : retenu par appareil.
+    var MAIN_OPEN_KEY = "trainhub.mainFolders.v1";
+    function mainFolderOpen(id) { try { var o = JSON.parse(localStorage.getItem(MAIN_OPEN_KEY) || "{}"); return !(o && o[id] === false); } catch (e) { return true; } }
+    function mainFolderSetOpen(id, open) { try { var o = JSON.parse(localStorage.getItem(MAIN_OPEN_KEY) || "{}") || {}; if (open) delete o[id]; else o[id] = false; localStorage.setItem(MAIN_OPEN_KEY, JSON.stringify(o)); } catch (e) {} }
 
     function renderChapterBar() {
         var inst = getActiveInstrument();
@@ -4615,7 +4638,7 @@
             $chapterBar.appendChild(chip);
         });
 
-        setupDragReorder($chapterBar, ".chapter-chip", function () { return getActiveInstrument().pinnedOrder; }, "x");
+        setupDragReorder($chapterBar, ".chapter-chip:not(.virtual-favorites):not(.virtual-archived)", function () { return getActiveInstrument().pinnedOrder; }, "x");
 
         var addBtn = iconButton("+", "Ajouter un grand chapitre", function () {
             dlgPrompt({ title: "Nouveau chapitre", placeholder: "ex. Technique, Morceaux, Gammes", confirmLabel: "Créer" }, function (name) {
@@ -4689,17 +4712,45 @@
 
         var path = getNavPath(inst);
 
-        var list = document.createElement("div");
-        list.className = "tree-list";
-        orderedChapterItems(inst).forEach(function (item) {
-            if (item.id === FAVORITES_ID || item.id === ARCHIVED_ID) {
-                list.appendChild(renderVirtualTreeNode(inst, item.id, path));
-            } else {
-                list.appendChild(renderTreeNode(inst, item, [], path, item.color, 0));
-            }
-        });
-        $sidebarTree.appendChild(list);
-        setupDragReorder(list, ".tree-node", function () { return getActiveInstrument().pinnedOrder; }, "y");
+        var items = orderedChapterItems(inst);
+        var exItems = items.filter(function (it) { return chapterGroupOf(it) === 1; }), soItems = items.filter(function (it) { return chapterGroupOf(it) === 2; });
+        // Favoris : un titre à part, en haut
+        var favNode = renderVirtualTreeNode(inst, FAVORITES_ID, path);
+        favNode.classList.add("tree-title-top");
+        $sidebarTree.appendChild(favNode);
+        // Dossiers principaux : un fond diffus et une lumière sur le bord gauche, une icône sur l'en-tête (repliable)
+        function mainZone(id, cls, icon, label, chapters) {
+            if (!chapters.length) return;
+            var open = mainFolderOpen(id);
+            var zone = document.createElement("section");
+            zone.className = "tree-zone " + cls; zone.dataset.open = open ? "true" : "false";
+            var head = document.createElement("button");
+            head.type = "button"; head.className = "tz-head"; head.setAttribute("aria-expanded", open ? "true" : "false");
+            var chev = document.createElement("span"); chev.className = "tz-chev"; chev.innerHTML = CHEVRON_ICON_SVG;
+            var ic = document.createElement("span"); ic.className = "tz-icon"; ic.innerHTML = icon;
+            var lb = document.createElement("span"); lb.className = "tz-label"; lb.textContent = label;
+            var n = 0; chapters.forEach(function (c) { n += isSongsChapter(c) ? c.exercises.filter(function (e) { return !e.archived; }).length : countFolderExercises(c); });
+            var cn = document.createElement("span"); cn.className = "tz-count"; cn.textContent = String(n); cn.title = n + (cls === "tz-songs" ? " morceau" + (n > 1 ? "x" : "") : " exercice" + (n > 1 ? "s" : ""));
+            head.appendChild(chev); head.appendChild(ic); head.appendChild(lb); head.appendChild(cn);
+            head.addEventListener("click", function () {
+                var nowOpen = zone.dataset.open !== "true";
+                zone.dataset.open = nowOpen ? "true" : "false"; head.setAttribute("aria-expanded", nowOpen ? "true" : "false");
+                mainFolderSetOpen(id, nowOpen);
+            });
+            zone.appendChild(head);
+            var list = document.createElement("div");
+            list.className = "tree-list";
+            chapters.forEach(function (item) { list.appendChild(renderTreeNode(inst, item, [], path, item.color, 0)); });
+            zone.appendChild(list);
+            setupDragReorder(list, ".tree-node", function () { return getActiveInstrument().pinnedOrder; }, "y");
+            $sidebarTree.appendChild(zone);
+        }
+        mainZone("exercises", "tz-ex", DUMBBELL_ICON_SVG, "Exercices", exItems);
+        mainZone("songs", "tz-songs", SONGS_ICON_SVG, "Morceaux", soItems);
+        // Archivés : un titre à part, en bas
+        var arNode = renderVirtualTreeNode(inst, ARCHIVED_ID, path);
+        arNode.classList.add("tree-title-bottom");
+        $sidebarTree.appendChild(arNode);
 
         var addWrap = document.createElement("div");
         addWrap.className = "tree-add-row sidebar-add-chapter";
@@ -4784,12 +4835,6 @@
             row.style.background = "color-mix(in srgb, " + rootColor + " 14%, transparent)";
         }
 
-        if (depth === 0 && isSongsChapter(folder)) { // chapitre de morceaux : petite note de musique (comme l'étoile des Favoris)
-            var songIcon = document.createElement("span");
-            songIcon.className = "tree-songs-icon"; songIcon.title = "Chapitre de morceaux";
-            songIcon.innerHTML = SONGS_ICON_SVG;
-            row.appendChild(songIcon);
-        }
         var label = document.createElement("span");
         label.className = "tree-label";
         label.textContent = folder.name;
@@ -6283,6 +6328,7 @@
             // déplie/replie les détails (remplace le chevron dédié, retiré pour épurer la ligne).
             if (e.target.closest("button, input, textarea, select")) return;
             ex.collapsed = !ex.collapsed;
+            if (!ex.collapsed) exCollapseOthers(ex.id); // un seul exercice ouvert à la fois : l'autre (ou tous les autres) se referme
             save();
             render();
         });
@@ -10097,8 +10143,9 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
+    var APP_VERSION = "v255"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
-        return "TrainHub — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
+        return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }
 
     // ---------- bouée audio ----------
@@ -19525,7 +19572,7 @@
         var revCh = findById(f.inst.categories, f.pathIds[0]);
         setNavPath(f.inst, f.ex.archived ? [ARCHIVED_ID] : (f.ex.isSong && isSongsChapter(revCh) ? songsPathFor(revCh, f.ex) : f.pathIds.slice()));
         f.pathIds.forEach(function (id) { treeExpanded[id] = true; });
-        if (f.ex.collapsed) { f.ex.collapsed = false; persist(); }
+        if (f.ex.collapsed) { f.ex.collapsed = false; exCollapseOthers(f.ex.id); persist(); }
         render();
         function flash() {
             var el = document.querySelector('.exercise[data-reorder-id="' + exId + '"]');
