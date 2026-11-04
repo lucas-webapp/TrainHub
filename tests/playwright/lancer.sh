@@ -6,7 +6,7 @@ export NODE_PATH=${NODE_PATH:-/opt/node22/lib/node_modules}
 (python3 -m http.server 8765 >/dev/null 2>&1 &)
 (cd tests/playwright/yt_mock && python3 -m http.server 8766 >/dev/null 2>&1 &)
 sleep 1
-NOMS=("$@"); [ ${#NOMS[@]} -eq 0 ] && NOMS=(rafale choix morceaux compte note note_session favoris rideau session_ui son video preset point lecteur audio_rate audio_edit)
+NOMS=("$@"); [ ${#NOMS[@]} -eq 0 ] && NOMS=(de rafale choix morceaux compte note note_session favoris rideau session_ui son video preset point lecteur audio_rate audio_edit)
 for t in "${NOMS[@]}"; do
   echo "--- $t"
   timeout 900 node "tests/playwright/trainhub_${t}_test.js" 2>&1 | grep -E "^FAIL|===" | cut -c1-260

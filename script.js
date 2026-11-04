@@ -13001,27 +13001,48 @@
     }
     // Un tirage : { key: 0-11, scale: clé, mode: clé, notes: id } (seulement les dés actifs). Chaque dé évite ses dernières faces ;
     // un dé actif sans face coché bloque le tirage (le réglage est à corriger, on ne tire pas en silence sans lui).
+    // Tirage « truqué » pour apprendre : au lieu d'un hasard pur (qui ramène vite la même tonique), chaque dé tire SANS REMISE dans un sac mélangé : toutes ses faces
+    // passent (les 12 tonalités, les deux gammes…) avant qu'une face revienne, et la première du sac suivant évite les dernières sorties (4 pour la tonalité, 3 pour
+    // les autres dés). Le sac et les dernières faces sont retenus sur l'appareil, par dé et par jeu de faces : le tour continue d'une séance à l'autre, d'un exercice à l'autre.
+    var DICE_BAG_KEY = "trainhub.diceBag.v1";
+    function diceBagStore() { try { var o = JSON.parse(localStorage.getItem(DICE_BAG_KEY) || "{}"); return o && typeof o === "object" ? o : {}; } catch (e) { return {}; } }
+    function diceBagSave(o) { try { var ks = Object.keys(o); if (ks.length > 60) delete o[ks[0]]; localStorage.setItem(DICE_BAG_KEY, JSON.stringify(o)); } catch (e) {} }
+    function diceShuffle(list) { var a = list.slice(); for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)), t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+    // Sac neuf : mélangé, mais ses premières places évitent les `keep` dernières faces sorties (elles reviennent plus loin dans le tour).
+    function diceRefillBag(faces, last, keep) {
+        var recent = last.slice(-keep), fresh = diceShuffle(faces.filter(function (f) { return recent.indexOf(f) === -1; })), old = faces.filter(function (f) { return recent.indexOf(f) !== -1; });
+        var head = fresh.slice(0, keep), rest = diceShuffle(fresh.slice(keep).concat(old));
+        return head.concat(rest);
+    }
     function diceDraw(cfg, mem) {
         mem = mem || diceNewMem();
-        if (!mem.recent) mem.recent = {};
         if (!mem.history) mem.history = [];
         var ids = diceActiveIds(cfg);
         if (!ids.length || diceEmptyDice(cfg).length) return null;
-        var pick = {};
+        var store = diceBagStore(), pick = {};
         ids.forEach(function (id) {
-            var faces = diceFaces(cfg, id), rec = mem.recent[id] || (mem.recent[id] = []);
-            var pool = faces.filter(function (f) { return rec.indexOf(f) === -1; });
-            if (!pool.length) pool = faces;
-            if (id === "mode" && pick.scale !== undefined) { // « Majeur · Ionien » dirait deux fois la même chose : on tire un autre mode si possible
-                var other = pool.filter(function (x) { return x !== pick.scale; });
-                if (other.length) pool = other;
-            }
-            var f = pool[Math.floor(Math.random() * pool.length)];
-            rec.push(f);
+            var faces = diceFaces(cfg, id), sig = id + ":" + faces.join(","), st = store[sig];
+            if (!st || !Array.isArray(st.bag) || !Array.isArray(st.last)) st = store[sig] = { bag: [], last: [] };
+            st.bag = st.bag.filter(function (f) { return faces.indexOf(f) !== -1; });
             var keep = Math.max(0, Math.min(id === "key" ? 4 : 3, faces.length - 1));
-            while (rec.length > keep) rec.shift();
+            if (!st.bag.length) st.bag = diceRefillBag(faces, st.last, keep);
+            var at = 0, f;
+            if (id === "mode" && pick.scale !== undefined) { // « Majeur · Ionien » dirait deux fois la même chose : on prend la première autre face du sac si possible
+                at = -1;
+                for (var i = 0; i < st.bag.length; i++) if (st.bag[i] !== pick.scale) { at = i; break; }
+                if (at < 0) { // il ne reste que la face en double dans le sac : une autre face au hasard, le sac garde la sienne
+                    var others = faces.filter(function (x) { return x !== pick.scale; });
+                    f = others.length ? others[Math.floor(Math.random() * others.length)] : st.bag[0];
+                    if (!others.length) st.bag.shift();
+                }
+            }
+            if (f === undefined) f = st.bag.splice(Math.max(0, at), 1)[0];
+            st.last.push(f);
+            while (st.last.length > 4) st.last.shift();
+            delete store[sig]; store[sig] = st; // le plus récemment utilisé en dernier (ménage du plus ancien)
             pick[id] = f;
         });
+        diceBagSave(store);
         mem.history.unshift(pick);
         if (mem.history.length > 20) mem.history.length = 20;
         return pick;
