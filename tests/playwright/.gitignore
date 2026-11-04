@@ -1,0 +1,4 @@
+shots/
+media/*
+!media/backing_test.mp3
+!media/long_11min.mp3

@@ -1,0 +1,19 @@
+<!doctype html><meta charset="utf-8">
+<style>html,body{margin:0;height:100%;background:#123;color:#fff;font:14px sans-serif}#p{position:absolute;inset:0;background:#123}#st{position:absolute;left:10px;top:10px}
+#fs{position:absolute;right:10px;bottom:10px;width:34px;height:28px}#pp{position:absolute;left:10px;bottom:10px;height:28px}</style>
+<div id="p"><div id="st">état -1</div><button id="pp">lecture / pause</button><button id="fs" title="Plein écran">⛶</button></div>
+<script>
+// Faux lecteur YouTube (autre origine que TrainHub). Imite : son propre bouton plein écran (sur son conteneur, comme YouTube) ;
+// des commandes playVideo / pauseVideo reçues par postMessage ; et, pour le plein écran demandé par la PAGE qui l'embarque, la pause constatée sur Safari
+// (changement brutal de taille alors que CE document n'est pas lui-même en plein écran).
+var q = new URLSearchParams(location.search), id = q.get('id'), quirk = q.get('quirk') === '1', state = -1, w = innerWidth, ownFsAt = 0;
+var ownFsActive = false;
+document.addEventListener('fullscreenchange', function () { ownFsAt = Date.now(); ownFsActive = !!document.fullscreenElement; }); // plein écran lancé PAR ce lecteur : il sait ce qui se passe, il ne se met pas en pause
+function send(ev, data) { parent.postMessage({ ytmock: true, id: id, event: ev, data: data }, '*'); }
+function set(s) { state = s; document.getElementById('st').textContent = 'état ' + s; send('state', s); }
+document.getElementById('pp').onclick = function () { set(state === 1 ? 2 : 1); };
+document.getElementById('fs').onclick = function () { document.getElementById('p').requestFullscreen(); };
+window.addEventListener('message', function (e) { var m = e.data; if (!m || !m.ytcmd) return; if (m.ytcmd === 'playVideo') set(1); else if (m.ytcmd === 'pauseVideo') set(2); });
+window.addEventListener('resize', function () { var big = Math.abs(innerWidth - w) > 150; w = innerWidth; if (quirk && big && !document.fullscreenElement && !ownFsActive && Date.now() - ownFsAt > 1500 && state === 1) setTimeout(function () { set(2); }, 120); });
+send('ready');
+</script>
