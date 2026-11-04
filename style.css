@@ -3995,7 +3995,10 @@ button.img-thumb-btn { cursor: zoom-in; }
 
 /* ---------- v175 ---------- */
 /* Choix d'un exercice : onglets Tous / Favoris */
-.gs-pick-tabs { display: flex; gap: 6px; margin: 8px 0 4px; }
+.gs-pick-tabs { display: flex; gap: 6px; margin: 8px 0 4px; align-items: center; }
+.gs-pick-fold { margin-left: auto; display: flex; gap: 4px; }
+button.gs-pick-fold-btn { height: 30px; min-width: 32px; padding: 0 8px; font-size: var(--fs-base); line-height: 1; color: var(--text-muted); }
+button.gs-pick-fold-btn:hover { color: var(--text-main); }
 button.gs-pick-tab { height: 30px; padding: 0 14px; font-size: var(--fs-sm); font-weight: 700; border-radius: var(--radius-sm); }
 button.gs-pick-tab.active { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
 button.gs-pick-tab[data-tab="fav"].active { border-color: #ffd60a; color: #ffd60a; background: color-mix(in srgb, #ffd60a 10%, transparent); }

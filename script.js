@@ -18512,6 +18512,7 @@
         else if (gsScreen === "pick" && gsEditingSession) renderGsPickScreen(content);
         else if (gsScreen === "edit" && gsEditingSession) renderGsEditScreen(content);
         else renderGsListScreen(content);
+        if (gsScreen !== "pick") { gsPickFocused = false; gsPickQuery = ""; }
     }
 
     // ---- brouillons de session : les modifications faites dans l'écran d'édition ne sont appliquées à la session
@@ -18821,12 +18822,44 @@
             var b = document.createElement("button");
             b.type = "button"; b.className = "gs-pick-tab" + (get() === t[0] ? " active" : ""); b.dataset.tab = t[0]; b.textContent = t[1];
             b.setAttribute("role", "tab"); b.setAttribute("aria-selected", get() === t[0] ? "true" : "false");
-            b.addEventListener("click", function () { set(t[0]); Array.prototype.forEach.call(bar.children, function (x) { var on = x.dataset.tab === t[0]; x.classList.toggle("active", on); x.setAttribute("aria-selected", on ? "true" : "false"); }); onChange(); });
+            b.addEventListener("click", function () { set(t[0]); pickOpenLoad().__tab = t[0]; pickOpenSave(); Array.prototype.forEach.call(bar.children, function (x) { var on = x.dataset.tab === t[0]; x.classList.toggle("active", on); x.setAttribute("aria-selected", on ? "true" : "false"); }); onChange(); });
             bar.appendChild(b);
         });
+        var fold = document.createElement("div"); fold.className = "gs-pick-fold";
+        [["Tout replier", "⊟", false], ["Tout déplier", "⊞", true]].forEach(function (a) {
+            var f = document.createElement("button"); f.type = "button"; f.className = "btn-ghost gs-pick-fold-btn"; f.dataset.fold = a[2] ? "open" : "close";
+            f.textContent = a[1]; f.title = a[0]; f.setAttribute("aria-label", a[0]);
+            f.addEventListener("click", function () { pickSetAll(inst, a[2]); if (onChange) onChange(); });
+            fold.appendChild(f);
+        });
+        bar.appendChild(fold);
         return bar;
     }
-    var pickTabMem = "all"; // dernier onglet choisi (Tous / Favoris), retenu d'un choix d'exercice à l'autre
+    // Dossiers repliés / dépliés dans le choix d'un exercice (écran de session et fenêtre « Remplacer partout par… ») : un état À PART de la barre latérale, retenu sur
+    // l'appareil d'un choix à l'autre. Au départ tout est replié (sauf les groupes de favoris) : on ouvre ce dont on a besoin, et c'est retenu.
+    var PICK_OPEN_KEY = "trainhub.pickOpen.v1", pickOpenMem = null;
+    function pickOpenLoad() {
+        if (!pickOpenMem) { try { pickOpenMem = JSON.parse(localStorage.getItem(PICK_OPEN_KEY)) || {}; } catch (e) { pickOpenMem = {}; } if (typeof pickOpenMem !== "object" || Array.isArray(pickOpenMem)) pickOpenMem = {}; }
+        return pickOpenMem;
+    }
+    function pickOpenSave() { try { localStorage.setItem(PICK_OPEN_KEY, JSON.stringify(pickOpenMem || {})); } catch (e) {} }
+    function pickIsOpen(key, def) { var v = pickOpenLoad()[key]; return typeof v === "boolean" ? v : !!def; }
+    function pickSetOpen(key, open) { pickOpenLoad()[key] = !!open; pickOpenSave(); }
+    // Les chapitres dans l'ordre de la barre latérale (celui qu'on règle en les glissant), sans Favoris ni Archivés.
+    function pickChapters(inst) { return orderedChapterItems(inst).filter(function (c) { return c.id !== FAVORITES_ID && c.id !== ARCHIVED_ID; }); }
+    function pickAllKeys(inst) { // toutes les lignes repliables du choix, pour « Tout replier / Tout déplier »
+        var keys = [];
+        (function walk(list) { list.forEach(function (f) { keys.push("t:" + f.id); walk(f.folders || []); }); })(inst.categories);
+        inst.categories.forEach(function (ch) {
+            if (!isSongsChapter(ch)) return;
+            var pr = songsPrefs(ch);
+            songsGroups(ch, pr.view, pr.sort).folders.forEach(function (g) { keys.push("s:" + ch.id + ":" + g.id); });
+        });
+        collectExercises(inst, function (ex) { return !!ex.favorite && !ex.archived; }).forEach(function (r) { keys.push("f:" + r.folder.id); });
+        return keys;
+    }
+    function pickSetAll(inst, open) { var m = pickOpenLoad(); pickAllKeys(inst).forEach(function (k) { m[k] = !!open; }); pickOpenSave(); }
+    var pickTabMem = (function () { try { var v = pickOpenLoad().__tab; return v === "fav" ? "fav" : "all"; } catch (e) { return "all"; } })(); // dernier onglet choisi (Tous / Favoris), retenu d'un choix à l'autre et d'une fois sur l'autre
     // Fenêtre de choix d'un exercice (recherche + arborescence) : sert à « Remplacer partout par… ».
     function openExercisePickerModal(titleText, opts, onPick) {
         opts = opts || {};
@@ -18887,7 +18920,7 @@
                 folders.forEach(function (folder) {
                     var color = depth === 0 ? folder.color : rootColor;
                     var exs = folder.exercises.filter(function (ex) { return !ex.archived && exclude.indexOf(ex.id) === -1; });
-                    var open = treeExpanded["xpick:" + folder.id] !== false, hasContent = exs.length > 0 || folder.folders.length > 0;
+                    var open = pickIsOpen("t:" + folder.id, false), hasContent = exs.length > 0 || folder.folders.length > 0;
                     var n = document.createElement("div"); n.className = "gs-pick-node";
                     var row = document.createElement("div"); row.className = "gs-pick-tree-row";
                     if (depth === 0) { row.style.borderLeft = "3px solid " + color; row.style.background = "color-mix(in srgb, " + color + " 6%, transparent)"; }
@@ -18905,7 +18938,7 @@
                         });
                         row.appendChild(all);
                     }
-                    if (hasContent) row.addEventListener("click", function () { treeExpanded["xpick:" + folder.id] = !open; refresh(); });
+                    if (hasContent) row.addEventListener("click", function () { pickSetOpen("t:" + folder.id, !open); refresh(); });
                     n.appendChild(row);
                     if (open && hasContent) {
                         var kids = document.createElement("div"); kids.className = "gs-pick-tree-children";
@@ -18922,7 +18955,7 @@
             function refresh() {
                 wrap.innerHTML = ""; rowEls = [];
                 var q = search.value.trim().toLowerCase();
-                if (!q && pickTabMem === "all") { node(wrap, inst.categories, 0, null); paintPicked(); return; }
+                if (!q && pickTabMem === "all") { node(wrap, pickChapters(inst), 0, null); paintPicked(); return; }
                 var res = collectExercises(inst, function (ex) { return !ex.archived && exclude.indexOf(ex.id) === -1 && (pickTabMem !== "fav" || !!ex.favorite) && (!q || ex.title.toLowerCase().indexOf(q) !== -1 || songMatchesQuery(ex, q)); });
                 if (!res.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = pickTabMem === "fav" && !q ? "Aucun favori : marque un exercice d'une étoile (clic droit › Marquer en favori)." : "Aucun exercice ne correspond."; wrap.appendChild(none); return; }
                 if (pickTabMem === "fav") { // favoris : rangés par dossier (avec « Tout » par dossier en choix multiple)
@@ -20539,7 +20572,7 @@
     // Titre d'un groupe de favoris : le chemin du dossier, le nombre d'exercices, et un chevron pour replier le groupe (état retenu, à part de la barre latérale).
     // `extra` : bouton supplémentaire (« Tout » du choix multiple). Rend { node, kids } : les exercices se posent dans `kids`.
     function pickFavGroupHead(g, onToggle, extra) {
-        var key = "xfav:" + g.folder.id, open = treeExpanded[key] !== false;
+        var key = "f:" + g.folder.id, open = pickIsOpen(key, true);
         var node = document.createElement("div"); node.className = "gs-pick-node gs-pick-favgroup"; node.dataset.group = g.folder.id;
         var row = document.createElement("div"); row.className = "gs-pick-tree-row gs-pick-fav-head";
         row.style.borderLeft = "3px solid " + g.color; row.style.background = "color-mix(in srgb, " + g.color + " 6%, transparent)";
@@ -20552,7 +20585,7 @@
         if (extra) row.appendChild(extra);
         row.addEventListener("click", function () {
             if (suppressNextClick) { suppressNextClick = false; return; }
-            treeExpanded[key] = !open; onToggle();
+            pickSetOpen(key, !open); onToggle();
         });
         node.appendChild(row);
         var kids = null;
@@ -20576,7 +20609,7 @@
         if (pr.view === "all") { data.songs.forEach(function (ex) { container.appendChild(mkBtn(ex)); }); }
         else {
             data.folders.forEach(function (g) {
-                var key = "xsong:" + scope + ":" + ch.id + ":" + g.id, open = treeExpanded[key] === true;
+                var key = "s:" + ch.id + ":" + g.id, open = pickIsOpen(key, false);
                 var node = document.createElement("div"); node.className = "gs-pick-node gs-pick-songgroup"; node.dataset.group = g.id;
                 var row = document.createElement("div"); row.className = "gs-pick-tree-row";
                 var tw = document.createElement("button"); tw.type = "button"; tw.className = "tree-twisty" + (g.songs.length ? "" : " tree-twisty-empty") + (open ? " expanded" : ""); tw.innerHTML = CHEVRON_ICON_SVG;
@@ -20584,7 +20617,7 @@
                 var lb = document.createElement("span"); lb.className = "tree-label"; lb.textContent = g.name;
                 var ct = document.createElement("span"); ct.className = "result-group-count"; ct.textContent = String(g.songs.length);
                 row.appendChild(tw); row.appendChild(lb); row.appendChild(ct);
-                if (g.songs.length) row.addEventListener("click", function () { treeExpanded[key] = !open; rerender(); });
+                if (g.songs.length) row.addEventListener("click", function () { pickSetOpen(key, !open); rerender(); });
                 node.appendChild(row);
                 if (open && g.songs.length) {
                     var kids = document.createElement("div"); kids.className = "gs-pick-tree-children";
@@ -20596,13 +20629,16 @@
             data.loose.forEach(function (ex) { container.appendChild(mkBtn(ex)); }); // artistes : morceaux dont l'artiste n'en a qu'un
         }
     }
-    function renderGsPickTree(container, folders, depth, rootColor) {
-        var inst = getActiveInstrument(), parentList = folders;
+    // `parentArray` : le vrai tableau qui contient `folders` quand on en passe une copie ordonnée (chapitres) ; `redraw` : redessine le choix SEUL (pas toute l'appli :
+    // la vue reste où elle est).
+    function renderGsPickTree(container, folders, depth, rootColor, parentArray, redraw) {
+        var inst = getActiveInstrument(), parentList = parentArray || folders;
+        redraw = redraw || function () { render(); };
         folders.forEach(function (folder) {
             var color = depth === 0 ? folder.color : rootColor;
             var visibleExercises = folder.exercises.filter(function (ex) { return !ex.archived; });
             var hasContent = folder.folders.length > 0 || visibleExercises.length > 0;
-            var expanded = treeExpanded[folder.id] !== false;
+            var pickKey = "t:" + folder.id, expanded = pickIsOpen(pickKey, false);
 
             var node = document.createElement("div");
             node.className = "gs-pick-node";
@@ -20619,8 +20655,8 @@
             if (hasContent) {
                 twisty.addEventListener("click", function (e) {
                     e.stopPropagation();
-                    treeExpanded[folder.id] = !expanded;
-                    render();
+                    pickSetOpen(pickKey, !expanded);
+                    redraw();
                 });
             }
             row.appendChild(twisty);
@@ -20631,7 +20667,7 @@
             row.dataset.pickFolder = folder.id;
             row.addEventListener("click", function () {
                 if (suppressNextClick) { suppressNextClick = false; return; }
-                treeExpanded[folder.id] = !expanded; render();
+                pickSetOpen(pickKey, !expanded); redraw();
             });
             bindPickGesture(row, function (x, y) { openFolderMenu(x, y, function () { return parentList; }, folder, inst); }, function (destId, x, y) {
                 var dest = findFolderById(inst, destId);
@@ -20642,10 +20678,10 @@
             if (expanded && hasContent) {
                 var childWrap = document.createElement("div");
                 childWrap.className = "gs-pick-tree-children";
-                if (depth === 0 && isSongsChapter(folder)) songsPickContent(childWrap, folder, function (ex) { return gsPickExerciseButton(ex, folder, inst); }, function () { render(); }, "screen");
+                if (depth === 0 && isSongsChapter(folder)) songsPickContent(childWrap, folder, function (ex) { return gsPickExerciseButton(ex, folder, inst); }, redraw, "screen");
                 else {
                     visibleExercises.forEach(function (ex) { childWrap.appendChild(gsPickExerciseButton(ex, folder, inst)); });
-                    renderGsPickTree(childWrap, folder.folders, depth + 1, color);
+                    renderGsPickTree(childWrap, folder.folders, depth + 1, color, null, redraw);
                 }
                 node.appendChild(childWrap);
             }
@@ -20653,6 +20689,9 @@
         });
     }
 
+    // Le choix est redessiné à chaque action qui touche toute l'appli (sélection, déplacement…) : la case de recherche n'est mise au point qu'à l'ouverture
+    // (et sans faire défiler la page : mettre au point une case en haut de page ramenait la vue tout en haut), et ce qu'on y a tapé est retenu.
+    var gsPickFocused = false, gsPickQuery = "";
     function renderGsPickScreen(content) {
         var backBtn = document.createElement("button");
         backBtn.type = "button";
@@ -20665,6 +20704,7 @@
         searchInput.type = "text";
         searchInput.className = "gs-pick-search";
         searchInput.placeholder = "Rechercher un exercice…";
+        searchInput.value = gsPickQuery;
         content.appendChild(searchInput);
         content.appendChild(buildPickTabs(getActiveInstrument(), function () { return pickTabMem; }, function (v) { pickTabMem = v; }, function () { refreshResults(); }));
 
@@ -20680,7 +20720,7 @@
             // recherche : l'arborescence complète, comme dans la barre latérale.
             if (!q && pickTabMem === "all") {
                 resultsWrap.className = "gs-pick-tree";
-                renderGsPickTree(resultsWrap, inst.categories, 0, null);
+                renderGsPickTree(resultsWrap, pickChapters(inst), 0, null, inst.categories, refreshResults);
                 return;
             }
             resultsWrap.className = "gs-pick-results";
@@ -20733,9 +20773,9 @@
                 resultsWrap.appendChild(btn);
             });
         }
-        searchInput.addEventListener("input", refreshResults);
+        searchInput.addEventListener("input", function () { gsPickQuery = searchInput.value; refreshResults(); });
         refreshResults();
-        searchInput.focus();
+        if (!gsPickFocused) { gsPickFocused = true; searchInput.focus({ preventScroll: true }); }
     }
 
     // ---- écran de guidage (lecture) ----
