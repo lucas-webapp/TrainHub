@@ -1892,6 +1892,55 @@ button.ex-view-chip-on { color: var(--accent); border-color: color-mix(in srgb, 
 .ex-view-count { font-size: var(--fs-xs); color: var(--text-muted); }
 .ex-view-note { flex-basis: 100%; font-size: var(--fs-2xs); color: var(--text-muted); }
 
+/* Chapitre de morceaux : rangements (icônes), tri, dossiers calculés, fiche du morceau */
+.songs-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.songs-views { display: flex; gap: 6px; flex-wrap: wrap; }
+button.songs-view-btn { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; font-size: var(--fs-sm); font-weight: 700; background: transparent; color: var(--text-muted); border-radius: var(--radius-sm); }
+button.songs-view-btn .icon { width: 17px; height: 17px; flex: none; }
+button.songs-view-btn:hover { color: var(--text-main); }
+button.songs-view-btn.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.songs-views-pick { padding: 4px 0 6px 8px; }
+.songs-views-pick button.songs-view-btn { height: 30px; padding: 0 10px; font-size: var(--fs-xs); }
+.songs-bar-tail { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.songs-sort { font-size: var(--fs-xs); height: 32px; max-width: 100%; }
+.songs-wrap { display: flex; flex-direction: column; gap: 10px; }
+.song-folder-row { cursor: pointer; touch-action: manipulation; }
+.song-folder-count { flex: none; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; color: var(--text-muted); min-width: 1.6em; text-align: right; }
+.song-folder-none .folder-name { font-style: italic; color: var(--text-muted); }
+.song-folder-empty .folder-name { color: var(--text-muted); font-weight: 600; }
+button.song-add-value { align-self: flex-start; height: 32px; padding: 0 12px; font-size: var(--fs-xs); background: transparent; color: var(--text-muted); border: 1px dashed var(--border); border-radius: var(--radius-sm); }
+button.song-add-value:hover { color: var(--text-main); border-color: var(--text-muted); }
+.add-song-row .add-song-artist { flex: 0 1 36%; min-width: 96px; }
+.add-song-row .add-song-title { flex: 1; min-width: 0; }
+.song-block { display: flex; flex-direction: column; gap: 8px; padding: 8px 0 10px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+.song-id-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.song-field { display: flex; flex-direction: column; gap: 2px; flex: 1 1 160px; min-width: 0; }
+.song-field-label, .song-line-label { font-size: var(--fs-2xs); font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
+.song-field input { width: 100%; box-sizing: border-box; }
+.song-line { display: flex; align-items: flex-start; gap: 8px; }
+.song-line-label { flex: none; width: 84px; padding-top: 7px; }
+.song-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+button.song-chip { height: 28px; padding: 0 11px; font-size: var(--fs-xs); background: transparent; color: var(--text-muted); border-radius: 14px; }
+button.song-chip:hover { color: var(--text-main); }
+button.song-chip.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 16%, transparent); font-weight: 700; }
+button.song-chip-add { min-width: 28px; padding: 0 8px; border-style: dashed; }
+.songs-convert-panel { max-width: 560px; }
+.songs-convert-intro { margin: 0 0 12px; font-size: var(--fs-sm); line-height: 1.45; color: var(--text-muted); }
+.songs-convert-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 6px 0; font-size: var(--fs-sm); }
+.songs-convert-row select { flex: none; }
+.songs-convert-note { font-size: var(--fs-xs); color: var(--text-muted); margin: 4px 0; }
+.songs-convert-sum { margin: 12px 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--fs-sm); font-weight: 700; }
+.songs-convert-foot { display: flex; justify-content: flex-end; gap: 8px; }
+@media (max-width: 480px) {
+    button.songs-view-btn:not(.on) span { display: none; } /* téléphone : seul le rangement choisi garde son nom, les quatre autres sont des icônes (leur nom reste en infobulle) */
+    button.songs-view-btn:not(.on) { padding: 0 11px; }
+}
+@media (max-width: 560px) {
+    button.songs-view-btn { padding: 0 9px; gap: 5px; font-size: var(--fs-xs); }
+    .song-line { flex-direction: column; gap: 4px; }
+    .song-line-label { width: auto; padding-top: 0; }
+}
+
 /* Métronome prédéfini */
 .metro-preset-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--fs-xs); }
 .metro-preset-label { font-weight: 800; text-transform: uppercase; letter-spacing: .06em; font-size: var(--fs-2xs); color: var(--text-muted); }

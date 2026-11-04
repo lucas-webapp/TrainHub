@@ -3,6 +3,10 @@
 
     var STORAGE_KEY = "trainhub.v1";
     var DEFAULT_CATEGORIES = ["Technique", "Gammes", "Improvisation", "Jeu en groupe", "Copie de morceaux"];
+    // Chapitres de morceaux (voir le bloc « MORCEAUX » plus bas) : états de travail proposés au départ (renommables) et clé des préférences d'affichage. Ici, tôt dans
+    // le fichier : normalizeState s'en sert au chargement.
+    var SONG_WORK_DEFAULT = ["En cours", "À maîtriser", "Maîtrisé", "Plus tard"];
+    var SONG_UI_KEY = "trainhub.songsUi.v1";
     var DEFAULT_INSTRUMENTS = ["Basse", "Guitare", "Piano"];
     // Jeux de couleurs des chapitres, choisis dans les paramètres généraux (voir openSettingsPanel) :
     // currentPalette() renvoie toujours le jeu actif, à utiliser à la place d'une constante fixe partout où une
@@ -245,7 +249,10 @@
         box.appendChild(actions);
         overlay.appendChild(box);
 
-        var closed = false, cancelBtn = null, primaryBtn = null, allBtns = [];
+        var closed = false, cancelBtn = null, primaryBtn = null, allBtns = [], openedAt = performance.now();
+        // Une boîte ouverte par la touche Entrée (ajouter un exercice ou un morceau dont le nom existe déjà) recevait aussitôt le « clic » clavier de cette même touche
+        // sur son bouton, et se validait toute seule : on ignore un clic clavier (detail 0) dans les 0,4 s qui suivent l'ouverture. Un clic de souris ou de doigt reste immédiat.
+        function ghostKey(e) { return e && e.detail === 0 && !(e.target && e.target._force) && performance.now() - openedAt < 400; }
         function value() { return input ? input.value.trim() : ""; }
         function finish(fn, arg) { // ferme d'abord (une autre boîte peut s'ouvrir dans le rappel), puis agit
             if (closed) return;
@@ -260,13 +267,13 @@
         var api = { dismiss: cancel };
         function canSubmit() { return !input || (value() && (!spec.input.mustChange || value() !== initial.trim())); }
         function refresh() { if (primaryBtn && input) primaryBtn.disabled = !canSubmit(); }
-        function submit() { if (primaryBtn && !primaryBtn.disabled) primaryBtn.click(); }
+        function submit() { if (primaryBtn && !primaryBtn.disabled) { primaryBtn._force = true; primaryBtn.click(); primaryBtn._force = false; } }
 
         if (spec.cancelLabel !== null) {
             cancelBtn = document.createElement("button");
             cancelBtn.type = "button"; cancelBtn.className = "app-dialog-cancel " + (spec.cancelPrimary ? "btn-accent" : "btn-ghost") + (spec.cancelClass ? " " + spec.cancelClass : "");
             cancelBtn.textContent = spec.cancelLabel || "Annuler";
-            cancelBtn.addEventListener("click", cancel);
+            cancelBtn.addEventListener("click", function (e) { if (ghostKey(e)) return; cancel(); });
         }
         var left = (spec.buttons || []).filter(function (b) { return b.left; });
         left.forEach(function (b) { var el = makeBtn(b); el.classList.add("app-dialog-left"); actions.appendChild(el); });
@@ -277,7 +284,7 @@
             el.type = "button";
             el.className = "app-dialog-ok" + (b.kind === "danger" ? " btn-danger" : b.kind === "plain" ? "" : " btn-accent") + (b.cls ? " " + b.cls : "");
             el.textContent = b.label;
-            el.addEventListener("click", function () { finish(b.onClick, value()); });
+            el.addEventListener("click", function (e) { if (ghostKey(e)) return; finish(b.onClick, value()); });
             if (!b.left) primaryBtn = el; // le dernier bouton d'action (à droite) est le bouton principal
             allBtns.push(el);
             return el;
@@ -625,6 +632,7 @@
                 if (!cat.color) cat.color = paletteFor(s.settings)[i % paletteFor(s.settings).length];
             });
             inst.categories.forEach(normalizeFolder);
+            inst.categories.forEach(function (c) { if (isSongsChapter(c)) normalizeSongsChapter(c); });
             normalizePinnedOrder(inst);
         });
         assignSessionInstruments(s);
@@ -2957,11 +2965,14 @@
                     });
                 });
             }));
+            if (depth === 1) menu.appendChild(isSongsChapter(folder)
+                ? menuButton("Revenir à un chapitre ordinaire…", "", function () { closeFolderMenu(); songsRevertChapter(inst, folder); })
+                : menuButton("Transformer en chapitre de morceaux…", "", function () { closeFolderMenu(); openSongsConvertDialog(inst, folder); }));
             menu.appendChild(menuButton("Supprimer", "ctx-danger", showDelete));
         }
 
         var depth = folderDepth(inst, folder.id);
-        var canAddSub = depth > 0 && depth < MAX_FOLDER_DEPTH;
+        var canAddSub = depth > 0 && depth < MAX_FOLDER_DEPTH && !isSongsChapter(folder); // un chapitre de morceaux n'a pas de dossiers à la main
 
         function showAddSub() {
             menu.innerHTML = "";
@@ -3255,6 +3266,9 @@
             acts.push({ text: "＋ Session…", run: function (btn) { var r = btn.getBoundingClientRect(); openAddToSessionMenu(r.left, r.top, exSelItems().map(function (it) { return it.ex; }), true); } });
         }
         acts.push({ text: "Dé…", run: function (btn) { var r = btn.getBoundingClientRect(); openDiceAssignMenu(r.left, r.top, exSelItems().map(function (it) { return it.ex; })); } });
+        if (items.every(function (it) { return it.ex.isSong; }) && items.every(function (it) { return songChapterOf(it.ex) === songChapterOf(items[0].ex); })) {
+            [["style", "Style…"], ["technique", "Technique…"], ["work", "Travail…"]].forEach(function (pr) { acts.push({ text: pr[1], run: function (btn) { songsBulkMenu(btn, pr[0], exSelItems()); } }); });
+        }
         acts.push({ text: "Déplacer vers…", run: function () { exSelPlace(exSelItems(), true); } });
         acts.push({ text: "Copier vers…", run: function () { exSelPlace(exSelItems(), false); } });
         acts.push({ text: items.every(function (it) { return it.ex.favorite; }) ? "★ Retirer des favoris" : "☆ Favori", run: function () { exSelFlag(exSelItems(), "favorite", "ajouté" + plural + " aux favoris", "retiré" + plural + " des favoris"); } });
@@ -3439,11 +3453,12 @@
         }
 
         if (opts.reveal) menu.appendChild(menuButton("Ouvrir dans son dossier", "", function () { closeFolderMenu(); revealExercise(ex.id); }));
+        if (ex.isSong) menu.appendChild(menuButton("Classer : style, technique, travail…", "", function () { closeFolderMenu(); ex.collapsed = false; save(); render(); }));
         menu.appendChild(menuButton("Renommer…", "", function () { closeFolderMenu(); renameExercisePrompt(ex, folder, opts.after); }));
         if (!opts.noAddToSession) menu.appendChild(menuButton("Ajouter à une session…", "", function () { closeFolderMenu(); openAddToSessionMenu(x, y, ex); }));
         menu.appendChild(menuButton("Remplacer partout par…", "", function () { closeFolderMenu(); startReplaceEverywhere(ex.id, ex.title); }));
         var nLinked = linkedOthers(ex).length;
-        menu.appendChild(menuButton(nLinked ? "🔗 Liaison (" + nLinked + ")… rompre ou modifier" : "🔗 Lier à un autre exercice…", "", function () { openExerciseLinksDialog(ex, opts.after); }));
+        if (!ex.isSong) menu.appendChild(menuButton(nLinked ? "🔗 Liaison (" + nLinked + ")… rompre ou modifier" : "🔗 Lier à un autre exercice…", "", function () { openExerciseLinksDialog(ex, opts.after); }));
         if (!opts.noSelect) menu.appendChild(menuButton(ex.id in exSel ? "☐ Désélectionner" : "☑ Sélectionner (plusieurs)", "", function () { closeFolderMenu(); exSelToggle(ex.id); }));
         menu.appendChild(menuButton(ex.favorite ? "★ Retirer des favoris" : "☆ Marquer en favori", "", function () {
             ex.favorite = !ex.favorite;
@@ -3460,7 +3475,7 @@
         }));
 
         if (folder) {
-            menu.appendChild(menuButton("Dupliquer", "", function () {
+            if (!ex.isSong) menu.appendChild(menuButton("Dupliquer", "", function () { // un morceau ne se duplique pas : on le range par ses caractéristiques
                 folder.exercises.push(duplicateExercise(ex));
                 save();
                 done();
@@ -4363,6 +4378,7 @@
         var renderT0 = performance.now();
         flushPendingTextSaves();
         var inst = getActiveInstrument();
+        songsSync(inst);
         var path = inst ? getNavPath(inst) : [];
         var rootChapter = inst && path.length ? findById(inst.categories, path[0]) : null;
         var accent = path[0] === FAVORITES_ID ? "#ffd60a" : path[0] === ARCHIVED_ID ? "#9ca3af" : ((rootChapter && rootChapter.color) || "#00e676");
@@ -4636,7 +4652,8 @@
     function renderTreeNode(inst, folder, ancestorPath, currentPath, rootColor, depth) {
         var fullPath = ancestorPath.concat(folder.id);
         var isSelected = folder.id === currentPath[currentPath.length - 1];
-        var hasChildren = folder.folders.length > 0;
+        var songKids = depth === 0 && isSongsChapter(folder) ? songsTreeGroups(folder) : null; // chapitre de morceaux : ses « sous-dossiers » sont calculés
+        var hasChildren = songKids ? songKids.length > 0 : folder.folders.length > 0;
         var expanded = treeExpanded[folder.id] !== false;
         // Profondeur plafonnée pour le style (au-delà, même apparence que le niveau 2) : la
         // hiérarchie se lit déjà par l'indentation, pas besoin d'un 6e style différent.
@@ -4712,11 +4729,16 @@
         if (expanded && hasChildren) {
             var childWrap = document.createElement("div");
             childWrap.className = "tree-children";
-            folder.folders.forEach(function (child) {
-                childWrap.appendChild(renderTreeNode(inst, child, fullPath, currentPath, rootColor, depth + 1));
-            });
-            wrap.appendChild(childWrap);
-            setupDragReorder(childWrap, ".tree-node", function () { return folder.folders; }, "y");
+            if (songKids) {
+                songKids.forEach(function (g) { childWrap.appendChild(renderSongTreeRow(inst, folder, g, currentPath, rootColor)); });
+                wrap.appendChild(childWrap);
+            } else {
+                folder.folders.forEach(function (child) {
+                    childWrap.appendChild(renderTreeNode(inst, child, fullPath, currentPath, rootColor, depth + 1));
+                });
+                wrap.appendChild(childWrap);
+                setupDragReorder(childWrap, ".tree-node", function () { return folder.folders; }, "y");
+            }
         }
 
         return wrap;
@@ -4744,6 +4766,8 @@
             $breadcrumb.innerHTML = "";
             $contentHeading.innerHTML = "";
             renderFilteredResults(inst);
+        } else if (isSongsChapter(path.length ? findById(inst.categories, path[0]) : null)) {
+            renderSongsMain(inst, findById(inst.categories, path[0]), path);
         } else {
             $breadcrumb.hidden = false;
             renderFolderBrowser(inst);
@@ -5141,6 +5165,802 @@
         return wrap;
     }
 
+    // ============================================================================================================================
+    // MORCEAUX
+    // Un chapitre « de morceaux » (ch.kind === "songs") range ses morceaux À PLAT dans ch.exercises : plus de dossiers à tenir à la main, plus de copies pour
+    // ranger un même morceau à plusieurs endroits. Chaque morceau reste un exercice ordinaire (sessions, métronome, notes, fichiers, favoris, archives,
+    // statistiques…) et porte en plus ses caractéristiques : artist / songName (le titre affiché est TOUJOURS « Artiste - Titre »), styles[], techniques[],
+    // work. Les « dossiers » sont CALCULÉS d'après elles : un morceau peut donc apparaître dans plusieurs dossiers sans être copié. Seuls les noms de valeurs
+    // (styles, techniques, états de travail) se gèrent à la main, par chapitre (ch.vocab) ; le dossier d'un artiste apparaît tout seul dès 2 morceaux.
+    // ============================================================================================================================
+    var SONG_ICON_ARTIST = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.6"/><path d="M5 20.5c0-3.9 3.1-7 7-7s7 3.1 7 7"/></svg>';
+    var SONG_ICON_STYLE = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg>';
+    var SONG_ICON_TECH = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c4 0 7 2.4 7 6 0 5-4.4 9.6-7 12-2.6-2.4-7-7-7-12 0-3.6 3-6 7-6z"/></svg>';
+    var SONG_ICON_WORK = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/></svg>';
+    var SONG_ICON_ALL = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg>';
+    var SONG_DIMS = [
+        { key: "artist", label: "Artistes", icon: SONG_ICON_ARTIST, none: "Sans artiste", hint: "Un dossier par artiste (dès 2 morceaux)" },
+        { key: "style", label: "Styles", icon: SONG_ICON_STYLE, vocab: "styles", field: "styles", multi: true, one: "style", none: "Sans style", add: "Nouveau style", hint: "Rangés par style : rock, funk, jazz…" },
+        { key: "technique", label: "Techniques", icon: SONG_ICON_TECH, vocab: "techniques", field: "techniques", multi: true, one: "technique", none: "Sans technique", add: "Nouvelle technique", hint: "Rangés par technique : slap, médiator, accords…" },
+        { key: "work", label: "Travail", icon: SONG_ICON_WORK, vocab: "work", field: "work", multi: false, one: "état", none: "À classer", add: "Nouvel état", hint: "Rangés par avancement : en cours, à maîtriser, maîtrisé…" },
+        { key: "all", label: "Tous", icon: SONG_ICON_ALL, hint: "Tous les morceaux, sans dossier" }
+    ];
+    var SONG_SORTS = [["az", "A → Z"], ["updated", "Modifiés récemment"], ["created-desc", "Ajoutés récemment"], ["created-asc", "Ajoutés en premier"]];
+    var songStay = null;                 // morceau tout juste modifié : il reste affiché dans son dossier jusqu'au prochain changement de page, même s'il n'y a plus sa place
+    var songDraft = { ch: null, artist: "" }; // dernier artiste saisi : on enchaîne les morceaux d'un même artiste sans le retaper
+
+    function songDim(key) { return SONG_DIMS.filter(function (d) { return d.key === key; })[0] || SONG_DIMS[0]; }
+    function isSongsChapter(f) { return !!f && f.kind === "songs"; }
+    function songNorm(t) { return String(t || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim(); }
+    function songSortKey(t) { return songNorm(t).replace(/^(the|le|la|les|un|une)\s+/, "").replace(/^l'/, ""); } // « The Beatles » se range à B
+    function parseSongTitle(t) {
+        t = String(t || "").trim();
+        var m = /^(.+?)\s+[-–—]\s+(.+)$/.exec(t);
+        return m ? { artist: m[1].trim(), name: m[2].trim() } : { artist: "", name: t };
+    }
+    function songTitle(artist, name) {
+        artist = String(artist || "").trim(); name = String(name || "").trim();
+        return artist && name ? artist + " - " + name : (artist || name);
+    }
+    function songCleanList(list) {
+        var seen = {}, out = [];
+        (Array.isArray(list) ? list : []).forEach(function (x) {
+            x = typeof x === "string" ? x.trim() : "";
+            var k = songNorm(x);
+            if (x && !seen[k]) { seen[k] = true; out.push(x); }
+        });
+        return out;
+    }
+    function songCanon(list, val) { // la graphie déjà connue d'une valeur (casse, accents), ou undefined
+        var k = songNorm(val);
+        for (var i = 0; i < list.length; i++) if (songNorm(list[i]) === k) return list[i];
+        return undefined;
+    }
+    // Chapitre de morceaux : vocabulaires bien formés, chaque morceau au format attendu, valeurs inconnues ajoutées aux vocabulaires. Sans effet sur un chapitre ordinaire.
+    function normalizeSongsChapter(ch) {
+        if (!Array.isArray(ch.exercises)) ch.exercises = [];
+        if (!Array.isArray(ch.folders)) ch.folders = [];
+        if (ch.folders.length) { // des dossiers à la main (ancienne version, fusion) : leurs morceaux remontent à plat
+            (function lift(list) { list.forEach(function (f) { (f.exercises || []).forEach(function (ex) { ch.exercises.push(ex); }); lift(f.folders || []); }); })(ch.folders);
+            ch.folders = [];
+        }
+        if (!ch.vocab || typeof ch.vocab !== "object") ch.vocab = {};
+        var v = ch.vocab;
+        if (!Array.isArray(v.work)) v.work = SONG_WORK_DEFAULT.slice();
+        if (!Array.isArray(v.styles)) v.styles = [];
+        if (!Array.isArray(v.techniques)) v.techniques = [];
+        v.work = songCleanList(v.work); v.styles = songCleanList(v.styles); v.techniques = songCleanList(v.techniques);
+        ch.exercises.forEach(function (ex) { normalizeSongEx(ch, ex); });
+    }
+    function normalizeSongEx(ch, ex) {
+        ex.isSong = true;
+        if (typeof ex.title !== "string") ex.title = "";
+        // le titre « Artiste - Titre » fait foi quand il ne correspond plus aux champs (renommé par un autre chemin : menu, remplacement…)
+        if (typeof ex.artist !== "string" || typeof ex.songName !== "string" || ex.title !== songTitle(ex.artist, ex.songName)) {
+            var p = parseSongTitle(ex.title);
+            ex.artist = p.artist; ex.songName = p.name;
+            ex.title = songTitle(ex.artist, ex.songName);
+        }
+        [["styles", "styles"], ["techniques", "techniques"]].forEach(function (pair) {
+            var out = [];
+            (Array.isArray(ex[pair[0]]) ? ex[pair[0]] : []).forEach(function (x) {
+                x = String(x || "").trim();
+                if (!x) return;
+                var canon = songCanon(ch.vocab[pair[1]], x);
+                if (!canon) { ch.vocab[pair[1]].push(x); canon = x; }
+                if (out.indexOf(canon) === -1) out.push(canon);
+            });
+            ex[pair[0]] = out;
+        });
+        var w = typeof ex.work === "string" ? ex.work.trim() : "";
+        if (w) { var cw = songCanon(ch.vocab.work, w); if (!cw) { ch.vocab.work.push(w); cw = w; } w = cw; }
+        ex.work = w;
+    }
+    // À chaque affichage : les chapitres de morceaux sont à jour ; un exercice sorti d'un chapitre de morceaux (déplacé) redevient un exercice ordinaire.
+    function songsSync(inst) {
+        if (!inst) return;
+        inst.categories.forEach(function (c) {
+            if (isSongsChapter(c)) { normalizeSongsChapter(c); return; }
+            (function strip(f) { (f.exercises || []).forEach(function (ex) { if (ex.isSong) delete ex.isSong; }); (f.folders || []).forEach(strip); })(c);
+        });
+    }
+    function songChapterOf(ex) {
+        for (var i = 0; i < state.instruments.length; i++) {
+            var cats = state.instruments[i].categories || [];
+            for (var j = 0; j < cats.length; j++) if (isSongsChapter(cats[j]) && cats[j].exercises.indexOf(ex) !== -1) return cats[j];
+        }
+        return null;
+    }
+    function songValues(ex, dimKey) {
+        if (dimKey === "artist") return ex.artist ? [ex.artist] : [];
+        if (dimKey === "work") return ex.work ? [ex.work] : [];
+        var d = songDim(dimKey);
+        return d.field && Array.isArray(ex[d.field]) ? ex[d.field] : [];
+    }
+    function songGroupId(dimKey, value) { return "g:" + dimKey + ":" + encodeURIComponent(songNorm(value)); }
+    function songCanonArtist(ch, artist) { // « beatles » saisi alors que « Beatles » existe : on reprend la graphie existante
+        artist = String(artist || "").trim();
+        if (!artist) return "";
+        var k = songNorm(artist), found = null;
+        ch.exercises.forEach(function (ex) { if (!found && ex.artist && songNorm(ex.artist) === k) found = ex.artist; });
+        return found || artist;
+    }
+    // --- préférences d'affichage (par chapitre, sur cet appareil) ---
+    function songsUiLoad() { try { return JSON.parse(localStorage.getItem(SONG_UI_KEY)) || {}; } catch (e) { return {}; } }
+    function songsPrefs(ch) {
+        var p = songsUiLoad()[ch.id] || {};
+        return {
+            view: SONG_DIMS.some(function (d) { return d.key === p.view; }) ? p.view : "artist",
+            sort: SONG_SORTS.some(function (s) { return s[0] === p.sort; }) ? p.sort : "az"
+        };
+    }
+    function songsPrefsSet(ch, patch) {
+        var all = songsUiLoad(), cur = Object.assign({}, all[ch.id] || {}, patch);
+        all[ch.id] = cur;
+        try { localStorage.setItem(SONG_UI_KEY, JSON.stringify(all)); } catch (e) {}
+    }
+    // --- tri et dossiers calculés ---
+    function songsSortList(list, sort) {
+        function az(a, b) { return songSortKey(a.title).localeCompare(songSortKey(b.title), "fr", { numeric: true }); }
+        var cmp = {
+            az: az,
+            updated: function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0) || az(a, b); },
+            "created-desc": function (a, b) { return exCreatedAt(b) - exCreatedAt(a) || az(a, b); },
+            "created-asc": function (a, b) { return exCreatedAt(a) - exCreatedAt(b) || az(a, b); }
+        }[sort] || az;
+        return list.slice().sort(cmp);
+    }
+    // { folders: [{ id, name, dim, value, none, songs }], loose: [morceaux hors dossier], songs: [tous, triés] } — archivés exclus (ils sont dans « Archivés »).
+    function songsGroups(ch, dimKey, sort) {
+        var songs = ch.exercises.filter(function (ex) { return !ex.archived; }), out = { folders: [], loose: [], songs: songsSortList(songs, sort) };
+        if (dimKey === "all") return out;
+        var d = songDim(dimKey);
+        if (dimKey === "artist") {
+            var by = {}, order = [];
+            songs.forEach(function (ex) {
+                if (!ex.artist) { out.loose.push(ex); return; }
+                var k = songNorm(ex.artist);
+                if (!by[k]) { by[k] = { name: ex.artist, key: k, songs: [] }; order.push(k); }
+                by[k].songs.push(ex);
+            });
+            order.forEach(function (k) {
+                var g = by[k];
+                if (g.songs.length >= 2) out.folders.push({ id: songGroupId("artist", g.name), name: g.name, dim: "artist", value: g.name, songs: songsSortList(g.songs, sort) });
+                else out.loose.push(g.songs[0]);
+            });
+            var rank = {
+                az: function (a, b) { return songSortKey(a.name).localeCompare(songSortKey(b.name), "fr", { numeric: true }); },
+                updated: function (a, b) { return Math.max.apply(null, b.songs.map(function (s) { return s.updatedAt || 0; })) - Math.max.apply(null, a.songs.map(function (s) { return s.updatedAt || 0; })); },
+                "created-desc": function (a, b) { return Math.max.apply(null, b.songs.map(exCreatedAt)) - Math.max.apply(null, a.songs.map(exCreatedAt)); },
+                "created-asc": function (a, b) { return Math.min.apply(null, a.songs.map(exCreatedAt)) - Math.min.apply(null, b.songs.map(exCreatedAt)); }
+            }[sort] || null;
+            out.folders.sort(function (a, b) { return (rank ? rank(a, b) : 0) || songSortKey(a.name).localeCompare(songSortKey(b.name), "fr", { numeric: true }); });
+            out.loose = songsSortList(out.loose, sort);
+            return out;
+        }
+        var map = {};
+        ch.vocab[d.vocab].forEach(function (v) {
+            var g = { id: songGroupId(dimKey, v), name: v, dim: dimKey, value: v, songs: [] };
+            map[songNorm(v)] = g; out.folders.push(g);
+        });
+        var none = { id: songGroupId(dimKey, ""), name: d.none, dim: dimKey, value: "", none: true, songs: [] };
+        songs.forEach(function (ex) {
+            var vals = songValues(ex, dimKey);
+            if (!vals.length) { none.songs.push(ex); return; }
+            vals.forEach(function (v) { var g = map[songNorm(v)]; if (g) g.songs.push(ex); });
+        });
+        out.folders.forEach(function (g) { g.songs = songsSortList(g.songs, sort); });
+        none.songs = songsSortList(none.songs, sort);
+        if (none.songs.length) out.folders.push(none);
+        return out;
+    }
+    function songsTreeGroups(ch) { // les « sous-dossiers » du chapitre dans la barre latérale
+        var pr = songsPrefs(ch);
+        return pr.view === "all" ? [] : songsGroups(ch, pr.view, pr.sort).folders;
+    }
+    // La page où se trouve un morceau dans le rangement actuel (pour « Ouvrir dans son dossier », « Voir »…) : [id du chapitre] ou [chapitre, dossier].
+    function songsPathFor(ch, ex) {
+        var pr = songsPrefs(ch);
+        if (pr.view === "all") return [ch.id];
+        var g = songsGroups(ch, pr.view, pr.sort).folders.filter(function (f) { return f.songs.indexOf(ex) !== -1; })[0];
+        return g ? [ch.id, g.id] : [ch.id];
+    }
+
+    // --- valeurs (styles, techniques, travail) : ajouter, renommer, ordonner, supprimer ---
+    function songsAddValue(ch, dimKey, name) {
+        var d = songDim(dimKey), list = ch.vocab[d.vocab];
+        name = String(name || "").trim();
+        if (!name) return "";
+        var c = songCanon(list, name);
+        if (c) return c;
+        list.push(name);
+        return name;
+    }
+    function songsRenameValue(ch, dimKey, oldName, newName) {
+        newName = String(newName || "").trim();
+        if (!newName) return;
+        if (dimKey === "artist") {
+            var kOld = songNorm(oldName);
+            var target = songCanonArtist(ch, newName);
+            ch.exercises.forEach(function (ex) {
+                if (ex.artist && songNorm(ex.artist) === kOld) { ex.artist = target; ex.title = songTitle(ex.artist, ex.songName); }
+            });
+            return;
+        }
+        var d = songDim(dimKey), list = ch.vocab[d.vocab], i = -1, j = -1;
+        list.forEach(function (v, n) { if (songNorm(v) === songNorm(oldName)) i = n; else if (songNorm(v) === songNorm(newName)) j = n; });
+        if (i === -1) return;
+        var final = j !== -1 ? list[j] : newName;
+        if (j !== -1) list.splice(i, 1); else list[i] = newName; // un nom déjà pris : les deux dossiers n'en font plus qu'un
+        ch.exercises.forEach(function (ex) {
+            if (dimKey === "work") { if (ex.work && songNorm(ex.work) === songNorm(oldName)) ex.work = final; return; }
+            var arr = ex[d.field] || [], out = [];
+            arr.forEach(function (x) { var y = songNorm(x) === songNorm(oldName) ? final : x; if (out.indexOf(y) === -1) out.push(y); });
+            ex[d.field] = out;
+        });
+    }
+    function songsDeleteValue(ch, dimKey, name) {
+        var d = songDim(dimKey), k = songNorm(name);
+        ch.vocab[d.vocab] = ch.vocab[d.vocab].filter(function (v) { return songNorm(v) !== k; });
+        ch.exercises.forEach(function (ex) {
+            if (dimKey === "work") { if (ex.work && songNorm(ex.work) === k) ex.work = ""; return; }
+            ex[d.field] = (ex[d.field] || []).filter(function (x) { return songNorm(x) !== k; });
+        });
+    }
+    function songsMoveValue(ch, dimKey, name, delta) {
+        var list = ch.vocab[songDim(dimKey).vocab], i = -1;
+        list.forEach(function (v, n) { if (songNorm(v) === songNorm(name)) i = n; });
+        var j = i + delta;
+        if (i === -1 || j < 0 || j >= list.length) return;
+        var t = list[i]; list[i] = list[j]; list[j] = t;
+    }
+    // Un morceau reçoit / perd une valeur (multi : bascule ; travail : une seule à la fois).
+    function songToggleValue(ch, ex, dimKey, value) {
+        var d = songDim(dimKey), k = songNorm(value);
+        if (!d.multi) { ex.work = ex.work && songNorm(ex.work) === k ? "" : songCanon(ch.vocab.work, value) || value; return; }
+        var arr = ex[d.field] || [], has = arr.some(function (x) { return songNorm(x) === k; });
+        ex[d.field] = has ? arr.filter(function (x) { return songNorm(x) !== k; }) : arr.concat(songCanon(ch.vocab[d.vocab], value) || value);
+    }
+    function songsActionMenu(x, y, title, message, items) {
+        closeFolderMenu();
+        var backdrop = document.createElement("div");
+        backdrop.className = "ctx-backdrop";
+        backdrop.addEventListener("pointerdown", function (e) { e.preventDefault(); closeFolderMenu(); });
+        backdrop.addEventListener("contextmenu", function (e) { e.preventDefault(); closeFolderMenu(); });
+        var menu = document.createElement("div");
+        menu.className = "ctx-menu";
+        menu.setAttribute("role", "menu");
+        menu.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+        if (closeActiveModal) { backdrop.classList.add("ctx-over-modal"); menu.classList.add("ctx-over-modal"); }
+        var t = document.createElement("div"); t.className = "ctx-title"; t.textContent = title; menu.appendChild(t);
+        if (message) { var m = document.createElement("div"); m.className = "ctx-message ctx-warn"; m.textContent = message; menu.appendChild(m); }
+        items.forEach(function (it) {
+            var b = document.createElement("button");
+            b.type = "button"; b.className = "ctx-item" + (it.danger ? " ctx-danger" : ""); b.textContent = it.label;
+            if (it.disabled) b.disabled = true;
+            var armed = false;
+            b.addEventListener("pointerdown", function () { armed = true; });
+            b.addEventListener("click", function (e) { if (!armed && e.detail !== 0) return; armed = false; closeFolderMenu(); it.run(); });
+            menu.appendChild(b);
+        });
+        function onKey(e) { if (e.key === "Escape") closeFolderMenu(); }
+        document.body.appendChild(backdrop);
+        document.body.appendChild(menu);
+        document.addEventListener("keydown", onKey, true);
+        openMenu = { backdrop: backdrop, menu: menu, onKey: onKey };
+        var w = menu.offsetWidth || 220, h = menu.offsetHeight || 120;
+        menu.style.left = Math.min(Math.max(8, x + 6), Math.max(8, window.innerWidth - w - 8)) + "px";
+        menu.style.top = Math.min(Math.max(8, y + 6), Math.max(8, window.innerHeight - h - 8)) + "px";
+    }
+    // Menu d'un « dossier » calculé : renommer (pour tous les morceaux concernés), ordonner, supprimer la valeur.
+    function songFolderMenu(x, y, inst, ch, g) {
+        if (g.none) return;
+        var d = songDim(g.dim), after = function () { save(); render(); };
+        var items = [{ label: "Renommer…", run: function () {
+            dlgPrompt({ title: g.dim === "artist" ? "Renommer l'artiste" : "Renommer " + (d.one === "état" ? "l'état" : "le " + d.one), message: "Le nouveau nom s'applique à tous les morceaux concernés.", value: g.name, confirmLabel: "Renommer", mustChange: true }, function (name) {
+                var wasSelected = (getNavPath(inst)[1] || "") === g.id;
+                songsRenameValue(ch, g.dim, g.name, name);
+                if (wasSelected) setNavPath(inst, [ch.id, songGroupId(g.dim, name)]);
+                after();
+            });
+        } }];
+        if (g.dim !== "artist") {
+            var list = ch.vocab[d.vocab], i = -1;
+            list.forEach(function (v, n) { if (songNorm(v) === songNorm(g.value)) i = n; });
+            items.push({ label: "Monter", disabled: i <= 0, run: function () { songsMoveValue(ch, g.dim, g.value, -1); after(); } });
+            items.push({ label: "Descendre", disabled: i === -1 || i >= list.length - 1, run: function () { songsMoveValue(ch, g.dim, g.value, 1); after(); } });
+            items.push({ label: "Supprimer ce " + (d.one === "état" ? "état" : d.one) + "…", danger: true, run: function () {
+                var n = g.songs.length;
+                dlgConfirm({ title: "Supprimer « " + g.name + " » ?", message: n ? n + " morceau" + (n > 1 ? "x" : "") + " perd" + (n > 1 ? "ent" : "") + " cette valeur (ils restent dans la bibliothèque, « " + d.none + " » si c'était la seule)." : "Aucun morceau n'est concerné.", confirmLabel: "Supprimer", danger: true }, function () {
+                    songsDeleteValue(ch, g.dim, g.value);
+                    if ((getNavPath(inst)[1] || "") === g.id) setNavPath(inst, [ch.id]);
+                    after();
+                    toastUndo("« " + g.name + " » supprimé");
+                });
+            } });
+        }
+        songsActionMenu(x, y, g.name, "", items);
+    }
+    function songsAskNewValue(ch, dimKey, then) {
+        var d = songDim(dimKey);
+        dlgPrompt({ title: d.add, placeholder: dimKey === "style" ? "ex. Rock, Funk, Jazz" : dimKey === "technique" ? "ex. Slap, Médiator, Accords" : "ex. En cours", confirmLabel: "Ajouter" }, function (name) {
+            var v = songsAddValue(ch, dimKey, name);
+            if (then) then(v);
+        });
+    }
+
+    // --- datalist des artistes (complétion à la saisie) ---
+    function songsArtistsDatalist(ch) {
+        var dl = document.getElementById("song-artists-list");
+        if (!dl) { dl = document.createElement("datalist"); dl.id = "song-artists-list"; document.body.appendChild(dl); }
+        var seen = {}, names = [];
+        ch.exercises.forEach(function (ex) { var k = songNorm(ex.artist); if (ex.artist && !seen[k]) { seen[k] = true; names.push(ex.artist); } });
+        names.sort(function (a, b) { return songSortKey(a).localeCompare(songSortKey(b), "fr"); });
+        dl.innerHTML = "";
+        names.forEach(function (n) { var o = document.createElement("option"); o.value = n; dl.appendChild(o); });
+    }
+
+    // --- le morceau dans sa carte : artiste, titre, styles, techniques, travail ---
+    function songApplyIdentity(ch, ex, artist, name, onDone) {
+        artist = songCanonArtist(ch, artist); name = String(name || "").trim();
+        if (!name) { showToast("Le titre du morceau ne peut pas être vide."); if (onDone) onDone(false); return; }
+        var t = songTitle(artist, name);
+        if (t === ex.title) { if (onDone) onDone(false); return; }
+        ifNameFree(exerciseTitleTaken(ch.exercises, t, ex), "morceau", t, "Renommer quand même", function () {
+            var old = ex.title;
+            ex.artist = artist; ex.songName = name; ex.title = t;
+            recSyncAudioName(ex, old);
+            touchExercise(ex);
+            songStayMark(ch, ex);
+            save(); render();
+            if (onDone) onDone(true);
+        }, function () { if (onDone) onDone(false); });
+    }
+    // Le titre saisi à la main dans la barre du morceau (« Artiste - Titre ») : on retrouve l'artiste et le titre.
+    function songRetitle(ex) {
+        var p = parseSongTitle(ex.title);
+        ex.artist = p.artist; ex.songName = p.name;
+        ex.title = songTitle(ex.artist, ex.songName);
+        var ch = songChapterOf(ex);
+        if (ch) { ex.artist = songCanonArtist(ch, ex.artist); ex.title = songTitle(ex.artist, ex.songName); songStayMark(ch, ex); }
+    }
+    function songStayMark(ch, ex) {
+        var inst = getActiveInstrument(), path = inst ? getNavPath(inst) : [];
+        songStay = { id: ex.id, ch: ch.id, gid: path[0] === ch.id ? (path[1] || null) : null };
+    }
+    function buildSongBlock(ex) {
+        var ch = songChapterOf(ex);
+        if (!ch) return document.createDocumentFragment();
+        songsArtistsDatalist(ch);
+        var box = document.createElement("div");
+        box.className = "song-block";
+        var ids = document.createElement("div"); ids.className = "song-id-row";
+        function field(label, value, ph, cls, list) {
+            var wrap = document.createElement("label"); wrap.className = "song-field " + cls;
+            var l = document.createElement("span"); l.className = "song-field-label"; l.textContent = label; wrap.appendChild(l);
+            var inp = document.createElement("input"); inp.type = "text"; inp.value = value; inp.placeholder = ph; inp.autocomplete = "off";
+            if (list) inp.setAttribute("list", list);
+            wrap.appendChild(inp);
+            ids.appendChild(wrap);
+            return inp;
+        }
+        var aIn = field("Artiste", ex.artist, "Artiste", "song-field-artist", "song-artists-list");
+        var nIn = field("Titre", ex.songName, "Titre du morceau", "song-field-name");
+        function commitId() {
+            songApplyIdentity(ch, ex, aIn.value, nIn.value, function (changed) { if (!changed) { aIn.value = ex.artist; nIn.value = ex.songName; } });
+        }
+        [aIn, nIn].forEach(function (inp) {
+            inp.addEventListener("change", commitId);
+            inp.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); inp.blur(); } });
+        });
+        box.appendChild(ids);
+        ["style", "technique", "work"].forEach(function (dimKey) {
+            var d = songDim(dimKey), line = document.createElement("div"); line.className = "song-line";
+            var lab = document.createElement("span"); lab.className = "song-line-label"; lab.textContent = d.label; line.appendChild(lab);
+            var chips = document.createElement("div"); chips.className = "song-chips";
+            var cur = songValues(ex, dimKey).map(songNorm);
+            ch.vocab[d.vocab].forEach(function (v) {
+                var on = cur.indexOf(songNorm(v)) !== -1;
+                var b = document.createElement("button"); b.type = "button"; b.className = "song-chip" + (on ? " on" : ""); b.textContent = v;
+                b.setAttribute("aria-pressed", on ? "true" : "false");
+                b.addEventListener("click", function () {
+                    songToggleValue(ch, ex, dimKey, v);
+                    touchExercise(ex); songStayMark(ch, ex); save(); render();
+                });
+                chips.appendChild(b);
+            });
+            var add = document.createElement("button"); add.type = "button"; add.className = "song-chip song-chip-add"; add.textContent = "＋"; add.title = d.add;
+            add.setAttribute("aria-label", d.add);
+            add.addEventListener("click", function () {
+                songsAskNewValue(ch, dimKey, function (v) { songToggleValue(ch, ex, dimKey, v); touchExercise(ex); songStayMark(ch, ex); save(); render(); });
+            });
+            chips.appendChild(add);
+            line.appendChild(chips);
+            box.appendChild(line);
+        });
+        return box;
+    }
+
+    // --- ajouter un morceau : artiste puis titre ---
+    function renderAddSongForm(inst, ch, pre) {
+        pre = pre || {};
+        songsArtistsDatalist(ch);
+        if (songDraft.ch !== ch.id) songDraft = { ch: ch.id, artist: "" };
+        var wrap = document.createElement("div");
+        wrap.className = "add-exercise-row add-song-row";
+        var a = document.createElement("input"); a.type = "text"; a.className = "add-song-artist"; a.placeholder = "Artiste"; a.autocomplete = "off"; a.setAttribute("list", "song-artists-list");
+        a.setAttribute("aria-label", "Artiste");
+        a.value = pre.artist || songDraft.artist || "";
+        var t = document.createElement("input"); t.type = "text"; t.className = "add-song-title"; t.placeholder = "Ajouter un morceau… (titre)"; t.autocomplete = "off";
+        t.setAttribute("aria-label", "Titre du morceau");
+        function commit() {
+            var artist = a.value.trim(), name = t.value.trim(), p;
+            if (!name && artist) { p = parseSongTitle(artist); if (p.artist) { artist = p.artist; name = p.name; } else { name = artist; artist = ""; } } // tout dans la première case : « Artiste - Titre »
+            else if (name && !artist) { p = parseSongTitle(name); if (p.artist) { artist = p.artist; name = p.name; } }
+            if (!name) return;
+            artist = songCanonArtist(ch, artist);
+            var title = songTitle(artist, name);
+            ifNameFree(exerciseTitleTaken(ch.exercises, title), "morceau", title, "Ajouter quand même", function () {
+                var now = Date.now();
+                var ex = { id: uid(), title: title, isSong: true, artist: artist, songName: name, styles: [], techniques: [], work: "", notes: "", favorite: false, archived: false, links: [], files: [],
+                    tempoGoal: false, collapsed: true, createdAt: now, updatedAt: now };
+                if (pre.style) ex.styles = [pre.style];
+                if (pre.technique) ex.techniques = [pre.technique];
+                if (pre.work) ex.work = pre.work;
+                ch.exercises.push(ex);
+                songDraft = { ch: ch.id, artist: artist };
+                save();
+                render();
+                // Où est-il rangé ? S'il n'est pas visible sur cette page, on le dit et on propose d'y aller.
+                var pr = songsPrefs(ch), path = songsPathFor(ch, ex), cur = getNavPath(inst), here = (cur[1] || "") === (path[1] || "") && cur[0] === ch.id;
+                if (!here && pr.view !== "all") {
+                    var gname = path[1] ? (songsGroups(ch, pr.view, pr.sort).folders.filter(function (f) { return f.id === path[1]; })[0] || {}).name : null;
+                    showToast("« " + title + " » ajouté" + (gname ? " : « " + gname + " »" : "") + ".", 6000, { label: "Voir", run: function () { ex.collapsed = false; save(); setNavPath(inst, path); render(); } });
+                } else showToast("« " + title + " » ajouté.", 2800);
+            });
+        }
+        var btn = iconButton("+", "Ajouter le morceau", commit);
+        btn.className = "btn-accent icon-btn";
+        a.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); if (t.value.trim()) commit(); else if (a.value.trim() && parseSongTitle(a.value).artist) commit(); else t.focus(); } });
+        t.addEventListener("keydown", function (e) { if (e.key === "Enter") commit(); });
+        wrap.appendChild(a); wrap.appendChild(t); wrap.appendChild(btn);
+        return wrap;
+    }
+
+    // --- l'affichage du chapitre ---
+    function renderSongFolderRow(inst, ch, g) {
+        var row = document.createElement("div");
+        row.className = "folder-row song-folder-row" + (g.none ? " song-folder-none" : "") + (g.songs.length ? "" : " song-folder-empty");
+        row.dataset.songFolder = g.id;
+        var icon = document.createElement("span"); icon.className = "folder-icon"; icon.innerHTML = FOLDER_ICON_SVG; row.appendChild(icon);
+        var label = document.createElement("span"); label.className = "folder-name"; label.textContent = g.name; row.appendChild(label);
+        var cnt = document.createElement("span"); cnt.className = "song-folder-count"; cnt.textContent = String(g.songs.length);
+        cnt.title = g.songs.length + " morceau" + (g.songs.length > 1 ? "x" : ""); row.appendChild(cnt);
+        if (!g.none) {
+            bindContextGesture(row, function (x, y) { songFolderMenu(x, y, inst, ch, g); });
+            var editBtn = svgIconButton(PENCIL_ICON_SVG, "Renommer", function (e) { e.stopPropagation(); var r = editBtn.getBoundingClientRect(); songFolderMenu(r.left, r.bottom, inst, ch, g); });
+            editBtn.classList.add("folder-edit-btn"); row.appendChild(editBtn);
+        }
+        row.addEventListener("click", function () {
+            if (suppressNextClick) { suppressNextClick = false; return; }
+            setNavPath(inst, [ch.id, g.id]);
+            render();
+        });
+        return row;
+    }
+    function renderSongViewBar(inst, ch, pr, data, nSongs) {
+        var bar = document.createElement("div"); bar.className = "songs-bar";
+        var views = document.createElement("div"); views.className = "songs-views"; views.setAttribute("role", "group"); views.setAttribute("aria-label", "Rangement des morceaux");
+        SONG_DIMS.forEach(function (d) {
+            var b = document.createElement("button"); b.type = "button"; b.className = "songs-view-btn" + (pr.view === d.key ? " on" : ""); b.dataset.view = d.key;
+            b.setAttribute("aria-pressed", pr.view === d.key ? "true" : "false"); b.title = d.label + " — " + d.hint; b.setAttribute("aria-label", d.label);
+            b.innerHTML = d.icon; var s = document.createElement("span"); s.textContent = d.label; b.appendChild(s);
+            b.addEventListener("click", function () { songsPrefsSet(ch, { view: d.key }); setNavPath(inst, [ch.id]); songStay = null; render(); });
+            views.appendChild(b);
+        });
+        bar.appendChild(views);
+        var tail = document.createElement("div"); tail.className = "songs-bar-tail";
+        var sel = document.createElement("select"); sel.className = "songs-sort"; sel.setAttribute("aria-label", "Tri des morceaux"); sel.title = "Tri des morceaux";
+        SONG_SORTS.forEach(function (s) { var o = document.createElement("option"); o.value = s[0]; o.textContent = s[1]; if (s[0] === pr.sort) o.selected = true; sel.appendChild(o); });
+        sel.addEventListener("change", function () { songsPrefsSet(ch, { sort: sel.value }); render(); });
+        tail.appendChild(sel);
+        var cnt = document.createElement("span"); cnt.className = "ex-view-count"; cnt.textContent = nSongs + " morceau" + (nSongs > 1 ? "x" : ""); tail.appendChild(cnt);
+        bar.appendChild(tail);
+        return bar;
+    }
+    function renderSongsMain(inst, ch, path) {
+        var pr = songsPrefs(ch), data = songsGroups(ch, pr.view, pr.sort), d = songDim(pr.view);
+        var group = path[1] ? data.folders.filter(function (f) { return f.id === path[1]; })[0] : null;
+        if (path[1] && !group && songStay && songStay.gid === path[1]) { // « Sans style » vient de se vider parce qu'on vient de classer son dernier morceau : la page reste, le temps de finir
+            var gp = /^g:(\w+):(.*)$/.exec(path[1]);
+            if (gp && gp[2] === "" && songDim(gp[1]).none) group = { id: path[1], name: songDim(gp[1]).none, dim: gp[1], value: "", none: true, songs: [] };
+        }
+        if (path[1] && !group) { setNavPath(inst, [ch.id]); path = [ch.id]; }
+        if (songStay && songStay.gid !== (group ? group.id : null)) songStay = null;
+        if (songDraft.ch !== ch.id) songDraft = { ch: ch.id, artist: "" };
+        // fil d'Ariane
+        $breadcrumb.hidden = false; $breadcrumb.innerHTML = "";
+        function crumb(text, onClick, current) {
+            var b = document.createElement("button"); b.type = "button"; b.className = "crumb" + (current ? " crumb-current" : ""); b.textContent = text;
+            if (onClick) b.addEventListener("click", onClick); $breadcrumb.appendChild(b);
+        }
+        crumb(ch.name, function () { setNavPath(inst, [ch.id]); render(); }, !group);
+        if (group) { var sep = document.createElement("span"); sep.className = "crumb-sep"; sep.textContent = "›"; $breadcrumb.appendChild(sep); crumb(group.name, null, true); }
+        // titre
+        if (!group) renderContentHeading(ch, function () { return inst.categories; }, inst);
+        else {
+            $contentHeading.innerHTML = "";
+            var h2 = document.createElement("h2"); h2.textContent = group.name; $contentHeading.appendChild(h2);
+            if (!group.none) {
+                bindContextGesture(h2, function (x, y) { songFolderMenu(x, y, inst, ch, group); });
+                var pen = svgIconButton(PENCIL_ICON_SVG, "Renommer", function () { var r = pen.getBoundingClientRect(); songFolderMenu(r.left, r.bottom, inst, ch, group); });
+                pen.classList.add("heading-edit-btn"); $contentHeading.appendChild(pen);
+            }
+        }
+        $folderContainer.innerHTML = "";
+        var nSongs = data.songs.length;
+        $folderContainer.appendChild(renderSongViewBar(inst, ch, pr, data, nSongs));
+        var wrap = document.createElement("div"); wrap.className = "songs-wrap";
+        function songCards(list, into) {
+            list.forEach(function (ex) { into.appendChild(renderExercise(ch, ex, false)); });
+        }
+        if (group) {
+            var list = group.songs.slice();
+            if (songStay && songStay.gid === group.id && list.every(function (s) { return s.id !== songStay.id; })) {
+                var kept = ch.exercises.filter(function (s) { return s.id === songStay.id && !s.archived; })[0];
+                if (kept) list.unshift(kept);
+            }
+            var box = document.createElement("div"); box.className = "exercises-wrap";
+            songCards(list, box);
+            if (!list.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Aucun morceau ici pour l'instant."; box.appendChild(none); }
+            wrap.appendChild(box);
+            var pre = {};
+            if (group.dim === "artist") pre.artist = group.name;
+            else if (!group.none) pre[group.dim] = group.value;
+            wrap.appendChild(renderAddSongForm(inst, ch, pre));
+        } else if (pr.view === "all") {
+            var allBox = document.createElement("div"); allBox.className = "exercises-wrap";
+            songCards(data.songs, allBox);
+            if (!data.songs.length) { var h0 = document.createElement("div"); h0.className = "gs-empty"; h0.textContent = "Aucun morceau pour l'instant : ajoute le premier ci-dessous (artiste, puis titre)."; allBox.appendChild(h0); }
+            wrap.appendChild(allBox);
+            wrap.appendChild(renderAddSongForm(inst, ch, {}));
+        } else {
+            if (data.folders.length) {
+                var fl = document.createElement("div"); fl.className = "folders-wrap";
+                data.folders.forEach(function (g) { fl.appendChild(renderSongFolderRow(inst, ch, g)); });
+                wrap.appendChild(fl);
+            }
+            if (pr.view !== "artist") {
+                var addv = document.createElement("button"); addv.type = "button"; addv.className = "song-add-value"; addv.textContent = "＋ " + d.add;
+                addv.addEventListener("click", function () { songsAskNewValue(ch, pr.view, function () { save(); render(); }); });
+                wrap.appendChild(addv);
+                if (!data.songs.length) { var h1 = document.createElement("div"); h1.className = "gs-empty"; h1.textContent = "Aucun morceau pour l'instant : ajoute le premier ci-dessous (artiste, puis titre)."; wrap.appendChild(h1); }
+                else if (!ch.vocab[d.vocab].length) { var h2e = document.createElement("div"); h2e.className = "gs-empty"; h2e.textContent = "Aucun " + d.one + " pour l'instant : crée-en un avec le bouton ci-dessus, ou classe un morceau depuis sa fiche."; wrap.appendChild(h2e); }
+            } else if (data.loose.length) { // artistes : les morceaux dont l'artiste n'en a qu'un (ou sans artiste) restent à plat sous les dossiers
+                var ll = document.createElement("div"); ll.className = "section-label"; ll.textContent = data.folders.length ? "Autres morceaux" : "Morceaux"; wrap.appendChild(ll);
+                var looseBox = document.createElement("div"); looseBox.className = "exercises-wrap";
+                songCards(data.loose, looseBox);
+                wrap.appendChild(looseBox);
+            } else if (!data.folders.length) {
+                var h3 = document.createElement("div"); h3.className = "gs-empty"; h3.textContent = "Aucun morceau pour l'instant : ajoute le premier ci-dessous (artiste, puis titre)."; wrap.appendChild(h3);
+            }
+            wrap.appendChild(renderAddSongForm(inst, ch, {}));
+        }
+        $folderContainer.appendChild(wrap);
+    }
+    // Rangée « sous-dossiers » du chapitre dans la barre latérale.
+    function renderSongTreeRow(inst, ch, g, currentPath, rootColor) {
+        var wrap = document.createElement("div"); wrap.className = "tree-node song-tree-node";
+        var selected = currentPath[0] === ch.id && currentPath[1] === g.id;
+        var row = document.createElement("div"); row.className = "tree-row tree-row-d1" + (selected ? " selected" : "") + (g.songs.length ? "" : " tree-row-empty");
+        row.style.setProperty("--rc", rootColor);
+        if (selected) row.style.background = "color-mix(in srgb, " + rootColor + " 14%, transparent)";
+        var tw = document.createElement("button"); tw.type = "button"; tw.className = "tree-twisty tree-twisty-empty"; tw.tabIndex = -1; tw.innerHTML = CHEVRON_ICON_SVG; row.appendChild(tw);
+        var label = document.createElement("span"); label.className = "tree-label"; label.textContent = g.name; row.appendChild(label);
+        if (state.settings.appearance.treeCounts !== false) {
+            var cnt = document.createElement("span"); cnt.className = "tree-count" + (g.songs.length ? "" : " tree-count-zero"); cnt.textContent = String(g.songs.length);
+            cnt.title = g.songs.length + " morceau" + (g.songs.length > 1 ? "x" : ""); row.appendChild(cnt);
+        }
+        if (!g.none) bindContextGesture(row, function (x, y) { songFolderMenu(x, y, inst, ch, g); });
+        row.addEventListener("click", function () {
+            if (suppressNextClick) { suppressNextClick = false; return; }
+            clearFilters(); setNavPath(inst, [ch.id, g.id]); render();
+        });
+        wrap.appendChild(row);
+        return wrap;
+    }
+    // Recherche : l'artiste, les styles, les techniques et l'état d'un morceau comptent aussi.
+    function songMatchesQuery(ex, query) {
+        if (!ex.isSong) return false;
+        return [ex.artist, ex.songName, ex.work].concat(ex.styles || [], ex.techniques || []).some(function (t) { return songNorm(t).indexOf(songNorm(query)) !== -1; });
+    }
+
+    // --- transformer un chapitre en chapitre de morceaux (et revenir en arrière) ---
+    function songsItemFromPlace(ex, names, map) {
+        var p = parseSongTitle(ex.title), it = { ex: ex, artist: p.artist, name: p.name.replace(/\s*\(copie\)\s*$/i, "").trim(), styles: [], techniques: [], work: "", places: names.slice() };
+        names.forEach(function (n, i) {
+            var dim = i === 0 ? map.l1 : i === 1 ? map.l2 : "";
+            if (!dim || !n) return;
+            if (dim === "artist") { if (!it.artist) it.artist = n; }
+            else if (dim === "work") { if (!it.work) it.work = n; }
+            else if (dim === "style") it.styles.push(n);
+            else if (dim === "technique") it.techniques.push(n);
+        });
+        if (!it.name) it.name = p.artist || ex.title;
+        return it;
+    }
+    function songsExScore(ex) {
+        return (ex.files || []).length * 5 + (ex.links || []).length * 3 + (ex.images || []).length * 2 + Math.min(20, ((ex.notes || "").length + (ex.fixedNotes || "").length) / 50)
+            + (ex.metronome ? 2 : 0) + (ex.archived ? 0 : 10);
+    }
+    function songsConvertPlan(ch, map) {
+        var items = [];
+        (function walk(folder, names) {
+            (folder.exercises || []).forEach(function (ex) { items.push(songsItemFromPlace(ex, names, map)); });
+            (folder.folders || []).forEach(function (f) { walk(f, names.concat(f.name)); });
+        })(ch, []);
+        var entries = [];
+        items.forEach(function (it) {
+            var nk = songNorm(it.name), ak = songNorm(it.artist), hit = null;
+            entries.forEach(function (e) { if (!hit && e.nameKey === nk && (e.artistKey === ak || !e.artistKey || !ak)) hit = e; });
+            if (!hit) { hit = { nameKey: nk, artistKey: ak, artist: it.artist, name: it.name, styles: [], techniques: [], work: "", exs: [] }; entries.push(hit); }
+            if (!hit.artist && it.artist) { hit.artist = it.artist; hit.artistKey = ak; }
+            it.styles.forEach(function (v) { if (!songCanon(hit.styles, v)) hit.styles.push(v); });
+            it.techniques.forEach(function (v) { if (!songCanon(hit.techniques, v)) hit.techniques.push(v); });
+            if (!hit.work && it.work) hit.work = it.work;
+            hit.exs.push(it.ex);
+        });
+        var vocab = { styles: [], techniques: [], work: [] };
+        entries.forEach(function (e) {
+            e.styles.forEach(function (v) { if (!songCanon(vocab.styles, v)) vocab.styles.push(v); });
+            e.techniques.forEach(function (v) { if (!songCanon(vocab.techniques, v)) vocab.techniques.push(v); });
+            if (e.work && !songCanon(vocab.work, e.work)) vocab.work.push(e.work);
+            e.survivor = e.exs.slice().sort(function (a, b) { return songsExScore(b) - songsExScore(a); })[0];
+        });
+        // l'ordre des valeurs suit celui des dossiers d'origine (premier niveau d'abord)
+        var order = { styles: [], techniques: [], work: [] };
+        (function walk(folder, names) {
+            names.forEach(function (n, i) {
+                var dim = i === 0 ? map.l1 : i === 1 ? map.l2 : "";
+                var key = dim === "style" ? "styles" : dim === "technique" ? "techniques" : dim === "work" ? "work" : null;
+                if (key && n && !songCanon(order[key], n)) order[key].push(n);
+            });
+            (folder.folders || []).forEach(function (f) { walk(f, names.concat(f.name)); });
+        })(ch, []);
+        ["styles", "techniques", "work"].forEach(function (k) {
+            var sorted = [];
+            order[k].forEach(function (v) { var c = songCanon(vocab[k], v); if (c && !songCanon(sorted, c)) sorted.push(c); });
+            vocab[k].forEach(function (v) { if (!songCanon(sorted, v)) sorted.push(v); });
+            vocab[k] = sorted;
+        });
+        return { entries: entries, vocab: vocab, nSources: items.length, nDup: items.length - entries.length };
+    }
+    function songsMergeInto(surv, others) {
+        others.forEach(function (o) {
+            if (surv.archived && !o.archived) surv.archived = false;
+            if (o.favorite) surv.favorite = true;
+            (o.links || []).forEach(function (l) { if (!(surv.links || []).some(function (x) { return x.id === l.id || x.url === l.url; })) surv.links.push(l); });
+            (o.files || []).forEach(function (f) { if (!(surv.files || []).some(function (x) { return x.id === f.id; })) surv.files.push(f); });
+            (o.images || []).forEach(function (im) { if (!(surv.images || []).some(function (x) { return x.id === im.id; })) (surv.images = surv.images || []).push(im); });
+            if (!surv.metronome && o.metronome) surv.metronome = o.metronome;
+            if (!(surv.fixedNotes || "").trim() && (o.fixedNotes || "").trim()) surv.fixedNotes = o.fixedNotes;
+            if (!(surv.notes || "").trim() && (o.notes || "").trim()) { surv.notes = o.notes; surv.noteDates = (o.noteDates || []).slice(); }
+            (o.notesArchive || []).forEach(function (e) { if (!(surv.notesArchive || []).some(function (x) { return x.d === e.d && x.t === e.t; })) (surv.notesArchive = surv.notesArchive || []).push(e); });
+            if (surv.tempoGoal === undefined && o.tempoGoal !== undefined) surv.tempoGoal = o.tempoGoal;
+        });
+    }
+    // Les sessions et les statistiques qui pointaient vers un doublon pointent vers le morceau conservé.
+    function songsRemapId(oldId, newId) {
+        (state.settings.guidedSessions || []).forEach(function (gs) { (gs.steps || []).forEach(function (st) { if (st.exerciseId === oldId) st.exerciseId = newId; }); });
+        var r = statsRules();
+        Object.keys(r.alias).forEach(function (k) { if (r.alias[k] === oldId) r.alias[k] = newId; });
+        r.alias[oldId] = newId;
+    }
+    function songsConvertApply(inst, ch, map) {
+        backupSnapshot("Avant transformation de « " + ch.name + " » en chapitre de morceaux", state);
+        var plan = songsConvertPlan(ch, map), out = [];
+        plan.entries.forEach(function (e) {
+            var surv = e.survivor, others = e.exs.filter(function (x) { return x !== surv; });
+            songsMergeInto(surv, others);
+            others.forEach(function (o) { songsRemapId(o.id, surv.id); });
+            surv.isSong = true; surv.artist = e.artist; surv.songName = e.name; surv.title = songTitle(e.artist, e.name);
+            surv.styles = e.styles.slice(); surv.techniques = e.techniques.slice(); surv.work = e.work || "";
+            out.push(surv);
+        });
+        ch.exercises = out; ch.folders = []; ch.kind = "songs";
+        ch.vocab = { styles: plan.vocab.styles, techniques: plan.vocab.techniques, work: plan.vocab.work.length ? plan.vocab.work : SONG_WORK_DEFAULT.slice() };
+        out.forEach(function (surv) { if (surv.linkId && linkedOthers(surv).length === 0) delete surv.linkId; });
+        normalizeSongsChapter(ch);
+        var firstDim = map.l1 === "style" || map.l1 === "technique" || map.l1 === "work" || map.l1 === "artist" ? map.l1 : "artist";
+        songsPrefsSet(ch, { view: firstDim });
+        setNavPath(inst, [ch.id]);
+        save(); render();
+        return plan;
+    }
+    function songsMaxDepth(ch) { var m = 0; (function w(f, d) { (f.folders || []).forEach(function (x) { m = Math.max(m, d + 1); w(x, d + 1); }); })(ch, 0); return m; }
+    function openSongsConvertDialog(inst, ch) {
+        var depth = songsMaxDepth(ch);
+        if (!depth) {
+            dlgConfirm({ title: "Transformer « " + ch.name + " » en chapitre de morceaux ?", message: "Les morceaux se rangent alors par artiste, style, technique ou travail, sans dossiers ni copies. Les exercices du chapitre deviennent des morceaux (« Artiste - Titre »).", confirmLabel: "Transformer" }, function () {
+                songsConvertApply(inst, ch, { l1: "", l2: "" });
+                toastUndo("« " + ch.name + " » est un chapitre de morceaux");
+            });
+            return;
+        }
+        openModal("songs-convert-panel", function (panel, close) {
+            var title = document.createElement("div"); title.className = "backups-title"; title.textContent = "Transformer « " + ch.name + " » en chapitre de morceaux"; panel.appendChild(title);
+            var intro = document.createElement("p"); intro.className = "songs-convert-intro";
+            intro.textContent = "Les dossiers disparaissent : chaque morceau garde ses caractéristiques (style, artiste…) déduites des dossiers où il se trouvait, et on le retrouve dans les rangements par style, artiste, technique ou travail. Les doublons (même artiste et même titre) sont fusionnés ; les sessions et les statistiques sont mises à jour. Une sauvegarde de secours est faite avant (Paramètres › Données).";
+            panel.appendChild(intro);
+            var map = { l1: "style", l2: "artist" };
+            var OPTS = [["style", "Styles"], ["artist", "Artistes"], ["technique", "Techniques"], ["work", "Travail"], ["", "Ignorer"]];
+            function pick(label, key, example) {
+                var row = document.createElement("label"); row.className = "songs-convert-row";
+                var sp = document.createElement("span"); sp.textContent = label; row.appendChild(sp);
+                var sel = document.createElement("select");
+                OPTS.forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if (o[0] === map[key]) op.selected = true; sel.appendChild(op); });
+                sel.addEventListener("change", function () { map[key] = sel.value; summarize(); });
+                row.appendChild(sel);
+                panel.appendChild(row);
+            }
+            function names(level) { var out = []; (function w(f, d) { (f.folders || []).forEach(function (x) { if (d === level && out.length < 4) out.push(x.name); w(x, d + 1); }); })(ch, 0); return out; }
+            pick("Dossiers du 1er niveau (« " + names(0).join(" », « ") + " »…) =", "l1");
+            if (depth >= 2) pick("Dossiers du 2e niveau (« " + (names(1).join(" », « ") || "…") + " »…) =", "l2");
+            if (depth >= 3) { var n3 = document.createElement("div"); n3.className = "songs-convert-note"; n3.textContent = "Les dossiers plus profonds sont ignorés."; panel.appendChild(n3); }
+            var sum = document.createElement("div"); sum.className = "songs-convert-sum"; panel.appendChild(sum);
+            function summarize() {
+                var plan = songsConvertPlan(ch, map);
+                var bits = [plan.entries.length + " morceau" + (plan.entries.length > 1 ? "x" : "")];
+                if (plan.nDup) bits.push(plan.nDup + " doublon" + (plan.nDup > 1 ? "s" : "") + " fusionné" + (plan.nDup > 1 ? "s" : ""));
+                if (plan.vocab.styles.length) bits.push(plan.vocab.styles.length + " style" + (plan.vocab.styles.length > 1 ? "s" : ""));
+                if (plan.vocab.techniques.length) bits.push(plan.vocab.techniques.length + " technique" + (plan.vocab.techniques.length > 1 ? "s" : ""));
+                var nArt = {}; plan.entries.forEach(function (e) { if (e.artist) nArt[songNorm(e.artist)] = true; });
+                if (Object.keys(nArt).length) bits.push(Object.keys(nArt).length + " artiste" + (Object.keys(nArt).length > 1 ? "s" : ""));
+                sum.textContent = "Résultat : " + bits.join(" · ");
+            }
+            summarize();
+            var foot = document.createElement("div"); foot.className = "songs-convert-foot";
+            var cancel = document.createElement("button"); cancel.type = "button"; cancel.className = "btn-ghost"; cancel.textContent = "Annuler"; cancel.addEventListener("click", function () { close(); });
+            var go = document.createElement("button"); go.type = "button"; go.className = "btn-accent"; go.textContent = "Transformer";
+            go.addEventListener("click", function () {
+                close();
+                var plan = songsConvertApply(inst, ch, map);
+                toastUndo("« " + ch.name + " » : " + plan.entries.length + " morceaux" + (plan.nDup ? ", " + plan.nDup + " doublon" + (plan.nDup > 1 ? "s" : "") + " fusionné" + (plan.nDup > 1 ? "s" : "") : ""));
+            });
+            foot.appendChild(cancel); foot.appendChild(go); panel.appendChild(foot);
+        });
+    }
+    function songsRevertChapter(inst, ch) {
+        dlgConfirm({ title: "Revenir à un chapitre ordinaire ?", message: "Les morceaux restent dans « " + ch.name + " », sans rangement par style, artiste, technique ou travail (leurs caractéristiques sont gardées au cas où).", confirmLabel: "Revenir" }, function () {
+            delete ch.kind;
+            ch.exercises.forEach(function (ex) { delete ex.isSong; });
+            setNavPath(inst, [ch.id]);
+            save(); render();
+            toastUndo("« " + ch.name + " » est de nouveau un chapitre ordinaire");
+        });
+    }
+    // Actions sur une sélection de morceaux : leur donner (ou retirer) un style, une technique, un état de travail.
+    function songsBulkMenu(btn, dimKey, items) {
+        var ch = songChapterOf(items[0].ex), d = songDim(dimKey);
+        if (!ch) return;
+        var all = items.map(function (it) { return it.ex; }), r = btn.getBoundingClientRect(), menu = [];
+        ch.vocab[d.vocab].forEach(function (v) {
+            var every = all.every(function (ex) { return songValues(ex, dimKey).some(function (x) { return songNorm(x) === songNorm(v); }); });
+            menu.push({ label: (every ? "✓ " : "") + v, run: function () {
+                all.forEach(function (ex) {
+                    var has = songValues(ex, dimKey).some(function (x) { return songNorm(x) === songNorm(v); });
+                    if (every ? has : !has) songToggleValue(ch, ex, dimKey, v);
+                    touchExercise(ex);
+                });
+                save(); render();
+            } });
+        });
+        menu.push({ label: "＋ " + d.add + "…", run: function () {
+            songsAskNewValue(ch, dimKey, function (v) { all.forEach(function (ex) { if (!songValues(ex, dimKey).some(function (x) { return songNorm(x) === songNorm(v); })) songToggleValue(ch, ex, dimKey, v); touchExercise(ex); }); save(); render(); });
+        } });
+        songsActionMenu(r.left, r.top, d.label + " — " + all.length + " morceau" + (all.length > 1 ? "x" : ""), "", menu);
+    }
+
     function renderFilteredResults(inst) {
         var query = searchQuery.trim().toLowerCase();
         function matchFn(ex) {
@@ -5149,6 +5969,7 @@
             if (ex.archived) return false;
             if (!query) return true;
             if (ex.title.toLowerCase().indexOf(query) !== -1) return true;
+            if (songMatchesQuery(ex, query)) return true; // morceau : aussi par style, technique, état
             // La recherche trouve aussi un exercice par le nom d'un lien ou d'une pièce jointe
             // (ex. "Youtube bassless"), ou par le contenu de ses notes — pas seulement par son titre.
             if (ex.links.some(function (l) { return (l.label || "").toLowerCase().indexOf(query) !== -1; })) return true;
@@ -5328,9 +6149,11 @@
             ifNameFree(exerciseTitleTaken(folder.exercises, newTitle, ex), "exercice", newTitle, "Renommer quand même", function () {
                 var oldTitle = ex.title;
                 ex.title = newTitle;
+                if (ex.isSong) songRetitle(ex); // morceau : « Artiste - Titre » → artiste et titre
                 recSyncAudioName(ex, oldTitle);
                 touchExercise(ex);
                 save();
+                if (ex.isSong) render(); // la fiche (artiste, titre) et le rangement suivent le nouveau titre
             }, function () { title.value = ex.title; }); // Annuler : on remet l'ancien nom, rien ne change
         });
         row.appendChild(title);
@@ -5579,6 +6402,7 @@
     function renderExerciseDetails(ex) {
         var details = document.createElement("div");
         details.className = "exercise-details";
+        if (ex.isSong) details.appendChild(buildSongBlock(ex)); // morceau : artiste, titre, styles, techniques, travail
 
         // Tempo cible / métronome prédéfini : juste sous le titre, c'est le réglage le plus utile en un coup d'œil.
         // Dé de gamme et objectif tempo : le tirage se règle ici, une fois (triades, modes…), et se retrouve dans chaque session. Ils se rangent sur
@@ -18085,8 +18909,11 @@
                     n.appendChild(row);
                     if (open && hasContent) {
                         var kids = document.createElement("div"); kids.className = "gs-pick-tree-children";
-                        exs.forEach(function (ex) { kids.appendChild(exButton(ex)); });
-                        node(kids, folder.folders, depth + 1, color);
+                        if (depth === 0 && isSongsChapter(folder)) songsPickContent(kids, folder, function (ex) { return exclude.indexOf(ex.id) === -1 ? exButton(ex) : document.createDocumentFragment(); }, function () { refresh(); }, "modal");
+                        else {
+                            exs.forEach(function (ex) { kids.appendChild(exButton(ex)); });
+                            node(kids, folder.folders, depth + 1, color);
+                        }
                         n.appendChild(kids);
                     }
                     container.appendChild(n);
@@ -18096,7 +18923,7 @@
                 wrap.innerHTML = ""; rowEls = [];
                 var q = search.value.trim().toLowerCase();
                 if (!q && pickTabMem === "all") { node(wrap, inst.categories, 0, null); paintPicked(); return; }
-                var res = collectExercises(inst, function (ex) { return !ex.archived && exclude.indexOf(ex.id) === -1 && (pickTabMem !== "fav" || !!ex.favorite) && (!q || ex.title.toLowerCase().indexOf(q) !== -1); });
+                var res = collectExercises(inst, function (ex) { return !ex.archived && exclude.indexOf(ex.id) === -1 && (pickTabMem !== "fav" || !!ex.favorite) && (!q || ex.title.toLowerCase().indexOf(q) !== -1 || songMatchesQuery(ex, q)); });
                 if (!res.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = pickTabMem === "fav" && !q ? "Aucun favori : marque un exercice d'une étoile (clic droit › Marquer en favori)." : "Aucun exercice ne correspond."; wrap.appendChild(none); return; }
                 if (pickTabMem === "fav") { // favoris : rangés par dossier (avec « Tout » par dossier en choix multiple)
                     pickGroupByFolder(inst, res).forEach(function (g) {
@@ -18452,7 +19279,8 @@
         var keptDraft = leaveGuidedViewForNav();
         if (f.inst.id !== state.activeInstrumentId) { state.activeInstrumentId = f.inst.id; persist(); }
         clearFilters();
-        setNavPath(f.inst, f.ex.archived ? [ARCHIVED_ID] : f.pathIds.slice());
+        var revCh = findById(f.inst.categories, f.pathIds[0]);
+        setNavPath(f.inst, f.ex.archived ? [ARCHIVED_ID] : (f.ex.isSong && isSongsChapter(revCh) ? songsPathFor(revCh, f.ex) : f.pathIds.slice()));
         f.pathIds.forEach(function (id) { treeExpanded[id] = true; });
         if (f.ex.collapsed) { f.ex.collapsed = false; persist(); }
         render();
@@ -19731,6 +20559,43 @@
         if (open) { kids = document.createElement("div"); kids.className = "gs-pick-tree-children"; node.appendChild(kids); }
         return { node: node, kids: kids };
     }
+
+    // Choix d'un morceau (session) : le chapitre garde ses rangements calculés — mêmes icônes que dans la bibliothèque (le choix de rangement est partagé), dossiers
+    // repliés au départ (un clic les ouvre) puisqu'on cherche un morceau précis parmi beaucoup. `mkBtn(ex)` fabrique le bouton d'un morceau ; `rerender` redessine le choix.
+    function songsPickContent(container, ch, mkBtn, rerender, scope) {
+        var pr = songsPrefs(ch), data = songsGroups(ch, pr.view, pr.sort);
+        var bar = document.createElement("div"); bar.className = "songs-views songs-views-pick"; bar.setAttribute("role", "group"); bar.setAttribute("aria-label", "Rangement des morceaux");
+        SONG_DIMS.forEach(function (d) {
+            var b = document.createElement("button"); b.type = "button"; b.className = "songs-view-btn" + (pr.view === d.key ? " on" : ""); b.dataset.view = d.key;
+            b.setAttribute("aria-pressed", pr.view === d.key ? "true" : "false"); b.title = d.label + " — " + d.hint; b.setAttribute("aria-label", d.label);
+            b.innerHTML = d.icon; var sp = document.createElement("span"); sp.textContent = d.label; b.appendChild(sp);
+            b.addEventListener("click", function () { songsPrefsSet(ch, { view: d.key }); rerender(); });
+            bar.appendChild(b);
+        });
+        container.appendChild(bar);
+        if (pr.view === "all") { data.songs.forEach(function (ex) { container.appendChild(mkBtn(ex)); }); }
+        else {
+            data.folders.forEach(function (g) {
+                var key = "xsong:" + scope + ":" + ch.id + ":" + g.id, open = treeExpanded[key] === true;
+                var node = document.createElement("div"); node.className = "gs-pick-node gs-pick-songgroup"; node.dataset.group = g.id;
+                var row = document.createElement("div"); row.className = "gs-pick-tree-row";
+                var tw = document.createElement("button"); tw.type = "button"; tw.className = "tree-twisty" + (g.songs.length ? "" : " tree-twisty-empty") + (open ? " expanded" : ""); tw.innerHTML = CHEVRON_ICON_SVG;
+                tw.setAttribute("aria-label", open ? "Replier" : "Déplier"); tw.setAttribute("aria-expanded", open ? "true" : "false");
+                var lb = document.createElement("span"); lb.className = "tree-label"; lb.textContent = g.name;
+                var ct = document.createElement("span"); ct.className = "result-group-count"; ct.textContent = String(g.songs.length);
+                row.appendChild(tw); row.appendChild(lb); row.appendChild(ct);
+                if (g.songs.length) row.addEventListener("click", function () { treeExpanded[key] = !open; rerender(); });
+                node.appendChild(row);
+                if (open && g.songs.length) {
+                    var kids = document.createElement("div"); kids.className = "gs-pick-tree-children";
+                    g.songs.forEach(function (ex) { kids.appendChild(mkBtn(ex)); });
+                    node.appendChild(kids);
+                }
+                container.appendChild(node);
+            });
+            data.loose.forEach(function (ex) { container.appendChild(mkBtn(ex)); }); // artistes : morceaux dont l'artiste n'en a qu'un
+        }
+    }
     function renderGsPickTree(container, folders, depth, rootColor) {
         var inst = getActiveInstrument(), parentList = folders;
         folders.forEach(function (folder) {
@@ -19777,8 +20642,11 @@
             if (expanded && hasContent) {
                 var childWrap = document.createElement("div");
                 childWrap.className = "gs-pick-tree-children";
-                visibleExercises.forEach(function (ex) { childWrap.appendChild(gsPickExerciseButton(ex, folder, inst)); });
-                renderGsPickTree(childWrap, folder.folders, depth + 1, color);
+                if (depth === 0 && isSongsChapter(folder)) songsPickContent(childWrap, folder, function (ex) { return gsPickExerciseButton(ex, folder, inst); }, function () { render(); }, "screen");
+                else {
+                    visibleExercises.forEach(function (ex) { childWrap.appendChild(gsPickExerciseButton(ex, folder, inst)); });
+                    renderGsPickTree(childWrap, folder.folders, depth + 1, color);
+                }
                 node.appendChild(childWrap);
             }
             container.appendChild(node);
@@ -19817,7 +20685,7 @@
             }
             resultsWrap.className = "gs-pick-results";
             var results = collectExercises(inst, function (ex) {
-                return !ex.archived && (pickTabMem !== "fav" || !!ex.favorite) && (!q || ex.title.toLowerCase().indexOf(q) !== -1);
+                return !ex.archived && (pickTabMem !== "fav" || !!ex.favorite) && (!q || ex.title.toLowerCase().indexOf(q) !== -1 || songMatchesQuery(ex, q));
             });
             if (!results.length) {
                 var empty = document.createElement("div");
