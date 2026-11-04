@@ -5823,6 +5823,39 @@
         function songCards(list, into) {
             list.forEach(function (ex) { into.appendChild(renderExercise(ch, ex, false)); });
         }
+        // Dans un dossier de style / technique / travail : les morceaux d'un même artiste (dès 2 dans ce dossier) sont regroupés sous le nom de l'artiste, repliable ;
+        // les autres restent à plat, le tout dans l'ordre du tri choisi (le bloc prend la place de son premier morceau).
+        function songCardsByArtist(ch2, g, list, into) {
+            var counts = {};
+            list.forEach(function (ex) { if (ex.artist) { var k = songNorm(ex.artist); counts[k] = (counts[k] || 0) + 1; } });
+            var done = {};
+            list.forEach(function (ex) {
+                var k = ex.artist ? songNorm(ex.artist) : "";
+                if (!k || counts[k] < 2) { into.appendChild(renderExercise(ch2, ex, false)); return; }
+                if (done[k]) return;
+                done[k] = true;
+                var members = list.filter(function (o) { return o.artist && songNorm(o.artist) === k; });
+                var stateKey = g.id + "|" + k, closed = !!(songsUiLoad()[ch2.id] || {}).artistClosed && !!songsUiLoad()[ch2.id].artistClosed[stateKey];
+                var blk = document.createElement("div"); blk.className = "song-artist-block";
+                var head = document.createElement("button"); head.type = "button"; head.className = "song-artist-head";
+                var chev = document.createElement("span"); chev.className = "song-artist-chev";
+                var nm = document.createElement("span"); nm.className = "song-artist-name"; nm.textContent = ex.artist;
+                var cn = document.createElement("span"); cn.className = "song-artist-count"; cn.textContent = members.length + " morceaux";
+                head.appendChild(chev); head.appendChild(nm); head.appendChild(cn);
+                var inner = document.createElement("div"); inner.className = "exercises-wrap song-artist-list";
+                members.forEach(function (m) { inner.appendChild(renderExercise(ch2, m, false)); });
+                function paint() { chev.textContent = closed ? "▸" : "▾"; inner.hidden = closed; head.setAttribute("aria-expanded", closed ? "false" : "true"); head.title = closed ? "Déplier les morceaux de " + ex.artist : "Replier"; }
+                head.addEventListener("click", function () {
+                    closed = !closed;
+                    var cur = (songsUiLoad()[ch2.id] || {}).artistClosed || {}, nx = Object.assign({}, cur);
+                    if (closed) nx[stateKey] = true; else delete nx[stateKey];
+                    songsPrefsSet(ch2, { artistClosed: nx });
+                    paint();
+                });
+                paint();
+                blk.appendChild(head); blk.appendChild(inner); into.appendChild(blk);
+            });
+        }
         if (group) {
             var list = group.songs.slice();
             if (songStay && songStay.gid === group.id && list.every(function (s) { return s.id !== songStay.id; })) {
@@ -5830,7 +5863,7 @@
                 if (kept) list.unshift(kept);
             }
             var box = document.createElement("div"); box.className = "exercises-wrap";
-            songCards(list, box);
+            if (group.dim === "artist") songCards(list, box); else songCardsByArtist(ch, group, list, box); // dans un style, une technique, un état : les artistes à 2 morceaux ou plus se regroupent
             if (!list.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Aucun morceau ici pour l'instant."; box.appendChild(none); }
             wrap.appendChild(box);
             var pre = {};

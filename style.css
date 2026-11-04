@@ -1912,6 +1912,14 @@ button.songs-view-btn.on { color: var(--accent); border-color: color-mix(in srgb
 .song-folder-count { flex: none; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; color: var(--text-muted); min-width: 1.6em; text-align: right; }
 .song-folder-none .folder-name { font-style: italic; color: var(--text-muted); }
 .song-folder-empty .folder-name { color: var(--text-muted); font-weight: 600; }
+/* Artiste regroupé (2 morceaux ou plus) dans un dossier de style / technique / travail */
+.song-artist-block { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 6px; padding: 0 0 2px 10px; border-left: 3px solid var(--chapter-accent, var(--accent)); }
+button.song-artist-head { display: flex; align-items: baseline; gap: 8px; width: 100%; height: auto; padding: 4px 6px; border: 0; background: transparent; color: var(--text-main); text-align: left; cursor: pointer; font: inherit; }
+button.song-artist-head:hover { background: rgba(var(--ov), .06); }
+.song-artist-chev { flex: none; width: 1em; color: var(--text-muted); }
+.song-artist-name { font-weight: 700; font-size: var(--fs-base); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.song-artist-count { margin-left: auto; flex: none; font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.song-artist-list { gap: inherit; }
 button.song-add-value { align-self: flex-start; height: 32px; padding: 0 12px; font-size: var(--fs-xs); background: transparent; color: var(--text-muted); border: 1px dashed var(--border); border-radius: var(--radius-sm); }
 button.song-add-value:hover { color: var(--text-main); border-color: var(--text-muted); }
 .add-song-row .add-song-artist { flex: 0 1 36%; min-width: 96px; }

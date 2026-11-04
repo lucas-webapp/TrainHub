@@ -7,7 +7,7 @@ const path = require('path');
 const harnais = require('/home/user/trainhub/tests/_harness');
 const { check, plan, bilan } = harnais('TrainHub : chapitre Morceaux — artistes, styles, techniques, travail');
 const estBruitReseau = harnais.estBruitReseau;
-plan(138);
+plan(148);
 const SHOTS = path.join(__dirname, 'shots');
 fs.mkdirSync(SHOTS, { recursive: true });
 const URL = 'http://localhost:8765/index.html';
@@ -546,6 +546,38 @@ const comptesArbre = page => page.locator('.song-tree-node .tree-count').allInne
         check(await b.page.locator('.tree-node > .tree-row', { hasText: 'Mes morceaux' }).locator('.tree-songs-icon').count() === 1, 'K. et il porte la note de musique');
         check(b.erreurs.length === 0, 'K. aucune erreur JavaScript ' + JSON.stringify(b.erreurs));
         await b.ctx.close();
+    }
+
+    // ============ L. Artistes regroupés (2 morceaux ou plus) dans les dossiers de style, technique, travail ============
+    {
+        const a = await ouvrir(browser, { etat: etatMorceaux() });
+        await ouvrirChapitre(a.page, 'Morceaux');
+        await vue(a.page, 'style');
+        await a.page.locator('.songs-wrap .song-folder-row', { hasText: 'Rock' }).first().click(); await a.page.waitForTimeout(400);
+        const blocs = () => a.page.locator('.song-artist-block');
+        check(await blocs().count() === 1 && /Red Hot Chili Peppers/.test(await blocs().first().locator('.song-artist-head').innerText()), 'L. style « Rock » : les 2 morceaux des Red Hot Chili Peppers sont regroupés sous leur nom');
+        check(/2 morceaux/.test(await blocs().first().locator('.song-artist-count').innerText()) && await blocs().first().locator('.exercise').count() === 2, 'L. le bloc affiche « 2 morceaux » et contient ces 2 morceaux');
+        check(await a.page.locator('.songs-wrap > .exercises-wrap > .exercise').count() === 2, 'L. les morceaux d\'artistes à un seul morceau (Beatles, sans artiste) restent à plat');
+        const ordre = await a.page.locator('.songs-wrap .exercise-title').evaluateAll(els => els.map(e => e.value));
+        check(ordre.join('|') === 'The Beatles - Come Together|Red Hot Chili Peppers - Californication|Red Hot Chili Peppers - Under the Bridge|Seven Nation Army', 'L. l\'ordre du tri est respecté (le bloc prend la place de son premier morceau) : ' + ordre.join(' | '));
+        await blocs().first().locator('.song-artist-head').click(); await a.page.waitForTimeout(200);
+        check(await blocs().first().locator('.song-artist-list').isHidden(), 'L. un clic sur le nom replie le bloc');
+        await a.page.reload(); await a.page.waitForTimeout(800);
+        await ouvrirChapitre(a.page, 'Morceaux');
+        await a.page.locator('.songs-wrap .song-folder-row', { hasText: 'Rock' }).first().click(); await a.page.waitForTimeout(400);
+        check(await a.page.locator('.song-artist-block').count() === 1 && await a.page.locator('.song-artist-block .song-artist-list').isHidden(), 'L. le pli est retenu après un rechargement');
+        await a.page.locator('.song-artist-head').click(); await a.page.waitForTimeout(200);
+        await vue(a.page, 'technique');
+        await a.page.locator('.songs-wrap .song-folder-row', { hasText: 'Slap' }).first().click(); await a.page.waitForTimeout(400);
+        check(await a.page.locator('.song-artist-block').count() === 1 && await a.page.locator('.song-artist-block .exercise').count() === 2, 'L. technique « Slap » : mêmes regroupements (Californication et Give It Away)');
+        await ouvrirChapitre(a.page, 'Morceaux'); await vue(a.page, 'style');
+        await a.page.locator('.songs-wrap .song-folder-row', { hasText: 'Reggae' }).first().click(); await a.page.waitForTimeout(400);
+        check(await a.page.locator('.song-artist-block').count() === 0 && await a.page.locator('.songs-wrap .exercise').count() === 1, 'L. un seul morceau d\'un artiste : pas de bloc');
+        await ouvrirChapitre(a.page, 'Morceaux'); await vue(a.page, 'artist');
+        await a.page.locator('.songs-wrap .song-folder-row', { hasText: 'Red Hot' }).first().click(); await a.page.waitForTimeout(400);
+        check(await a.page.locator('.song-artist-block').count() === 0 && await a.page.locator('.songs-wrap .exercise').count() === 3, 'L. dans un dossier d\'artiste, pas de bloc en plus (3 morceaux à plat)');
+        check(a.erreurs.length === 0, 'L. aucune erreur JavaScript ' + JSON.stringify(a.erreurs));
+        await a.ctx.close();
     }
 
     await browser.close();
