@@ -2155,7 +2155,15 @@
 
     function setNavPath(inst, path) {
         navPaths[inst.id] = path;
-        if (gsRunSession) gsBrowseAway(); // aller dans un dossier pendant une session : l'écran de session laisse la place (la bande garde le chrono)
+        gsLeaveViewForBrowsing();
+    }
+    // Aller dans un dossier, chercher, changer d'espace : pendant une session, l'écran de session laisse la place (la bande garde le chrono) ;
+    // sans session en cours (liste, préparation, choix des exercices), le bouton Session se désactive et les exercices reviennent à l'écran.
+    function gsLeaveViewForBrowsing() {
+        if (gsRunSession) { gsBrowseAway(); return; }
+        if (!guidedSessionViewActive) return;
+        var kept = leaveGuidedViewForNav();
+        if (kept) showToast("« " + kept + " » n'est pas encore enregistrée : tes modifications t'attendent (bouton Session guidée).", 6000);
     }
 
     function clearFilters() {
@@ -4326,7 +4334,7 @@
         var searchTimer = null;
         $searchInput.addEventListener("input", function () {
             searchQuery = $searchInput.value;
-            if (gsRunSession) gsBrowseAway();
+            gsLeaveViewForBrowsing();
             clearTimeout(searchTimer);
             // affichage rapide : tout de suite ; affichage lent (beaucoup d'exercices, téléphone) : on attend la fin de la frappe
             if (lastRenderMs < 30) render(); else searchTimer = setTimeout(render, 140);
@@ -8430,7 +8438,7 @@
     $instrumentSelect.addEventListener("change", function () {
         exSel = {}; exSelAnchor = null; sessSel = {}; sessSelAnchor = null;
         state.activeInstrumentId = $instrumentSelect.value;
-        if (gsRunSession) gsBrowseAway();
+        if (gsRunSession) gsBrowseAway(); // sans session en cours, la vue Session reste ouverte : elle suit l'espace choisi
         save();
         render();
     });
@@ -24104,8 +24112,7 @@
         return card;
     }
 
-    // ---------- plan de la session pendant le guidage : ordre et durées modifiables ----------
-    var gsRunPlanOpen = false;
+    // ---------- ajout, déplacement, retrait et durée des exercices de la session en cours ----------
     // Ajoute un exercice à la session EN COURS, à la position voulue : il fait partie de la session pour les fois suivantes
     // et de l'enregistrement de cette séance (statistiques).
     function gsRunInsertExercise(idx) {
@@ -24125,101 +24132,94 @@
             showToast("« " + ex.title + " » ajouté (" + step.minutes + " min)");
         });
     }
-    function renderGsRunPlan(content, session) {
-        var wrap = document.createElement("div");
-        wrap.className = "gs-plan";
-        var toggle = document.createElement("button");
-        toggle.type = "button";
-        toggle.className = "btn-ghost gs-plan-toggle";
-        toggle.textContent = (gsRunPlanOpen ? "▾" : "▸") + " Plan de la session (ordre et durées)";
-        toggle.addEventListener("click", function () { gsRunPlanOpen = !gsRunPlanOpen; render(); });
-        var head = document.createElement("div");
-        head.className = "gs-plan-head";
-        head.appendChild(toggle);
-        var addNow = document.createElement("button");
-        addNow.type = "button";
-        addNow.className = "btn-ghost gs-plan-add";
-        addNow.textContent = "＋";
-        addNow.title = "Ajouter un exercice après celui-ci";
-        addNow.setAttribute("aria-label", addNow.title);
-        addNow.addEventListener("click", function () { gsRunInsertExercise(gsRunStepIndex + 1); });
-        head.appendChild(addNow);
-        wrap.appendChild(head);
-        if (gsRunPlanOpen) {
-            var list = document.createElement("div");
-            list.className = "gs-plan-list";
-            function insertBtn(at, label) {
-                var b = document.createElement("button");
-                b.type = "button"; b.className = "btn-ghost gs-plan-insert"; b.textContent = "＋"; b.title = label; b.setAttribute("aria-label", label);
-                b.addEventListener("click", function () { gsRunInsertExercise(at); });
-                return b;
-            }
-            list.appendChild(insertBtn(0, "Ajouter un exercice au début"));
-            session.steps.forEach(function (step, i) {
-                var found = findExerciseById(step.exerciseId);
-                var row = document.createElement("div");
-                row.className = "gs-plan-row" + (i === gsRunStepIndex ? " gs-plan-current" : "");
-                var num = document.createElement("span");
-                num.className = "gs-plan-num";
-                num.textContent = String(i + 1);
-                row.appendChild(num);
-                var name = document.createElement("button");
-                name.type = "button";
-                name.className = "gs-plan-name";
-                name.textContent = found ? found.ex.title : "(exercice supprimé)";
-                name.title = "Passer à cet exercice";
-                name.addEventListener("click", function () {
-                    if (i === gsRunStepIndex) return;
-                    gsRunStepIndex = i;
-                    gsEnterRunStep();
-                    render();
-                });
-                row.appendChild(name);
-                var mins = document.createElement("input");
-                mins.type = "number"; mins.min = "1"; mins.max = "180"; mins.step = "1";
-                mins.className = "gs-plan-minutes";
-                mins.value = String(step.minutes);
-                mins.title = "Durée (minutes), enregistrée dans la session";
-                bindScrubInput(mins, 1, 180);
-                mins.addEventListener("change", function () {
-                    var v = Math.round(parseFloat(mins.value));
-                    if (!(v >= 1)) v = step.minutes;
-                    step.minutes = Math.min(180, v);
-                    gsRememberMinutes(step);
-                    if (i === gsRunStepIndex) gsRunAllocatedSec = step.minutes * 60;
-                    save();
-                    render();
-                });
-                row.appendChild(mins);
-                var unit = document.createElement("span");
-                unit.className = "gs-plan-unit";
-                unit.textContent = "min";
-                row.appendChild(unit);
-                function mover(label, title, delta) {
-                    var b = document.createElement("button");
-                    b.type = "button";
-                    b.className = "btn-ghost gs-plan-move";
-                    b.textContent = label;
-                    b.title = title;
-                    b.disabled = i + delta < 0 || i + delta >= session.steps.length;
-                    b.addEventListener("click", function () {
-                        var j = i + delta;
-                        var tmp = session.steps[i]; session.steps[i] = session.steps[j]; session.steps[j] = tmp;
-                        // L'exercice en cours reste le même, où qu'il soit passé dans la liste.
-                        if (gsRunStepIndex === i) gsRunStepIndex = j; else if (gsRunStepIndex === j) gsRunStepIndex = i;
-                        save();
-                        render();
-                    });
-                    return b;
-                }
-                row.appendChild(mover("↑", "Monter", -1));
-                row.appendChild(mover("↓", "Descendre", 1));
-                list.appendChild(row);
-                list.appendChild(insertBtn(i + 1, "Ajouter un exercice ici"));
-            });
-            wrap.appendChild(list);
+    // Le plan du bas a disparu : la liste des exercices, en haut de l'écran, sert à les déplacer (glisser), les supprimer et changer leur durée
+    // (clic droit ou appui long), voir buildRunUpNext.
+    function gsRunSyncDraft(session, fn) { // le brouillon d'édition de la session (s'il existe) suit les changements faits pendant la séance
+        var de = gsDrafts[session.id];
+        if (!de) return;
+        var clean = !gsDraftDirty(session.id);
+        fn(de.draft.steps);
+        if (clean) de.base = gsDraftSig(de);
+    }
+    function gsRunReorder(session, ids) { // ids : identifiants des étapes dans le nouvel ordre
+        var cur = session.steps[gsRunStepIndex], pos = {};
+        ids.forEach(function (id, i) { pos[id] = i; });
+        if (ids.length !== session.steps.length || session.steps.some(function (st) { return pos[st.id] === undefined; })) return;
+        session.steps.sort(function (x, y) { return pos[x.id] - pos[y.id]; });
+        gsRunStepIndex = Math.max(0, session.steps.indexOf(cur)); // l'exercice en cours reste le même, où qu'il soit passé
+        gsRunSyncDraft(session, function (steps) {
+            steps.sort(function (x, y) { return (pos[x.id] === undefined ? 1e6 : pos[x.id]) - (pos[y.id] === undefined ? 1e6 : pos[y.id]); });
+        });
+        save();
+        render();
+    }
+    function gsRunRemoveStep(session, i) {
+        if (i === gsRunStepIndex) { showToast("C'est l'exercice en cours : passe d'abord à un autre pour le retirer de la session.", 4500); return; }
+        if (session.steps.length <= 1) { showToast("Une session garde au moins un exercice.", 3500); return; }
+        var step = session.steps[i], f = findExerciseById(step.exerciseId), title = f ? f.ex.title : "L'exercice";
+        session.steps.splice(i, 1);
+        if (i < gsRunStepIndex) gsRunStepIndex--;
+        gsRunSyncDraft(session, function (steps) { var k = steps.map(function (x) { return x.id; }).indexOf(step.id); if (k >= 0) steps.splice(k, 1); });
+        save();
+        render();
+        showToast("« " + title + " » retiré de la session", 8000, { label: "Annuler", run: function () {
+            if (gsRunSession !== session || session.steps.indexOf(step) !== -1) return;
+            var at = Math.min(i, session.steps.length);
+            session.steps.splice(at, 0, step);
+            if (at <= gsRunStepIndex) gsRunStepIndex++;
+            gsRunSyncDraft(session, function (steps) { steps.splice(Math.min(at, steps.length), 0, cloneJson(step)); });
+            save();
+            render();
+        } });
+    }
+    function gsRunSetMinutes(session, i) {
+        var step = session.steps[i], f = findExerciseById(step.exerciseId);
+        dlgPrompt({ title: "Durée de l'exercice", message: "« " + (f ? f.ex.title : "Exercice") + " » : en minutes (1 à 180), enregistrée dans la session.", value: String(step.minutes), confirmLabel: "Valider", mustChange: true, maxLength: 3 }, function (txt) {
+            var v = Math.round(parseFloat(String(txt).replace(",", ".")));
+            if (!(v >= 1)) { showToast("Durée non valide : un nombre de minutes entre 1 et 180.", 3500); return; }
+            step.minutes = Math.min(180, v);
+            gsRememberMinutes(step);
+            if (gsRunSession === session && i === gsRunStepIndex) gsRunAllocatedSec = step.minutes * 60;
+            gsRunSyncDraft(session, function (steps) { var d = steps.filter(function (x) { return x.id === step.id; })[0]; if (d) d.minutes = step.minutes; });
+            save();
+            render();
+        });
+    }
+    // Menu clic droit / appui long sur une ligne de la liste des exercices de la session.
+    function openRunStepMenu(x, y, session, i) {
+        closeFolderMenu();
+        var step = session.steps[i], f = findExerciseById(step.exerciseId);
+        var backdrop = document.createElement("div");
+        backdrop.className = "ctx-backdrop";
+        backdrop.addEventListener("pointerdown", function (e) { e.preventDefault(); closeFolderMenu(); });
+        backdrop.addEventListener("contextmenu", function (e) { e.preventDefault(); closeFolderMenu(); });
+        var menu = document.createElement("div");
+        menu.className = "ctx-menu"; menu.setAttribute("role", "menu");
+        menu.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+        if (closeActiveModal) { backdrop.classList.add("ctx-over-modal"); menu.classList.add("ctx-over-modal"); }
+        function item(text, cls, fn, disabled) {
+            var b = document.createElement("button");
+            b.type = "button"; b.className = "ctx-item" + (cls ? " " + cls : ""); b.textContent = text; b.disabled = !!disabled;
+            var armed = false;
+            b.addEventListener("pointerdown", function () { armed = true; });
+            b.addEventListener("click", function (e) { if (!armed && e.detail !== 0) return; armed = false; closeFolderMenu(); fn(); });
+            menu.appendChild(b);
         }
-        content.appendChild(wrap);
+        var title = document.createElement("div");
+        title.className = "ctx-title"; title.textContent = f ? f.ex.title : "(exercice supprimé)";
+        menu.appendChild(title);
+        item("Passer à cet exercice", "", function () { gsRunStepIndex = i; gsEnterRunStep(); render(); }, i === gsRunStepIndex);
+        item("Changer la durée (" + step.minutes + " min)…", "", function () { gsRunSetMinutes(session, i); });
+        item("Ajouter un exercice après celui-ci…", "", function () { gsRunInsertExercise(i + 1); });
+        item("Retirer de la session", "ctx-danger", function () { gsRunRemoveStep(session, i); }, i === gsRunStepIndex || session.steps.length <= 1);
+        function onKey(e) { if (e.key === "Escape") closeFolderMenu(); }
+        document.body.appendChild(backdrop);
+        document.body.appendChild(menu);
+        document.addEventListener("keydown", onKey, true);
+        openMenu = { backdrop: backdrop, menu: menu, onKey: onKey };
+        var w = menu.offsetWidth || 220, h = menu.offsetHeight || 140;
+        menu.style.left = Math.min(Math.max(8, x + 6), Math.max(8, window.innerWidth - w - 8)) + "px";
+        menu.style.top = Math.min(Math.max(8, y + 6), Math.max(8, window.innerHeight - h - 8)) + "px";
     }
 
     // Appelée à chaque rafraîchissement du chrono : carillon d'avertissement, puis passage au suivant.
@@ -24685,7 +24685,7 @@
             head.appendChild(ti); head.appendChild(sub); card.appendChild(head);
             var grid = document.createElement("div"); grid.className = "gs-clock-grid";
             [["total", "Temps de session", "Durée de pratique depuis le début (s'arrête pendant la pause)"], ["left", "Reste (prévu)", "Durée prévue qu'il reste à faire, d'après le temps alloué à chaque exercice"],
-             ["ex", "Temps d'exercice", "Temps passé sur l'exercice en cours"], ["exleft", "Reste dans l'exercice", "Temps qu'il reste sur l'exercice en cours (+ : dépassé)"]].forEach(function (c) {
+             ["ex", "Temps d'exercice", "Temps passé sur l'exercice en cours"]].forEach(function (c) {
                 var cell = document.createElement("div"); cell.className = "gs-clock-cell"; cell.title = c[2];
                 var lb = document.createElement("span"); lb.className = "gs-clock-label"; lb.textContent = c[1];
                 var v = document.createElement("span"); v.className = "gs-clock-val"; v.dataset.k = c[0];
@@ -24704,48 +24704,59 @@
         if (!gsClockCard || !gsClockCard.isConnected || !gsRunSession) return;
         var inf = gsRunProgressInfo(), n = gsRunSession.steps.length;
         function put(k, t, cls) { if (gsClockLast[k] !== t) { gsClockLast[k] = t; var el = gsClockCard.querySelector('[data-k="' + k + '"]'); if (el) el.textContent = t; } if (cls !== undefined) { var e2 = gsClockCard.querySelector('[data-k="' + k + '"]'); if (e2) e2.classList.toggle("gs-clock-over", !!cls); } }
-        var left = inf.exLeft, over = left < 0, a = Math.abs(left);
         put("sub", "Exercice " + (gsRunStepIndex + 1) + " / " + n + " · " + Math.round(inf.frac * 100) + " %");
         put("total", gsFormatTotal(gsTotalNowMs()));
         put("left", gsFormatTotal(inf.left * 1000));
         put("ex", gsFormatTotal(inf.exElapsed * 1000));
-        put("exleft", (over ? "+" : "") + gsFormatTotal(a * 1000), over);
         var end = new Date(Date.now() + inf.left * 1000), hh = end.getHours(), mm = end.getMinutes();
         put("foot", "Durée prévue " + gsFormatTotal(inf.total * 1000) + (gsRunPaused ? " · en pause" : " · fin vers " + (hh < 10 ? "0" : "") + hh + ":" + (mm < 10 ? "0" : "") + mm));
     }
     window.addEventListener("resize", function () { gsDockClockSync(); });
 
-    // Exercices à venir, en petit sous la barre d'avancement (titres seuls) : où l'on en est d'un coup d'œil, sans descendre jusqu'au « Plan de la session » (qui sert à les modifier).
-    // Une fenêtre autour de l'exercice en cours : le précédent (grisé), l'exercice en cours (en évidence), les quatre suivants ; ce qui dépasse est résumé en une ligne
-    // (« ↑ 3 faits avant », « ↓ 2 à venir ensuite »). Une session courte est montrée en entier.
-    var GS_UPNEXT_AHEAD = 4, GS_UPNEXT_BEHIND = 1;
+    // Liste des exercices de la session, sous la barre d'avancement (titres seuls) : tous y sont, l'exercice en cours en évidence (la liste défile s'il y en a
+    // beaucoup). Elle sert aussi à les gérer à la souris : clic = y aller, glisser = déplacer, clic droit (appui long au doigt) = durée, ajout, retrait.
+    // Chaque ligne porte la couleur du dossier (chapitre) de l'exercice, comme la barre verte.
+    function gsStepColor(step) { var f = findExerciseById(step.exerciseId); return (f && f.chapterColor) || "var(--accent)"; }
     function buildRunUpNext(session) {
+        var wrap = document.createElement("div");
+        wrap.className = "gs-run-steps";
         var box = document.createElement("div");
         box.className = "gs-run-upnext";
         box.setAttribute("role", "list");
         box.setAttribute("aria-label", "Exercices de la session");
-        var n = session.steps.length, cur = gsRunStepIndex;
-        var from = Math.max(0, cur - GS_UPNEXT_BEHIND), to = Math.min(n - 1, cur + GS_UPNEXT_AHEAD);
-        // près du début, il n'y a pas d'exercice précédent à montrer : la place profite aux suivants (autant de lignes) ; près de la fin, on ne remplit pas avec du passé
-        var span = GS_UPNEXT_BEHIND + 1 + GS_UPNEXT_AHEAD;
-        if (from === 0 && to - from + 1 < span) to = Math.min(n - 1, span - 1);
-        function line(cls, num, text, tip) {
-            var r = document.createElement("div"); r.className = "gs-run-up-row " + cls; r.setAttribute("role", "listitem");
-            var nm = document.createElement("span"); nm.className = "gs-run-up-num"; nm.textContent = num;
-            var tt = document.createElement("span"); tt.className = "gs-run-up-title"; tt.textContent = text;
-            r.appendChild(nm); r.appendChild(tt); if (tip) r.title = tip;
-            return r;
-        }
-        if (from > 0) box.appendChild(line("gs-run-up-more", "↑", from + " fait" + (from > 1 ? "s" : "") + " avant", "Exercices déjà passés"));
-        for (var i = from; i <= to; i++) {
-            var st = session.steps[i], f = findExerciseById(st.exerciseId), title = f ? f.ex.title : "(exercice supprimé)";
-            var cls = i < cur ? "gs-run-up-done" : i === cur ? "gs-run-up-cur" : "gs-run-up-next";
-            var row = line(cls, i === cur ? "▶" : String(i + 1), title, title + " — " + st.minutes + " min" + (i === cur ? " (en cours)" : ""));
-            if (i === cur) row.setAttribute("aria-current", "step");
+        var cur = gsRunStepIndex, curRow = null;
+        session.steps.forEach(function (st, i) {
+            var f = findExerciseById(st.exerciseId), title = f ? f.ex.title : "(exercice supprimé)";
+            var row = document.createElement("div");
+            row.className = "gs-run-up-row " + (i < cur ? "gs-run-up-done" : i === cur ? "gs-run-up-cur" : "gs-run-up-next");
+            row.setAttribute("role", "listitem"); row.tabIndex = 0;
+            row.dataset.reorderId = st.id;
+            row.style.setProperty("--up-color", gsStepColor(st));
+            row.title = title + " — " + st.minutes + " min" + (i === cur ? " (en cours)" : " : clic = y aller · glisser = déplacer · clic droit = durée, retirer…");
+            var nm = document.createElement("span"); nm.className = "gs-run-up-num"; nm.textContent = i === cur ? "▶" : String(i + 1);
+            var tt = document.createElement("span"); tt.className = "gs-run-up-title"; tt.textContent = title;
+            var mn = document.createElement("span"); mn.className = "gs-run-up-min"; mn.textContent = st.minutes + " min";
+            row.appendChild(nm); row.appendChild(tt); row.appendChild(mn);
+            if (i === cur) { row.setAttribute("aria-current", "step"); curRow = row; }
+            function go() { if (i === gsRunStepIndex) return; gsRunStepIndex = i; gsEnterRunStep(); render(); }
+            row.addEventListener("click", function () { if (suppressNextClick) { suppressNextClick = false; return; } go(); });
+            row.addEventListener("keydown", function (e) {
+                if (e.key === "Enter") { e.preventDefault(); go(); }
+                else if ((e.key === "Delete" || e.key === "Backspace") && !e.repeat) { e.preventDefault(); gsRunRemoveStep(session, i); }
+            });
+            bindContextGesture(row, function (x, y) { openRunStepMenu(x, y, session, i); });
             box.appendChild(row);
-        }
-        if (to < n - 1) { var k = n - 1 - to; box.appendChild(line("gs-run-up-more", "↓", k + " à venir ensuite", "Voir le « Plan de la session » plus bas pour la liste complète")); }
-        return box;
+        });
+        setupDragReorder(box, ".gs-run-up-row", function () { return session.steps; }, "y", { mouseOnly: true, onReorder: function (ids) { gsRunReorder(session, ids); } });
+        wrap.appendChild(box);
+        var add = document.createElement("button");
+        add.type = "button"; add.className = "btn-ghost gs-run-up-add"; add.textContent = "＋ Ajouter un exercice";
+        add.title = "Ajouter un exercice après celui en cours";
+        add.addEventListener("click", function () { gsRunInsertExercise(gsRunStepIndex + 1); });
+        wrap.appendChild(add);
+        // l'exercice en cours au milieu de la liste (sans faire défiler la page)
+        wrap.__centerCur = function () { if (curRow && box.scrollHeight > box.clientHeight) box.scrollTop = Math.max(0, curRow.offsetTop - (box.clientHeight - curRow.offsetHeight) / 2); };
+        return wrap;
     }
     function renderGsRunScreen(content) {
         var session = gsRunSession;
@@ -24777,8 +24788,20 @@
         runBar.appendChild(runBarCur); runBar.appendChild(runBarFill);
         var runBarTicks = [];
         for (var bt = 0; bt < session.steps.length - 1; bt++) { var tk = document.createElement("i"); tk.className = "gs-run-bar-tick"; runBar.appendChild(tk); runBarTicks.push(tk); }
+        // Couleurs : chaque exercice occupe sa part de la barre dans la couleur de son dossier (chapitre) ; la partie faite est en couleur vive, le reste atténué.
+        var runBarColors = session.steps.map(gsStepColor);
         function paintRunBar() {
             var inf = gsRunProgressInfo(), acc = 0, pct = Math.round(inf.frac * 100);
+            var stops = [], dim = [], from = 0;
+            inf.weights.forEach(function (w, i) {
+                var to = inf.total ? from + w / inf.total * 100 : 100, c = runBarColors[i];
+                stops.push(c + " " + from.toFixed(2) + "% " + to.toFixed(2) + "%");
+                dim.push("color-mix(in srgb, " + c + " 32%, transparent) " + from.toFixed(2) + "% " + to.toFixed(2) + "%");
+                from = to;
+            });
+            var grad = "linear-gradient(to right, " + stops.join(", ") + ")", gradDim = "linear-gradient(to right, " + dim.join(", ") + ")";
+            if (runBar.__grad !== grad) { runBar.__grad = grad; runBar.style.backgroundImage = gradDim; runBarFill.style.backgroundImage = grad; }
+            runBarFill.style.backgroundSize = inf.frac > 0 ? (100 / inf.frac).toFixed(3) + "% 100%" : "100% 100%";
             runBarFill.style.width = (inf.frac * 100).toFixed(2) + "%";
             runBarCur.style.left = (inf.total ? inf.before / inf.total * 100 : 0).toFixed(2) + "%";
             runBarCur.style.width = (inf.total ? inf.weights[gsRunStepIndex] / inf.total * 100 : 0).toFixed(2) + "%";
@@ -24787,8 +24810,11 @@
             runBar.title = pct + " % de la durée prévue : " + gsFormatTotal(inf.pos * 1000) + " sur " + gsFormatTotal(inf.total * 1000) + " (exercice " + (gsRunStepIndex + 1) + " sur " + session.steps.length + ")";
         }
         runHead.appendChild(runBar);
-        runHead.appendChild(buildRunUpNext(session));
+        var upNext = buildRunUpNext(session);
+        runHead.appendChild(upNext);
+        content.classList.add("gs-main-run");
         content.appendChild(runHead);
+        if (upNext.__centerCur) setTimeout(upNext.__centerCur, 0);
 
         if (found) content.appendChild(gsThemeBadge(found.pathNames, found.chapterColor));
 
@@ -24996,7 +25022,7 @@
             save();
             refreshKeepBtn();
             showToast("Durée enregistrée : " + step.minutes + " min");
-            if (gsRunPlanOpen) render();
+            var curMin = document.querySelector(".gs-run-up-cur .gs-run-up-min"); if (curMin) curMin.textContent = step.minutes + " min";
         });
         content.appendChild(keepBtn);
         refreshKeepBtn();
@@ -25245,7 +25271,6 @@
                 content.appendChild(hiddenRow);
             }
         }
-        renderGsRunPlan(content, session);
     }
 
     // ---- écran "ouvrir des liens/pièces jointes" (tous les exercices de la session) ----

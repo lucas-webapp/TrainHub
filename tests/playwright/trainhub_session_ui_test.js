@@ -7,7 +7,7 @@ const path = require('path');
 const harnais = require('/home/user/trainhub/tests/_harness');
 const { check, plan, bilan } = harnais('TrainHub : session en cours — barre d\'avancement, boutons, temps sous le métronome, logo');
 const estBruitReseau = harnais.estBruitReseau;
-plan(55);
+plan(66);
 const SHOTS = path.join(__dirname, 'shots');
 fs.mkdirSync(SHOTS, { recursive: true });
 
@@ -48,8 +48,8 @@ async function lancerSession(page, { metronome = true } = {}) {
     if (metronome && !(await page.locator('.metro-dock:not([hidden])').count())) { await page.locator('.gs-run-metro-btn').first().click(); await page.waitForTimeout(800); }
 }
 const suivant = async page => { await page.locator('.gs-run-nav-row button.btn-accent').click(); await page.waitForTimeout(500); };
-const barre = page => page.evaluate(() => { const b = document.querySelector('.gs-run-bar'), f = b.querySelector('.gs-run-bar-fill'), bb = b.getBoundingClientRect(); return { now: +b.getAttribute('aria-valuenow'), w: f.getBoundingClientRect().width / bb.width * 100, ticks: Array.from(b.querySelectorAll('.gs-run-bar-tick')).map(t => +(((t.getBoundingClientRect().left + 1) - bb.left) / bb.width * 100).toFixed(1)), cur: (() => { const c = b.querySelector('.gs-run-bar-cur').getBoundingClientRect(); return [+((c.left - bb.left) / bb.width * 100).toFixed(1), +(c.width / bb.width * 100).toFixed(1)]; })(), titre: b.title, couleur: getComputedStyle(f).backgroundColor }; });
-const carte = page => page.evaluate(() => { const c = document.querySelector('.gs-dock-clock'); if (!c) return null; const v = k => c.querySelector('[data-k="' + k + '"]').textContent, b = c.getBoundingClientRect(), p = document.querySelector('.metro-dock .backups-panel').getBoundingClientRect(); return { total: v('total'), left: v('left'), ex: v('ex'), exleft: v('exleft'), sub: v('sub'), foot: v('foot'), haut: b.top, bas: b.bottom, gauche: b.left, larg: b.width, panBas: p.bottom, panG: p.left, panL: p.width, visible: b.width > 0 }; });
+const barre = page => page.evaluate(() => { const b = document.querySelector('.gs-run-bar'), f = b.querySelector('.gs-run-bar-fill'), bb = b.getBoundingClientRect(); return { now: +b.getAttribute('aria-valuenow'), w: f.getBoundingClientRect().width / bb.width * 100, ticks: Array.from(b.querySelectorAll('.gs-run-bar-tick')).map(t => +(((t.getBoundingClientRect().left + 1) - bb.left) / bb.width * 100).toFixed(1)), cur: (() => { const c = b.querySelector('.gs-run-bar-cur').getBoundingClientRect(); return [+((c.left - bb.left) / bb.width * 100).toFixed(1), +(c.width / bb.width * 100).toFixed(1)]; })(), titre: b.title, couleur: getComputedStyle(f).backgroundImage }; });
+const carte = page => page.evaluate(() => { const c = document.querySelector('.gs-dock-clock'); if (!c) return null; const v = k => c.querySelector('[data-k="' + k + '"]').textContent, b = c.getBoundingClientRect(), p = document.querySelector('.metro-dock .backups-panel').getBoundingClientRect(); return { total: v('total'), left: v('left'), ex: v('ex'), exleft: !!c.querySelector('[data-k="exleft"]'), cells: c.querySelectorAll('.gs-clock-cell').length, sub: v('sub'), foot: v('foot'), haut: b.top, bas: b.bottom, gauche: b.left, larg: b.width, panBas: p.bottom, panG: p.left, panL: p.width, visible: b.width > 0 }; });
 const sec = t => { const p = t.replace('+', '').split(':').map(Number); return p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2] : p[0] * 60 + p[1]; };
 
 (async () => {
@@ -71,8 +71,7 @@ const sec = t => { const p = t.replace('+', '').split(':').map(Number); return p
         b = await barre(page);
         check(Math.abs(b.now - 33) <= 1 && Math.abs(b.cur[1] - 66.7) < 0.8, `A. au dernier exercice (le plus long) : seulement 33 % faits, il occupe 67 % de la barre (${b.now} %, ${b.cur[1]} %)`);
         check(/33 % de la durée prévue/.test(b.titre) && /exercice 3 sur 3/.test(b.titre), `A. au survol : « ${b.titre} »`);
-        const clr = /rgb\((\d+), (\d+), (\d+)\)/.exec(b.couleur);
-        check(clr && +clr[2] > +clr[1] && +clr[2] > +clr[3], `A. la barre est verte (${b.couleur})`);
+        check(/rgb\(233, 30, 99\)/.test(b.couleur), `A. la barre prend la couleur du dossier de l'exercice (ici rose, comme le chapitre « Technique ») et non plus un vert unique (${b.couleur.slice(0, 80)}…)`);
         await page.locator('.gs-run-adjust-row button', { hasText: '+1 min' }).click();
         await page.waitForTimeout(400);
         b = await barre(page);
@@ -107,15 +106,16 @@ const sec = t => { const p = t.replace('+', '').split(':').map(Number); return p
         await suivant(page); // 2e exercice : 3 min
         let c = await carte(page);
         check(!!c && c.visible && c.haut >= c.panBas && c.haut - c.panBas < 20 && Math.abs(c.gauche - c.panG) <= 1 && Math.abs(c.larg - c.panL) <= 1, `C. la carte des temps est SOUS le métronome, à sa largeur (carte à ${c && Math.round(c.haut)} px, bas du métronome à ${c && Math.round(c.panBas)} px)`);
-        check(c.exleft === '3:00' && c.left === '13:00' && /Exercice 2 \/ 3 · 13 %/.test(c.sub), `C. exercice de 3 min, 13 min restantes sur 15 : « reste dans l'exercice ${c.exleft} », « reste ${c.left} », « ${c.sub} »`);
+        check(c.left === '13:00' && /Exercice 2 \/ 3 · 13 %/.test(c.sub), `C. exercice de 3 min, 13 min restantes sur 15 : « reste ${c.left} », « ${c.sub} »`);
+        check(!c.exleft && c.cells === 3, `C. plus de chronomètre « Reste dans l'exercice » : ${c.cells} temps seulement (session, reste prévu, exercice)`);
         check(/Durée prévue 15:00 · fin vers \d\d:\d\d/.test(c.foot), `C. durée prévue et heure de fin : « ${c.foot} »`);
         await page.waitForTimeout(2300);
         const c2 = await carte(page);
-        check(sec(c2.ex) - sec(c.ex) >= 2 && sec(c.exleft) - sec(c2.exleft) >= 2 && sec(c2.total) - sec(c.total) >= 2, `C. les temps avancent seuls (exercice ${c.ex} → ${c2.ex}, reste ${c.exleft} → ${c2.exleft}, session ${c.total} → ${c2.total})`);
+        check(sec(c2.ex) - sec(c.ex) >= 2 && sec(c.left) - sec(c2.left) >= 2 && sec(c2.total) - sec(c.total) >= 2, `C. les temps avancent seuls (exercice ${c.ex} → ${c2.ex}, reste prévu ${c.left} → ${c2.left}, session ${c.total} → ${c2.total})`);
         await page.locator('.gs-run-adjust-row button', { hasText: '+1 min' }).click();
         await page.waitForTimeout(400);
         const c3 = await carte(page);
-        check(sec(c3.exleft) - sec(c2.exleft) >= 55 && sec(c3.left) - sec(c2.left) >= 55 && /Durée prévue 16:00/.test(c3.foot), `C. « +1 min » : reste dans l'exercice ${c2.exleft} → ${c3.exleft}, durée prévue 16:00`);
+        check(sec(c3.left) - sec(c2.left) >= 55 && /Durée prévue 16:00/.test(c3.foot), `C. « +1 min » : reste prévu ${c2.left} → ${c3.left}, durée prévue 16:00`);
         await page.locator('.gs-run-pause-btn').click();
         await page.waitForTimeout(500);
         const c4 = await carte(page);
@@ -158,40 +158,94 @@ const sec = t => { const p = t.replace('+', '').split(':').map(Number); return p
         await ctx.close();
     }
 
-    // ============ F. Exercices à venir, en petit sous la barre d'avancement ============
-    const lignes = page => page.evaluate(() => Array.from(document.querySelectorAll('.gs-run-upnext .gs-run-up-row')).map(r => ({ cls: r.className.replace('gs-run-up-row ', ''), num: r.querySelector('.gs-run-up-num').textContent, txt: r.querySelector('.gs-run-up-title').textContent, coupe: (() => { const t = r.querySelector('.gs-run-up-title'); return t.scrollWidth > t.clientWidth + 1; })() })));
+    // ============ F. Liste des exercices de la session (tous visibles, gérés à la souris) ============
+    const lignes = page => page.evaluate(() => Array.from(document.querySelectorAll('.gs-run-upnext .gs-run-up-row')).map(r => ({ cls: r.className.replace('gs-run-up-row ', '').replace(' dragging', ''), num: r.querySelector('.gs-run-up-num').textContent, txt: r.querySelector('.gs-run-up-title').textContent, min: r.querySelector('.gs-run-up-min').textContent, id: r.dataset.reorderId, coupe: (() => { const t = r.querySelector('.gs-run-up-title'); return t.scrollWidth > t.clientWidth + 1; })() })));
     {
         const { ctx, page, erreurs } = await ouvrir(browser, { viewport: { width: 1440, height: 900 }, etapes: 9 });
         await lancerSession(page);
         let l = await lignes(page);
-        check(l.length === 7 && l[0].cls === 'gs-run-up-cur' && l.slice(1, 6).every(x => x.cls === 'gs-run-up-next') && l[6].cls === 'gs-run-up-more', `F. au 1er exercice de 9 : l'exercice en cours puis les 5 suivants, et « ${l[6] && l[6].txt} » (${l.map(x => x.cls.replace('gs-run-up-', '')).join(', ')})`);
-        check(l[0].txt === 'Gamme avec accents' && l.slice(1, 6).map(x => x.txt).join('|') === 'Arpèges|Blue Bossa|Tremolo|Legato|Slap' && l[6].txt === '3 à venir ensuite', 'F. les titres à venir sont dans l\'ordre de la session, titres seuls');
-        const g = await page.evaluate(() => { const u = document.querySelector('.gs-run-upnext').getBoundingClientRect(), h = document.querySelector('.gs-run-head').getBoundingClientRect(), p = document.querySelector('.gs-run-progress').getBoundingClientRect(), bar = document.querySelector('.gs-run-bar').getBoundingClientRect(); return { haut: u.height, gauche: u.left - h.left, larg: u.width, tete: h.width, souslabarre: u.top - bar.bottom, labelHaut: p.top, uTop: u.top }; });
-        check(Math.abs(g.gauche) <= 1 && g.larg <= g.tete + 1 && g.souslabarre >= 0 && g.souslabarre < 16, `F. la liste est sous la barre, alignée à gauche dans la colonne (hauteur ${Math.round(g.haut)} px)`);
-        await suivant(page); await suivant(page); await suivant(page); await suivant(page); await suivant(page); // 6e exercice
+        check(l.length === 9 && l[0].cls === 'gs-run-up-cur' && l.slice(1).every(x => x.cls === 'gs-run-up-next'), `F. au 1er exercice de 9 : les 9 sont listés, le premier en évidence (${l.length})`);
+        check(l[0].txt === 'Gamme avec accents' && l.slice(1, 6).map(x => x.txt).join('|') === 'Arpèges|Blue Bossa|Tremolo|Legato|Slap' && l[8].txt === 'Improvisation' && l[0].min === '2 min', 'F. les titres sont dans l\'ordre de la session, avec leur durée');
+        const g = await page.evaluate(() => { const u = document.querySelector('.gs-run-upnext').getBoundingClientRect(), h = document.querySelector('.gs-run-head').getBoundingClientRect(), bar = document.querySelector('.gs-run-bar').getBoundingClientRect(); return { haut: u.height, gauche: u.left - h.left, larg: u.width, tete: h.width, souslabarre: u.top - bar.bottom }; });
+        check(Math.abs(g.gauche) <= 1 && g.larg <= g.tete + 1 && g.souslabarre >= 0 && g.souslabarre < 16, `F. la liste est sous la barre, dans la colonne (hauteur ${Math.round(g.haut)} px)`);
+        check(await page.locator('.gs-plan').count() === 0 && await page.getByText('Plan de la session').count() === 0, 'F. plus de barre « Plan de la session » tout en bas');
+        // clic = aller à l'exercice
+        await page.locator('.gs-run-up-row').nth(3).click(); await page.waitForTimeout(400);
         l = await lignes(page);
-        check(l[0].cls === 'gs-run-up-more' && /^4 faits avant$/.test(l[0].txt) && l[1].cls === 'gs-run-up-done' && l[1].txt === 'Slap'.replace('Slap', 'Legato') && l[2].cls === 'gs-run-up-cur' && l[2].txt === 'Slap', `F. au 6e exercice : « ${l[0].txt} », l'exercice précédent grisé (${l[1].txt}), puis l'exercice en cours (${l[2].txt})`);
-        check(l.slice(3).map(x => x.num).join(',') === '7,8,9' && l.length === 6, `F. et les trois derniers à venir, numérotés (${l.slice(3).map(x => x.num + ' ' + x.txt.slice(0, 12)).join(' | ')}), sans ligne « ensuite »`);
-        check(l[3].coupe, 'F. un titre trop long est coupé par « … » au lieu de déborder');
-        await page.screenshot({ path: path.join(SHOTS, 'sui-7b-milieu.png'), clip: { x: 280, y: 60, width: 720, height: 420 } });
-        await suivant(page); await suivant(page); await suivant(page); // dernier
+        check(l[3].cls === 'gs-run-up-cur' && l[2].cls === 'gs-run-up-done' && /Tremolo/.test(await page.locator('.gs-run-title').textContent()), 'F. un clic sur une ligne passe à cet exercice (4e)');
+        // glisser = déplacer ; l'exercice en cours reste le même
+        const ids0 = (await lignes(page)).map(x => x.id);
+        const r0 = await page.locator('.gs-run-up-row').nth(6).boundingBox(), r1 = await page.locator('.gs-run-up-row').nth(1).boundingBox();
+        await page.mouse.move(r0.x + 60, r0.y + r0.height / 2); await page.mouse.down();
+        await page.mouse.move(r0.x + 60, r0.y + r0.height / 2 - 20, { steps: 4 });
+        await page.mouse.move(r1.x + 60, r1.y + 2, { steps: 12 });
+        await page.mouse.up(); await page.waitForTimeout(500);
         l = await lignes(page);
-        check(l[l.length - 1].cls === 'gs-run-up-cur' && l[l.length - 1].num === '▶' && l[0].txt === '7 faits avant' && l.length === 3, `F. au dernier exercice : rien à venir, « ${l[0].txt} » (${l.map(x => x.cls.replace('gs-run-up-', '')).join(', ')})`);
-        const coul = await page.locator('.gs-run-up-cur').evaluate(e => getComputedStyle(e).color);
-        check(/rgb\(0, 230, 118\)/.test(coul) || /rgb\(\d+, 2\d\d, \d+\)/.test(coul), `F. l'exercice en cours est en vert (${coul})`);
-        const dessous = await page.evaluate(() => { const u = document.querySelector('.gs-run-upnext').getBoundingClientRect(), t = document.querySelector('.gs-run-title').getBoundingClientRect(); return t.top - u.bottom; });
-        check(dessous > 0, `F. la liste ne recouvre pas le titre de l'exercice (${Math.round(dessous)} px d'écart)`);
-        await page.screenshot({ path: path.join(SHOTS, 'sui-7-aVenir.png') });
+        check(l.map(x => x.id).join() === [ids0[0], ids0[6], ids0[1], ids0[2], ids0[3], ids0[4], ids0[5], ids0[7], ids0[8]].join(), `F. glisser la 7e ligne en 2e position la déplace (${l.map(x => x.txt.slice(0, 5)).join(', ')})`);
+        check(l[4].cls === 'gs-run-up-cur' && l[4].txt === 'Tremolo' && /Tremolo/.test(await page.locator('.gs-run-title').textContent()), 'F. l\'exercice en cours reste « Tremolo » (il est passé en 5e position)');
+        const ordre = await page.evaluate(() => JSON.parse(localStorage.getItem('trainhub.v1')).settings.guidedSessions[0].steps.map(s => s.id).join());
+        check(ordre === l.map(x => x.id).join(), 'F. le nouvel ordre est enregistré dans la session');
+        // clic droit : menu
+        await page.locator('.gs-run-up-row').nth(7).click({ button: 'right' }); await page.waitForTimeout(250);
+        const items = await page.locator('.ctx-menu .ctx-item').allTextContents();
+        check(items.length === 4 && /Retirer de la session/.test(items[3]) && /durée/i.test(items[1]), `F. clic droit sur une ligne : menu (${items.join(' | ')})`);
+        await page.locator('.ctx-menu .ctx-item', { hasText: 'Retirer de la session' }).click(); await page.waitForTimeout(400);
+        l = await lignes(page);
+        check(l.length === 8 && !l.some(x => x.txt === 'Accords') && l[4].cls === 'gs-run-up-cur', `F. « Retirer de la session » enlève la ligne (${l.length} restantes), l'exercice en cours ne change pas`);
+        await page.getByRole('button', { name: 'Annuler' }).last().click(); await page.waitForTimeout(400);
+        l = await lignes(page);
+        check(l.length === 9 && l[7].txt === 'Accords', 'F. « Annuler » dans le message remet l\'exercice à sa place');
+        await page.locator('.gs-run-up-row').nth(4).click({ button: 'right' }); await page.waitForTimeout(250);
+        check(await page.locator('.ctx-menu .ctx-item', { hasText: 'Retirer de la session' }).isDisabled(), 'F. l\'exercice en cours ne peut pas être retiré (bouton grisé)');
+        await page.keyboard.press('Escape');
+        // durée
+        await page.locator('.gs-run-up-row').nth(0).click({ button: 'right' }); await page.waitForTimeout(250);
+        await page.locator('.ctx-menu .ctx-item', { hasText: 'Changer la durée' }).click(); await page.waitForTimeout(300);
+        await page.locator('.app-dialog-input').fill('7');
+        await page.getByRole('button', { name: 'Valider' }).click(); await page.waitForTimeout(400);
+        l = await lignes(page);
+        check(l[0].min === '7 min', `F. « Changer la durée » : le premier exercice passe à ${l[0].min}`);
+        await page.screenshot({ path: path.join(SHOTS, 'sui-7-liste.png') });
         check(erreurs.length === 0, 'F. aucune erreur JavaScript ' + JSON.stringify(erreurs));
         await ctx.close();
     }
-    {   // session courte : tout est montré, sans ligne de résumé ; téléphone : rien ne déborde
+    {   // beaucoup d'exercices : la liste défile et garde l'exercice en cours visible ; grand écran : liste dans la marge de gauche
+        const { ctx, page } = await ouvrir(browser, { viewport: { width: 1920, height: 1000 }, etapes: 9 });
+        await lancerSession(page);
+        const g = await page.evaluate(() => { const u = document.querySelector('.gs-run-steps').getBoundingClientRect(), h = document.querySelector('.gs-run-head').getBoundingClientRect(), s = document.querySelector('.sidebar, #sidebar, aside'), sb = s ? s.getBoundingClientRect().right : 0; return { droite: u.right, gauche: u.left, tete: h.left, sb: sb }; });
+        check(g.droite <= g.tete && g.gauche > g.sb, `F. à 1920 px la liste est à gauche de la colonne de guidage, sans toucher le volet des dossiers (${Math.round(g.gauche)}→${Math.round(g.droite)} px, colonne dès ${Math.round(g.tete)}, volet jusqu'à ${Math.round(g.sb)})`);
+        await ctx.close();
+    }
+    {   // téléphone : rien ne déborde
         const { ctx, page } = await ouvrir(browser, { viewport: { width: 390, height: 844 } });
         await lancerSession(page, { metronome: false });
         const l = await lignes(page);
         const o = await page.evaluate(() => ({ doc: document.documentElement.scrollWidth - innerWidth, u: Math.round(document.querySelector('.gs-run-upnext').getBoundingClientRect().right) }));
-        check(l.length === 3 && !l.some(x => x.cls === 'gs-run-up-more') && o.doc <= 0 && o.u <= 390, `F. session de 3 exercices sur téléphone : les trois sont listés, sans ligne de résumé, rien ne déborde (${l.map(x => x.txt).join(' | ')})`);
+        check(l.length === 3 && o.doc <= 0 && o.u <= 390, `F. session de 3 exercices sur téléphone : les trois sont listés, rien ne déborde (${l.map(x => x.txt).join(' | ')})`);
         await page.screenshot({ path: path.join(SHOTS, 'sui-8-aVenir-tel.png') });
+        await ctx.close();
+    }
+
+    // ============ G. Bouton Session sans session en cours : un clic dans les dossiers le désactive ============
+    {
+        const { ctx, page, erreurs } = await ouvrir(browser, { viewport: { width: 1440, height: 900 } });
+        await page.click('#guided-session-btn'); await page.waitForSelector('.gs-session-row');
+        check(await page.locator('#guided-session-btn.active').count() === 1 && await page.locator('.gs-main').count() === 1, 'G. la vue Session est ouverte (liste des sessions, aucune en cours)');
+        await page.locator('.tree-row').filter({ hasText: 'Technique' }).first().click(); await page.waitForTimeout(500);
+        check(await page.locator('#guided-session-btn.active').count() === 0 && await page.locator('.gs-main').count() === 0, 'G. un clic sur un dossier du volet de gauche désactive le bouton Session et affiche les exercices');
+        check(await page.locator('.exercise').count() >= 1, 'G. les exercices du dossier sont à l\'écran');
+        await page.click('#guided-session-btn'); await page.waitForSelector('.gs-session-row');
+        await page.locator('.gs-session-row .gs-session-name, .gs-session-row').first().click(); await page.waitForTimeout(400);
+        await page.locator('.tree-row').filter({ hasText: 'Technique' }).first().click(); await page.waitForTimeout(500);
+        check(await page.locator('#guided-session-btn.active').count() === 0, 'G. idem après être entré dans une session de la liste');
+        check(erreurs.length === 0, 'G. aucune erreur JavaScript ' + JSON.stringify(erreurs));
+        await ctx.close();
+    }
+    {   // pendant une session en cours : comportement inchangé (la bande garde le chrono)
+        const { ctx, page } = await ouvrir(browser, { viewport: { width: 1440, height: 900 } });
+        await lancerSession(page);
+        await page.locator('.tree-row').filter({ hasText: 'Technique' }).first().click(); await page.waitForTimeout(500);
+        check(await page.locator('#guided-session-btn.active').count() === 0 && await page.locator('#gs-strip').count() === 1 && await page.locator('.exercise').count() >= 1, 'G. session en cours : un clic dans les dossiers montre les exercices, la bande de session reste en haut');
         await ctx.close();
     }
 

@@ -1610,7 +1610,7 @@ button.gs-edit-run-btn:disabled { opacity: .4; cursor: default; }
 .gs-step-missing { color: var(--text-muted); font-style: italic; }
 .gs-step-minutes { width: 76px; padding-left: 6px; padding-right: 6px; box-sizing: border-box; text-align: center; flex: none; }
 /* Champs de durée réglables au glisser (voir bindScrubInput) : pas de défilement de la page qui démarre dessus. */
-.gs-step-minutes, .gs-plan-minutes { touch-action: none; cursor: ns-resize; }
+.gs-step-minutes { touch-action: none; cursor: ns-resize; }
 html.scrubbing, html.scrubbing * { cursor: ns-resize !important; -webkit-user-select: none; user-select: none; }
 .gs-step-min-label { flex: none; font-size: var(--fs-2xs); color: var(--text-muted); }
 button.gs-add-step-btn { margin-top: 10px; width: 100%; height: 42px; border: 1px solid var(--border); }
@@ -1803,17 +1803,6 @@ button.gs-yt-show-btn:hover { border-color: var(--accent); color: var(--accent);
 button.gs-run-keep-btn { width: 100%; margin-bottom: 12px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent); font-size: var(--fs-xs); }
 button.gs-run-keep-btn[hidden] { display: none; }
 
-.gs-plan { margin-top: 14px; }
-button.gs-plan-toggle { width: 100%; height: 36px; justify-content: flex-start; padding: 0 12px; border: 1px solid var(--border); font-size: var(--fs-xs); font-weight: 700; text-align: left; }
-.gs-plan-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
-.gs-plan-row { display: flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card-bg); padding: 4px 6px; }
-.gs-plan-row.gs-plan-current { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--card-bg)); }
-.gs-plan-num { flex: none; width: 18px; text-align: center; font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
-button.gs-plan-name { flex: 1; min-width: 0; height: 34px; padding: 0 6px; justify-content: flex-start; text-align: left; font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gs-plan-minutes { flex: none; width: 76px; height: 34px; padding-left: 6px; padding-right: 6px; text-align: center; box-sizing: border-box; }
-.gs-plan-unit { flex: none; font-size: var(--fs-2xs); color: var(--text-muted); }
-button.gs-plan-move { flex: none; width: 34px; height: 34px; padding: 0; border: 1px solid var(--border); }
-button.gs-plan-move:disabled { opacity: .3; }
 
 /* Bandeau « nouvelle version prête » */
 .update-banner { position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 960; display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--card-bg-2); border: 1px solid var(--accent); border-radius: var(--radius); box-shadow: 0 10px 30px rgba(0,0,0,calc(.5 * var(--sh-k))); font-size: var(--fs-sm); max-width: calc(100vw - 24px); flex-wrap: wrap; }
@@ -3012,11 +3001,6 @@ tr.metro-prog-stage { display: table-row; }
 table.metro-prog-table input { width: 64px; }
 
 /* plan de la session en cours : ajouter un exercice */
-.gs-plan-head { display: flex; align-items: center; gap: 6px; }
-.gs-plan-head .gs-plan-toggle { flex: 1; text-align: left; }
-button.gs-plan-add { flex: none; width: 34px; padding: 0; font-weight: 800; color: var(--accent); }
-button.gs-plan-insert { display: block; width: 100%; height: 14px; line-height: 10px; padding: 0; margin: 0; font-size: 11px; color: var(--text-muted); border: 0; background: transparent; opacity: .45; }
-button.gs-plan-insert:hover { opacity: 1; color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
 
 /* relecture / correction d'une séance : durée et tempo de chaque exercice */
 .gs-rec-list { display: flex; flex-direction: column; gap: 6px; max-height: min(52vh, 440px); overflow-y: auto; margin: 6px 0; }
@@ -4686,8 +4670,6 @@ html[data-theme="light"] .gs-save-run-panel .gs-rec-item { background: #f6f8f6; 
   .backups-close-row { justify-content: stretch; margin: 10px 0 18px; }
   .backups-close-row > button { flex: 1 1 auto; width: 100%; min-height: 46px; font-size: var(--fs-md); font-weight: 700; color: var(--text-main); border: 1px solid var(--border); border-radius: 12px; background: rgba(var(--ov), .06); }
   /* Écran de session en cours : le « ＋ » du plan (ajouter un exercice) était un petit bouton de 34 × 19 px dans le coin bas droit ; la ligne du plan remonte du bord. */
-  button.gs-plan-add { width: 46px; min-height: 36px; align-self: stretch; }
-  .gs-plan { padding-bottom: 22px; }
 }
 
 /* ===== v209 : onglet « Éphémères » du mode session ===== */
@@ -5080,8 +5062,8 @@ html[data-glass="1"] .gs-edit-topbar:not(.gs-edit-stuck) { background: transpare
 .gs-run-head .gs-run-topline { margin: 0; }
 .gs-run-head .gs-run-progress { margin-bottom: 8px; text-align: left; }
 .gs-run-bar { position: relative; height: 7px; border-radius: 4px; background: rgba(var(--ov), .13); overflow: hidden; }
-.gs-run-bar-cur { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--accent) 24%, transparent); }
-.gs-run-bar-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); border-radius: 4px 0 0 4px; transition: width .35s linear; }
+.gs-run-bar-cur { position: absolute; top: 0; bottom: 0; background: rgba(var(--ov), .22); }
+.gs-run-bar-fill { position: absolute; left: 0; top: 0; bottom: 0; background-color: var(--accent); background-repeat: no-repeat; border-radius: 4px 0 0 4px; transition: width .35s linear; } /* le dégradé à paliers (une couleur par dossier) est posé par le script */
 .gs-run-bar-tick { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--bg); opacity: .85; }
 @media (prefers-reduced-motion: reduce) { .gs-run-bar-fill { transition: none; } }
 
@@ -5090,6 +5072,7 @@ html[data-glass="1"] .gs-edit-topbar:not(.gs-edit-stuck) { background: transpare
 .gs-clock-title { font-size: var(--fs-xs); font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
 .gs-clock-sub { font-size: var(--fs-xs); color: var(--text-dim); font-variant-numeric: tabular-nums; }
 .gs-clock-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+.gs-clock-cell:last-child:nth-child(odd) { grid-column: 1 / -1; }
 .gs-clock-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .gs-clock-label { font-size: var(--fs-2xs); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gs-clock-val { font-size: var(--fs-lg); font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: .01em; }
@@ -5101,12 +5084,25 @@ html[data-glass="1"] .gs-dock-clock { background: var(--glass-pop); -webkit-back
 }
 
 /* ===== v239 : exercices à venir sous la barre d'avancement ===== */
-.gs-run-upnext { margin: 8px 0 0; display: flex; flex-direction: column; gap: 1px; font-size: var(--fs-xs); line-height: 1.55; text-align: left; }
-.gs-run-up-row { display: flex; align-items: baseline; gap: 6px; min-width: 0; color: var(--text-muted); }
+.gs-run-steps { margin: 8px 0 0; }
+.gs-run-upnext { display: flex; flex-direction: column; gap: 1px; font-size: var(--fs-xs); line-height: 1.55; text-align: left; max-height: min(44vh, 21em); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.gs-run-up-row { display: flex; align-items: baseline; gap: 6px; min-width: 0; padding: 1px 6px 1px 7px; border-left: 3px solid var(--up-color, var(--accent)); border-radius: 3px; color: var(--text-muted); cursor: pointer; user-select: none; -webkit-user-select: none; }
+.gs-run-up-row:hover { background: rgba(var(--ov), .08); }
+.gs-run-up-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.gs-run-up-row.dragging { opacity: .35; }
+.gs-run-up-row.drag-ghost { background: var(--card-bg-2); box-shadow: 0 6px 18px rgba(0, 0, 0, .35); z-index: 60; }
 .gs-run-up-num { flex: none; width: 1.7em; text-align: right; font-variant-numeric: tabular-nums; opacity: .8; }
 .gs-run-up-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-run-up-min { flex: none; font-variant-numeric: tabular-nums; opacity: .65; font-size: var(--fs-2xs); }
 .gs-run-up-done { opacity: .5; }
-.gs-run-up-cur { color: var(--accent); font-weight: 700; }
-.gs-run-up-cur .gs-run-up-num { opacity: 1; }
+.gs-run-up-cur { color: var(--text-main); font-weight: 700; background: color-mix(in srgb, var(--up-color, var(--accent)) 16%, transparent); }
+.gs-run-up-cur .gs-run-up-num { opacity: 1; color: var(--up-color, var(--accent)); }
 .gs-run-up-next { color: var(--text-dim); }
-.gs-run-up-more { font-style: italic; opacity: .7; }
+.gs-run-up-add { margin-top: 4px; padding: 2px 8px; font-size: var(--fs-xs); color: var(--text-muted); }
+/* Grand écran : la liste quitte la colonne de guidage et se place dans la marge de gauche (largeur disponible seulement à partir de là, avec le métronome épinglé à droite). */
+@media (min-width: 1760px) {
+    .gs-main-run .gs-run-head { position: relative; }
+    .gs-main-run .gs-run-steps { position: absolute; top: 0; right: calc(100% + 28px); width: 230px; margin: 0; }
+    .gs-main-run .gs-run-upnext { max-height: calc(100vh - var(--topbar-h, 64px) - 150px); }
+}
+@media (max-width: 700px) { .gs-run-upnext { max-height: 30vh; } }
