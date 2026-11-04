@@ -10143,7 +10143,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v255"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v256"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }
@@ -21250,6 +21250,52 @@
     // Fenêtre de relecture d'une séance : durée et tempo atteint de chaque exercice, modifiables. Sert à l'enregistrement
     // de fin de session (opts.requireConfirm : les exercices arrêtés avant leur seuil demandent une confirmation) et à la
     // correction d'une séance déjà enregistrée dans l'historique.
+    // ---------- tempo inhabituel : hors statistiques si l'écart est grand, confirmation s'il est moyen ----------
+    // Pour un exercice avec objectif tempo : les tempos tenus lors des dernières séances (jusqu'à 8, au moins 3 pour juger) donnent le tempo habituel
+    // (médiane) et sa plage. Écart relatif à la médiane, hors plage ± 3 BPM : jusqu'à 6 % normal ; de 6 à 12 % on demande confirmation ; au-delà de 12 %
+    // le tempo est écarté des statistiques (la séance reste enregistrée ; la valeur écartée est gardée dans `bpmOutlier`).
+    var TEMPO_ASK_PCT = 6, TEMPO_DROP_PCT = 12, TEMPO_HIST_MIN = 3, TEMPO_HIST_MAX = 8, TEMPO_BAND = 3;
+    function tempoHistory(exerciseId, beforeDate, selfId) {
+        var pts = [];
+        logAll().forEach(function (r) {
+            if (r.id === selfId || (r.date || 0) >= beforeDate) return;
+            (r.steps || []).forEach(function (st) { if (st.exerciseId === exerciseId && st.bpmMax > 0) pts.push({ date: r.date, bpm: st.bpmMax }); });
+        });
+        pts.sort(function (a, b) { return a.date - b.date; });
+        return pts.slice(-TEMPO_HIST_MAX).map(function (x) { return x.bpm; });
+    }
+    // null (rien à dire) ou { level: "ask" | "drop", lo, hi, ref }
+    function tempoOutlier(bpm, hist) {
+        if (!(bpm > 0) || hist.length < TEMPO_HIST_MIN) return null;
+        var sorted = hist.slice().sort(function (a, b) { return a - b; }), lo = sorted[0], hi = sorted[sorted.length - 1];
+        var mid = sorted.length >> 1, ref = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+        if (bpm >= lo - TEMPO_BAND && bpm <= hi + TEMPO_BAND) return null;
+        var pct = Math.abs(bpm - ref) / ref * 100;
+        if (pct <= TEMPO_ASK_PCT) return null;
+        return { level: pct > TEMPO_DROP_PCT ? "drop" : "ask", lo: lo, hi: hi, ref: Math.round(ref) };
+    }
+    // Passe en revue les tempos de la séance `out` : écarte les écarts énormes, demande pour les autres, puis appelle done(out, notes). Annuler une question : rien n'est enregistré.
+    function tempoCheckRecord(out, done) {
+        var asks = [], notes = [];
+        out.steps.forEach(function (st) {
+            if (!(st.bpmMax > 0) || !st.exerciseId || !stepBpmShown(st)) return;
+            var o = tempoOutlier(st.bpmMax, tempoHistory(st.exerciseId, out.date || Date.now(), out.id));
+            if (!o) return;
+            var rangeTxt = o.lo === o.hi ? o.lo + " BPM" : o.lo + "–" + o.hi + " BPM";
+            if (o.level === "drop") { notes.push("« " + logStepTitle(st) + " » : " + st.bpmMax + " BPM laissé hors des statistiques (tes derniers : " + rangeTxt + ")"); st.bpmOutlier = st.bpmMax; st.bpmFirst = null; st.bpmMax = null; st.bpmEnd = null; delete st.bpmHow; }
+            else asks.push({ st: st, o: o, rangeTxt: rangeTxt });
+        });
+        (function next(i) {
+            if (i >= asks.length) { done(out, notes); return; }
+            var a = asks[i], bpm = a.st.bpmMax;
+            dlgChoice({ title: "Tempo inhabituel : « " + logStepTitle(a.st) + " »", message: bpm + " BPM, alors que tes derniers tempos sont autour de " + a.rangeTxt + ". Le garder dans les statistiques ?",
+                cancelLabel: "Revenir à la séance",
+                buttons: [
+                    { label: "L'écarter des statistiques", kind: "plain", onClick: function () { a.st.bpmOutlier = bpm; a.st.bpmFirst = null; a.st.bpmMax = null; a.st.bpmEnd = null; delete a.st.bpmHow; notes.push("« " + logStepTitle(a.st) + " » : " + bpm + " BPM laissé hors des statistiques"); next(i + 1); } },
+                    { label: "Garder " + bpm + " BPM", kind: "primary", onClick: function () { next(i + 1); } }
+                ] });
+        })(0);
+    }
     function openRunRecordEditor(record, opts) {
         opts = opts || {};
         var items = record.steps.concat(opts.extraSteps || []).map(function (st) { var c = cloneJson(st); return { st: c, ask: !!c.bpmShort, answered: false, extra: (record.steps.indexOf(st) === -1) }; });
@@ -21513,10 +21559,14 @@
             yes = document.createElement("button"); yes.type = "button"; yes.className = "btn-accent gs-rec-save"; yes.textContent = "Enregistrer";
             yes.addEventListener("click", function () {
                 saveGuardSignedOut(function () {
-                    resolved = true;
                     var out = buildOut(false);
-                    close();
-                    opts.onSave(out);
+                    function finish(final, notes) {
+                        resolved = true;
+                        close();
+                        opts.onSave(final);
+                        if (notes && notes.length) setTimeout(function () { showToast(notes.join(" · "), 9000); }, 400);
+                    }
+                    if (opts.tempoCheck) tempoCheckRecord(out, finish); else finish(out, null);
                 });
             });
             actions.appendChild(no); actions.appendChild(yes);
@@ -21541,6 +21591,7 @@
         }
         openRunRecordEditor(record, {
             title: title,
+            tempoCheck: true,
             extraSteps: extraSteps || [],
             confirmLeave: "always",
             onProgress: function (edited) { gsLiveWrite({ v: 1, kind: "record", savedAt: Date.now(), record: edited.record, extraSteps: edited.extra }); }, // la trace de secours suit les modifications
@@ -21675,7 +21726,7 @@
             } },
             { label: "Enregistrer", kind: canResume ? "plain" : "primary", cls: "gs-live-save", onClick: function () {
                 openRunRecordEditor(rec, {
-                    title: "Enregistrer cette séance ?", extraSteps: extra,
+                    title: "Enregistrer cette séance ?", extraSteps: extra, tempoCheck: true,
                     onSave: function (out) { logAdd(out); gsNoteFromRun(out); save(); gsLiveClear(); showToast("Séance enregistrée dans l'historique"); },
                     onCancel: function () { recentRunsAdd(rec, extra, "Non enregistrée"); gsLiveClear(); recentRunsToast(); }
                 });
@@ -23738,7 +23789,7 @@
                     saveBtn.title = "Relire la séance, puis l'enregistrer dans l'historique";
                     saveBtn.addEventListener("click", function () {
                         openRunRecordEditor(rec, {
-                            title: "Retrouver cette séance", cancelLabel: "Annuler", extraSteps: e.extra || [],
+                            title: "Retrouver cette séance", cancelLabel: "Annuler", extraSteps: e.extra || [], tempoCheck: true,
                             onSave: function (out) {
                                 var res = logAddMergingFree(out), joined = out.free && res !== out;
                                 recentRunsRemove(e.id); save();

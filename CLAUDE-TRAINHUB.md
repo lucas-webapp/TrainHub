@@ -24,7 +24,7 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
    `Claude-Session: https://claude.ai/code/session_…` (reprendre l'URL donnée par le rappel d'attribution de la session en cours).
 6. `git push -q origin main`, puis `git push -q origin HEAD:structure-dossiers`, puis vérifier avec `git ls-remote origin main structure-dossiers`
    que les deux pointent sur le même commit. (Le message « This repository moved » de GitHub est sans conséquence.)
-7. Dernière version livrée : **v255**. La suivante sera v256.
+7. Dernière version livrée : **v256**. La suivante sera v257.
 
 ## À ne pas toucher
 - **Le moteur de synchronisation cloud** (Firestore : envoi différé, écoute, reprise). Les nouveaux champs voyagent avec l'état sans le modifier.
@@ -73,8 +73,8 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
   `localStorage['compteCloud.trainhub.nePlusProposer'] = '1'` (pas de fenêtre de connexion), bloquer `https://www.gstatic.com/firebasejs/**`,
   `serviceWorkers: 'block'`. Horloge simulée (`page.clock`) pour les vraies sessions ; CDP pour les mesures de performance.
   Un vrai plantage de page ne se joue pas ici : on recopie le signe de vie (`trainhub.audioAlive.v1`) dans une nouvelle page.
-- Les **19 bancs** sont dans le dépôt : `tests/playwright/trainhub_<nom>_test.js` (morceaux 165, rafale 42, choix 38, compte 68, note 34, note_session 86,
-  favoris 31, rideau 33, session_ui 55, son 67, video 22, preset 22, point 31, lecteur 29, audio_rate 19, audio_edit 80, de 13, eph 12, volet 20), avec leurs fichiers
+- Les **20 bancs** sont dans le dépôt : `tests/playwright/trainhub_<nom>_test.js` (morceaux 165, rafale 42, choix 38, compte 68, note 34, note_session 86,
+  favoris 31, rideau 33, session_ui 55, son 67, video 22, preset 22, point 31, lecteur 29, audio_rate 19, audio_edit 80, de 13, eph 12, volet 20, tempo 15), avec leurs fichiers
   (`media/`, `yt_mock/`). Lancer : `tests/playwright/lancer.sh` (tous) ou `tests/playwright/lancer.sh morceaux choix` ; il démarre et arrête les
   serveurs :8765 et :8766. Un nouveau banc s'ajoute dans ce dossier, avec `plan(n)` ; le garder à jour quand un comportement change exprès.
 - Lancer **toutes** les suites avant chaque livraison (≈ 15 min) ; adapter un banc existant seulement si le comportement a changé exprès.
