@@ -7,7 +7,7 @@ const path = require('path');
 const harnais = require('/home/user/trainhub/tests/_harness');
 const { check, plan, bilan } = harnais('TrainHub : session en cours — barre d\'avancement, boutons, temps sous le métronome, logo');
 const estBruitReseau = harnais.estBruitReseau;
-plan(66);
+plan(70);
 const SHOTS = path.join(__dirname, 'shots');
 fs.mkdirSync(SHOTS, { recursive: true });
 
@@ -159,7 +159,7 @@ const sec = t => { const p = t.replace('+', '').split(':').map(Number); return p
     }
 
     // ============ F. Liste des exercices de la session (tous visibles, gérés à la souris) ============
-    const lignes = page => page.evaluate(() => Array.from(document.querySelectorAll('.gs-run-upnext .gs-run-up-row')).map(r => ({ cls: r.className.replace('gs-run-up-row ', '').replace(' dragging', ''), num: r.querySelector('.gs-run-up-num').textContent, txt: r.querySelector('.gs-run-up-title').textContent, min: r.querySelector('.gs-run-up-min').textContent, id: r.dataset.reorderId, coupe: (() => { const t = r.querySelector('.gs-run-up-title'); return t.scrollWidth > t.clientWidth + 1; })() })));
+    const lignes = page => page.evaluate(() => Array.from(document.querySelectorAll('.gs-run-upnext .gs-run-up-row')).map(r => ({ cls: r.className.replace('gs-run-up-row ', '').replace(' dragging', '').replace(' ctx-touch', ''), num: r.querySelector('.gs-run-up-num').textContent, txt: r.querySelector('.gs-run-up-title').textContent, min: r.querySelector('.gs-run-up-min').textContent, id: r.dataset.reorderId, coupe: (() => { const t = r.querySelector('.gs-run-up-title'); return t.scrollWidth > t.clientWidth + 1; })() })));
     {
         const { ctx, page, erreurs } = await ouvrir(browser, { viewport: { width: 1440, height: 900 }, etapes: 9 });
         await lancerSession(page);
@@ -246,6 +246,28 @@ const sec = t => { const p = t.replace('+', '').split(':').map(Number); return p
         await lancerSession(page);
         await page.locator('.tree-row').filter({ hasText: 'Technique' }).first().click(); await page.waitForTimeout(500);
         check(await page.locator('#guided-session-btn.active').count() === 0 && await page.locator('#gs-strip').count() === 1 && await page.locator('.exercise').count() >= 1, 'G. session en cours : un clic dans les dossiers montre les exercices, la bande de session reste en haut');
+        await ctx.close();
+    }
+
+    // ============ H. Écran tactile : pas de surlignage de texte sur un appui long ni un glisser ============
+    for (const [nom, tactile] of [['téléphone', true], ['ordinateur', false]]) {
+        const ctx = await browser.newContext(tactile ? { viewport: { width: 390, height: 800 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' } : { viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+        const page = await ctx.newPage();
+        await page.route('https://www.gstatic.com/firebasejs/**', r => r.abort('failed'));
+        await page.addInitScript(() => { try { localStorage.setItem('compteCloud.trainhub.nePlusProposer', '1'); if (sessionStorage.getItem('__s')) return; sessionStorage.setItem('__s', '1');
+            localStorage.setItem('trainhub.v1', JSON.stringify({ activeInstrumentId: 'i1', updatedAt: 1, instruments: [{ id: 'i1', name: 'Guitare', categories: [{ id: 'c1', name: 'Technique', color: '#e91e63', folders: [{ id: 'f1', name: 'Dossier A', folders: [], exercises: [] }], exercises: [{ id: 'e1', title: 'Gamme majeure', notes: 'Une note', collapsed: false }, { id: 'e2', title: 'Arpèges', notes: '', collapsed: true }] }] }], settings: {} })); } catch (e) { } });
+        await page.goto('http://localhost:8765/index.html'); await page.waitForTimeout(800);
+        const sel = await page.evaluate(() => { const us = e => { const c = getComputedStyle(e); return c.userSelect || c.webkitUserSelect; };
+            const ex = document.querySelector('.exercise .exercise-title, .exercise-title, .exercise'); const ta = document.querySelector('.exercise textarea');
+            return { ex: ex ? us(ex) : null, ta: ta ? us(ta) : null, wrap: us(document.querySelector('.exercises-wrap, #folder-container') || document.body) }; });
+        if (tactile) {
+            check(sel.ex === 'none', `H. ${nom} : le texte d'un exercice n'est pas sélectionnable (${sel.ex})`);
+            check(sel.ta === null || sel.ta === 'text', `H. ${nom} : la zone de notes reste sélectionnable (${sel.ta})`);
+            const sans = await page.evaluate(() => { const r = document.querySelector('.tree-row, .chapter-chip'); return getComputedStyle(r).webkitUserSelect || getComputedStyle(r).userSelect; });
+            check(sans === 'none', `H. ${nom} : les lignes des dossiers non plus (${sans})`);
+        } else {
+            check(sel.ex !== 'none', `H. ${nom} : sur ordinateur le texte reste sélectionnable à la souris (${sel.ex})`);
+        }
         await ctx.close();
     }
 

@@ -1049,6 +1049,12 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
 /* Appui long = menu renommer/supprimer : pas de bulle système iOS sur les lignes. */
 .tree-row, .folder-row, .chapter-chip, .link-chip { -webkit-touch-callout: none; -webkit-user-select: none; }
 
+/* Écran tactile : un appui long (menu) ou un glisser sur une ligne ne doit ni surligner le texte ni ouvrir la bulle système (iOS / Android). */
+@media (pointer: coarse) {
+    .ctx-touch { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+    .ctx-touch input, .ctx-touch textarea, .ctx-touch [contenteditable], .ctx-touch select { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+}
+
 /* ---------- métronome ---------- */
 /* Refonte "cadran" : le BPM est mis en valeur au centre d'un cadran rond ; transport (vitesse +
    cadran), bascules (tap/progressif), formules rythmiques et pavé sont chacun regroupés sur une

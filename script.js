@@ -2526,8 +2526,20 @@
     // Geste partagé clic droit / appui long, indépendant de ce qu'il ouvre (menu de dossier ou
     // d'exercice ci-dessous). Sur un champ texte (renommage inline, titre d'exercice), on laisse
     // le menu natif du navigateur s'ouvrir (copier/coller) plutôt que le nôtre.
+    // Au doigt, un appui long ou un glisser sur du texte lance la sélection de texte (surlignage, bulles « Copier »…) au lieu du menu ou du déplacement :
+    // les éléments concernés reçoivent la classe .ctx-touch (voir style.css : sélection et bulle système coupées sur écran tactile, champs de saisie exceptés).
+    function touchNoSelect(el) {
+        el.classList.add("ctx-touch");
+        el.addEventListener("selectstart", function (e) { if (touchPressActive && !e.target.closest("input, textarea, [contenteditable]")) e.preventDefault(); });
+    }
+    var touchPressActive = false;
+    document.addEventListener("pointerdown", function (e) { if (e.pointerType && e.pointerType !== "mouse") touchPressActive = true; }, true);
+    function touchPressEnd() { setTimeout(function () { touchPressActive = false; }, 400); }
+    document.addEventListener("pointerup", touchPressEnd, true);
+    document.addEventListener("pointercancel", touchPressEnd, true);
     function bindContextGesture(el, openFn, opts) {
         var triggeredByPress = false;
+        touchNoSelect(el);
 
         el.addEventListener("contextmenu", function (e) {
             // Le titre d'un exercice occupe la majeure partie de la ligne : un clic droit dessus
@@ -2563,6 +2575,7 @@
                 pressTimer = null;
                 triggeredByPress = true;
                 suppressNextClick = true;
+                try { window.getSelection().removeAllRanges(); } catch (e) {} // si le navigateur a déjà commencé à surligner
                 // Le "click" éventuel suit immédiatement le relâchement : on ne l'ignore qu'une fois.
                 document.addEventListener("pointerup", function onUp() {
                     document.removeEventListener("pointerup", onUp, true);
@@ -3946,6 +3959,7 @@
     }
 
     function setupDragReorder(container, itemSelector, getArray, axis, opts) {
+        touchNoSelect(container);
         var dragEl = null;
         var hoverTarget = null;
         var ghost = null;
@@ -4021,6 +4035,7 @@
             if (!moved && Math.abs(delta) < 10) return;
             if (!moved) {
                 try { dragEl.setPointerCapture(e.pointerId); } catch (err) {}
+                try { window.getSelection().removeAllRanges(); } catch (err) {}
                 moved = true;
                 var startRect = dragEl.getBoundingClientRect();
                 grabOffsetX = startX - startRect.left;
