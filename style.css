@@ -5124,3 +5124,9 @@ html[data-glass="1"] .gs-dock-clock { background: var(--glass-pop); -webkit-back
     .gs-main-run .gs-run-upnext { max-height: calc(100vh - var(--topbar-h, 64px) - 150px); }
 }
 @media (max-width: 700px) { .gs-run-upnext { max-height: 30vh; } }
+
+/* Onglet « Éphémères » : séances déjà réalisées (dernier mois) sous les sessions prévues */
+.gs-eph-past-title { margin: 22px 0 6px; padding-top: 12px; border-top: 1px solid var(--border); font-size: var(--fs-xs); font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+.gs-eph-past-row { cursor: pointer; }
+.gs-eph-past-row .gs-up-name { color: var(--text-dim); }
+.gs-eph-past-none { padding-top: 4px; }

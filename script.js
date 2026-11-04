@@ -19939,7 +19939,7 @@
             wrap.appendChild(hint);
             var items = ephemeralList(), lastKey = null;
             if (!items.length) {
-                var e = document.createElement("div"); e.className = "gs-empty"; e.textContent = "Aucune session éphémère prévue."; wrap.appendChild(e); return wrap;
+                var e = document.createElement("div"); e.className = "gs-empty"; e.textContent = "Aucune session éphémère prévue."; wrap.appendChild(e);
             }
             items.forEach(function (sess) {
                 if (sess.date !== lastKey) { lastKey = sess.date; var h = document.createElement("div"); h.className = "gs-up-day" + (sess.date === calTodayKey() ? " gs-up-today" : ""); h.textContent = calRelLabel(sess.date); wrap.appendChild(h); }
@@ -19973,7 +19973,39 @@
                 });
                 wrap.appendChild(row);
             });
+            appendEphemeralDone(wrap);
             return wrap;
+        }
+        // Séances éphémères déjà réalisées sur les 30 derniers jours (une session éphémère disparaît après son jour : il reste la séance enregistrée au journal).
+        function appendEphemeralDone(wrap) {
+            var since = Date.now() - 30 * 86400000, now = Date.now();
+            var done = logAll().filter(function (r) { return gsIsEphemeralRec(r) && r.instrumentId === activeInstId && r.date >= since && r.date <= now + 3600000; })
+                .sort(function (a, b) { return b.date - a.date; });
+            var title = document.createElement("div"); title.className = "gs-eph-past-title";
+            title.textContent = "Réalisées ces 30 derniers jours" + (done.length ? " (" + done.length + ")" : "");
+            wrap.appendChild(title);
+            if (!done.length) { var none = document.createElement("div"); none.className = "gs-empty gs-eph-past-none"; none.textContent = "Aucune session éphémère réalisée sur le dernier mois."; wrap.appendChild(none); return; }
+            var lastDay = null;
+            done.forEach(function (rec) {
+                var key = calKey(new Date(rec.date));
+                if (key !== lastDay) { lastDay = key; var h = document.createElement("div"); h.className = "gs-up-day gs-eph-past-day"; h.textContent = calRelLabel(key); wrap.appendChild(h); }
+                var row = document.createElement("div"); row.className = "gs-up-row gs-up-eph gs-eph-past-row"; row.tabIndex = 0; row.title = "Voir le récapitulatif de la séance";
+                var info = document.createElement("div"); info.className = "gs-up-info";
+                var nm = document.createElement("span"); nm.className = "gs-up-name"; nm.textContent = "✓ " + logRecName(rec);
+                var meta = document.createElement("span"); meta.className = "gs-up-meta";
+                var n = (rec.steps || []).length;
+                meta.textContent = n + " exercice" + (n > 1 ? "s" : "") + " · réel " + gsFmtDur(rec.totalSec || 0) + (rec.plannedSec ? " / prévu " + gsFmtDur(rec.plannedSec) : "");
+                info.appendChild(nm); info.appendChild(meta); row.appendChild(info);
+                row.addEventListener("click", function () { if (suppressNextClick) { suppressNextClick = false; return; } calOpenRecap(row, rec); });
+                row.addEventListener("keydown", function (ev) { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); calOpenRecap(row, rec); } });
+                bindContextGesture(row, function (x, y) {
+                    openLinksQuickMenu(x, y, [
+                        { label: "Voir le récapitulatif", open: function () { calOpenRecap(row, rec); } },
+                        { label: "Ouvrir ce jour dans le calendrier", open: function () { openSessionCalendar({ focusDate: key }); } }
+                    ]);
+                });
+                wrap.appendChild(row);
+            });
         }
 
         // ---- barre d'onglets ----
