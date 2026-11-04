@@ -6195,7 +6195,7 @@
     // est interrompu par le système, l'élément reprend la main : le son ne disparaît jamais. Pas de moteur pour un lien (lecture protégée par le site).
     var AUDIO_GAPLESS_MAX_BYTES = 40 * 1024 * 1024; // au-delà, un fichier trop lourd à décoder : la boucle de l'élément reste (sa coupure compte peu sur un long morceau)
     var audioMutedDesc = typeof HTMLMediaElement !== "undefined" ? Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "muted") : null;
-    function audioEngNew() { return { ctx: null, gain: null, src: null, buf: null, bufId: null, loading: false, mute: false, failed: false, t0: 0, off: 0, timer: null, watch: null }; }
+    function audioEngNew() { return { ctx: null, gain: null, src: null, buf: null, bufId: null, loading: false, mute: false, failed: false, t0: 0, off: 0, timer: null, watch: null, clk: null }; }
     function audioEngGain(ctl) {
         var eng = ctl.eng;
         if (!eng || !eng.gain) return;
@@ -6261,6 +6261,7 @@
         var eng = ctl.eng;
         if (!eng) return;
         if (eng.timer) { clearInterval(eng.timer); eng.timer = null; }
+        eng.clk = null;
         if (!eng.src) return;
         if (syncBack && eng.buf && eng.ctx && Math.abs(audioEngDrift(eng, ctl.audio)) > 0.02) { try { ctl.audio.currentTime = audioEngPos(eng); } catch (e) {} } // l'élément reprend là où le son en était
         try { eng.src.stop(); } catch (e) {}
@@ -6287,6 +6288,19 @@
         if (audioCtl !== ctl || !eng.src) { audioEngStop(ctl, false); return; }
         if (eng.ctx.state !== "running") { audioEngRefresh(ctl); return; }
         if (audio.seeking) return;
+        // Horloge figée : le contexte se dit « en marche » mais son temps n'avance plus alors que le fichier joue (le son est alors muet, et rien ne le signale :
+        // c'est ce que Safari fait parfois au contexte du métronome). L'élément, qui jamais ne s'est arrêté (il jouait en sourdine), reprend aussitôt le son à sa place.
+        var ct = eng.ctx.currentTime, wall = performance.now();
+        if (!audio.paused) {
+            if (!eng.clk || ct - eng.clk.ct >= 0.05) eng.clk = { ct: ct, at: wall };
+            else if (wall - eng.clk.at > 1500) {
+                audioLog("lecteur audio : l'horloge du moteur de boucle est figée depuis " + ((wall - eng.clk.at) / 1000).toFixed(1) + " s (" + audioCtxTag(eng.ctx) + ") : l'élément reprend le son");
+                eng.failed = true; eng.clk = null;
+                audioEngStop(ctl, false); // sans recaler l'élément sur l'horloge figée : il a continué d'avancer, c'est lui qui a la bonne position
+                audioEngRefresh(ctl);
+                return;
+            }
+        } else eng.clk = null;
         if (Math.abs(audioEngDrift(eng, audio)) > 0.06) { try { audio.currentTime = audioEngPos(eng); } catch (e) {} }
     }
     // Décide qui joue : Web Audio (boucle, 100 %, fichier décodé, contexte en marche) ou l'élément.
@@ -6352,6 +6366,21 @@
             audioEngPrepare(ctl);
         });
         ["play", "pause", "ratechange"].forEach(function (ev) { audio.addEventListener(ev, function () { audioEngRefresh(ctl); }); });
+        // Journal : ce que le navigateur fait au lecteur de fichiers audio. Une pause SANS geste de l'utilisateur juste avant n'est pas de l'appli (système, casque, touche média).
+        function plTag() {
+            var t = audioCur(ctl), eg = ctl.eng;
+            return "« " + String(t && t.name || "?").slice(0, 40) + " » " + (t ? t.kind : "?") + ", " + (audio.paused ? "pause" : "joue") + "@" + (audio.currentTime || 0).toFixed(1) + "/" + (isFinite(audio.duration) ? audio.duration.toFixed(0) : "?") + " s, état " + audio.readyState + "/" + audio.networkState
+                + (audio.loop ? ", boucle" : "") + (audio.playbackRate !== 1 ? ", vitesse " + audio.playbackRate : "") + (eg && eg.ctx ? ", moteur " + audioCtxTag(eg.ctx) + (eg.src ? " joue" : "") + (eg.mute ? " (élément muet)" : "") + (eg.failed ? " en échec" : "") : "");
+        }
+        audio.addEventListener("play", function () { audioLog("lecteur audio : lecture — " + plTag()); });
+        audio.addEventListener("pause", function () {
+            if (audio.ended) return;
+            audioLog("lecteur audio : pause " + (Date.now() - audioGestureAt < 1500 ? "demandée (geste)" : "SANS geste de l'utilisateur (système, casque, touche média ?)") + " — " + plTag());
+        });
+        audio.addEventListener("waiting", function () { audioLog("lecteur audio : attend des données — " + plTag()); });
+        audio.addEventListener("stalled", function () { audioLog("lecteur audio : chargement bloqué — " + plTag()); });
+        audio.addEventListener("ended", function () { audioLog("lecteur audio : fin du fichier — " + plTag()); });
+        audio.addEventListener("error", function () { var er = audio.error; audioLog("lecteur audio : ERREUR " + (er ? er.code + (er.message ? " " + String(er.message).slice(0, 80) : "") : "?") + " — " + plTag()); });
         audio.addEventListener("volumechange", function () { audioEngGain(ctl); });
         // Déplacement dans la jauge : le son suit. Le raccord de la boucle de l'élément, lui, ne change presque rien à la position (écart < 0,15 s) : on l'ignore.
         audio.addEventListener("seeking", function () {
@@ -8982,6 +9011,8 @@
     // Une ligne par événement qui touche le son du métronome (retours sur la page, états du contexte audio, échanges, relances…), gardées sur
     // l'appareil (120 dernières). Paramètres › Métronome › « Journal du son » les copie : c'est ce qui permet de voir, après coup, ce que le
     // navigateur a fait au son quand la fenêtre a changé de bureau.
+    var audioGestureAt = 0; // dernier geste de l'utilisateur (clic, toucher, touche) : une pause du lecteur sans geste juste avant ne vient pas de l'appli
+    ["pointerdown", "keydown", "touchend", "click"].forEach(function (ev) { window.addEventListener(ev, function () { audioGestureAt = Date.now(); }, { capture: true, passive: true }); });
     var AUDIO_LOG_KEY = "trainhub.audioLog.v1", audioLogBuf = [], audioLogSaveT = null, audioCtxSeq = 0, audioLogLast = null, AUDIO_LOG_MAX = 220;
     try { audioLogBuf = JSON.parse(localStorage.getItem(AUDIO_LOG_KEY) || "[]"); if (!Array.isArray(audioLogBuf)) audioLogBuf = []; } catch (e) { audioLogBuf = []; }
     function audioCtxTag(c) { if (!c) return "ctx:—"; if (!c._trId) c._trId = ++audioCtxSeq; return "ctx" + c._trId + ":" + c.state + "@" + (c.currentTime || 0).toFixed(1); }
@@ -9030,18 +9061,32 @@
         if (!force && now - audioAliveAt < 2000) return;
         audioAliveAt = now;
         try { localStorage.setItem(AUDIO_ALIVE_KEY, JSON.stringify({ t: now, ctx: audioCtxTag(metroAudioCtx), life: metroLife ? (metroLife.paused ? "pause" : "joue@" + metroLife.currentTime.toFixed(1)) : "—", fb: metroFbOn(), hidden: document.hidden, bpm: state.settings.metronome.bpm,
-            timers: metroFb.timers.length, lag: Math.round(performance.now() - metroLastTickAt), step: audioAliveStep, play: metroPlaying, free: !!freeRun, nodes: audioAliveNodes(), renderMs: Math.round(lastRenderMs || 0) })); } catch (e) {}
+            timers: metroFb.timers.length, lag: (metroPlaying || metroStarting) ? Math.round(performance.now() - metroLastTickAt) : 0, step: audioAliveStep, play: metroPlaying, start: metroStarting, mp3: audioCtl ? (audioCtl.audio.paused ? "pause" : "joue") : "—",
+            free: !!freeRun, nodes: audioAliveNodes(), renderMs: Math.round(lastRenderMs || 0) })); } catch (e) {}
     }
     function audioAliveClear() { audioAliveAt = 0; try { localStorage.removeItem(AUDIO_ALIVE_KEY); } catch (e) {} }
     window.addEventListener("pagehide", audioAliveClear);
+    // Signe de vie aussi quand le métronome est ARRÊTÉ : session libre en cours ou lecteur audio qui joue (les gels et coupures du son ont été vus en session libre, et le lecteur de
+    // fichiers n'avait aucune trace). Il note aussi une page qui ne répond plus (minuterie en retard de plus de 5 s, page visible) : le chien de garde du métronome ne le voit que pendant la lecture.
+    var pageBeatPrev = 0;
+    setInterval(function () {
+        var now = performance.now(), act = !!freeRun || metroPlaying || metroStarting || !!(audioCtl && !audioCtl.audio.paused);
+        if (pageBeatPrev && now - pageBeatPrev > 7000 && !document.hidden && act && !metroPlaying) {
+            audioLog("minuterie en retard de " + ((now - pageBeatPrev) / 1000).toFixed(1) + " s (page gelée, ou ordinateur en veille)" + (freeRun ? " — session libre en cours" : ""));
+            audioLogFlush();
+        }
+        pageBeatPrev = now;
+        if (act) audioAliveBeat(); else if (audioAliveAt) audioAliveClear();
+    }, 2000);
     (function audioAliveCheck() {
         try {
             var raw = localStorage.getItem(AUDIO_ALIVE_KEY);
             if (!raw) return;
             localStorage.removeItem(AUDIO_ALIVE_KEY);
             var o = JSON.parse(raw), d = new Date(o.t), p2 = function (n) { return (n < 10 ? "0" : "") + n; };
-            audioLog("la page précédente s'est arrêtée sans prévenir (plantage, ou page gelée puis rechargée) : dernier signe de vie à " + p2(d.getHours()) + ":" + p2(d.getMinutes()) + ":" + p2(d.getSeconds())
-                + ", " + (o.play === false ? "métronome en cours de lancement" : "métronome en lecture") + ", " + o.ctx + ", bouée " + o.life + ", son de secours " + (o.fb ? "activé" : "coupé") + (o.hidden ? ", page masquée" : "") + ", " + o.bpm + " BPM"
+            var starting = o.start !== undefined ? o.start : o.play === false; // anciens relevés : « play: false » = lancement en cours
+            audioLog("la page précédente s'est arrêtée sans prévenir (plantage, page gelée puis rechargée, ou application fermée) : dernier signe de vie à " + p2(d.getHours()) + ":" + p2(d.getMinutes()) + ":" + p2(d.getSeconds())
+                + ", " + (o.play ? "métronome en lecture" : starting ? "métronome en cours de lancement" : "métronome arrêté") + (o.mp3 ? ", lecteur audio " + (o.mp3 === "joue" ? "en lecture" : o.mp3 === "pause" ? "en pause" : "fermé") : "") + ", " + o.ctx + ", bouée " + o.life + ", son de secours " + (o.fb ? "activé" : "coupé") + (o.hidden ? ", page masquée" : "") + ", " + o.bpm + " BPM"
                 + ", " + (o.timers || 0) + " clic(s) de secours en attente, planificateur en retard de " + (o.lag || 0) + " ms, dernière étape : " + (o.step || "lecture normale")
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
@@ -20640,6 +20685,7 @@
     }
     function freeAttach(fr) {
         freeRun = fr;
+        audioLog("session libre : en cours (" + (fr.totalMs ? "reprise" : "démarrage") + ")");
         metroBeatListeners = metroBeatListeners.filter(function (fn) { return fn !== freeBeat; });
         metroBeatListeners.push(freeBeat);
         freeShowBar();
@@ -20652,6 +20698,7 @@
         if (freeTimer) { clearInterval(freeTimer); freeTimer = null; }
         metroBeatListeners = metroBeatListeners.filter(function (fn) { return fn !== freeBeat; });
         FREE_ACTIVITY_EVENTS.forEach(function (n) { window.removeEventListener(n, freeActivity, { capture: true }); });
+        audioLog("session libre : arrêtée");
         freeRun = null;
         freeHideBar();
         freeGuardToastCheck(); // plus de chrono libre : son message de garde-fou n'a plus d'objet
