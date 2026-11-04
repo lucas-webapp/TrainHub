@@ -7,7 +7,7 @@ const path = require('path');
 const harnais = require('/home/user/trainhub/tests/_harness');
 const { check, plan, bilan } = harnais('TrainHub : chapitre Morceaux — artistes, styles, techniques, travail');
 const estBruitReseau = harnais.estBruitReseau;
-plan(148);
+plan(159);
 const SHOTS = path.join(__dirname, 'shots');
 fs.mkdirSync(SHOTS, { recursive: true });
 const URL = 'http://localhost:8765/index.html';
@@ -263,7 +263,7 @@ const comptesArbre = page => page.locator('.song-tree-node .tree-count').allInne
         await page.fill('.add-song-title', 'Watermelon Man'); await page.press('.add-song-title', 'Enter'); await page.waitForTimeout(500);
         check((await titres(page)).includes('Herbie Hancock - Watermelon Man'), 'D. 2e morceau du même artiste, sans retaper l\'artiste');
         // tout dans la case « Artiste » : « Artiste - Titre »
-        await page.fill('.add-song-artist', 'Stevie Wonder - Superstition'); await page.fill('.add-song-title', ''); await page.press('.add-song-artist', 'Enter'); await page.waitForTimeout(500);
+        await page.fill('.add-song-artist', 'Stevie Wonder - Superstition'); await page.press('.add-song-title', 'Enter'); await page.waitForTimeout(500);
         check((await titres(page)).includes('Stevie Wonder - Superstition'), 'D. « Artiste - Titre » collé dans la case Artiste : séparé tout seul');
         // dans un dossier d'artiste : l'artiste est déjà rempli
         await vue(page, 'artist');
@@ -578,6 +578,37 @@ const comptesArbre = page => page.locator('.song-tree-node .tree-count').allInne
         check(await a.page.locator('.song-artist-block').count() === 0 && await a.page.locator('.songs-wrap .exercise').count() === 3, 'L. dans un dossier d\'artiste, pas de bloc en plus (3 morceaux à plat)');
         check(a.erreurs.length === 0, 'L. aucune erreur JavaScript ' + JSON.stringify(a.erreurs));
         await a.ctx.close();
+    }
+
+    // ============ M. Barre d'ajout : même hauteur que les cartes, bouton « + » plus large, « Artiste - Titre » reconnu ============
+    {
+        const a = await ouvrir(browser, { etat: etatMorceaux() });
+        await ouvrirChapitre(a.page, 'Morceaux'); await vue(a.page, 'all');
+        const g = await a.page.evaluate(() => { const r = e => e.getBoundingClientRect(); const row = document.querySelector('.add-song-row'), ins = [...row.querySelectorAll('input')].map(r), b = r(row.querySelector('button')), c = r(document.querySelector('.exercise'));
+            return { carte: Math.round(c.height), champs: ins.map(x => Math.round(x.height)), larg: ins.map(x => Math.round(x.width)), bouton: [Math.round(b.width), Math.round(b.height)] }; });
+        check(g.champs.every(h => h === g.carte), `M. morceaux : les deux cases ont la hauteur d'une carte (${g.champs.join(', ')} px / carte ${g.carte} px)`);
+        check(Math.abs(g.larg[0] - g.larg[1]) <= 1, `M. morceaux : artiste et titre ont la même largeur (${g.larg.join(' / ')} px)`);
+        check(g.bouton[0] >= 48 && g.bouton[1] === g.carte, `M. le bouton « + » est plus large (${g.bouton[0]} × ${g.bouton[1]} px, contre 24 × 34 avant)`);
+        await a.page.locator('.add-song-artist').pressSequentially('Radiohead - Nude', { delay: 15 }); await a.page.waitForTimeout(100);
+        check(await a.page.locator('.add-song-artist').inputValue() === 'Radiohead' && await a.page.locator('.add-song-title').inputValue() === 'Nude', 'M. « Radiohead - Nude » tapé dans la case artiste : réparti aussitôt (artiste | titre)');
+        check(await a.page.evaluate(() => document.activeElement.className) === 'add-song-title', 'M. et le curseur passe dans la case du titre');
+        await a.page.keyboard.press('Enter'); await a.page.waitForTimeout(500); await attendreSauvegarde(a.page);
+        let ch = await chapitre(a.page, 'Morceaux'), n = ch.exercises.find(e => e.title === 'Radiohead - Nude');
+        check(!!n && n.artist === 'Radiohead' && n.songName === 'Nude', 'M. Entrée ajoute le morceau « Radiohead - Nude »');
+        await a.page.locator('.add-song-artist').fill(''); await a.page.locator('.add-song-title').pressSequentially('Muse - Hysteria', { delay: 15 }); await a.page.waitForTimeout(100);
+        check(await a.page.locator('.add-song-artist').inputValue() === 'Muse' && await a.page.locator('.add-song-title').inputValue() === 'Hysteria', 'M. idem tapé dans la case du titre (artiste vide)');
+        await a.page.locator('.add-song-row button').click(); await a.page.waitForTimeout(500); await attendreSauvegarde(a.page);
+        ch = await chapitre(a.page, 'Morceaux');
+        check(ch.exercises.some(e => e.title === 'Muse - Hysteria' && e.artist === 'Muse'), 'M. le bouton « + » ajoute « Muse - Hysteria »');
+        await a.page.locator('.add-song-artist').fill('Titre sans tiret'); await a.page.waitForTimeout(100);
+        check(await a.page.locator('.add-song-title').inputValue() === '', 'M. sans « espace tiret espace », rien n\'est découpé');
+        check(a.erreurs.length === 0, 'M. aucune erreur JavaScript ' + JSON.stringify(a.erreurs));
+        await a.ctx.close();
+        const b = await ouvrir(browser, { etat: etatDepart() });
+        await b.page.locator('.tree-node > .tree-row', { hasText: 'Technique' }).first().click(); await b.page.waitForTimeout(300);
+        const h = await b.page.evaluate(() => ({ carte: Math.round(document.querySelector('.exercise').getBoundingClientRect().height), champ: Math.round(document.querySelector('.add-exercise-row input').getBoundingClientRect().height), btn: Math.round(document.querySelector('.add-exercise-row button').getBoundingClientRect().width) }));
+        check(h.champ === h.carte && h.btn >= 48, `M. exercices : la barre d'ajout a aussi la hauteur d'une carte (${h.champ} / ${h.carte} px) et un bouton « + » large (${h.btn} px)`);
+        await b.ctx.close();
     }
 
     await browser.close();

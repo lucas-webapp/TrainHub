@@ -5707,10 +5707,10 @@
         if (songDraft.ch !== ch.id) songDraft = { ch: ch.id, artist: "" };
         var wrap = document.createElement("div");
         wrap.className = "add-exercise-row add-song-row";
-        var a = document.createElement("input"); a.type = "text"; a.className = "add-song-artist"; a.placeholder = "Artiste"; a.autocomplete = "off"; a.setAttribute("list", "song-artists-list");
+        var a = document.createElement("input"); a.type = "text"; a.className = "add-song-artist"; a.placeholder = "Artiste (ou « Artiste - Titre »)"; a.autocomplete = "off"; a.setAttribute("list", "song-artists-list");
         a.setAttribute("aria-label", "Artiste");
         a.value = pre.artist || songDraft.artist || "";
-        var t = document.createElement("input"); t.type = "text"; t.className = "add-song-title"; t.placeholder = "Ajouter un morceau… (titre)"; t.autocomplete = "off";
+        var t = document.createElement("input"); t.type = "text"; t.className = "add-song-title"; t.placeholder = "Titre du morceau"; t.autocomplete = "off";
         t.setAttribute("aria-label", "Titre du morceau");
         function commit() {
             var artist = a.value.trim(), name = t.value.trim(), p;
@@ -5740,6 +5740,21 @@
         }
         var btn = iconButton("+", "Ajouter le morceau", commit);
         btn.className = "btn-accent icon-btn";
+        // « Artiste - Titre » saisi (ou collé) dans l'une des deux cases : l'appli répartit tout de suite l'artiste et le titre, et passe dans la case du titre.
+        a.addEventListener("input", function () {
+            if (t.value.trim()) return;
+            var q = parseSongTitle(a.value);
+            if (!q.artist || !q.name) return;
+            a.value = q.artist; t.value = q.name;
+            t.focus(); try { t.setSelectionRange(t.value.length, t.value.length); } catch (e) {}
+        });
+        t.addEventListener("input", function () {
+            if (a.value.trim()) return;
+            var q = parseSongTitle(t.value);
+            if (!q.artist || !q.name) return;
+            a.value = q.artist; t.value = q.name;
+            try { t.setSelectionRange(t.value.length, t.value.length); } catch (e) {}
+        });
         a.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); if (t.value.trim()) commit(); else if (a.value.trim() && parseSongTitle(a.value).artist) commit(); else t.focus(); } });
         t.addEventListener("keydown", function (e) { if (e.key === "Enter") commit(); });
         wrap.appendChild(a); wrap.appendChild(t); wrap.appendChild(btn);
