@@ -691,6 +691,10 @@ button.result-group-title:hover { background: color-mix(in srgb, var(--group-col
 .tree-row-fixed.virtual-archived .tree-label, .tree-row-fixed.virtual-archived .tree-fixed-icon { color: var(--c-grey); }
 .tree-fixed-icon { width: 18px; height: 18px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
 .tree-fixed-icon .icon { width: 13px; height: 13px; }
+.tree-songs-icon { width: 16px; height: 16px; flex: none; display: inline-flex; align-items: center; justify-content: center; margin-right: 4px; color: var(--rc, var(--accent)); }
+.tree-songs-icon .icon { width: 13px; height: 13px; }
+.tree-row.selected .tree-songs-icon { color: var(--chapter-ink); }
+.chapter-chip-songs { margin-right: 4px; }
 
 /* Les 3 styles ci-dessous distinguent la hiérarchie en plus de l'indentation : seul le grand
    chapitre (niveau 0) garde la couleur du chapitre en permanence (voir renderTreeNode). Les

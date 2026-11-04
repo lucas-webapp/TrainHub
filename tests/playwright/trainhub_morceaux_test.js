@@ -7,7 +7,7 @@ const path = require('path');
 const harnais = require('/home/user/trainhub/tests/_harness');
 const { check, plan, bilan } = harnais('TrainHub : chapitre Morceaux — artistes, styles, techniques, travail');
 const estBruitReseau = harnais.estBruitReseau;
-plan(123);
+plan(128);
 const SHOTS = path.join(__dirname, 'shots');
 fs.mkdirSync(SHOTS, { recursive: true });
 const URL = 'http://localhost:8765/index.html';
@@ -491,6 +491,22 @@ const comptesArbre = page => page.locator('.song-tree-node .tree-count').allInne
         check(s2.settings.guidedSessions[0].steps.map(x => x.exerciseId).join() === 'm5,m3,t1', 'I. et les sessions retrouvent leurs morceaux d\'origine : ' + s2.settings.guidedSessions[0].steps.map(x => x.exerciseId).join());
         check(b.erreurs.length === 0, 'I. aucune erreur JavaScript ' + JSON.stringify(b.erreurs));
         await b.ctx.close();
+    }
+
+    // ============ J. Une note de musique devant le nom d'un chapitre de morceaux ============
+    {
+        const a = await ouvrir(browser, { etat: etatMorceaux() });
+        const n = await a.page.evaluate(() => ({ morceaux: !!Array.from(document.querySelectorAll('.tree-node > .tree-row')).find(r => /Morceaux/.test(r.textContent)).querySelector('.tree-songs-icon svg'), autres: Array.from(document.querySelectorAll('.tree-node > .tree-row')).filter(r => !/Morceaux|Favoris|Archivés/.test(r.textContent)).filter(r => r.querySelector('.tree-songs-icon')).length }));
+        check(n.morceaux && n.autres === 0, 'J. barre latérale : le chapitre de morceaux porte une note de musique, pas les chapitres classiques');
+        const avant = await a.page.locator('.tree-node > .tree-row', { hasText: 'Morceaux' }).first().evaluate(r => r.querySelector('.tree-label').getBoundingClientRect().left - r.getBoundingClientRect().left);
+        check(avant > 20, 'J. l\'icône précède le nom (nom décalé de ' + Math.round(avant) + ' px)');
+        check(a.erreurs.length === 0, 'J. aucune erreur JavaScript ' + JSON.stringify(a.erreurs));
+        await a.ctx.close();
+        const m = await ouvrir(browser, { etat: etatMorceaux(), viewport: { width: 390, height: 800 } });
+        check(await m.page.locator('.chapter-chip', { hasText: 'Morceaux' }).locator('.chapter-chip-songs svg').count() === 1, 'J. téléphone : la puce du chapitre de morceaux porte la note de musique');
+        const classiques = await m.page.locator('.chapter-chip:not(.virtual-favorites):not(.virtual-archived):not(:has-text("Morceaux")) .chapter-chip-songs').count();
+        check(classiques === 0, 'J. téléphone : pas d\'icône sur les chapitres classiques');
+        await m.ctx.close();
     }
 
     await browser.close();

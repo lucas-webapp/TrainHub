@@ -2275,6 +2275,7 @@
     var SCISSORS_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>';
     var GRIP_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>';
     var STAR_FILLED_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.7l2.9 6 6.6.7-4.9 4.5 1.3 6.5L12 17.4l-5.9 3 1.3-6.5-4.9-4.5 6.6-.7Z"/></svg>';
+    var SONGS_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3" fill="currentColor"/><circle cx="17" cy="16" r="3" fill="currentColor"/></svg>'; // chapitre de morceaux : note de musique devant le nom
     var ARCHIVE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"/><path d="M10 13h4"/></svg>';
     var FILE_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05 12.25 20.24a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
     var METRONOME_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.6 2.6h2.8l4.1 18.8H6.5Z"/><path d="M7.7 17h8.6"/><path d="M12.1 13.8 18.7 6.2"/></svg>';
@@ -4525,6 +4526,13 @@
                 chip.style.background = "color-mix(in srgb, " + item.color + " " + (isActive ? "16%" : "7%") + ", transparent)";
             }
 
+            if (!isVirtual && isSongsChapter(item)) {
+                var songChip = document.createElement("span");
+                songChip.className = "chapter-chip-star chapter-chip-songs";
+                songChip.innerHTML = SONGS_ICON_SVG;
+                songChip.style.color = isActive ? inkOf(item.color) : item.color;
+                chip.appendChild(songChip);
+            }
             var label = document.createElement("span");
             label.className = "chapter-chip-label";
             label.textContent = item.name;
@@ -4714,6 +4722,12 @@
             row.style.background = "color-mix(in srgb, " + rootColor + " 14%, transparent)";
         }
 
+        if (depth === 0 && isSongsChapter(folder)) { // chapitre de morceaux : petite note de musique (comme l'étoile des Favoris)
+            var songIcon = document.createElement("span");
+            songIcon.className = "tree-songs-icon"; songIcon.title = "Chapitre de morceaux";
+            songIcon.innerHTML = SONGS_ICON_SVG;
+            row.appendChild(songIcon);
+        }
         var label = document.createElement("span");
         label.className = "tree-label";
         label.textContent = folder.name;
