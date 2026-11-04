@@ -7,7 +7,7 @@ const path = require('path');
 const harnais = require('/home/user/trainhub/tests/_harness');
 const { check, plan, bilan } = harnais('TrainHub : chapitre Morceaux — artistes, styles, techniques, travail');
 const estBruitReseau = harnais.estBruitReseau;
-plan(128);
+plan(138);
 const SHOTS = path.join(__dirname, 'shots');
 fs.mkdirSync(SHOTS, { recursive: true });
 const URL = 'http://localhost:8765/index.html';
@@ -507,6 +507,45 @@ const comptesArbre = page => page.locator('.song-tree-node .tree-count').allInne
         const classiques = await m.page.locator('.chapter-chip:not(.virtual-favorites):not(.virtual-archived):not(:has-text("Morceaux")) .chapter-chip-songs').count();
         check(classiques === 0, 'J. téléphone : pas d\'icône sur les chapitres classiques');
         await m.ctx.close();
+    }
+
+    // ============ K. Menu d'un exercice : « Transformer en morceau… » ============
+    {
+        const a = await ouvrir(browser, { etat: etatMorceaux() });
+        await a.page.locator('.tree-node > .tree-row', { hasText: 'Technique' }).first().click(); await a.page.waitForTimeout(300);
+        await a.page.locator('.exercise[data-ex-id="t1"] .exercise-row').click({ button: 'right' }); await a.page.waitForTimeout(250);
+        const items = await a.page.locator('.ctx-menu .ctx-item').allTextContents();
+        check(items.some(t => /Transformer en morceau/.test(t)), 'K. le menu d\'un exercice ordinaire propose « Transformer en morceau… »');
+        await a.page.locator('.ctx-item', { hasText: 'Transformer en morceau' }).click(); await a.page.waitForTimeout(300);
+        check(await a.page.locator('.app-dialog-input').inputValue() === 'Gamme lente', 'K. le titre actuel est proposé dans la saisie « Artiste - Titre »');
+        await a.page.locator('.app-dialog-input').fill('Jamiroquai - Whatever it is');
+        await a.page.getByRole('button', { name: 'Transformer' }).click(); await a.page.waitForTimeout(700); await attendreSauvegarde(a.page);
+        const ch = await chapitre(a.page, 'Morceaux'), tech = await chapitre(a.page, 'Technique');
+        const m = ch.exercises.find(e => e.id === 't1');
+        check(!!m && m.isSong === true && m.artist === 'Jamiroquai' && m.songName === 'Whatever it is' && m.title === 'Jamiroquai - Whatever it is', 'K. l\'exercice est maintenant un morceau « Artiste - Titre » rangé dans le chapitre de morceaux');
+        check(!tech.exercises.some(e => e.id === 't1') && tech.exercises.length === 1, 'K. et il n\'est plus dans l\'ancien chapitre');
+        await a.page.locator('.exercise[data-ex-id="t2"] .exercise-row').click({ button: 'right' }).catch(() => {});
+        await a.page.keyboard.press('Escape');
+        await a.page.locator('.toast .toast-action', { hasText: 'Annuler' }).click().catch(() => {}); await a.page.waitForTimeout(600); await attendreSauvegarde(a.page);
+        const tech2 = await chapitre(a.page, 'Technique');
+        check(tech2.exercises.some(e => e.id === 't1' && !e.isSong && e.title === 'Gamme lente'), 'K. « Annuler » le remet comme avant (exercice ordinaire, titre d\'origine)');
+        check(a.erreurs.length === 0, 'K. aucune erreur JavaScript ' + JSON.stringify(a.erreurs));
+        await a.ctx.close();
+        // sans chapitre de morceaux
+        const b = await ouvrir(browser, { etat: etatDepart() });
+        await b.page.locator('.tree-node > .tree-row', { hasText: 'Technique' }).first().click(); await b.page.waitForTimeout(300);
+        await b.page.locator('.exercise[data-ex-id="t1"] .exercise-row').click({ button: 'right' });
+        await b.page.locator('.ctx-item', { hasText: 'Transformer en morceau' }).click(); await b.page.waitForTimeout(300);
+        const btns = await b.page.locator('.app-dialog button').allTextContents();
+        check(btns.some(t => /Transformer « Morceaux »/.test(t)) && btns.some(t => /Créer un chapitre de morceaux/.test(t)), 'K. sans chapitre de morceaux : on propose de transformer « Morceaux » ou d\'en créer un (' + btns.join(' | ') + ')');
+        await b.page.getByRole('button', { name: 'Créer un chapitre de morceaux' }).click(); await b.page.waitForTimeout(400);
+        await b.page.locator('.app-dialog-input').fill('Jamiroquai - Whatever it is');
+        await b.page.getByRole('button', { name: 'Transformer' }).click(); await b.page.waitForTimeout(700); await attendreSauvegarde(b.page);
+        const st = await etat(b.page), cats = st.instruments[0].categories, nouveau = cats.find(c => c.kind === 'songs');
+        check(!!nouveau && nouveau.name === 'Mes morceaux' && nouveau.exercises.length === 1 && nouveau.exercises[0].artist === 'Jamiroquai', 'K. un nouveau chapitre « Mes morceaux » (« Morceaux » est pris) contient le morceau');
+        check(await b.page.locator('.tree-node > .tree-row', { hasText: 'Mes morceaux' }).locator('.tree-songs-icon').count() === 1, 'K. et il porte la note de musique');
+        check(b.erreurs.length === 0, 'K. aucune erreur JavaScript ' + JSON.stringify(b.erreurs));
+        await b.ctx.close();
     }
 
     await browser.close();

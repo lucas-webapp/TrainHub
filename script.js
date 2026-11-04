@@ -3425,6 +3425,52 @@
         }
     }, true); // en phase de capture : un menu ouvert se referme d'abord (Échap), la sélection ne part qu'au 2e appui
 
+    // Transforme un exercice ordinaire en morceau : « Artiste - Titre » (proposé d'après son titre), puis rangé dans un chapitre de morceaux de son espace.
+    // Ses notes, liens, fichiers, tempo et favori suivent. Sans chapitre de morceaux : on propose de transformer un chapitre existant ou d'en créer un.
+    function exerciseToSong(ex, after) {
+        var f = findExerciseById(ex.id);
+        if (!f || ex.isSong) return;
+        var inst = f.inst, chs = inst.categories.filter(isSongsChapter);
+        function go(ch) {
+            var p = parseSongTitle(ex.title);
+            dlgPrompt({ title: "Transformer en morceau", message: "Format « Artiste - Titre ». Il sera rangé dans le chapitre « " + ch.name + " », avec ses notes, liens et fichiers.", value: songTitle(p.artist, p.name), placeholder: "Artiste - Titre", confirmLabel: "Transformer" }, function (txt) {
+                var q = parseSongTitle(txt), name = q.name, artist = songCanonArtist(ch, q.artist);
+                if (!name) return;
+                var title = songTitle(artist, name), cur = findExerciseById(ex.id);
+                if (!cur) return;
+                ifNameFree(exerciseTitleTaken(ch.exercises, title), "morceau", title, "Transformer quand même", function () {
+                    var from = cur.folder, oldTitle = ex.title;
+                    from.exercises.splice(from.exercises.indexOf(ex), 1);
+                    ex.isSong = true; ex.artist = artist; ex.songName = name; ex.title = title;
+                    ch.exercises.push(ex);
+                    touchExercise(ex);
+                    save();
+                    render();
+                    if (after) after();
+                    toastUndo("« " + oldTitle + " » est maintenant un morceau, rangé dans « " + ch.name + " »");
+                });
+            });
+        }
+        if (chs.length === 1) { go(chs[0]); return; }
+        if (chs.length > 1) {
+            dlgChoice({ title: "Transformer en morceau", message: "Dans quel chapitre de morceaux le ranger ?", buttons: chs.slice(0, 6).map(function (c) { return { label: c.name, kind: "plain", onClick: function () { go(c); } }; }) });
+            return;
+        }
+        var buttons = inst.categories.filter(function (c) { return /morceau|chanson|song/i.test(c.name); }).slice(0, 3).map(function (c) {
+            return { label: "Transformer « " + c.name + " »…", kind: "plain", onClick: function () { openSongsConvertDialog(inst, c); } };
+        });
+        buttons.push({ label: "Créer un chapitre de morceaux", kind: "primary", onClick: function () {
+            var nm = folderNameTaken(inst.categories, "Morceaux") ? "Mes morceaux" : "Morceaux";
+            var c = makeFolder(nm, currentPalette()[inst.categories.length % currentPalette().length]);
+            c.kind = "songs"; c.exercises = [];
+            normalizeSongsChapter(c);
+            inst.categories.push(c);
+            save();
+            go(c);
+        } });
+        dlgChoice({ title: "Pas encore de chapitre de morceaux", message: "Un morceau vit dans un chapitre de morceaux (rangement par artiste, style, technique). Transforme un de tes chapitres, ou crée-en un nouveau pour y ranger « " + ex.title + " ».", buttons: buttons });
+    }
+
     // Menu d'un exercice (clic droit / appui long), le même partout : liste des exercices, choix d'un exercice
     // pour une session, statistiques. `opts.reveal` : proposer « Ouvrir dans son dossier » ; `opts.after` :
     // rafraîchir la fenêtre d'où l'on vient ; `opts.noAddToSession` : déjà en train de choisir pour une session.
@@ -3483,6 +3529,7 @@
         if (opts.reveal) menu.appendChild(menuButton("Ouvrir dans son dossier", "", function () { closeFolderMenu(); revealExercise(ex.id); }));
         if (ex.isSong) menu.appendChild(menuButton("Classer : style, technique, travail…", "", function () { closeFolderMenu(); ex.collapsed = false; save(); render(); }));
         menu.appendChild(menuButton("Renommer…", "", function () { closeFolderMenu(); renameExercisePrompt(ex, folder, opts.after); }));
+        if (!ex.isSong && !ex.archived) menu.appendChild(menuButton("♪ Transformer en morceau…", "", function () { closeFolderMenu(); exerciseToSong(ex, opts.after); }));
         if (!opts.noAddToSession) menu.appendChild(menuButton("Ajouter à une session…", "", function () { closeFolderMenu(); openAddToSessionMenu(x, y, ex); }));
         menu.appendChild(menuButton("Remplacer partout par…", "", function () { closeFolderMenu(); startReplaceEverywhere(ex.id, ex.title); }));
         var nLinked = linkedOthers(ex).length;
