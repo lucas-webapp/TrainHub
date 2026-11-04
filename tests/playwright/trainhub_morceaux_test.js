@@ -7,7 +7,7 @@ const path = require('path');
 const harnais = require('/home/user/trainhub/tests/_harness');
 const { check, plan, bilan } = harnais('TrainHub : chapitre Morceaux — artistes, styles, techniques, travail');
 const estBruitReseau = harnais.estBruitReseau;
-plan(159);
+plan(165);
 const SHOTS = path.join(__dirname, 'shots');
 fs.mkdirSync(SHOTS, { recursive: true });
 const URL = 'http://localhost:8765/index.html';
@@ -609,6 +609,31 @@ const comptesArbre = page => page.locator('.song-tree-node .tree-count').allInne
         const h = await b.page.evaluate(() => ({ carte: Math.round(document.querySelector('.exercise').getBoundingClientRect().height), champ: Math.round(document.querySelector('.add-exercise-row input').getBoundingClientRect().height), btn: Math.round(document.querySelector('.add-exercise-row button').getBoundingClientRect().width) }));
         check(h.champ === h.carte && h.btn >= 48, `M. exercices : la barre d'ajout a aussi la hauteur d'une carte (${h.champ} / ${h.carte} px) et un bouton « + » large (${h.btn} px)`);
         await b.ctx.close();
+    }
+
+    // ============ N. Étoile de favori en pastille : ne décale plus les titres ============
+    {
+        const st = etatMorceaux(); const cs = st.instruments[0].categories;
+        cs[1].exercises.find(e => e.id === 'm2').favorite = true; cs[0].exercises.find(e => e.id === 't1').favorite = true;
+        for (const [nom, vp] of [['bureau', { width: 1100, height: 800 }], ['téléphone', { width: 390, height: 800 }]]) {
+            const a = await ouvrir(browser, { etat: st, viewport: vp });
+            if (vp.width > 500) await ouvrirChapitre(a.page, 'Morceaux'); else await a.page.locator('.chapter-chip', { hasText: 'Morceaux' }).click();
+            await a.page.waitForTimeout(300); await vue(a.page, 'all');
+            const g = await a.page.evaluate(() => { const r = e => e.getBoundingClientRect(), t = id => document.querySelector(`.exercise[data-ex-id="${id}"] input.exercise-title`);
+                const star = document.querySelector('.exercise[data-ex-id="m2"] .exercise-favorite-badge .icon');
+                return { fav: Math.round(r(t('m2')).left), normal: Math.round(r(t('m1')).left), etoile: document.querySelectorAll('.exercise-favorite-badge').length,
+                    dx: Math.round(r(star).left + r(star).width / 2 - r(t('m2')).left), dy: Math.round(r(t('m2')).top - (r(star).top + r(star).height / 2)) }; });
+            check(g.fav === g.normal, `N. ${nom} : le titre d'un favori commence au même endroit que les autres (${g.fav} / ${g.normal} px)`);
+            check(g.etoile === 1 && g.dx >= 0 && g.dx <= 20 && g.dy >= -6 && g.dy <= 16, `N. ${nom} : l'étoile est posée sur le coin haut gauche du titre (à ${g.dx} px à droite du début du titre, ${g.dy} px au-dessus du haut du champ)`);
+            await a.ctx.close();
+        }
+        const c = await ouvrir(browser, { etat: st });
+        await ouvrirChapitre(c.page, 'Technique'); await c.page.waitForTimeout(300);
+        const k = await c.page.evaluate(() => { const t = id => Math.round(document.querySelector(`.exercise[data-ex-id="${id}"] input.exercise-title`).getBoundingClientRect().left); return [t('t1'), t('t2')]; });
+        check(k[0] === k[1], `N. chapitre classique (avec poignée de déplacement) : même alignement (${k.join(' / ')} px)`);
+        const ev = await c.page.evaluate(() => getComputedStyle(document.querySelector('.exercise-favorite-badge')).pointerEvents);
+        check(ev === 'none', 'N. l\'étoile ne gêne pas les clics (pointer-events: none)');
+        await c.ctx.close();
     }
 
     await browser.close();

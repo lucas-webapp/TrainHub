@@ -449,13 +449,13 @@ button.session-btn-highlight:hover { background: color-mix(in srgb, var(--c-sage
     opacity: .97;
 }
 
-.exercise-favorite-badge { flex: none; display: inline-flex; color: var(--c-gold); }
+.exercise-favorite-badge { flex: none; position: relative; width: 0; height: 0; margin-right: calc(-1 * var(--er-gap, 8px)); /* annule l'écart (gap) : l'étoile ne prend aucune place, les titres ne bougent plus */ color: var(--c-gold); pointer-events: none; z-index: 1; }
 .exercise-wip-badge { flex: none; font-size: var(--fs-2xs); font-weight: 800; letter-spacing: .02em; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--border)); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 10px; padding: 1px 8px; white-space: nowrap; }
 .ex-wip-row { display: flex; padding: 6px 0 2px; }
 button.ex-wip-chip { height: 28px; padding: 0 12px; font-size: var(--fs-xs); background: transparent; color: var(--text-muted); border-radius: 14px; }
 button.ex-wip-chip:hover { color: var(--text-main); }
 button.ex-wip-chip.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 16%, transparent); font-weight: 700; }
-.exercise-favorite-badge .icon { width: 14px; height: 14px; }
+.exercise-favorite-badge .icon { position: absolute; left: -3px; top: -14px; width: 14px; height: 14px; filter: drop-shadow(0 0 2px var(--card-bg-2)) drop-shadow(0 0 1px var(--card-bg-2)); } /* pastille : posée en haut à gauche de la 1re lettre du titre, par-dessus */
 .exercise-archived-badge {
     flex: none;
     font-size: var(--fs-2xs);
@@ -2479,7 +2479,7 @@ button.gs-tab-archive { margin-left: auto; color: var(--text-muted); }
   .exercise-row-tools { gap: 6px; }
   .exercise-row-tools .exercise-link-quick-label { display: none; }
   .exercise-row-tools .exercise-link-quick { padding: 0 9px; justify-content: center; }
-  .exercise-row { gap: 6px; }
+  .exercise-row { gap: 6px; --er-gap: 6px; }
 }
 /* Session (préparation) : zone de durée à la taille de son contenu (identique sur chaque ligne → alignée) */
 .gs-step-session { width: auto; }
@@ -4036,7 +4036,7 @@ button.exercise-media-group:hover { border-color: var(--accent); color: var(--ac
   .exercise-row-tools .exercise-media-sep { display: none; }
   .exercise-row-tools button.exercise-media-group { display: inline-flex; }
   .exercise-row-tools { gap: 5px; }
-  .exercise-row { gap: 5px; }
+  .exercise-row { gap: 5px; --er-gap: 5px; }
   .exercise-row-spacer { min-width: 0; }
 }
 /* Séance passée saisie à la main */
