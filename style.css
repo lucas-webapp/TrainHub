@@ -450,6 +450,11 @@ button.session-btn-highlight:hover { background: color-mix(in srgb, var(--c-sage
 }
 
 .exercise-favorite-badge { flex: none; display: inline-flex; color: var(--c-gold); }
+.exercise-wip-badge { flex: none; font-size: var(--fs-2xs); font-weight: 800; letter-spacing: .02em; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--border)); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 10px; padding: 1px 8px; white-space: nowrap; }
+.ex-wip-row { display: flex; padding: 6px 0 2px; }
+button.ex-wip-chip { height: 28px; padding: 0 12px; font-size: var(--fs-xs); background: transparent; color: var(--text-muted); border-radius: 14px; }
+button.ex-wip-chip:hover { color: var(--text-main); }
+button.ex-wip-chip.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 16%, transparent); font-weight: 700; }
 .exercise-favorite-badge .icon { width: 14px; height: 14px; }
 .exercise-archived-badge {
     flex: none;
@@ -3997,6 +4002,13 @@ button.img-thumb-btn { cursor: zoom-in; }
 /* Choix d'un exercice : onglets Tous / Favoris */
 .gs-pick-tabs { display: flex; gap: 6px; margin: 8px 0 4px; align-items: center; }
 .gs-pick-fold { margin-left: auto; display: flex; gap: 4px; }
+.gs-pick-head { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; margin-bottom: 6px; }
+.gs-pick-burst { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin-left: auto; }
+.gs-pick-added { font-size: var(--fs-xs); font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+button.gs-pick-done { height: 32px; padding: 0 16px; font-weight: 800; }
+.gs-pick-ex-line { display: flex; align-items: center; max-width: 100%; }
+.gs-pick-in { flex: none; margin-left: 8px; font-size: var(--fs-2xs); font-weight: 800; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); border-radius: 10px; padding: 0 7px; font-variant-numeric: tabular-nums; }
+.gs-pick-exercise-row.in-session .gs-pick-ex-title, .gs-pick-result.in-session .gs-pick-result-title { color: var(--text-muted); }
 button.gs-pick-fold-btn { height: 30px; min-width: 32px; padding: 0 8px; font-size: var(--fs-base); line-height: 1; color: var(--text-muted); }
 button.gs-pick-fold-btn:hover { color: var(--text-main); }
 button.gs-pick-tab { height: 30px; padding: 0 14px; font-size: var(--fs-sm); font-weight: 700; border-radius: var(--radius-sm); }

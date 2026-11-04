@@ -455,6 +455,7 @@
             if (typeof ex.favorite !== "boolean") ex.favorite = false;
             if (typeof ex.archived !== "boolean") ex.archived = false;
             delete ex.tags; // les étiquettes ont été retirées de l'application
+            if (typeof ex.inProgress !== "boolean") delete ex.inProgress; // pastille « En cours »
         });
     }
 
@@ -3259,8 +3260,7 @@
                 var list = exSelItems().map(function (it) { return it.ex; });
                 exSel = {}; exSelAnchor = null;
                 gsPickMulti(list);
-                gsScreen = "edit";
-                render();
+                gsPickAfterMulti(list.length);
             } });
         } else {
             acts.push({ text: "＋ Session…", run: function (btn) { var r = btn.getBoundingClientRect(); openAddToSessionMenu(r.left, r.top, exSelItems().map(function (it) { return it.ex; }), true); } });
@@ -3271,6 +3271,12 @@
         }
         acts.push({ text: "Déplacer vers…", run: function () { exSelPlace(exSelItems(), true); } });
         acts.push({ text: "Copier vers…", run: function () { exSelPlace(exSelItems(), false); } });
+        acts.push({ text: items.every(function (it) { return exInProgress(it.ex); }) ? "● Retirer « En cours »" : "○ En cours", run: function () {
+            var its = exSelItems(), all = its.every(function (it) { return exInProgress(it.ex); });
+            its.forEach(function (it) { exSetInProgress(it.ex, !all); });
+            exSel = {}; exSelAnchor = null; save(); render();
+            toastUndo(its.length + " exercice" + (its.length > 1 ? "s" : "") + (all ? " retiré" + (its.length > 1 ? "s" : "") + " de « En cours »" : " marqué" + (its.length > 1 ? "s" : "") + " « En cours »"));
+        } });
         acts.push({ text: items.every(function (it) { return it.ex.favorite; }) ? "★ Retirer des favoris" : "☆ Favori", run: function () { exSelFlag(exSelItems(), "favorite", "ajouté" + plural + " aux favoris", "retiré" + plural + " des favoris"); } });
         acts.push({ text: items.every(function (it) { return it.ex.archived; }) ? "Désarchiver" : "Archiver", run: function () { exSelFlag(exSelItems(), "archived", "archivé" + plural, "désarchivé" + plural); } });
         acts.push({ text: "Supprimer…", danger: true, run: function () { exSelDelete(exSelItems()); } });
@@ -3460,6 +3466,11 @@
         var nLinked = linkedOthers(ex).length;
         if (!ex.isSong) menu.appendChild(menuButton(nLinked ? "🔗 Liaison (" + nLinked + ")… rompre ou modifier" : "🔗 Lier à un autre exercice…", "", function () { openExerciseLinksDialog(ex, opts.after); }));
         if (!opts.noSelect) menu.appendChild(menuButton(ex.id in exSel ? "☐ Désélectionner" : "☑ Sélectionner (plusieurs)", "", function () { closeFolderMenu(); exSelToggle(ex.id); }));
+        menu.appendChild(menuButton(exInProgress(ex) ? "● Retirer « En cours »" : "○ Marquer « En cours »", "", function () {
+            exSetInProgress(ex, !exInProgress(ex));
+            save();
+            done();
+        }));
         menu.appendChild(menuButton(ex.favorite ? "★ Retirer des favoris" : "☆ Marquer en favori", "", function () {
             ex.favorite = !ex.favorite;
             touchExercise(ex);
@@ -5025,16 +5036,18 @@
             att: ["with", "without"].indexOf(v.att) !== -1 ? v.att : "",       // pièces jointes (liens, fichiers, images)
             notes: ["with", "without"].indexOf(v.notes) !== -1 ? v.notes : "",
             video: v.video === true,
-            fav: v.fav === true
+            fav: v.fav === true,
+            wip: v.wip === true
         };
     }
     function saveExView(v) { try { localStorage.setItem(EX_VIEW_KEY, JSON.stringify(v)); } catch (e) {} }
-    function exViewIsDefault(v) { return v.sort === "manual" && !v.att && !v.notes && !v.video && !v.fav; }
+    function exViewIsDefault(v) { return v.sort === "manual" && !v.att && !v.notes && !v.video && !v.fav && !v.wip; }
     function exCreatedAt(ex) { return ex.createdAt || parseInt(String(ex.id).slice(0, 8), 36) || 0; } // l'id commence par l'horodatage de création
     function exHasAttachments(ex) { return (ex.links || []).length + (ex.files || []).length + (ex.images || []).length > 0; }
     function applyExView(list, v) {
         var out = list.filter(function (ex) {
             if (v.fav && !ex.favorite) return false;
+            if (v.wip && !exInProgress(ex)) return false;
             if (v.att === "with" && !exHasAttachments(ex)) return false;
             if (v.att === "without" && exHasAttachments(ex)) return false;
             var hasNotes = !!((ex.notes && ex.notes.trim()) || (ex.fixedNotes && ex.fixedNotes.trim()));
@@ -5083,6 +5096,7 @@
             return b;
         }
         bar.appendChild(chip("★ Favoris", view.fav, "fav"));
+        bar.appendChild(chip("● En cours", view.wip, "wip"));
         bar.appendChild(chip("Avec vidéo", view.video, "video"));
         if (!exViewIsDefault(view)) {
             var count = document.createElement("span");
@@ -5230,6 +5244,8 @@
         if (!Array.isArray(v.styles)) v.styles = [];
         if (!Array.isArray(v.techniques)) v.techniques = [];
         v.work = songCleanList(v.work); v.styles = songCleanList(v.styles); v.techniques = songCleanList(v.techniques);
+        // l'état de travail qui compte comme « en cours » (onglet « En cours » du choix, pastille) : « En cours » au départ, il suit son renommage
+        v.inProgress = typeof v.inProgress === "string" ? (songCanon(v.work, v.inProgress) || "") : (songCanon(v.work, "En cours") || "");
         ch.exercises.forEach(function (ex) { normalizeSongEx(ch, ex); });
     }
     function normalizeSongEx(ch, ex) {
@@ -5263,6 +5279,23 @@
             if (isSongsChapter(c)) { normalizeSongsChapter(c); return; }
             (function strip(f) { (f.exercises || []).forEach(function (ex) { if (ex.isSong) delete ex.isSong; }); (f.folders || []).forEach(strip); })(c);
         });
+    }
+    // « En cours » : une simple pastille pour un exercice (ex.inProgress) ; pour un morceau, c'est la valeur de Travail que le chapitre désigne comme « en cours »
+    // (ch.vocab.inProgress, « En cours » au départ ; elle suit son renommage) : un seul « en cours », où que l'on regarde.
+    function exInProgress(ex) {
+        if (!ex) return false;
+        if (!ex.isSong) return ex.inProgress === true;
+        var ch = songChapterOf(ex), v = ch && ch.vocab && ch.vocab.inProgress;
+        return !!v && !!ex.work && songNorm(ex.work) === songNorm(v);
+    }
+    function exSetInProgress(ex, on) {
+        if (ex.isSong) {
+            var ch = songChapterOf(ex);
+            if (!ch) return;
+            if (on) { if (!ch.vocab.inProgress) ch.vocab.inProgress = songsAddValue(ch, "work", "En cours"); ex.work = ch.vocab.inProgress; }
+            else if (exInProgress(ex)) ex.work = "";
+        } else if (on) ex.inProgress = true; else delete ex.inProgress;
+        touchExercise(ex);
     }
     function songChapterOf(ex) {
         for (var i = 0; i < state.instruments.length; i++) {
@@ -5391,6 +5424,7 @@
         list.forEach(function (v, n) { if (songNorm(v) === songNorm(oldName)) i = n; else if (songNorm(v) === songNorm(newName)) j = n; });
         if (i === -1) return;
         var final = j !== -1 ? list[j] : newName;
+        if (dimKey === "work" && ch.vocab.inProgress && songNorm(ch.vocab.inProgress) === songNorm(oldName)) ch.vocab.inProgress = final;
         if (j !== -1) list.splice(i, 1); else list[i] = newName; // un nom déjà pris : les deux dossiers n'en font plus qu'un
         ch.exercises.forEach(function (ex) {
             if (dimKey === "work") { if (ex.work && songNorm(ex.work) === songNorm(oldName)) ex.work = final; return; }
@@ -5401,6 +5435,7 @@
     }
     function songsDeleteValue(ch, dimKey, name) {
         var d = songDim(dimKey), k = songNorm(name);
+        if (dimKey === "work" && ch.vocab.inProgress && songNorm(ch.vocab.inProgress) === k) ch.vocab.inProgress = "";
         ch.vocab[d.vocab] = ch.vocab[d.vocab].filter(function (v) { return songNorm(v) !== k; });
         ch.exercises.forEach(function (ex) {
             if (dimKey === "work") { if (ex.work && songNorm(ex.work) === k) ex.work = ""; return; }
@@ -6075,6 +6110,13 @@
         }, false);
         if (tempoChip) tools.appendChild(tempoChip);
 
+        if (exInProgress(ex)) {
+            var wipBadge = document.createElement("span");
+            wipBadge.className = "exercise-wip-badge";
+            wipBadge.textContent = "En cours";
+            wipBadge.title = "En cours : je le travaille en ce moment";
+            tools.appendChild(wipBadge);
+        }
         if (ex.archived) {
             var archBadge = document.createElement("span");
             archBadge.className = "exercise-archived-badge";
@@ -6403,6 +6445,14 @@
         var details = document.createElement("div");
         details.className = "exercise-details";
         if (ex.isSong) details.appendChild(buildSongBlock(ex)); // morceau : artiste, titre, styles, techniques, travail
+        else { // exercice : une seule pastille d'état, « En cours »
+            var wipRow = document.createElement("div"); wipRow.className = "ex-wip-row";
+            var wipChip = document.createElement("button"); wipChip.type = "button"; wipChip.className = "ex-wip-chip" + (exInProgress(ex) ? " on" : "");
+            wipChip.textContent = "● En cours"; wipChip.setAttribute("aria-pressed", exInProgress(ex) ? "true" : "false");
+            wipChip.title = "Je travaille cet exercice en ce moment : il se retrouve dans l'onglet « En cours » du choix d'une session";
+            wipChip.addEventListener("click", function () { exSetInProgress(ex, !exInProgress(ex)); save(); render(); });
+            wipRow.appendChild(wipChip); details.appendChild(wipRow);
+        }
 
         // Tempo cible / métronome prédéfini : juste sous le titre, c'est le réglage le plus utile en un coup d'œil.
         // Dé de gamme et objectif tempo : le tirage se règle ici, une fois (triades, modes…), et se retrouve dans chaque session. Ils se rangent sur
@@ -18512,7 +18562,7 @@
         else if (gsScreen === "pick" && gsEditingSession) renderGsPickScreen(content);
         else if (gsScreen === "edit" && gsEditingSession) renderGsEditScreen(content);
         else renderGsListScreen(content);
-        if (gsScreen !== "pick") { gsPickFocused = false; gsPickQuery = ""; }
+        if (gsScreen !== "pick") { gsPickFocused = false; gsPickQuery = ""; gsPickAdded = 0; gsPickRedraw = null; }
     }
 
     // ---- brouillons de session : les modifications faites dans l'écran d'édition ne sont appliquées à la session
@@ -18818,7 +18868,8 @@
         var bar = document.createElement("div");
         bar.className = "gs-pick-tabs";
         bar.setAttribute("role", "tablist");
-        [["all", "Tous"], ["fav", "★ Favoris (" + nFav + ")"]].forEach(function (t) {
+        var nWip = collectExercises(inst, function (ex) { return exInProgress(ex) && !ex.archived; }).length;
+        [["all", "Tous"], ["fav", "★ Favoris (" + nFav + ")"], ["wip", "● En cours (" + nWip + ")"]].forEach(function (t) {
             var b = document.createElement("button");
             b.type = "button"; b.className = "gs-pick-tab" + (get() === t[0] ? " active" : ""); b.dataset.tab = t[0]; b.textContent = t[1];
             b.setAttribute("role", "tab"); b.setAttribute("aria-selected", get() === t[0] ? "true" : "false");
@@ -18855,11 +18906,17 @@
             var pr = songsPrefs(ch);
             songsGroups(ch, pr.view, pr.sort).folders.forEach(function (g) { keys.push("s:" + ch.id + ":" + g.id); });
         });
-        collectExercises(inst, function (ex) { return !!ex.favorite && !ex.archived; }).forEach(function (r) { keys.push("f:" + r.folder.id); });
+        collectExercises(inst, function (ex) { return (!!ex.favorite || exInProgress(ex)) && !ex.archived; }).forEach(function (r) { keys.push("f:" + r.folder.id); });
         return keys;
     }
     function pickSetAll(inst, open) { var m = pickOpenLoad(); pickAllKeys(inst).forEach(function (k) { m[k] = !!open; }); pickOpenSave(); }
-    var pickTabMem = (function () { try { var v = pickOpenLoad().__tab; return v === "fav" ? "fav" : "all"; } catch (e) { return "all"; } })(); // dernier onglet choisi (Tous / Favoris), retenu d'un choix à l'autre et d'une fois sur l'autre
+    function pickTabMatch(ex) { return pickTabMem === "fav" ? !!ex.favorite : pickTabMem === "wip" ? exInProgress(ex) : true; }
+    function pickTabEmptyText(q) {
+        if (q) return "Aucun exercice ne correspond.";
+        return pickTabMem === "fav" ? "Aucun favori : marque un exercice d'une étoile (clic droit › Marquer en favori)."
+            : pickTabMem === "wip" ? "Rien « En cours » : coche la pastille « En cours » d'un exercice (ou donne l'état « En cours » à un morceau)." : "Aucun exercice ne correspond.";
+    }
+    var pickTabMem = (function () { try { var v = pickOpenLoad().__tab; return v === "fav" || v === "wip" ? v : "all"; } catch (e) { return "all"; } })(); // dernier onglet choisi (Tous / Favoris), retenu d'un choix à l'autre et d'une fois sur l'autre
     // Fenêtre de choix d'un exercice (recherche + arborescence) : sert à « Remplacer partout par… ».
     function openExercisePickerModal(titleText, opts, onPick) {
         opts = opts || {};
@@ -18956,9 +19013,9 @@
                 wrap.innerHTML = ""; rowEls = [];
                 var q = search.value.trim().toLowerCase();
                 if (!q && pickTabMem === "all") { node(wrap, pickChapters(inst), 0, null); paintPicked(); return; }
-                var res = collectExercises(inst, function (ex) { return !ex.archived && exclude.indexOf(ex.id) === -1 && (pickTabMem !== "fav" || !!ex.favorite) && (!q || ex.title.toLowerCase().indexOf(q) !== -1 || songMatchesQuery(ex, q)); });
-                if (!res.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = pickTabMem === "fav" && !q ? "Aucun favori : marque un exercice d'une étoile (clic droit › Marquer en favori)." : "Aucun exercice ne correspond."; wrap.appendChild(none); return; }
-                if (pickTabMem === "fav") { // favoris : rangés par dossier (avec « Tout » par dossier en choix multiple)
+                var res = collectExercises(inst, function (ex) { return !ex.archived && exclude.indexOf(ex.id) === -1 && pickTabMatch(ex) && (!q || ex.title.toLowerCase().indexOf(q) !== -1 || songMatchesQuery(ex, q)); });
+                if (!res.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = pickTabEmptyText(q); wrap.appendChild(none); return; }
+                if (pickTabMem === "fav" || pickTabMem === "wip") { // favoris, « en cours » : rangés par dossier (avec « Tout » par dossier en choix multiple)
                     pickGroupByFolder(inst, res).forEach(function (g) {
                         var all = null;
                         if (multi) {
@@ -20187,6 +20244,7 @@
             items.push({ label: "⇄ Remplacer partout par…", open: function () { startReplaceEverywhere(step.exerciseId, found ? found.ex.title : "exercice supprimé"); } });
             items.push({ label: "⇄ Remplacer ce pas seulement…", open: function () {
                 gsPickMulti = null; exSel = {}; exSelAnchor = null;
+                gsPickSteps = function () { return session.steps; };
                 gsPickCallback = function (ex) { step.exerciseId = ex.id; delete step.hidden; }; // durée, note et tempo propre du pas sont conservés
                 gsScreen = "pick";
                 render();
@@ -20482,6 +20540,7 @@
         addStepBtn.className = "btn-ghost gs-add-step-btn";
         addStepBtn.textContent = "+ Ajouter un exercice";
         function startAddStep() {
+            gsPickSteps = function () { return session.steps; };
             gsPickCallback = function (ex) {
                 session.steps.push(gsNewStep(ex));
                 save();
@@ -20529,15 +20588,18 @@
         var exTitle = document.createElement("span");
         exTitle.className = "gs-pick-ex-title";
         exTitle.textContent = ex.title;
-        exBtn.appendChild(exTitle);
+        var inMark = gsPickMark(ex);
+        if (inMark) { // coche « déjà dans la session » sur la même ligne que le titre (qui reste un texte pur)
+            var exLine = document.createElement("span"); exLine.className = "gs-pick-ex-line";
+            exLine.appendChild(exTitle); exLine.appendChild(inMark);
+            exBtn.classList.add("in-session"); exBtn.appendChild(exLine);
+        } else exBtn.appendChild(exTitle);
         var prev = gsNotePreview(ex);
         if (prev) exBtn.appendChild(prev);
         exBtn.addEventListener("click", function (e) {
             if (suppressNextClick) { suppressNextClick = false; return; }
             if (gsPickMulti && exSelWantsClick(e)) { exSelClick(e, ex.id); return; } // Ctrl/⌘/Maj + clic : sélection multiple
-            gsPickCallback(ex);
-            gsScreen = "edit";
-            render();
+            gsPickChoose(ex);
         });
         bindPickGesture(exBtn, function (x, y) {
             if (exSelCount() > 1 && ex.id in exSel) openLinksQuickMenu(x, y, exSelActions().map(function (a) { return { label: a.text, open: function () { a.run(exBtn); } }; }));
@@ -20692,13 +20754,51 @@
     // Le choix est redessiné à chaque action qui touche toute l'appli (sélection, déplacement…) : la case de recherche n'est mise au point qu'à l'ouverture
     // (et sans faire défiler la page : mettre au point une case en haut de page ramenait la vue tout en haut), et ce qu'on y a tapé est retenu.
     var gsPickFocused = false, gsPickQuery = "";
+    // Ajout en rafale : en AJOUTANT des exercices à une session (pas en remplaçant un pas), le choix reste ouvert après chaque ajout, la vue exactement où elle était — un compteur
+    // dit combien on en a ajouté, et « Terminer » (ou « ← Retour ») revient à la session, où l'on règle ensuite les durées. `gsPickSteps` : les pas de la session en cours
+    // d'édition, pour marquer ce qui y est déjà.
+    var gsPickAdded = 0, gsPickSteps = null, gsPickRedraw = null;
+    function gsPickBurstOn() { return !!gsPickMulti; }
+    function gsPickInCount(exId) { var n = 0; ((gsPickSteps && gsPickSteps()) || []).forEach(function (st) { if (st.exerciseId === exId) n++; }); return n; }
+    function gsPickMark(ex) { // coche (et nombre de fois) pour ce qui est déjà dans la session
+        var n = gsPickInCount(ex.id);
+        if (!n) return null;
+        var mk = document.createElement("span"); mk.className = "gs-pick-in"; mk.textContent = n > 1 ? "✓ ×" + n : "✓";
+        mk.title = n > 1 ? "Déjà " + n + " fois dans cette session" : "Déjà dans cette session";
+        return mk;
+    }
+    function gsPickChoose(ex) { // un exercice est choisi : il s'ajoute (ou remplace le pas) ; en rafale on reste ici
+        gsPickCallback(ex);
+        if (gsPickBurstOn()) { gsPickAdded++; if (gsPickRedraw) gsPickRedraw(); return; }
+        gsScreen = "edit";
+        render();
+    }
+    function gsPickAfterMulti(n) { // plusieurs exercices ajoutés d'un coup (sélection)
+        exSel = {}; exSelAnchor = null;
+        if (gsPickBurstOn()) { gsPickAdded += n; exSelRefreshUI(); if (gsPickRedraw) gsPickRedraw(); return; }
+        gsScreen = "edit";
+        render();
+    }
     function renderGsPickScreen(content) {
         var backBtn = document.createElement("button");
         backBtn.type = "button";
         backBtn.className = "btn-ghost gs-back-btn";
         backBtn.textContent = "← Retour";
         backBtn.addEventListener("click", function () { gsScreen = "edit"; render(); });
-        content.appendChild(backBtn);
+        var head = document.createElement("div"); head.className = "gs-pick-head";
+        head.appendChild(backBtn);
+        var burst = document.createElement("div"); burst.className = "gs-pick-burst";
+        var addedEl = document.createElement("span"); addedEl.className = "gs-pick-added";
+        var doneBtn = document.createElement("button"); doneBtn.type = "button"; doneBtn.className = "btn-accent gs-pick-done"; doneBtn.textContent = "Terminer";
+        doneBtn.addEventListener("click", function () { gsScreen = "edit"; render(); });
+        burst.appendChild(addedEl); burst.appendChild(doneBtn);
+        head.appendChild(burst);
+        function updateBurst() { // en remplaçant un pas : un seul choix, rien à compter
+            addedEl.textContent = gsPickBurstOn() && gsPickAdded ? gsPickAdded + " ajouté" + (gsPickAdded > 1 ? "s" : "") + " à la session" : "";
+            doneBtn.hidden = !(gsPickBurstOn() && gsPickAdded > 0);
+        }
+        content.appendChild(head);
+        updateBurst();
 
         var searchInput = document.createElement("input");
         searchInput.type = "text";
@@ -20725,16 +20825,16 @@
             }
             resultsWrap.className = "gs-pick-results";
             var results = collectExercises(inst, function (ex) {
-                return !ex.archived && (pickTabMem !== "fav" || !!ex.favorite) && (!q || ex.title.toLowerCase().indexOf(q) !== -1 || songMatchesQuery(ex, q));
+                return !ex.archived && pickTabMatch(ex) && (!q || ex.title.toLowerCase().indexOf(q) !== -1 || songMatchesQuery(ex, q));
             });
             if (!results.length) {
                 var empty = document.createElement("div");
                 empty.className = "gs-empty";
-                empty.textContent = pickTabMem === "fav" && !q ? "Aucun favori : marque un exercice d'une étoile (clic droit › Marquer en favori)." : "Aucun exercice ne correspond.";
+                empty.textContent = pickTabEmptyText(q);
                 resultsWrap.appendChild(empty);
                 return;
             }
-            if (pickTabMem === "fav") { // favoris : rangés par dossier, comme dans la fenêtre principale
+            if (pickTabMem === "fav" || pickTabMem === "wip") { // favoris, « en cours » : rangés par dossier, comme dans la fenêtre principale
                 resultsWrap.className = "gs-pick-tree gs-pick-favs";
                 pickGroupByFolder(inst, results).forEach(function (g) {
                     var h = pickFavGroupHead(g, refreshResults);
@@ -20756,6 +20856,8 @@
                 titleSpan.className = "gs-pick-result-title";
                 titleSpan.textContent = r.ex.title;
                 head.appendChild(titleSpan);
+                var inMark2 = gsPickMark(r.ex);
+                if (inMark2) { btn.classList.add("in-session"); head.appendChild(inMark2); }
                 btn.appendChild(head);
                 var prev2 = gsNotePreview(r.ex);
                 if (prev2) btn.appendChild(prev2);
@@ -20766,14 +20868,13 @@
                 btn.addEventListener("click", function (e) {
                     if (suppressNextClick) { suppressNextClick = false; return; }
                     if (gsPickMulti && exSelWantsClick(e)) { exSelClick(e, r.ex.id); return; }
-                    gsPickCallback(r.ex);
-                    gsScreen = "edit";
-                    render();
+                    gsPickChoose(r.ex);
                 });
                 resultsWrap.appendChild(btn);
             });
         }
         searchInput.addEventListener("input", function () { gsPickQuery = searchInput.value; refreshResults(); });
+        gsPickRedraw = function () { refreshResults(); updateBurst(); };
         refreshResults();
         if (!gsPickFocused) { gsPickFocused = true; searchInput.focus({ preventScroll: true }); }
     }
