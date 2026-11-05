@@ -56,6 +56,13 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
   `pickIsOpen / pickSetOpen`, tout replié au départ) ; onglets Exercices / Morceaux / Favoris / En cours (déplaçables, `tabsSortable("pick")`, `pickTabMem` = ex|so|fav|wip, zones `pickZone`/`pickKindZones`) ; **ajout en rafale** (`gsPickChoose`, compteur, « Terminer ») avec **rond de rang** (`gsPickMark`, reclic = retrait via `gsPickRemoveEx`, plus de ×n) et bandeau collant **« Ma session »** (`gsPickPanel` : durées `bindScrubInput`, ordre glissable, ✕, total, camembert trié ; PAS de tri par durée) ; dossiers du choix glissables à la souris par la poignée `.pick-grip` (`pickBindFolderReorder`, option `handle` de `setupDragReorder`) ;
   marques « déjà dans la session » (`gsPickMark`). Piège connu : ne jamais appeler `focus()` sans `{preventScroll: true}` pendant un redessin
   (la vue sautait en haut).
+- **Session depuis une séance (v258)** : `gsSessionFromRecord(rec)` (fenêtre : exercices dans l'ordre joué, durée arrondie à la minute, décochés si < 1 min ou supprimés) ;
+  appelée par le message de fin de session libre (`gsAskSaveRun`), l'Historique (bouton ＋ `.gs-history-mksess`) et le calendrier.
+- **Dernière fois jouée (v258)** : `lastPlayedIndex()` (index du journal, résout les alias des statistiques) → `buildLastPlayedLine`, tout en bas de la fiche (`renderExerciseDetails`). Information seule.
+- **Ménage (v258-v259)** : bouton « Ménage… » dans la barre d'un chapitre de morceaux → `openSongsCleanupDialog` : variantes d'artistes (`songsArtistVariants` : sigle, faute à 1-2 lettres,
+  « The », ponctuation ; « Pas les mêmes » = `trainhub.artistIgnore.v1`) fusionnées via `songsRenameValue` ; doublons de titre **en lecture seule** (`exerciseTitleDuplicates`, jamais morceau contre exercice).
+- **Morceau → exercice (v259)** : `songToExercise` (titre + liens copiés avec nouveaux identifiants, AUCUNE caractéristique de morceau, `fromSongId`, dernier dossier dans `trainhub.songToEx.v1`) ;
+  `buildKinshipLine` (« Tiré du morceau… » / « Travaillé aussi en exercice… »). Menu clic droit d'un exercice : actions courantes en tête, le reste sous « Plus d'actions » (`.ctx-more`).
 - **Statistiques** : `statsRows`, `renderStatsScreen`, graphiques SVG sans bibliothèque ; clic droit sur un point du graphique de tempo =
   `statsDropTempo` (vide le tempo de cette séance, avec « Annuler »).
 - **Son (le point le plus délicat)** : métronome Web Audio (ordonnanceur dans un Worker + chien de garde), un contexte audio neuf à chaque lancement,
@@ -87,3 +94,19 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
 - Refusé pour l'instant : statistiques par artiste ou par style pour les morceaux.
 - Idées de l'utilisateur déjà livrées : programmation de session (v257), session créée depuis une séance libre / ménage des artistes et doublons / « dernière fois jouée » en bas de fiche (v258 — SANS rappel : l'utilisateur n'en veut pas), morceau → exercice « Travailler un passage en exercice… » (v259 : titre + liens copiés, AUCUNE caractéristique de morceau, `fromSongId`), menu clic droit regroupé sous « Plus d'actions » (v259) ; le Ménage ne supprime ni ne fusionne JAMAIS d'exercice (doublons de titre en lecture seule), ajout en rafale, marques de doublons, onglet « En cours ». Idées proposées et refusées : « Tout ajouter » sur
   un dossier, onglet « À reprendre », filtres combinés pour les morceaux.
+
+## Reprise (état au 5 novembre 2026, après la v259)
+- **Tout est poussé** : `main` = `structure-dossiers` = v259 (`708a254`). Aucun travail en cours. La suite complète est verte **sauf le banc `point`**, en échec depuis le début de novembre
+  **sans lien avec le code** : son jeu de test crée 7 séances sur 7 jours et en début de mois l'une tombe le mois précédent (la page Statistiques n'affiche que le mois). À corriger dans le banc
+  (dates fixées dans le mois courant), pas dans l'appli.
+- **Ce que l'utilisateur ne veut PAS** : aucun rappel pour reprendre un exercice (la « dernière fois jouée » est une information, pas une alerte) ; le Ménage ne supprime ni ne fusionne jamais un exercice ;
+  un exercice tiré d'un morceau ne porte aucune caractéristique de morceau (artiste, style, technique, travail) ; pas de tri de la liste « Ma session » par durée.
+- **Usage constaté dans sa sauvegarde du 5 nov.** (85 exercices, 31 morceaux, 25 séances depuis le 8 oct.) : surtout des **sessions libres** (18/25, ≈ 26 min, 4-5 exercices), le soir ; séance moyenne 34 min,
+  ≈ 6 min par exercice ; 76 % du temps sur exercices, 24 % sur morceaux ; seuls 35 exercices sur 85 apparaissent dans le journal ; liens à 98 % YouTube, très peu de fichiers (12). Morceaux « À maîtriser » : 20 dont 7 joués.
+  Les 10 morceaux du chapitre « Morceaux » de la Guitare sont dans un chapitre **ordinaire** (non converti).
+- **Idées proposées, pas encore faites** (l'utilisateur a choisi 1 et 5, livrées) : (4) tempo bloqué — proposer un tempo progressif quand un exercice reste au même BPM 5 séances de suite ;
+  (6) convertir en lot les 10 morceaux de la Guitare (`openSongsConvertDialog` existe) ; (7) filtre « sans lien ni note » et vidage de la corbeille par ancienneté (24 éléments, surtout des copies/tests) ;
+  (8) vue « Ma pratique » (minutes par chapitre, part exercices/morceaux, régularité) ; relier les statistiques d'un morceau et de son exercice tiré (proposé, non demandé).
+- **Autres sujets ouverts** : bug de son Safari en session libre (voir plus haut ; piste proposée non poussée : fermer/suspendre le contexte audio inactif — attend le feu vert) ; dé d'harmonie sans remise ;
+  graphie des enharmoniques.
+- **Limite à toujours dire** : tout est testé sous Chromium seulement ; ne jamais écrire « vérifié sur Safari/iPhone ». Réponses de l'utilisateur en français, courtes et honnêtes.
