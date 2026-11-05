@@ -450,11 +450,6 @@ button.session-btn-highlight:hover { background: color-mix(in srgb, var(--c-sage
 }
 
 .exercise-favorite-badge { flex: none; position: relative; width: 0; height: 0; margin-right: calc(-1 * var(--er-gap, 8px)); /* annule l'écart (gap) : l'étoile ne prend aucune place, les titres ne bougent plus */ color: var(--c-gold); pointer-events: none; z-index: 1; }
-.exercise-wip-badge { flex: none; font-size: var(--fs-2xs); font-weight: 800; letter-spacing: .02em; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--border)); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 10px; padding: 1px 8px; white-space: nowrap; }
-.ex-wip-row { display: flex; padding: 6px 0 2px; }
-button.ex-wip-chip { height: 28px; padding: 0 12px; font-size: var(--fs-xs); background: transparent; color: var(--text-muted); border-radius: 14px; }
-button.ex-wip-chip:hover { color: var(--text-main); }
-button.ex-wip-chip.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 16%, transparent); font-weight: 700; }
 .exercise-favorite-badge .icon { position: absolute; left: -3px; top: -14px; width: 14px; height: 14px; filter: drop-shadow(0 0 2px var(--card-bg-2)) drop-shadow(0 0 1px var(--card-bg-2)); } /* pastille : posée en haut à gauche de la 1re lettre du titre, par-dessus */
 .exercise-archived-badge {
     flex: none;
@@ -1927,15 +1922,8 @@ button.song-add-value:hover { color: var(--text-main); border-color: var(--text-
 .song-block { display: flex; flex-direction: column; gap: 8px; padding: 8px 0 10px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
 .song-id-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .song-field { display: flex; flex-direction: column; gap: 2px; flex: 1 1 160px; min-width: 0; }
-.song-field-label, .song-line-label { font-size: var(--fs-2xs); font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
+.song-field-label { font-size: var(--fs-2xs); font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
 .song-field input { width: 100%; box-sizing: border-box; }
-.song-line { display: flex; align-items: flex-start; gap: 8px; }
-.song-line-label { flex: none; width: 84px; padding-top: 7px; }
-.song-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
-button.song-chip { height: 28px; padding: 0 11px; font-size: var(--fs-xs); background: transparent; color: var(--text-muted); border-radius: 14px; }
-button.song-chip:hover { color: var(--text-main); }
-button.song-chip.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 16%, transparent); font-weight: 700; }
-button.song-chip-add { min-width: 28px; padding: 0 8px; border-style: dashed; }
 .songs-convert-panel { max-width: 560px; }
 .songs-convert-intro { margin: 0 0 12px; font-size: var(--fs-sm); line-height: 1.45; color: var(--text-muted); }
 .songs-convert-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 6px 0; font-size: var(--fs-sm); }
@@ -1949,8 +1937,6 @@ button.song-chip-add { min-width: 28px; padding: 0 8px; border-style: dashed; }
 }
 @media (max-width: 560px) {
     button.songs-view-btn { padding: 0 9px; gap: 5px; font-size: var(--fs-xs); }
-    .song-line { flex-direction: column; gap: 4px; }
-    .song-line-label { width: auto; padding-top: 0; }
 }
 
 /* Métronome prédéfini */
@@ -5264,3 +5250,39 @@ button.ex-kin-link { border: 0; background: transparent; padding: 0; font: inher
 button.ex-kin-link:hover { text-decoration: underline; }
 .songs-cleanup-dup-where { flex: 1; min-width: 0; }
 button.songs-cleanup-see { flex: none; height: 28px; padding: 0 10px; font-size: var(--fs-xs); }
+
+/* ---------- v261 — « En cours » discret ; caractéristiques d'un morceau en une ligne de menus déroulants ---------- */
+/* Ligne d'un exercice replié : un petit point vert posé en bas à droite du titre (comme l'étoile des favoris, il ne prend aucune place). */
+.exercise-wip-badge { flex: none; position: relative; width: 0; height: 0; margin: 0 calc(-1 * var(--er-gap, 8px)); pointer-events: none; z-index: 1; }
+.exercise-wip-badge > i { position: absolute; left: -12px; top: 3px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--card-bg-2); }
+/* Fiche dépliée : la pastille est sur la ligne des boutons (métronome, dé, objectif tempo), à leur hauteur (32 px), un peu plus petite et plus discrète. */
+button.ex-wip-chip { flex: none; box-sizing: border-box; height: 32px; padding: 0 11px; gap: 7px; font-size: var(--fs-xs); font-weight: 700; background: transparent; color: var(--text-muted); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+button.ex-wip-chip:hover { color: var(--text-main); border-color: var(--border-hi, var(--text-muted)); }
+button.ex-wip-chip > i { flex: none; width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid currentColor; box-sizing: border-box; }
+button.ex-wip-chip.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+button.ex-wip-chip.on > i { background: var(--accent); border-color: var(--accent); }
+/* Caractéristiques d'un morceau : style, technique, travail sur UNE ligne, trois menus déroulants de même hauteur que les autres boutons de la fiche (32 px). */
+.song-props { display: flex; gap: 8px; min-width: 0; }
+button.song-prop { flex: 1 1 0; min-width: 0; max-width: 280px; box-sizing: border-box; height: 32px; padding: 0 9px 0 10px; gap: 7px; justify-content: flex-start; font-size: var(--fs-sm); font-weight: 700; background: transparent; color: var(--text-muted); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+button.song-prop:hover { color: var(--text-main); border-color: var(--border-hi, var(--text-muted)); }
+button.song-prop > .icon { width: 16px; height: 16px; flex: none; opacity: .8; }
+button.song-prop > .song-prop-text { flex: 1 1 auto; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.song-prop > .song-prop-chev { width: 13px; height: 13px; margin-left: auto; opacity: .65; }
+button.song-prop.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+button.song-prop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 560px) {
+    .song-props { gap: 6px; }
+    button.song-prop { padding: 0 7px 0 8px; gap: 4px; font-size: var(--fs-xs); }
+    button.song-prop > .icon:not(.song-prop-chev) { display: none; } /* téléphone : trois menus côte à côte, l'icône cède sa place au texte */
+}
+/* Le menu : valeurs de la plus utilisée à la moins utilisée (avec le nombre de morceaux), « ＋ Nouveau… » tout en bas. */
+.song-prop-menu { max-width: min(320px, calc(100vw - 16px)); }
+.song-prop-item { display: flex; align-items: center; gap: 8px; }
+.song-prop-check { flex: none; width: 1em; text-align: center; font-weight: 800; color: var(--accent); visibility: hidden; }
+.song-prop-item.on .song-prop-check { visibility: visible; }
+.song-prop-item.on { color: var(--accent); }
+.song-prop-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.song-prop-count { flex: none; font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.song-prop-sep { height: 1px; margin: 4px 2px; background: var(--border); flex: none; }
+.song-prop-add { color: var(--text-muted); }
+.song-prop-add:hover { color: var(--text-main); }

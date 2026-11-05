@@ -6,7 +6,7 @@ const path = require('path');
 const harnais = require('/home/user/trainhub/tests/_harness');
 const { check, plan, bilan } = harnais('TrainHub : « En cours », ajout en rafale, marques de doublons');
 const estBruitReseau = harnais.estBruitReseau;
-plan(42);
+plan(44);
 const SHOTS = path.join(__dirname, 'shots');
 fs.mkdirSync(SHOTS, { recursive: true });
 const URL = 'http://localhost:8765/index.html';
@@ -64,8 +64,14 @@ const ligne = (page, titre) => page.locator('.gs-pick-exercise-row', { hasText: 
         await page.locator('.exercise[data-ex-id="t3"] .exercise-row-spacer').click(); await page.waitForTimeout(250);
         const chip = page.locator('.exercise[data-ex-id="t3"] .ex-wip-chip');
         check(await chip.count() === 1 && /En cours/.test(await chip.innerText()) && await chip.getAttribute('aria-pressed') === 'false', 'A. la fiche d\'un exercice montre la pastille « ● En cours » (décochée)');
+        // la pastille est sur la ligne des boutons de la fiche (métronome, dé), à leur hauteur
+        const geo = await page.locator('.exercise[data-ex-id="t3"]').evaluate(el => { const r = e => e.getBoundingClientRect(); const c = el.querySelector('.ex-wip-chip'), d = el.querySelector('.dice-ex-btn'), m = el.querySelector('.metro-preset-row');
+            return { chipH: Math.round(r(c).height), diceH: Math.round(r(d).height), memeLigne: Math.abs((r(c).top + r(c).height / 2) - (r(d).top + r(d).height / 2)) < 3, sousTitre: !!el.querySelector('.ex-wip-row'), dansOutils: c.parentElement.classList.contains('ex-tools-line') }; });
+        check(geo.chipH === geo.diceH && geo.memeLigne && geo.dansOutils && !geo.sousTitre, 'A. la pastille est sur la ligne des autres boutons, à la même hauteur (plus de ligne à part) : ' + JSON.stringify(geo));
         await chip.click(); await page.waitForTimeout(250);
         check(await page.locator('.exercise[data-ex-id="t3"] .ex-wip-chip.on').count() === 1 && await page.locator('.exercise[data-ex-id="t3"] .exercise-wip-badge').count() === 1, 'A. cochée : la pastille s\'allume et le badge apparaît sur la ligne');
+        const pt = await page.locator('.exercise[data-ex-id="t3"]').evaluate(el => { const b = el.querySelector('.exercise-wip-badge'), t = el.querySelector('input.exercise-title'), i = b.querySelector('i'); const rb = i.getBoundingClientRect(), rt = t.getBoundingClientRect(); return { w: b.offsetWidth, h: b.offsetHeight, texte: b.textContent, droite: rb.left > rt.left + rt.width / 2, bas: rb.top + rb.height / 2 > rt.top + rt.height / 2, dansOutils: !!el.querySelector('.exercise-row-tools .exercise-wip-badge') }; });
+        check(pt.w === 0 && pt.h === 0 && pt.texte === '' && pt.droite && pt.bas && !pt.dansOutils, 'A. sur la ligne du titre : un simple point, en bas à droite du titre, hors des boutons, sans place prise : ' + JSON.stringify(pt));
         await sauve(page);
         check(exo(await etatPage(page), 't3').inProgress === true, 'A. l\'état est enregistré (inProgress)');
         await page.locator('.exercise[data-ex-id="t3"] .ex-wip-chip').click(); await page.waitForTimeout(250); await sauve(page);

@@ -5814,6 +5814,102 @@
         var inst = getActiveInstrument(), path = inst ? getNavPath(inst) : [];
         songStay = { id: ex.id, ch: ch.id, gid: path[0] === ch.id ? (path[1] || null) : null };
     }
+    // --- caractéristiques d'un morceau : menus déroulants rangés par fréquence d'utilisation ---
+    var SONG_PROP_LABELS = { style: "Style", technique: "Technique", work: "Travail" };
+    var SONG_CHEVRON_SVG = '<svg class="icon song-prop-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+    // Valeurs du vocabulaire du chapitre, de la plus utilisée (le plus de morceaux) à la moins utilisée ; à égalité, l'ordre du vocabulaire.
+    function songValuesByUse(ch, dimKey) {
+        var d = songDim(dimKey), use = {};
+        ch.exercises.forEach(function (e) { songValues(e, dimKey).forEach(function (v) { var k = songNorm(v); use[k] = (use[k] || 0) + 1; }); });
+        return ch.vocab[d.vocab].map(function (v, i) { return { v: v, n: use[songNorm(v)] || 0, i: i }; })
+            .sort(function (a, b) { return b.n - a.n || a.i - b.i; });
+    }
+    function songPropFill(btn, ex, dimKey) {
+        var vals = songValues(ex, dimKey), txt = btn.querySelector(".song-prop-text"), name = SONG_PROP_LABELS[dimKey];
+        txt.textContent = vals.length ? vals.join(", ") : name;
+        btn.classList.toggle("on", vals.length > 0);
+        btn.title = name + " : " + (vals.length ? vals.join(", ") : "aucun") + " (cliquer pour choisir)";
+        btn.setAttribute("aria-label", btn.title);
+    }
+    function buildSongPropButton(ch, ex, dimKey) {
+        var d = songDim(dimKey), b = document.createElement("button");
+        b.type = "button"; b.className = "song-prop"; b.dataset.dim = dimKey;
+        b.setAttribute("aria-haspopup", "menu");
+        b.innerHTML = d.icon + '<span class="song-prop-text"></span>' + SONG_CHEVRON_SVG;
+        songPropFill(b, ex, dimKey);
+        b.addEventListener("click", function () { songsPropMenu(b, ch, ex, dimKey); });
+        return b;
+    }
+    // Menu d'une caractéristique. Styles / techniques : plusieurs choix, le menu reste ouvert (l'ordre ne bouge pas tant qu'il est ouvert) ;
+    // travail : un seul choix, le menu se ferme (re-choisir la valeur cochée la retire). « ＋ Nouveau… » tout en bas.
+    function songsPropMenu(anchor, ch, ex, dimKey) {
+        closeFolderMenu();
+        var d = songDim(dimKey), order = songValuesByUse(ch, dimKey);
+        var backdrop = document.createElement("div");
+        backdrop.className = "ctx-backdrop";
+        backdrop.addEventListener("pointerdown", function (e) { e.preventDefault(); closeFolderMenu(); });
+        backdrop.addEventListener("contextmenu", function (e) { e.preventDefault(); closeFolderMenu(); });
+        var menu = document.createElement("div");
+        menu.className = "ctx-menu song-prop-menu";
+        menu.setAttribute("role", "menu");
+        menu.dataset.dim = dimKey;
+        menu.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+        if (closeActiveModal) { backdrop.classList.add("ctx-over-modal"); menu.classList.add("ctx-over-modal"); }
+        var rows = [];
+        function refreshChecks() {
+            var cur = songValues(ex, dimKey).map(songNorm);
+            rows.forEach(function (r) {
+                var on = cur.indexOf(songNorm(r.v)) !== -1;
+                r.btn.classList.toggle("on", on);
+                r.btn.setAttribute("aria-checked", on ? "true" : "false");
+            });
+        }
+        order.forEach(function (o) {
+            var b = document.createElement("button");
+            b.type = "button"; b.className = "ctx-item song-prop-item"; b.dataset.value = o.v;
+            b.setAttribute("role", d.multi ? "menuitemcheckbox" : "menuitemradio");
+            var ck = document.createElement("span"); ck.className = "song-prop-check"; ck.textContent = "✓"; ck.setAttribute("aria-hidden", "true");
+            var nm = document.createElement("span"); nm.className = "song-prop-name"; nm.textContent = o.v;
+            var ct = document.createElement("span"); ct.className = "song-prop-count"; ct.textContent = o.n ? String(o.n) : ""; ct.title = o.n + " morceau" + (o.n > 1 ? "x" : "");
+            b.appendChild(ck); b.appendChild(nm); b.appendChild(ct);
+            var armed = false;
+            b.addEventListener("pointerdown", function () { armed = true; });
+            b.addEventListener("click", function (e) {
+                if (!armed && e.detail !== 0) return;
+                armed = false;
+                songToggleValue(ch, ex, dimKey, o.v);
+                touchExercise(ex); songStayMark(ch, ex); save();
+                if (d.multi) { refreshChecks(); render(); } // le menu reste ouvert pour cocher d'autres valeurs
+                else { closeFolderMenu(); render(); }
+            });
+            menu.appendChild(b);
+            rows.push({ v: o.v, btn: b });
+        });
+        if (!order.length) { var none = document.createElement("div"); none.className = "ctx-message song-prop-none"; none.textContent = "Aucun " + d.one + " pour l'instant."; menu.appendChild(none); }
+        var sep = document.createElement("div"); sep.className = "song-prop-sep"; menu.appendChild(sep);
+        var add = document.createElement("button");
+        add.type = "button"; add.className = "ctx-item song-prop-add"; add.textContent = "＋ " + d.add + "…";
+        add.addEventListener("click", function () {
+            closeFolderMenu();
+            songsAskNewValue(ch, dimKey, function (v) { songToggleValue(ch, ex, dimKey, v); touchExercise(ex); songStayMark(ch, ex); save(); render(); });
+        });
+        menu.appendChild(add);
+        refreshChecks();
+        function onKey(e) { if (e.key === "Escape") closeFolderMenu(); }
+        document.body.appendChild(backdrop);
+        document.body.appendChild(menu);
+        document.addEventListener("keydown", onKey, true);
+        openMenu = { backdrop: backdrop, menu: menu, onKey: onKey };
+        // sous le bouton, aligné à gauche et au moins aussi large que lui ; au-dessus s'il n'y a pas la place en bas
+        var r = anchor.getBoundingClientRect(), vw = window.innerWidth, vh = window.innerHeight;
+        menu.style.minWidth = Math.min(Math.max(r.width, 180), vw - 16) + "px";
+        var w = menu.offsetWidth || 200, h = menu.offsetHeight || 160;
+        var left = Math.min(Math.max(8, r.left), Math.max(8, vw - w - 8));
+        var top = r.bottom + 4;
+        if (top + h > vh - 8 && r.top - h - 4 >= 8) top = r.top - h - 4;
+        menu.style.left = left + "px";
+        menu.style.top = Math.max(8, Math.min(top, vh - h - 8)) + "px";
+    }
     function buildSongBlock(ex) {
         var ch = songChapterOf(ex);
         if (!ch) return document.createDocumentFragment();
@@ -5840,30 +5936,11 @@
             inp.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); inp.blur(); } });
         });
         box.appendChild(ids);
-        ["style", "technique", "work"].forEach(function (dimKey) {
-            var d = songDim(dimKey), line = document.createElement("div"); line.className = "song-line";
-            var lab = document.createElement("span"); lab.className = "song-line-label"; lab.textContent = d.label; line.appendChild(lab);
-            var chips = document.createElement("div"); chips.className = "song-chips";
-            var cur = songValues(ex, dimKey).map(songNorm);
-            ch.vocab[d.vocab].forEach(function (v) {
-                var on = cur.indexOf(songNorm(v)) !== -1;
-                var b = document.createElement("button"); b.type = "button"; b.className = "song-chip" + (on ? " on" : ""); b.textContent = v;
-                b.setAttribute("aria-pressed", on ? "true" : "false");
-                b.addEventListener("click", function () {
-                    songToggleValue(ch, ex, dimKey, v);
-                    touchExercise(ex); songStayMark(ch, ex); save(); render();
-                });
-                chips.appendChild(b);
-            });
-            var add = document.createElement("button"); add.type = "button"; add.className = "song-chip song-chip-add"; add.textContent = "＋"; add.title = d.add;
-            add.setAttribute("aria-label", d.add);
-            add.addEventListener("click", function () {
-                songsAskNewValue(ch, dimKey, function (v) { songToggleValue(ch, ex, dimKey, v); touchExercise(ex); songStayMark(ch, ex); save(); render(); });
-            });
-            chips.appendChild(add);
-            line.appendChild(chips);
-            box.appendChild(line);
-        });
+        // Caractéristiques : UNE seule ligne de trois menus déroulants (style, technique, travail) ; les valeurs y sont rangées de la plus utilisée à la moins utilisée,
+        // « ＋ Nouveau… » tout en bas (voir songsPropMenu).
+        var props = document.createElement("div"); props.className = "song-props";
+        ["style", "technique", "work"].forEach(function (dimKey) { props.appendChild(buildSongPropButton(ch, ex, dimKey)); });
+        box.appendChild(props);
         return box;
     }
 
@@ -6534,13 +6611,6 @@
         }, false);
         if (tempoChip) tools.appendChild(tempoChip);
 
-        if (exInProgress(ex)) {
-            var wipBadge = document.createElement("span");
-            wipBadge.className = "exercise-wip-badge";
-            wipBadge.textContent = "En cours";
-            wipBadge.title = "En cours : je le travaille en ce moment";
-            tools.appendChild(wipBadge);
-        }
         if (ex.archived) {
             var archBadge = document.createElement("span");
             archBadge.className = "exercise-archived-badge";
@@ -6624,6 +6694,17 @@
             }, function () { title.value = ex.title; }); // Annuler : on remet l'ancien nom, rien ne change
         });
         row.appendChild(title);
+
+        // « En cours » : un petit point vert posé en bas à droite du titre (comme l'étoile des favoris, il ne prend aucune place).
+        if (exInProgress(ex)) {
+            var wipBadge = document.createElement("span");
+            wipBadge.className = "exercise-wip-badge";
+            wipBadge.innerHTML = "<i></i>";
+            wipBadge.title = "En cours : je le travaille en ce moment";
+            wipBadge.setAttribute("role", "img");
+            wipBadge.setAttribute("aria-label", "En cours");
+            row.appendChild(wipBadge);
+        }
 
         // Espace vide entre le titre (qui ne prend que la largeur de son texte) et les boutons de
         // droite : fait partie de la ligne cliquable pour déplier/replier, comme le reste de la
@@ -6870,14 +6951,7 @@
         var details = document.createElement("div");
         details.className = "exercise-details";
         if (ex.isSong) details.appendChild(buildSongBlock(ex)); // morceau : artiste, titre, styles, techniques, travail
-        else { // exercice : une seule pastille d'état, « En cours »
-            var wipRow = document.createElement("div"); wipRow.className = "ex-wip-row";
-            var wipChip = document.createElement("button"); wipChip.type = "button"; wipChip.className = "ex-wip-chip" + (exInProgress(ex) ? " on" : "");
-            wipChip.textContent = "● En cours"; wipChip.setAttribute("aria-pressed", exInProgress(ex) ? "true" : "false");
-            wipChip.title = "Je travaille cet exercice en ce moment : il se retrouve dans l'onglet « En cours » du choix d'une session";
-            wipChip.addEventListener("click", function () { exSetInProgress(ex, !exInProgress(ex)); save(); render(); });
-            wipRow.appendChild(wipChip); details.appendChild(wipRow);
-        }
+        // (exercice : la pastille « En cours » se range sur la ligne des outils, juste en dessous ; morceau : c'est son état de Travail)
 
         // Tempo cible / métronome prédéfini : juste sous le titre, c'est le réglage le plus utile en un coup d'œil.
         // Dé de gamme et objectif tempo : le tirage se règle ici, une fois (triades, modes…), et se retrouve dans chaque session. Ils se rangent sur
@@ -6891,6 +6965,13 @@
             set: function (p) { setExerciseMetronome(ex, p); }
         }));
         toolsLine.appendChild(buildExerciseDiceRow(ex));
+        if (!ex.isSong) { // une seule pastille d'état : « En cours » (même hauteur que les boutons voisins)
+            var wipChip = document.createElement("button"); wipChip.type = "button"; wipChip.className = "ex-wip-chip" + (exInProgress(ex) ? " on" : "");
+            wipChip.innerHTML = "<i></i><span>En cours</span>"; wipChip.setAttribute("aria-pressed", exInProgress(ex) ? "true" : "false");
+            wipChip.title = "Je travaille cet exercice en ce moment : il se retrouve dans l'onglet « En cours » du choix d'une session";
+            wipChip.addEventListener("click", function () { exSetInProgress(ex, !exInProgress(ex)); save(); render(); });
+            toolsLine.appendChild(wipChip);
+        }
         details.appendChild(toolsLine);
 
         // Notes fixes : consignes importantes, sans date, toujours visibles (aussi exercice replié et en session).
@@ -10468,7 +10549,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v260"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v261"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }
