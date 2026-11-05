@@ -62,7 +62,7 @@ const groupes = page => page.evaluate(() => Array.from(document.querySelectorAll
         const { ctx, page, erreurs } = await ouvrir(browser);
         await versChoix(page);
         check((await page.locator('.gs-pick-tab[data-tab="fav"]').innerText()).includes('(6)'), 'A. « ★ Favoris (6) » : six favoris (l\'exercice archivé n\'est pas compté)');
-        check(await page.locator('.gs-pick-tree-row').count() >= 3 && await page.locator('.gs-pick-favgroup').count() === 0, 'A. onglet « Tous » : l\'arborescence habituelle, inchangée');
+        check(await page.locator('.gs-pick-tree-row').count() >= 3 && await page.locator('.gs-pick-favgroup').count() === 0, 'A. onglet « Exercices » : l\'arborescence habituelle, inchangée');
         await page.locator('.gs-pick-tab[data-tab="fav"]').click();
         await page.waitForSelector('.gs-pick-favgroup');
         let g = await groupes(page);
@@ -79,7 +79,7 @@ const groupes = page => page.evaluate(() => Array.from(document.querySelectorAll
         await page.locator('.gs-pick-favgroup', { hasText: 'Technique › Vitesse' }).locator('.gs-pick-tree-row').click();
         g = await groupes(page);
         check(g.find(x => x.titre === 'Technique › Vitesse').ouvert === false && g.filter(x => x.ouvert).length === 3, 'A. un clic sur le titre replie le dossier, les trois autres restent dépliés');
-        await page.locator('.gs-pick-tab[data-tab="all"]').click();
+        await page.locator('.gs-pick-tab[data-tab="ex"]').click();
         await page.locator('.gs-pick-tab[data-tab="fav"]').click();
         g = await groupes(page);
         check(g.find(x => x.titre === 'Technique › Vitesse').ouvert === false, 'A. le dossier replié le reste en revenant sur l\'onglet Favoris');
@@ -93,8 +93,8 @@ const groupes = page => page.evaluate(() => Array.from(document.querySelectorAll
         await page.locator('.gs-pick-search').fill('zzz');
         check((await page.locator('.gs-empty').innerText()).includes('Aucun exercice ne correspond'), 'A. recherche sans résultat : message habituel');
         await page.locator('.gs-pick-search').fill('');
-        // recherche dans « Tous » : liste à plat avec pastille, inchangée
-        await page.locator('.gs-pick-tab[data-tab="all"]').click();
+        // recherche dans « Exercices » : liste à plat avec pastille, inchangée
+        await page.locator('.gs-pick-tab[data-tab="ex"]').click();
         await page.locator('.gs-pick-search').fill('legato');
         check(await page.locator('.gs-pick-result').count() === 1 && await page.locator('.gs-pick-result .gs-theme-badge').count() === 1 && await page.locator('.gs-pick-favgroup').count() === 0, 'A. « Tous » + recherche : liste à plat avec sa pastille, comme avant');
         await page.locator('.gs-pick-search').fill('');

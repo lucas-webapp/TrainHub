@@ -161,18 +161,18 @@ const ligne = (page, titre) => page.locator('.gs-pick-exercise-row', { hasText: 
         const { ctx, page, erreurs } = await ouvrir(browser);
         await versChoix(page);
         await ouvrirTout(page);
-        check(await ligne(page, 'Gamme lente').locator('.gs-pick-in').count() === 1 && /^✓$/.test((await ligne(page, 'Gamme lente').locator('.gs-pick-in').innerText()).trim()), 'D. « Gamme lente » (déjà dans la session) porte une coche');
-        check(await ligne(page, 'Legato').locator('.gs-pick-in').count() === 0, 'D. « Legato » (pas dans la session) n\'en a pas');
-        check(await page.locator('.gs-pick-in').count() === 2, 'D. 2 marques en tout : l\'exercice et le morceau déjà présents');
+        check(await ligne(page, 'Gamme lente').locator('.gs-pick-in.on').count() === 1 && (await ligne(page, 'Gamme lente').locator('.gs-pick-in').innerText()).trim() === '1', 'D. « Gamme lente » (déjà dans la session) porte son rang : 1');
+        check(await ligne(page, 'Legato').locator('.gs-pick-in.on').count() === 0 && await ligne(page, 'Legato').locator('.gs-pick-in.off').count() === 1, 'D. « Legato » (pas dans la session) a un rond vide');
+        check(await page.locator('.gs-pick-in.on').count() === 1, 'D. 1 rond plein dans l\'onglet Exercices (le morceau est dans l\'onglet Morceaux)');
         // recherche : la marque aussi
         await page.fill('.gs-pick-search', 'gamme'); await page.waitForTimeout(250);
-        check(await page.locator('.gs-pick-result .gs-pick-in').count() === 1, 'D. dans les résultats de recherche aussi');
+        check(await page.locator('.gs-pick-result .gs-pick-in.on').count() === 1, 'D. dans les résultats de recherche aussi');
         await page.fill('.gs-pick-search', ''); await page.waitForTimeout(250);
         // la marque se met à jour : on ajoute « Legato » (rafale par défaut)
         await ligne(page, 'Legato').click(); await page.waitForTimeout(300);
-        check(await ligne(page, 'Legato').locator('.gs-pick-in').count() === 1 && await page.locator('.gs-pick-in').count() === 3, 'D. « Legato » vient d\'être ajouté : il est marqué à son tour');
+        check(await ligne(page, 'Legato').locator('.gs-pick-in.on').count() === 1 && (await ligne(page, 'Legato').locator('.gs-pick-in').innerText()).trim() === '3' && await page.locator('.gs-pick-in.on').count() === 2, 'D. « Legato » vient d\'être ajouté : rang 3');
         await ligne(page, 'Legato').click(); await page.waitForTimeout(300);
-        check(/×2/.test(await ligne(page, 'Legato').locator('.gs-pick-in').innerText()), 'D. ajouté une 2e fois (permis) : « ✓ ×2 »');
+        check(await ligne(page, 'Legato').locator('.gs-pick-in.on').count() === 0 && await page.locator('.gs-pick-side-row').count() === 2, 'D. un 2e clic le RETIRE (plus de « ×2 ») : la session revient à 2 pas');
         check(erreurs.length === 0, 'D. aucune erreur JavaScript ' + JSON.stringify(erreurs));
         await ctx.close();
     }
@@ -188,7 +188,9 @@ const ligne = (page, titre) => page.locator('.gs-pick-exercise-row', { hasText: 
         check(await page.locator('.gs-pick-tabs').count() === 1 && /1 ajouté à la session/.test(await page.locator('.gs-pick-added').innerText()) && await page.locator('.gs-pick-done').isVisible(), 'E. un clic ajoute et on reste dans le choix : « 1 ajouté à la session », bouton « Terminer »');
         check(ouv0 >= 3 && await page.locator('.gs-pick-tree .tree-twisty.expanded').count() === ouv0, 'E. les dossiers restent ouverts (' + ouv0 + ' avant, ' + await page.locator('.gs-pick-tree .tree-twisty.expanded').count() + ' après)');
         await ligne(page, 'Slap de base').click(); await page.waitForTimeout(300);
-        await ligne(page, 'Californication').click(); await page.waitForTimeout(300);
+        await page.locator('.gs-pick-tab[data-tab="so"]').click(); await ouvrirTout(page); // les morceaux sont dans leur onglet
+        await ligne(page, 'Under the Bridge').click(); await page.waitForTimeout(300);
+        await page.locator('.gs-pick-tab[data-tab="ex"]').click(); await ouvrirTout(page);
         check(/3 ajoutés à la session/.test(await page.locator('.gs-pick-added').innerText()), 'E. 3 ajoutés : « ' + (await page.locator('.gs-pick-added').innerText()) + ' »');
         // sélection multiple (Ctrl+clic) puis « Ajouter à la session »
         await ligne(page, 'Ghost notes').click({ modifiers: ['Control'] });

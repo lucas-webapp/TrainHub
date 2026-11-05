@@ -420,8 +420,9 @@ const comptesArbre = page => page.locator('.song-tree-node .tree-count').allInne
         await page.waitForSelector('.gs-edit-topbar');
         await page.locator('button', { hasText: /^\+ Ajouter un exercice$/ }).first().click();
         await page.waitForSelector('.gs-pick-tabs');
+        await page.locator('.gs-pick-tab[data-tab="so"]').click(); await page.waitForTimeout(250); // les morceaux ont leur onglet
         check(await page.locator('.gs-pick-tree .songs-views-pick').count() === 0, 'H. au départ le choix est replié : les rangements n\'apparaissent qu\'une fois le chapitre « Morceaux » ouvert');
-        await page.locator('.gs-pick-tree > .gs-pick-node', { hasText: 'Morceaux' }).first().locator(':scope > .gs-pick-tree-row').click(); await page.waitForTimeout(250);
+        await page.locator('.gs-pick-tree .gs-pick-zone > .gs-pick-node', { hasText: 'Morceaux' }).first().locator(':scope > .gs-pick-tree-row').click(); await page.waitForTimeout(250);
         check(await page.locator('.gs-pick-tree .songs-views-pick').count() === 1 && await page.locator('.gs-pick-tree .songs-views-pick .songs-view-btn').count() === 5, 'H. le choix d\'exercice de la session montre les cinq rangements sous « Morceaux » (et seulement là)');
         check(await page.locator('.gs-pick-tree .songs-views-pick .songs-view-btn.on').getAttribute('data-view') === 'artist', 'H. le rangement est celui de la bibliothèque (Artistes)');
         check(await page.locator('.gs-pick-songgroup').count() === 1 && (await page.locator('.gs-pick-songgroup .tree-label').innerText()) === 'Red Hot Chili Peppers' && await page.locator('.gs-pick-songgroup .gs-pick-exercise-row').count() === 0, 'H. Artistes : le dossier de l\'artiste est replié au départ');

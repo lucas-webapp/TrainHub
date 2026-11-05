@@ -5168,3 +5168,63 @@ html[data-glass="1"] .tree-zone .tree-node { background: color-mix(in srgb, var(
 .tree-node:is(.tree-title-top, .tree-title-bottom) > .tree-row-fixed.selected { background: color-mix(in srgb, var(--hc) 14%, transparent); }
 html[data-glass="1"] .tree-node:is(.tree-title-top, .tree-title-bottom) > .tree-row-fixed.tree-row-fixed { --g-edge: 0 0 0 0 transparent; box-shadow: none; background: transparent !important; -webkit-backdrop-filter: none; backdrop-filter: none; }
 html[data-glass="1"] .tree-node:is(.tree-title-top, .tree-title-bottom) > .tree-row-fixed.tree-row-fixed.selected { background: color-mix(in srgb, var(--hc) 14%, transparent) !important; }
+
+/* ===== v257 — programmation de session : zones, rond de rang, bandeau « Ma session », poignée des dossiers ===== */
+.gs-pick-layout { display: block; }
+.gs-pick-layout.with-side { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; }
+.gs-pick-main { min-width: 0; }
+@media (max-width: 899px) {
+    .gs-pick-layout.with-side { grid-template-columns: minmax(0, 1fr); }
+    .gs-pick-layout.with-side .gs-pick-side { order: 2; position: static; max-height: none; margin-top: 12px; }
+}
+/* zones Exercices (vert) / Morceaux (violet), comme dans le volet de gauche */
+.gs-pick-zone { --z: #5f9f80; --zt: #8dc3a6; position: relative; display: flex; flex-direction: column; gap: 4px; margin: 6px 0 4px; padding: 4px 4px 6px 12px; border-radius: 10px; }
+.gs-pick-zone-so { --z: #8b74c4; --zt: #b5a4e0; }
+.gs-pick-zone::before, .gs-pick-zone::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; z-index: 0; pointer-events: none; border-radius: 10px; }
+.gs-pick-zone::before { right: 0; background: linear-gradient(180deg, color-mix(in srgb, var(--z) 7%, transparent), color-mix(in srgb, var(--z) 2%, transparent)); }
+.gs-pick-zone::after { width: 33%; background: linear-gradient(to right, color-mix(in srgb, var(--z) 40%, transparent) 0, color-mix(in srgb, var(--z) 20%, transparent) 14%, color-mix(in srgb, var(--z) 7%, transparent) 40%, transparent 100%); }
+.gs-pick-zone > * { position: relative; z-index: 1; }
+.gs-pick-zone-head { display: flex; align-items: center; gap: 8px; min-height: 26px; font-size: var(--fs-xs); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--zt); }
+.gs-pick-zone-count { margin-left: auto; font-weight: 600; letter-spacing: 0; color: var(--text-muted); }
+/* hiérarchie : dossier principal > sous-dossier > exercice */
+.gs-pick-zone > .gs-pick-node > .gs-pick-tree-row, .gs-pick-zone > .gs-pick-favgroup > .gs-pick-tree-row { min-height: 40px; }
+.gs-pick-zone > .gs-pick-node > .gs-pick-tree-row .tree-label, .gs-pick-zone > .gs-pick-favgroup > .gs-pick-tree-row .tree-label { font-size: 17px; font-weight: 800; letter-spacing: -.005em; }
+.gs-pick-tree-children .gs-pick-node > .gs-pick-tree-row .tree-label { font-size: 15px; font-weight: 700; }
+.gs-pick-zone .gs-pick-exercise-row { font-size: 14px; font-weight: 500; }
+/* rond de rang */
+.gs-pick-in { display: inline-flex; align-items: center; justify-content: center; flex: none; box-sizing: border-box; width: 24px; height: 24px; margin: 0 10px 0 0; padding: 0; border-radius: 50%; font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.gs-pick-in.off { border: 1.5px dashed var(--border); background: transparent; color: transparent; }
+.gs-pick-in.on { border: 0; background: var(--accent); color: var(--on-accent); }
+.gs-pick-exercise-row.in-session { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.gs-pick-exercise-row.in-session .gs-pick-ex-title, .gs-pick-result.in-session .gs-pick-result-title { color: var(--text-main); }
+.gs-pick-result-head .gs-pick-in { margin-right: 4px; }
+/* poignée de glisser des dossiers (souris) */
+.pick-grip { flex: none; width: 14px; text-align: center; color: var(--text-muted); font-size: 12px; line-height: 1; letter-spacing: -2px; cursor: grab; opacity: 0; user-select: none; -webkit-user-select: none; }
+.gs-pick-tree-row:hover .pick-grip { opacity: .7; }
+@media (hover: none) { .pick-grip { display: none; } }
+.gs-pick-node.dragging { opacity: .35; }
+/* bandeau « Ma session » */
+.gs-pick-side { position: sticky; top: 12px; display: flex; flex-direction: column; gap: 10px; padding: 12px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--card-bg); max-height: calc(100vh - 24px); overflow: auto; }
+.gs-pick-side-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 0 4px; }
+.gs-pick-side-total { font-weight: 800; font-variant-numeric: tabular-nums; }
+.gs-pick-side-rows { display: flex; flex-direction: column; gap: 4px; }
+.gs-pick-side-empty { color: var(--text-muted); font-size: var(--fs-xs); padding: 4px 2px; }
+.gs-pick-side-row { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto 18px; align-items: center; gap: 6px; padding: 4px 4px 4px 6px; border-radius: 7px; border-left: 3px solid var(--c, var(--border)); background: rgba(var(--ov), .06); font-size: 13px; cursor: grab; user-select: none; -webkit-user-select: none; }
+.gs-pick-side-row.dragging { opacity: .25; }
+.gs-pick-side-row.drag-ghost { box-shadow: 0 10px 26px rgba(0,0,0,.5); opacity: .97; background: var(--card-bg); }
+.gs-pick-side-n { color: var(--text-muted); font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums; text-align: center; }
+.gs-pick-side-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.gs-pick-side-row .num-stepper { gap: 0; }
+.gs-pick-side-row input.gs-pick-side-min { width: 30px; text-align: center; font-weight: 700; font-size: 13px; }
+.gs-pick-side-row .num-stepper-btn { width: 16px; padding: 0; }
+.gs-pick-side-rm { border: 0; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 15px; padding: 0; }
+.gs-pick-side-rm:hover { color: #ff6b6b; }
+.gs-pick-pie { display: flex; align-items: center; gap: 12px; }
+.gs-pick-pie-svg { width: 112px; height: 112px; flex: none; transform: rotate(0deg); }
+.gs-pick-legend { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: 12px; }
+.gs-pick-legend-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.gs-pick-legend-row i { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+.gs-pick-legend-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-pick-legend-row b { margin-left: auto; padding-left: 6px; font-variant-numeric: tabular-nums; }
+.gs-pick-tabs { flex-wrap: wrap; }
+@media (max-width: 520px) { button.gs-pick-tab { padding: 0 9px; font-size: var(--fs-xs); } }

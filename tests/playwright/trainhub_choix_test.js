@@ -50,10 +50,10 @@ async function versChoix(page) {
     await page.waitForSelector('.gs-pick-tabs');
 }
 const y = page => page.evaluate(() => Math.round(window.scrollY));
-const chapitresChoix = page => page.locator('.gs-pick-tree > .gs-pick-node > .gs-pick-tree-row .tree-label').allInnerTexts();
+const chapitresChoix = page => page.locator('.gs-pick-tree .gs-pick-zone > .gs-pick-node > .gs-pick-tree-row .tree-label').allInnerTexts();
 const chapitresBarre = page => page.locator('.sidebar-tree .tree-list > .tree-node > .tree-row .tree-label').allInnerTexts();
 const ouverts = page => page.locator('.gs-pick-tree .tree-twisty.expanded').count();
-const chapitreOuvert = page => page.locator('.gs-pick-tree > .gs-pick-node:has(> .gs-pick-tree-row .tree-twisty.expanded) > .gs-pick-tree-row .tree-label').allInnerTexts();
+const chapitreOuvert = page => page.locator('.gs-pick-tree .gs-pick-zone > .gs-pick-node:has(> .gs-pick-tree-row .tree-twisty.expanded) > .gs-pick-tree-row .tree-label').allInnerTexts();
 
 (async () => {
     const browser = await chromium.launch();
@@ -66,8 +66,8 @@ const chapitreOuvert = page => page.locator('.gs-pick-tree > .gs-pick-node:has(>
         await versChoix(page);
         check((await chapitresChoix(page)).join('|') === 'Chapitre 2|Chapitre 0|Chapitre 1|Chapitre 3', 'A. le choix d\'un exercice a le MÊME ordre de chapitres : ' + (await chapitresChoix(page)).join('|'));
         // sous-dossiers : même ordre que la barre latérale (ni alphabétique ni numérique)
-        await page.locator('.gs-pick-tree > .gs-pick-node', { hasText: 'Chapitre 0' }).first().locator(':scope > .gs-pick-tree-row').click(); await page.waitForTimeout(250);
-        const sousChoix = await page.locator('.gs-pick-tree > .gs-pick-node', { hasText: 'Chapitre 0' }).first().locator(':scope > .gs-pick-tree-children > .gs-pick-node > .gs-pick-tree-row .tree-label').allInnerTexts();
+        await page.locator('.gs-pick-tree .gs-pick-zone > .gs-pick-node', { hasText: 'Chapitre 0' }).first().locator(':scope > .gs-pick-tree-row').click(); await page.waitForTimeout(250);
+        const sousChoix = await page.locator('.gs-pick-tree .gs-pick-zone > .gs-pick-node', { hasText: 'Chapitre 0' }).first().locator(':scope > .gs-pick-tree-children > .gs-pick-node > .gs-pick-tree-row .tree-label').allInnerTexts();
         const sousBarre = await page.locator('.sidebar-tree .tree-list > .tree-node', { hasText: 'Chapitre 0' }).first().locator(':scope > .tree-children > .tree-node > .tree-row .tree-label').allInnerTexts();
         check(sousChoix.join('|') === 'Zèbre|Alpha|Milieu|Beta|Omega|Delta' && sousChoix.join('|') === sousBarre.join('|'), 'A. et les sous-dossiers : ' + sousChoix.join('|'));
         // les ordres suivent un réglage fait ensuite (on déplace « Chapitre 3 » en tête)
@@ -80,7 +80,7 @@ const chapitreOuvert = page => page.locator('.gs-pick-tree > .gs-pick-node:has(>
         await page.locator('.gs-step-row').first().click({ button: 'right' });
         await page.locator('.ctx-menu >> text=Remplacer partout par').first().click();
         await page.waitForSelector('.exercise-picker-panel .gs-pick-tabs');
-        check((await page.locator('.exercise-picker-panel .folder-picker-tree > .gs-pick-node > .gs-pick-tree-row .tree-label').allInnerTexts()).join('|') === 'Chapitre 3|Chapitre 2|Chapitre 0|Chapitre 1', 'A. la fenêtre « Remplacer partout par… » aussi : ' + (await page.locator('.exercise-picker-panel .folder-picker-tree > .gs-pick-node > .gs-pick-tree-row .tree-label').allInnerTexts()).join('|'));
+        check((await page.locator('.exercise-picker-panel .folder-picker-tree > .gs-pick-zone > .gs-pick-node > .gs-pick-tree-row .tree-label').allInnerTexts()).join('|') === 'Chapitre 3|Chapitre 2|Chapitre 0|Chapitre 1', 'A. la fenêtre « Remplacer partout par… » aussi : ' + (await page.locator('.exercise-picker-panel .folder-picker-tree > .gs-pick-zone > .gs-pick-node > .gs-pick-tree-row .tree-label').allInnerTexts()).join('|'));
         check(erreurs.length === 0, 'A. aucune erreur JavaScript ' + JSON.stringify(erreurs));
         await ctx.close();
     }
@@ -97,7 +97,7 @@ const chapitreOuvert = page => page.locator('.gs-pick-tree > .gs-pick-node:has(>
         await page.locator('.gs-pick-fold-btn[data-fold="close"]').click(); await page.waitForTimeout(250);
         check(await ouverts(page) === 0, 'B. « Tout replier » : tout se referme');
         // on ouvre un chapitre, puis un de ses dossiers
-        await page.locator('.gs-pick-tree > .gs-pick-node', { hasText: 'Chapitre 2' }).first().locator(':scope > .gs-pick-tree-row').click(); await page.waitForTimeout(200);
+        await page.locator('.gs-pick-tree .gs-pick-zone > .gs-pick-node', { hasText: 'Chapitre 2' }).first().locator(':scope > .gs-pick-tree-row').click(); await page.waitForTimeout(200);
         await page.locator('.gs-pick-tree-children > .gs-pick-node', { hasText: 'Dossier 2.1' }).first().locator(':scope > .gs-pick-tree-row').click(); await page.waitForTimeout(200);
         check((await chapitreOuvert(page)).join('|') === 'Chapitre 2' && await page.locator('.gs-pick-tree .gs-pick-exercise-row').count() === 7, 'B. on ouvre « Chapitre 2 » et un dossier : seuls ceux-là sont ouverts (7 exercices visibles)');
         // le choix de la barre latérale n'est pas touché

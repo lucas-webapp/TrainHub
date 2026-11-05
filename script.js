@@ -2849,7 +2849,7 @@
         }
         el.addEventListener("pointerdown", function (e) {
             if (e.button !== undefined && e.button !== 0) return;
-            if (e.target.closest(".tree-twisty")) return;
+            if (e.target.closest(".tree-twisty, .pick-grip")) return;
             cleanup();
             sx = e.clientX; sy = e.clientY; pid = e.pointerId;
             if (e.pointerType !== "mouse") timer = setTimeout(function () {
@@ -3282,8 +3282,8 @@
             acts.push({ text: "＋ Ajouter à la session", primary: true, run: function () {
                 var list = exSelItems().map(function (it) { return it.ex; });
                 exSel = {}; exSelAnchor = null;
-                gsPickMulti(list);
-                gsPickAfterMulti(list.length);
+                var added = gsPickMulti(list);
+                gsPickAfterMulti(typeof added === "number" ? added : list.length);
             } });
         } else {
             acts.push({ text: "＋ Session…", run: function (btn) { var r = btn.getBoundingClientRect(); openAddToSessionMenu(r.left, r.top, exSelItems().map(function (it) { return it.ex; }), true); } });
@@ -4062,6 +4062,7 @@
             if (opts && opts.mouseOnly && e.pointerType && e.pointerType !== "mouse") return; // au doigt, le glisser gênerait le défilement
             // Les boutons/champs internes (chevron, "+", saisie) gardent leur propre clic — sauf ceux où le glisser est permis
             // (opts.dragFromButton : la vignette d'une image, le nom d'un fichier…).
+            if (opts && opts.handle && !(e.target.closest && e.target.closest(opts.handle))) return; // glisser réservé à une poignée
             var innerBtn = e.target.closest("button, input, textarea, select");
             if (innerBtn && !(opts && opts.dragFromButton && innerBtn.matches(opts.dragFromButton))) return;
             var item = e.target.closest(itemSelector);
@@ -10143,7 +10144,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v256"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v257"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }
@@ -19062,20 +19063,27 @@
         return set;
     }
 
-    // Onglets « Tous / ★ Favoris » des choix d'exercice : les favoris d'un coup d'œil, sans chercher dans les dossiers.
+    // Onglets des choix d'exercice : Exercices (les chapitres ordinaires), Morceaux (les chapitres de morceaux), ★ Favoris, ● En cours. Les morceaux n'apparaissent que dans
+    // « Morceaux » (et sous leur propre titre dans Favoris / En cours). L'ordre des onglets se règle à la souris et se retient sur l'appareil.
+    var PICK_TAB_IDS = ["ex", "so", "fav", "wip"];
+    function pickTabIsTree() { return pickTabMem === "ex" || pickTabMem === "so"; }
     function buildPickTabs(inst, get, set, onChange) {
         var nFav = collectExercises(inst, function (ex) { return !!ex.favorite && !ex.archived; }).length;
+        var nWip = collectExercises(inst, function (ex) { return exInProgress(ex) && !ex.archived; }).length;
+        var nEx = collectExercises(inst, function (ex) { return !ex.isSong && !ex.archived; }).length, nSo = collectExercises(inst, function (ex) { return !!ex.isSong && !ex.archived; }).length;
+        var LABELS = { ex: "Exercices (" + nEx + ")", so: "Morceaux (" + nSo + ")", fav: "★ Favoris (" + nFav + ")", wip: "● En cours (" + nWip + ")" };
         var bar = document.createElement("div");
         bar.className = "gs-pick-tabs";
         bar.setAttribute("role", "tablist");
-        var nWip = collectExercises(inst, function (ex) { return exInProgress(ex) && !ex.archived; }).length;
-        [["all", "Tous"], ["fav", "★ Favoris (" + nFav + ")"], ["wip", "● En cours (" + nWip + ")"]].forEach(function (t) {
+        tabsInOrder("pick", PICK_TAB_IDS, function (id) { return id; }).forEach(function (id) {
             var b = document.createElement("button");
-            b.type = "button"; b.className = "gs-pick-tab" + (get() === t[0] ? " active" : ""); b.dataset.tab = t[0]; b.textContent = t[1];
-            b.setAttribute("role", "tab"); b.setAttribute("aria-selected", get() === t[0] ? "true" : "false");
-            b.addEventListener("click", function () { set(t[0]); pickOpenLoad().__tab = t[0]; pickOpenSave(); Array.prototype.forEach.call(bar.children, function (x) { var on = x.dataset.tab === t[0]; x.classList.toggle("active", on); x.setAttribute("aria-selected", on ? "true" : "false"); }); onChange(); });
+            b.type = "button"; b.className = "gs-pick-tab" + (get() === id ? " active" : ""); b.dataset.tab = id; b.dataset.reorderId = id; b.textContent = LABELS[id];
+            b.title = "Glisser pour changer l'ordre des onglets";
+            b.setAttribute("role", "tab"); b.setAttribute("aria-selected", get() === id ? "true" : "false");
+            b.addEventListener("click", function () { set(id); pickOpenLoad().__tab = id; pickOpenSave(); Array.prototype.forEach.call(bar.querySelectorAll(".gs-pick-tab"), function (x) { var on = x.dataset.tab === id; x.classList.toggle("active", on); x.setAttribute("aria-selected", on ? "true" : "false"); }); if (onChange) onChange(); });
             bar.appendChild(b);
         });
+        tabsSortable(bar, "pick", ".gs-pick-tab");
         var fold = document.createElement("div"); fold.className = "gs-pick-fold";
         [["Tout replier", "⊟", false], ["Tout déplier", "⊞", true]].forEach(function (a) {
             var f = document.createElement("button"); f.type = "button"; f.className = "btn-ghost gs-pick-fold-btn"; f.dataset.fold = a[2] ? "open" : "close";
@@ -19097,7 +19105,12 @@
     function pickIsOpen(key, def) { var v = pickOpenLoad()[key]; return typeof v === "boolean" ? v : !!def; }
     function pickSetOpen(key, open) { pickOpenLoad()[key] = !!open; pickOpenSave(); }
     // Les chapitres dans l'ordre de la barre latérale (celui qu'on règle en les glissant), sans Favoris ni Archivés.
-    function pickChapters(inst) { return orderedChapterItems(inst).filter(function (c) { return c.id !== FAVORITES_ID && c.id !== ARCHIVED_ID; }); }
+    function pickChapters(inst, tab) {
+        return orderedChapterItems(inst).filter(function (c) {
+            if (c.id === FAVORITES_ID || c.id === ARCHIVED_ID) return false;
+            return tab === "so" ? isSongsChapter(c) : tab === "ex" ? !isSongsChapter(c) : true;
+        });
+    }
     function pickAllKeys(inst) { // toutes les lignes repliables du choix, pour « Tout replier / Tout déplier »
         var keys = [];
         (function walk(list) { list.forEach(function (f) { keys.push("t:" + f.id); walk(f.folders || []); }); })(inst.categories);
@@ -19110,13 +19123,32 @@
         return keys;
     }
     function pickSetAll(inst, open) { var m = pickOpenLoad(); pickAllKeys(inst).forEach(function (k) { m[k] = !!open; }); pickOpenSave(); }
-    function pickTabMatch(ex) { return pickTabMem === "fav" ? !!ex.favorite : pickTabMem === "wip" ? exInProgress(ex) : true; }
+    function pickTabMatch(ex) { return pickTabMem === "fav" ? !!ex.favorite : pickTabMem === "wip" ? exInProgress(ex) : pickTabMem === "so" ? !!ex.isSong : !ex.isSong; }
     function pickTabEmptyText(q) {
         if (q) return "Aucun exercice ne correspond.";
         return pickTabMem === "fav" ? "Aucun favori : marque un exercice d'une étoile (clic droit › Marquer en favori)."
-            : pickTabMem === "wip" ? "Rien « En cours » : coche la pastille « En cours » d'un exercice (ou donne l'état « En cours » à un morceau)." : "Aucun exercice ne correspond.";
+            : pickTabMem === "wip" ? "Rien « En cours » : coche la pastille « En cours » d'un exercice (ou donne l'état « En cours » à un morceau)." : pickTabMem === "so" ? "Aucun morceau." : "Aucun exercice ne correspond.";
     }
-    var pickTabMem = (function () { try { var v = pickOpenLoad().__tab; return v === "fav" || v === "wip" ? v : "all"; } catch (e) { return "all"; } })(); // dernier onglet choisi (Tous / Favoris), retenu d'un choix à l'autre et d'une fois sur l'autre
+    // Zones du choix : « Exercices » (vert) et « Morceaux » (violet), comme dans le volet de gauche. Un titre de zone, puis ce qu'elle contient.
+    function pickZone(kind, count) {
+        var z = document.createElement("div"); z.className = "gs-pick-zone gs-pick-zone-" + kind; z.dataset.zone = kind;
+        var h = document.createElement("div"); h.className = "gs-pick-zone-head";
+        var t = document.createElement("span"); t.textContent = kind === "so" ? "Morceaux" : "Exercices"; h.appendChild(t);
+        if (typeof count === "number") { var c = document.createElement("span"); c.className = "gs-pick-zone-count"; c.textContent = String(count); h.appendChild(c); }
+        z.appendChild(h);
+        return z;
+    }
+    // Favoris / En cours : exercices et morceaux sous deux titres, chacun rangé par dossier. `fill(zone, groups)` pose les groupes d'une zone.
+    function pickKindZones(wrap, inst, results, fill) {
+        [["ex", false], ["so", true]].forEach(function (k) {
+            var list = results.filter(function (r) { return !!r.ex.isSong === k[1]; });
+            if (!list.length) return;
+            var z = pickZone(k[0], list.length);
+            fill(z, pickGroupByFolder(inst, list));
+            wrap.appendChild(z);
+        });
+    }
+    var pickTabMem = (function () { try { var v = pickOpenLoad().__tab; return v === "fav" || v === "wip" || v === "so" ? v : "ex"; } catch (e) { return "all"; } })(); // dernier onglet choisi (Tous / Favoris), retenu d'un choix à l'autre et d'une fois sur l'autre
     // Fenêtre de choix d'un exercice (recherche + arborescence) : sert à « Remplacer partout par… ».
     function openExercisePickerModal(titleText, opts, onPick) {
         opts = opts || {};
@@ -19212,11 +19244,15 @@
             function refresh() {
                 wrap.innerHTML = ""; rowEls = [];
                 var q = search.value.trim().toLowerCase();
-                if (!q && pickTabMem === "all") { node(wrap, pickChapters(inst), 0, null); paintPicked(); return; }
+                if (!q && pickTabIsTree()) {
+                    var zone = pickZone(pickTabMem), chs = pickChapters(inst, pickTabMem);
+                    if (!chs.length) { var emp = document.createElement("div"); emp.className = "gs-empty"; emp.textContent = pickTabEmptyText(""); zone.appendChild(emp); }
+                    node(zone, chs, 0, null); wrap.appendChild(zone); paintPicked(); return;
+                }
                 var res = collectExercises(inst, function (ex) { return !ex.archived && exclude.indexOf(ex.id) === -1 && pickTabMatch(ex) && (!q || ex.title.toLowerCase().indexOf(q) !== -1 || songMatchesQuery(ex, q)); });
                 if (!res.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = pickTabEmptyText(q); wrap.appendChild(none); return; }
-                if (pickTabMem === "fav" || pickTabMem === "wip") { // favoris, « en cours » : rangés par dossier (avec « Tout » par dossier en choix multiple)
-                    pickGroupByFolder(inst, res).forEach(function (g) {
+                if (pickTabMem === "fav" || pickTabMem === "wip") { // favoris, « en cours » : exercices puis morceaux, rangés par dossier (avec « Tout » par dossier en choix multiple)
+                    pickKindZones(wrap, inst, res, function (zone, groups) { groups.forEach(function (g) {
                         var all = null;
                         if (multi) {
                             all = document.createElement("button"); all.type = "button"; all.className = "gs-pick-folder-all"; all.textContent = "Tout";
@@ -19230,8 +19266,8 @@
                         }
                         var h = pickFavGroupHead(g, refresh, all);
                         if (h.kids) g.items.forEach(function (r) { h.kids.appendChild(exButton(r.ex)); });
-                        wrap.appendChild(h.node);
-                    });
+                        zone.appendChild(h.node);
+                    }); });
                     paintPicked();
                     return;
                 }
@@ -20773,13 +20809,16 @@
         addStepBtn.textContent = "+ Ajouter un exercice";
         function startAddStep() {
             gsPickSteps = function () { return session.steps; };
+            gsPickSession = session;
             gsPickCallback = function (ex) {
                 session.steps.push(gsNewStep(ex));
                 save();
             };
-            gsPickMulti = function (exs) { // Ctrl/⌘ + clic : plusieurs exercices d'un coup, dans l'ordre des clics
-                exs.forEach(function (ex) { session.steps.push(gsNewStep(ex)); });
+            gsPickMulti = function (exs) { // Ctrl/⌘ + clic : plusieurs exercices d'un coup, dans l'ordre des clics (ceux déjà dans la session ne sont pas ajoutés deux fois)
+                var n = 0;
+                exs.forEach(function (ex) { if (session.steps.some(function (st) { return st.exerciseId === ex.id; })) return; session.steps.push(gsNewStep(ex)); n++; });
                 save();
+                return n;
             };
             exSel = {}; exSelAnchor = null;
             gsScreen = "pick";
@@ -20821,10 +20860,11 @@
         exTitle.className = "gs-pick-ex-title";
         exTitle.textContent = ex.title;
         var inMark = gsPickMark(ex);
-        if (inMark) { // coche « déjà dans la session » sur la même ligne que le titre (qui reste un texte pur)
+        if (inMark) { // rond de rang (à gauche) sur la même ligne que le titre (qui reste un texte pur)
             var exLine = document.createElement("span"); exLine.className = "gs-pick-ex-line";
-            exLine.appendChild(exTitle); exLine.appendChild(inMark);
-            exBtn.classList.add("in-session"); exBtn.appendChild(exLine);
+            exLine.appendChild(inMark); exLine.appendChild(exTitle);
+            if (inMark.classList.contains("on")) exBtn.classList.add("in-session");
+            exBtn.appendChild(exLine);
         } else exBtn.appendChild(exTitle);
         var prev = gsNotePreview(ex);
         if (prev) exBtn.appendChild(prev);
@@ -20925,7 +20965,7 @@
     }
     // `parentArray` : le vrai tableau qui contient `folders` quand on en passe une copie ordonnée (chapitres) ; `redraw` : redessine le choix SEUL (pas toute l'appli :
     // la vue reste où elle est).
-    function renderGsPickTree(container, folders, depth, rootColor, parentArray, redraw) {
+    function renderGsPickTree(container, folders, depth, rootColor, parentArray, redraw, parentFolder) {
         var inst = getActiveInstrument(), parentList = parentArray || folders;
         redraw = redraw || function () { render(); };
         folders.forEach(function (folder) {
@@ -20953,12 +20993,16 @@
                     redraw();
                 });
             }
+            var grip = document.createElement("span"); grip.className = "pick-grip"; grip.textContent = "⋮⋮"; grip.title = "Glisser pour déplacer ce dossier";
+            grip.addEventListener("click", function (e) { e.stopPropagation(); });
+            row.appendChild(grip);
             row.appendChild(twisty);
             var label = document.createElement("span");
             label.className = "tree-label";
             label.textContent = folder.name;
             row.appendChild(label);
             row.dataset.pickFolder = folder.id;
+            node.dataset.reorderId = folder.id;
             row.addEventListener("click", function () {
                 if (suppressNextClick) { suppressNextClick = false; return; }
                 pickSetOpen(pickKey, !expanded); redraw();
@@ -20975,11 +21019,32 @@
                 if (depth === 0 && isSongsChapter(folder)) songsPickContent(childWrap, folder, function (ex) { return gsPickExerciseButton(ex, folder, inst); }, redraw, "screen");
                 else {
                     visibleExercises.forEach(function (ex) { childWrap.appendChild(gsPickExerciseButton(ex, folder, inst)); });
-                    renderGsPickTree(childWrap, folder.folders, depth + 1, color, null, redraw);
+                    renderGsPickTree(childWrap, folder.folders, depth + 1, color, null, redraw, folder);
                 }
                 node.appendChild(childWrap);
             }
             container.appendChild(node);
+        });
+        pickBindFolderReorder(container, depth, parentFolder || null);
+    }
+    // Dossiers déplaçables à la souris par leur poignée « ⋮⋮ » : les chapitres entre eux (l'ordre est celui du volet de gauche), les sous-dossiers dans leur dossier.
+    function pickBindFolderReorder(container, depth, parentFolder) {
+        if (container._pickReorder) return;
+        container._pickReorder = true;
+        setupDragReorder(container, ".gs-pick-node", function () { return []; }, "y", {
+            mouseOnly: true, handle: ".pick-grip",
+            onReorder: function (ids) {
+                var inst = getActiveInstrument();
+                if (depth === 0) inst.pinnedOrder = tabOrderMerge(Array.isArray(inst.pinnedOrder) ? inst.pinnedOrder : [], ids);
+                else if (parentFolder) {
+                    var arr = parentFolder.folders, byId = {}, sorted = [];
+                    arr.forEach(function (f) { byId[f.id] = f; });
+                    ids.forEach(function (id) { if (byId[id] && sorted.indexOf(byId[id]) === -1) sorted.push(byId[id]); });
+                    arr.forEach(function (f) { if (sorted.indexOf(f) === -1) sorted.push(f); });
+                    arr.splice.apply(arr, [0, arr.length].concat(sorted));
+                }
+                save();
+            }
         });
     }
 
@@ -20992,14 +21057,26 @@
     var gsPickAdded = 0, gsPickSteps = null, gsPickRedraw = null;
     function gsPickBurstOn() { return !!gsPickMulti; }
     function gsPickInCount(exId) { var n = 0; ((gsPickSteps && gsPickSteps()) || []).forEach(function (st) { if (st.exerciseId === exId) n++; }); return n; }
-    function gsPickMark(ex) { // coche (et nombre de fois) pour ce qui est déjà dans la session
-        var n = gsPickInCount(ex.id);
-        if (!n) return null;
-        var mk = document.createElement("span"); mk.className = "gs-pick-in"; mk.textContent = n > 1 ? "✓ ×" + n : "✓";
-        mk.title = n > 1 ? "Déjà " + n + " fois dans cette session" : "Déjà dans cette session";
+    function gsPickRank(exId) { var st = (gsPickSteps && gsPickSteps()) || []; for (var i = 0; i < st.length; i++) if (st[i].exerciseId === exId) return i + 1; return 0; }
+    var gsPickSession = null; // la session à laquelle on ajoute des exercices (panneau « Ma session »)
+    // Rond de rang : vide (pointillé) tant que l'exercice n'est pas dans la session, plein avec son numéro d'ordre une fois choisi. Un nouveau clic le retire.
+    function gsPickMark(ex) {
+        var burst = gsPickBurstOn(), rank = gsPickRank(ex.id);
+        if (!rank && !burst) return null;
+        var mk = document.createElement("span"); mk.className = "gs-pick-in" + (rank ? " on" : " off");
+        if (rank) { mk.textContent = String(rank); mk.title = burst ? "N° " + rank + " dans la session — un clic le retire" : "Déjà dans cette session (n° " + rank + ")"; }
+        else mk.title = "Pas encore dans la session";
         return mk;
     }
-    function gsPickChoose(ex) { // un exercice est choisi : il s'ajoute (ou remplace le pas) ; en rafale on reste ici
+    function gsPickRemoveEx(ex) { // retire de la session (la dernière fois où il y figure)
+        var steps = gsPickSteps ? gsPickSteps() : [];
+        for (var i = steps.length - 1; i >= 0; i--) if (steps[i].exerciseId === ex.id) { steps.splice(i, 1); break; }
+        if (gsPickAdded > 0) gsPickAdded--;
+        save();
+        if (gsPickRedraw) gsPickRedraw();
+    }
+    function gsPickChoose(ex) { // un exercice est choisi : il s'ajoute (ou remplace le pas) ; en rafale on reste ici ; déjà choisi, il est retiré
+        if (gsPickBurstOn() && gsPickRank(ex.id)) { gsPickRemoveEx(ex); return; }
         gsPickCallback(ex);
         if (gsPickBurstOn()) { gsPickAdded++; if (gsPickRedraw) gsPickRedraw(); return; }
         gsScreen = "edit";
@@ -21010,6 +21087,104 @@
         if (gsPickBurstOn()) { gsPickAdded += n; exSelRefreshUI(); if (gsPickRedraw) gsPickRedraw(); return; }
         gsScreen = "edit";
         render();
+    }
+    // Bandeau « Ma session » (écran de choix, ajout d'exercices) : les exercices dans l'ordre, chacun avec sa durée (‹ n ›, glisser le nombre), un ✕ pour le retirer,
+    // l'ordre se règle en glissant une ligne ; en dessous le total et un camembert par dossier (le plus long en premier). Rien n'est trié par durée : l'ordre est celui de la session.
+    function gsPickFmtTotal(min) { var h = Math.floor(min / 60), m = min % 60; return h ? h + " h" + (m ? " " + (m < 10 ? "0" : "") + m : "") : m + " min"; }
+    function gsPickPanel(side) {
+        var session = gsPickSession;
+        if (!session) { side.innerHTML = ""; return; }
+        var scrollTop = side.scrollTop;
+        side.innerHTML = "";
+        var info = {}, seenInst = {};
+        session.steps.forEach(function (st) { // exercice -> son dossier principal (nom + couleur), pour la couleur de la ligne et le camembert
+            var f = findExerciseById(st.exerciseId);
+            if (!f || seenInst[f.inst.id]) return;
+            seenInst[f.inst.id] = true;
+            collectExercises(f.inst, function () { return true; }).forEach(function (r) {
+                var root = findById(f.inst.categories, r.pathIds[0]);
+                info[r.ex.id] = { name: r.pathNames[0], color: (root && root.color) || "#00e676", song: !!r.ex.isSong, title: r.ex.title };
+            });
+        });
+        var head = document.createElement("div"); head.className = "gs-pick-side-head";
+        var ttl = document.createElement("b"); ttl.textContent = "Ma session"; head.appendChild(ttl);
+        var total = document.createElement("span"); total.className = "gs-pick-side-total"; head.appendChild(total);
+        side.appendChild(head);
+        var rows = document.createElement("div"); rows.className = "gs-pick-side-rows"; side.appendChild(rows);
+        var pie = document.createElement("div"); pie.className = "gs-pick-pie"; side.appendChild(pie);
+        function paintSummary() { // total + camembert (sans retoucher les lignes : le champ de durée garde le focus)
+            var min = sessionTotalMinutes(session);
+            total.textContent = session.steps.length ? gsPickFmtTotal(min) : "";
+            pie.innerHTML = "";
+            if (!session.steps.length) return;
+            var by = {}, list = [];
+            session.steps.forEach(function (st) {
+                var i = info[st.exerciseId] || { name: "Autres", color: "#8a8a93" };
+                if (!by[i.name]) { by[i.name] = { name: i.name, color: i.color, min: 0 }; list.push(by[i.name]); }
+                by[i.name].min += st.minutes;
+            });
+            list.sort(function (a, b) { return b.min - a.min; }); // du plus long au plus court
+            var NS = "http://www.w3.org/2000/svg", svg = document.createElementNS(NS, "svg");
+            svg.setAttribute("viewBox", "0 0 36 36"); svg.setAttribute("class", "gs-pick-pie-svg"); svg.setAttribute("role", "img");
+            svg.setAttribute("aria-label", "Répartition du temps par dossier");
+            var acc = 0;
+            list.forEach(function (g) {
+                var c = document.createElementNS(NS, "circle"), part = g.min / min * 100;
+                c.setAttribute("cx", "18"); c.setAttribute("cy", "18"); c.setAttribute("r", "13.5"); c.setAttribute("pathLength", "100"); c.setAttribute("fill", "none"); c.setAttribute("stroke", g.color); c.setAttribute("stroke-width", "7");
+                c.setAttribute("stroke-dasharray", part + " " + (100 - part)); c.setAttribute("stroke-dashoffset", String(25 - acc));
+                svg.appendChild(c); acc += part;
+            });
+            pie.appendChild(svg);
+            var lg = document.createElement("div"); lg.className = "gs-pick-legend";
+            list.forEach(function (g) {
+                var d = document.createElement("div"); d.className = "gs-pick-legend-row";
+                var dot = document.createElement("i"); dot.style.background = g.color;
+                var nm = document.createElement("span"); nm.textContent = g.name; nm.title = g.name;
+                var mn = document.createElement("b"); mn.textContent = gsPickFmtTotal(g.min);
+                d.appendChild(dot); d.appendChild(nm); d.appendChild(mn); lg.appendChild(d);
+            });
+            pie.appendChild(lg);
+        }
+        if (!session.steps.length) {
+            var empty = document.createElement("div"); empty.className = "gs-pick-side-empty"; empty.textContent = "Clique sur des exercices : ils s'ajoutent ici, dans l'ordre.";
+            rows.appendChild(empty);
+        }
+        session.steps.forEach(function (st, i) {
+            var inf = info[st.exerciseId] || { color: "#8a8a93", title: "Exercice supprimé" };
+            var row = document.createElement("div"); row.className = "gs-pick-side-row"; row.dataset.reorderId = st.id; row.dataset.exId = st.exerciseId;
+            row.style.setProperty("--c", inf.color);
+            var o = document.createElement("span"); o.className = "gs-pick-side-n"; o.textContent = String(i + 1);
+            var nm = document.createElement("span"); nm.className = "gs-pick-side-name"; nm.textContent = inf.title; nm.title = inf.title;
+            var inp = document.createElement("input"); inp.type = "number"; inp.min = "1"; inp.max = "180"; inp.className = "gs-pick-side-min"; inp.value = st.minutes;
+            inp.setAttribute("aria-label", "Durée en minutes");
+            var rm = document.createElement("button"); rm.type = "button"; rm.className = "gs-pick-side-rm"; rm.textContent = "✕"; rm.title = "Retirer de la session"; rm.setAttribute("aria-label", "Retirer de la session");
+            row.appendChild(o); row.appendChild(nm); row.appendChild(inp); row.appendChild(rm);
+            rows.appendChild(row);
+            bindScrubInput(inp, 1, 180);
+            inp.addEventListener("change", function () {
+                st.minutes = Math.max(1, Math.min(180, parseInt(inp.value, 10) || 5));
+                inp.value = st.minutes; save(); paintSummary();
+            });
+            rm.addEventListener("click", function () {
+                var k = session.steps.indexOf(st); if (k === -1) return;
+                session.steps.splice(k, 1);
+                if (gsPickAdded > 0) gsPickAdded--;
+                save(); if (gsPickRedraw) gsPickRedraw();
+            });
+        });
+        setupDragReorder(rows, ".gs-pick-side-row", function () { return []; }, "y", {
+            mouseOnly: true,
+            onReorder: function (ids) {
+                var byId = {}, sorted = [];
+                session.steps.forEach(function (st) { byId[st.id] = st; });
+                ids.forEach(function (id) { if (byId[id] && sorted.indexOf(byId[id]) === -1) sorted.push(byId[id]); });
+                session.steps.forEach(function (st) { if (sorted.indexOf(st) === -1) sorted.push(st); });
+                session.steps.splice.apply(session.steps, [0, session.steps.length].concat(sorted));
+                save(); if (gsPickRedraw) gsPickRedraw();
+            }
+        });
+        paintSummary();
+        side.scrollTop = scrollTop;
     }
     function renderGsPickScreen(content) {
         var backBtn = document.createElement("button");
@@ -21032,16 +21207,23 @@
         content.appendChild(head);
         updateBurst();
 
+        // Deux colonnes quand on programme une session : le choix à gauche, le bandeau « Ma session » (collant) à droite.
+        var layout = document.createElement("div"); layout.className = "gs-pick-layout";
+        var main = document.createElement("div"); main.className = "gs-pick-main";
+        layout.appendChild(main); content.appendChild(layout);
+        var side = null;
+        if (gsPickBurstOn() && gsPickSession) { side = document.createElement("aside"); side.className = "gs-pick-side"; side.setAttribute("aria-label", "Ma session"); layout.classList.add("with-side"); layout.appendChild(side); }
+
         var searchInput = document.createElement("input");
         searchInput.type = "text";
         searchInput.className = "gs-pick-search";
         searchInput.placeholder = "Rechercher un exercice…";
         searchInput.value = gsPickQuery;
-        content.appendChild(searchInput);
-        content.appendChild(buildPickTabs(getActiveInstrument(), function () { return pickTabMem; }, function (v) { pickTabMem = v; }, function () { refreshResults(); }));
+        main.appendChild(searchInput);
+        main.appendChild(buildPickTabs(getActiveInstrument(), function () { return pickTabMem; }, function (v) { pickTabMem = v; }, function () { refreshResults(); }));
 
         var resultsWrap = document.createElement("div");
-        content.appendChild(resultsWrap);
+        main.appendChild(resultsWrap);
 
         function refreshResults() {
             resultsWrap.innerHTML = "";
@@ -21050,9 +21232,12 @@
 
             // Recherche : liste à plat (peu importe le dossier, on cherche partout). Sans
             // recherche : l'arborescence complète, comme dans la barre latérale.
-            if (!q && pickTabMem === "all") {
+            if (!q && pickTabIsTree()) {
                 resultsWrap.className = "gs-pick-tree";
-                renderGsPickTree(resultsWrap, pickChapters(inst), 0, null, inst.categories, refreshResults);
+                var zone = pickZone(pickTabMem), chs = pickChapters(inst, pickTabMem);
+                resultsWrap.appendChild(zone);
+                if (!chs.length) { var emp = document.createElement("div"); emp.className = "gs-empty"; emp.textContent = pickTabEmptyText(""); zone.appendChild(emp); }
+                renderGsPickTree(zone, chs, 0, null, inst.categories, refreshResults);
                 return;
             }
             resultsWrap.className = "gs-pick-results";
@@ -21068,11 +21253,11 @@
             }
             if (pickTabMem === "fav" || pickTabMem === "wip") { // favoris, « en cours » : rangés par dossier, comme dans la fenêtre principale
                 resultsWrap.className = "gs-pick-tree gs-pick-favs";
-                pickGroupByFolder(inst, results).forEach(function (g) {
+                pickKindZones(resultsWrap, inst, results, function (zone, groups) { groups.forEach(function (g) {
                     var h = pickFavGroupHead(g, refreshResults);
                     if (h.kids) g.items.forEach(function (r) { h.kids.appendChild(gsPickExerciseButton(r.ex, r.folder, inst)); });
-                    resultsWrap.appendChild(h.node);
-                });
+                    zone.appendChild(h.node);
+                }); });
                 return;
             }
             results.forEach(function (r) {
@@ -21089,7 +21274,7 @@
                 titleSpan.textContent = r.ex.title;
                 head.appendChild(titleSpan);
                 var inMark2 = gsPickMark(r.ex);
-                if (inMark2) { btn.classList.add("in-session"); head.appendChild(inMark2); }
+                if (inMark2) { if (inMark2.classList.contains("on")) btn.classList.add("in-session"); head.insertBefore(inMark2, head.firstChild); }
                 btn.appendChild(head);
                 var prev2 = gsNotePreview(r.ex);
                 if (prev2) btn.appendChild(prev2);
@@ -21106,7 +21291,8 @@
             });
         }
         searchInput.addEventListener("input", function () { gsPickQuery = searchInput.value; refreshResults(); });
-        gsPickRedraw = function () { refreshResults(); updateBurst(); };
+        gsPickRedraw = function () { refreshResults(); updateBurst(); if (side) gsPickPanel(side); };
+        if (side) gsPickPanel(side);
         refreshResults();
         if (!gsPickFocused) { gsPickFocused = true; searchInput.focus({ preventScroll: true }); }
     }
