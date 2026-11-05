@@ -24,7 +24,7 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
    `Claude-Session: https://claude.ai/code/session_…` (reprendre l'URL donnée par le rappel d'attribution de la session en cours).
 6. `git push -q origin main`, puis `git push -q origin HEAD:structure-dossiers`, puis vérifier avec `git ls-remote origin main structure-dossiers`
    que les deux pointent sur le même commit. (Le message « This repository moved » de GitHub est sans conséquence.)
-7. Dernière version livrée : **v261**. La suivante sera v262.
+7. Dernière version livrée : **v262**. La suivante sera v263.
 
 ## À ne pas toucher
 - **Le moteur de synchronisation cloud** (Firestore : envoi différé, écoute, reprise). Les nouveaux champs voyagent avec l'état sans le modifier.

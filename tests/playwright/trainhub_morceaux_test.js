@@ -7,7 +7,7 @@ const path = require('path');
 const harnais = require('/home/user/trainhub/tests/_harness');
 const { check, plan, bilan } = harnais('TrainHub : chapitre Morceaux — artistes, styles, techniques, travail');
 const estBruitReseau = harnais.estBruitReseau;
-plan(171);
+plan(172);
 const SHOTS = path.join(__dirname, 'shots');
 fs.mkdirSync(SHOTS, { recursive: true });
 const URL = 'http://localhost:8765/index.html';
@@ -225,7 +225,9 @@ const comptesArbre = page => page.locator('.song-tree-node .tree-count').allInne
         await page.keyboard.press('Escape'); await page.waitForTimeout(150);
         check(await page.locator('.song-prop-menu').count() === 0, 'C. Échap ferme le menu');
         // travail : un seul à la fois
-        await prop('work').click(); await menuItem('En cours').click(); await page.waitForTimeout(250);
+        await prop('work').click(); await page.waitForSelector('.song-prop-menu');
+        check((await page.locator('.song-prop-menu .song-prop-name').allInnerTexts()).join('|') === 'En cours|À maîtriser|Maîtrisé|Plus tard', 'C. menu du travail : ordre fixe du chapitre (pas de tri par fréquence)');
+        await menuItem('En cours').click(); await page.waitForTimeout(250);
         check(await page.locator('.song-prop-menu').count() === 0, 'C. Travail : le menu se ferme après le choix');
         await prop('work').click(); await menuItem('Maîtrisé').click(); await page.waitForTimeout(250);
         check((await prop('work').innerText()).trim() === 'Maîtrisé' && await prop('work').evaluate(e => e.classList.contains('on')), 'C. Travail : une seule valeur (la dernière choisie)');

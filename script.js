@@ -5817,12 +5817,13 @@
     // --- caractéristiques d'un morceau : menus déroulants rangés par fréquence d'utilisation ---
     var SONG_PROP_LABELS = { style: "Style", technique: "Technique", work: "Travail" };
     var SONG_CHEVRON_SVG = '<svg class="icon song-prop-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
-    // Valeurs du vocabulaire du chapitre, de la plus utilisée (le plus de morceaux) à la moins utilisée ; à égalité, l'ordre du vocabulaire.
+    // Styles et techniques : de la valeur la plus utilisée (le plus de morceaux) à la moins utilisée ; à égalité, l'ordre du vocabulaire. Travail : toujours l'ordre du chapitre.
     function songValuesByUse(ch, dimKey) {
         var d = songDim(dimKey), use = {};
         ch.exercises.forEach(function (e) { songValues(e, dimKey).forEach(function (v) { var k = songNorm(v); use[k] = (use[k] || 0) + 1; }); });
-        return ch.vocab[d.vocab].map(function (v, i) { return { v: v, n: use[songNorm(v)] || 0, i: i }; })
-            .sort(function (a, b) { return b.n - a.n || a.i - b.i; });
+        var list = ch.vocab[d.vocab].map(function (v, i) { return { v: v, n: use[songNorm(v)] || 0, i: i }; });
+        if (!d.multi) return list; // travail : ordre du chapitre, fixe (En cours, À maîtriser, Maîtrisé, Plus tard…), réglable par Monter / Descendre
+        return list.sort(function (a, b) { return b.n - a.n || a.i - b.i; });
     }
     function songPropFill(btn, ex, dimKey) {
         var vals = songValues(ex, dimKey), txt = btn.querySelector(".song-prop-text"), name = SONG_PROP_LABELS[dimKey];
@@ -10549,7 +10550,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v261"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v262"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }
