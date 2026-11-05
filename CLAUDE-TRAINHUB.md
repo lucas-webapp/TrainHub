@@ -24,7 +24,7 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
    `Claude-Session: https://claude.ai/code/session_…` (reprendre l'URL donnée par le rappel d'attribution de la session en cours).
 6. `git push -q origin main`, puis `git push -q origin HEAD:structure-dossiers`, puis vérifier avec `git ls-remote origin main structure-dossiers`
    que les deux pointent sur le même commit. (Le message « This repository moved » de GitHub est sans conséquence.)
-7. Dernière version livrée : **v259**. La suivante sera v260.
+7. Dernière version livrée : **v260**. La suivante sera v261.
 
 ## À ne pas toucher
 - **Le moteur de synchronisation cloud** (Firestore : envoi différé, écoute, reprise). Les nouveaux champs voyagent avec l'état sans le modifier.
@@ -63,13 +63,17 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
   « The », ponctuation ; « Pas les mêmes » = `trainhub.artistIgnore.v1`) fusionnées via `songsRenameValue` ; doublons de titre **en lecture seule** (`exerciseTitleDuplicates`, jamais morceau contre exercice).
 - **Morceau → exercice (v259)** : `songToExercise` (titre + liens copiés avec nouveaux identifiants, AUCUNE caractéristique de morceau, `fromSongId`, dernier dossier dans `trainhub.songToEx.v1`) ;
   `buildKinshipLine` (« Tiré du morceau… » / « Travaillé aussi en exercice… »). Menu clic droit d'un exercice : actions courantes en tête, le reste sous « Plus d'actions » (`.ctx-more`).
+- **Corbeille (v260)** : `addToTrash / restoreFromTrash / purgeFromTrash / emptyTrash` (limite `TRASH_LIMIT` = 50) ; **vidage par ancienneté** `trashOlderThan(jours)` + `purgeTrashEntries` (bouton « Vider les plus anciens… » =
+  7 / 30 / 90 jours, confirmation) ; **rappel** `trashRemindCheck` (plus de 20 exercices, `trashExerciseCount` compte aussi ceux des dossiers/espaces supprimés ; au plus un par jour, `trainhub.trashRemind.v1` ; jamais en session/entraînement libre).
+- **Dés** : le dé de gammes (`diceDraw`) ET le dé d'harmonie (`harmDraw`, v260) tirent **sans remise** dans un sac par dé et par jeu de faces (`diceBagStore`, `diceRefillBag`, clé `trainhub.diceBag.v1`, préfixe `h:` pour l'harmonie).
 - **Statistiques** : `statsRows`, `renderStatsScreen`, graphiques SVG sans bibliothèque ; clic droit sur un point du graphique de tempo =
   `statsDropTempo` (vide le tempo de cette séance, avec « Annuler »).
 - **Son (le point le plus délicat)** : métronome Web Audio (ordonnanceur dans un Worker + chien de garde), un contexte audio neuf à chaque lancement,
   échange de contexte au premier geste après une absence, bouée `<audio>` (désactivée par défaut), son de secours `<audio>` (désactivable), lecteur de
   fichiers audio (`audioEng*`, moteur de boucle sans coupure). Appliquer un préréglage pendant la lecture ne redémarre plus rien (`loadMetronomePreset`,
   `metroSoftRestart`, v240). **Journal du son** (`audioLog`, Paramètres › Métronome) + **signe de vie** (`trainhub.audioAlive.v1`, couvre aussi la
-  session libre et le lecteur) : c'est ce qui permet de diagnostiquer après coup.
+  session libre et le lecteur) : c'est ce qui permet de diagnostiquer après coup. **Contexte inactif fermé (v260)** : `metroIdleArm / metroIdleCheck` (`METRO_IDLE_MS` = 60 s) ferment le contexte qui ne joue plus rien
+  (jamais pendant métronome, lecteur d'harmonie, enregistrement avec clic, ni session guidée avec cloche/enchaînement automatique) ; le lancement suivant repart sur un contexte neuf.
 
 ## Tests (Playwright, Chromium)
 - `require('playwright')` fonctionne avec `NODE_PATH=/opt/node22/lib/node_modules` (ne pas réinstaller Playwright).
@@ -80,33 +84,34 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
   `localStorage['compteCloud.trainhub.nePlusProposer'] = '1'` (pas de fenêtre de connexion), bloquer `https://www.gstatic.com/firebasejs/**`,
   `serviceWorkers: 'block'`. Horloge simulée (`page.clock`) pour les vraies sessions ; CDP pour les mesures de performance.
   Un vrai plantage de page ne se joue pas ici : on recopie le signe de vie (`trainhub.audioAlive.v1`) dans une nouvelle page.
-- Les **22 bancs** sont dans le dépôt : `tests/playwright/trainhub_<nom>_test.js` (morceaux 165, programmation 50, menage 52, rafale 42, choix 38, compte 68, note 34, note_session 86,
-  favoris 31, rideau 33, session_ui 55, son 67, video 22, preset 22, point 31, lecteur 29, audio_rate 19, audio_edit 80, de 13, eph 12, volet 20, tempo 15), avec leurs fichiers
+- Les **23 bancs** sont dans le dépôt : `tests/playwright/trainhub_<nom>_test.js` (morceaux 165, programmation 50, menage 52, rafale 42, choix 38, compte 68, note 34, note_session 86,
+  favoris 31, rideau 33, session_ui 71, son 75, video 22, preset 22, point 31, lecteur 29, audio_rate 19, audio_edit 80, de 19, eph 12, volet 20, tempo 15, corbeille 24), avec leurs fichiers
   (`media/`, `yt_mock/`). Lancer : `tests/playwright/lancer.sh` (tous) ou `tests/playwright/lancer.sh morceaux choix` ; il démarre et arrête les
   serveurs :8765 et :8766. Un nouveau banc s'ajoute dans ce dossier, avec `plan(n)` ; le garder à jour quand un comportement change exprès.
 - Lancer **toutes** les suites avant chaque livraison (≈ 15 min) ; adapter un banc existant seulement si le comportement a changé exprès.
 
 ## Sujets en cours / à savoir
 - **Bug ouvert (Safari/macOS)** : son coupé ou application figée **en session libre uniquement** (jamais en session guidée ni hors session) ; une fois
-  sur un MP3 du lecteur. Cause non établie ; v240 (plus de redémarrage du métronome au changement de préréglage) et v242 (journal et signe de vie
-  étendus au lecteur et à la session libre) sont les pistes. À la prochaine alerte, demander : copier le **journal du son** tout de suite, avant de
+  sur un MP3 du lecteur. Cause non établie ; v240 (plus de redémarrage du métronome au changement de préréglage), v242 (journal et signe de vie
+  étendus au lecteur et à la session libre) et v260 (contexte audio inactif fermé, feu vert donné par l'utilisateur le 5 nov.) sont les pistes. **Non vérifié sur Safari** : à confirmer à l'usage. À la prochaine alerte, demander : copier le **journal du son** tout de suite, avant de
   relancer l'appli ; dire si c'est l'écran ou le son qui se fige ; si le chrono continue ; si le métronome ou un MP3 jouait ; si la version est à jour.
 - Refusé pour l'instant : statistiques par artiste ou par style pour les morceaux.
 - Idées de l'utilisateur déjà livrées : programmation de session (v257), session créée depuis une séance libre / ménage des artistes et doublons / « dernière fois jouée » en bas de fiche (v258 — SANS rappel : l'utilisateur n'en veut pas), morceau → exercice « Travailler un passage en exercice… » (v259 : titre + liens copiés, AUCUNE caractéristique de morceau, `fromSongId`), menu clic droit regroupé sous « Plus d'actions » (v259) ; le Ménage ne supprime ni ne fusionne JAMAIS d'exercice (doublons de titre en lecture seule), ajout en rafale, marques de doublons, onglet « En cours ». Idées proposées et refusées : « Tout ajouter » sur
-  un dossier, onglet « À reprendre », filtres combinés pour les morceaux.
+  un dossier, onglet « À reprendre », filtres combinés pour les morceaux, filtre « fiches vides » (v260 : un exercice peut se suffire de son titre).
 
-## Reprise (état au 5 novembre 2026, après la v259)
-- **Tout est poussé** : `main` = `structure-dossiers` = v259 (`708a254`). Aucun travail en cours. La suite complète est verte **sauf le banc `point`**, en échec depuis le début de novembre
-  **sans lien avec le code** : son jeu de test crée 7 séances sur 7 jours et en début de mois l'une tombe le mois précédent (la page Statistiques n'affiche que le mois). À corriger dans le banc
-  (dates fixées dans le mois courant), pas dans l'appli.
+## Reprise (état au 5 novembre 2026, après la v260)
+- **Livré en v260** : vidage de la corbeille par ancienneté + rappel au-delà de 20 exercices ; dé d'harmonie sans remise ; fermeture du contexte audio inactif (piste du bug Safari). Banc `corbeille` ajouté.
+- **Banc `point`** : en échec depuis le début de novembre **sans lien avec le code** (son jeu de test crée 7 séances sur 7 jours, et en début de mois l'une tombe le mois précédent ; la page Statistiques n'affiche que le mois).
+  À corriger dans le banc (dates fixées dans le mois courant), pas dans l'appli.
 - **Ce que l'utilisateur ne veut PAS** : aucun rappel pour reprendre un exercice (la « dernière fois jouée » est une information, pas une alerte) ; le Ménage ne supprime ni ne fusionne jamais un exercice ;
-  un exercice tiré d'un morceau ne porte aucune caractéristique de morceau (artiste, style, technique, travail) ; pas de tri de la liste « Ma session » par durée.
+  un exercice tiré d'un morceau ne porte aucune caractéristique de morceau (artiste, style, technique, travail) ; pas de tri de la liste « Ma session » par durée ;
+  **pas de filtre « fiches vides » / « sans lien ni note »** (un exercice peut se suffire de son titre : une fiche vide n'est pas un défaut).
+  Le seul rappel voulu est celui de la corbeille (plus de 20 exercices).
 - **Usage constaté dans sa sauvegarde du 5 nov.** (85 exercices, 31 morceaux, 25 séances depuis le 8 oct.) : surtout des **sessions libres** (18/25, ≈ 26 min, 4-5 exercices), le soir ; séance moyenne 34 min,
   ≈ 6 min par exercice ; 76 % du temps sur exercices, 24 % sur morceaux ; seuls 35 exercices sur 85 apparaissent dans le journal ; liens à 98 % YouTube, très peu de fichiers (12). Morceaux « À maîtriser » : 20 dont 7 joués.
   Les 10 morceaux du chapitre « Morceaux » de la Guitare sont dans un chapitre **ordinaire** (non converti).
-- **Idées proposées, pas encore faites** (l'utilisateur a choisi 1 et 5, livrées) : (4) tempo bloqué — proposer un tempo progressif quand un exercice reste au même BPM 5 séances de suite ;
-  (6) convertir en lot les 10 morceaux de la Guitare (`openSongsConvertDialog` existe) ; (7) filtre « sans lien ni note » et vidage de la corbeille par ancienneté (24 éléments, surtout des copies/tests) ;
-  (8) vue « Ma pratique » (minutes par chapitre, part exercices/morceaux, régularité) ; relier les statistiques d'un morceau et de son exercice tiré (proposé, non demandé).
-- **Autres sujets ouverts** : bug de son Safari en session libre (voir plus haut ; piste proposée non poussée : fermer/suspendre le contexte audio inactif — attend le feu vert) ; dé d'harmonie sans remise ;
-  graphie des enharmoniques.
+- **Idées proposées, pas encore faites** : (4) tempo bloqué — proposer un tempo progressif quand un exercice reste au même BPM 5 séances de suite ;
+  (6) convertir en lot les 10 morceaux de la Guitare (`openSongsConvertDialog` existe) ; (8) vue « Ma pratique » (minutes par chapitre, part exercices/morceaux, régularité) ; relier les statistiques d'un morceau et de son exercice tiré (proposé, non demandé).
+- **Sujet resté ouvert : « graphie des enharmoniques »** — on n'a pas su ce que l'utilisateur veut dire. Audit fait le 5 nov. (toutes les gammes × 12 tonalités, `spellBest`) : une lettre par degré, tonique au moins altérée (F♯ avant G♭ à égalité) ; les doubles altérations qui restent sont
+  inévitables (Do dim7 = C E♭ G♭ B𝄫, Mi lydien ♯2…) ; la tonique n'est jamais renommée hors des deux noms du menu (pas de B♯ ni de C♭ pour C ou B). Rien changé. **Demander à l'utilisateur un exemple précis** (où, quelle note, ce qu'il voit, ce qu'il attend) avant de coder.
 - **Limite à toujours dire** : tout est testé sous Chromium seulement ; ne jamais écrire « vérifié sur Safari/iPhone ». Réponses de l'utilisateur en français, courtes et honnêtes.

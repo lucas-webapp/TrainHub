@@ -6,7 +6,7 @@ const { chromium } = require('playwright');
 const harnais = require('/home/user/trainhub/tests/_harness');
 const { check, plan, bilan } = harnais('TrainHub : journal du son et son bloqué');
 const estBruitReseau = harnais.estBruitReseau;
-plan(67);
+plan(75);
 
 const URL = 'http://localhost:8765/index.html';
 const sel = k => !process.env.ONLY || process.env.ONLY.split(',').includes(k); // ONLY=A,B : seulement ces scénarios
@@ -20,6 +20,7 @@ async function ouvrir(browser, ctxExistant, opts = {}) {
     page.on('pageerror', e => erreurs.push('pageerror: ' + e.message));
     page.on('console', m => { if (m.type() === 'error' && !estBruitReseau(m.text()) && !/ERR_FAILED/.test(m.text())) erreurs.push('console: ' + m.text()); });
     await page.route('https://www.gstatic.com/firebasejs/**', r => r.abort('failed'));
+    if (opts.idleMs) await page.route('**/script.js', async r => { const rep = await r.fetch(); r.fulfill({ response: rep, body: (await rep.text()).replace('METRO_IDLE_MS = 60000', 'METRO_IDLE_MS = ' + opts.idleMs) }); }); // délai d'inactivité raccourci pour le banc
     await page.addInitScript(({ avecBouee, secours }) => {
         try { localStorage.setItem('compteCloud.trainhub.nePlusProposer', '1'); if (avecBouee) localStorage.setItem('trainhub.metroLife.v1', '1'); if (secours) localStorage.setItem('trainhub.metroFallback.v1', '1'); } catch (e) { } // la bouée est désactivée par défaut : les scénarios qui l'éprouvent l'activent
         // bouée immobile à la demande : tant que window.__gel est vrai, l'élément qui boucle (la bouée) répond toujours 0 comme temps de lecture
@@ -361,6 +362,35 @@ const toast = page => page.locator('.toast').first().innerText().catch(() => '')
         await nouvelle.waitForTimeout(1500);
         const l = (await journal(nouvelle)).find(x => /arrêtée sans prévenir/.test(x)) || '';
         check(/session libre active, \d+ éléments dans la page, dernier affichage de la page : \d+ ms/.test(l), `K. le journal après un gel le dit : « ${l.slice(l.indexOf('session libre'))} »`);
+        await ctx.close();
+    }
+
+    // ================= L. Contexte audio inactif fermé (v260) : jamais pendant la lecture, fermé après l'arrêt, le lancement suivant repart sur un contexte neuf =================
+    if (sel('L')) {
+        const { ctx, page, erreurs } = await ouvrir(browser, null, { bouee: false, idleMs: 2500 });
+        await lancer(page);
+        await page.waitForTimeout(7500); // trois fois le délai d'inactivité, métronome en marche
+        let j = await attendreJournal(page);
+        check(!j.some(l => /inactif fermé/.test(l)), 'L. métronome en marche : le contexte audio n\'est jamais fermé pour inactivité');
+        let vie = await page.evaluate(() => JSON.parse(localStorage.getItem('trainhub.audioAlive.v1') || 'null'));
+        check(vie && /^ctx\d+:running/.test(vie.ctx), `L. et il joue toujours (${vie && vie.ctx})`);
+        await page.click('.metro-play-btn-big'); // arrêt
+        await page.waitForTimeout(8000);
+        j = await attendreJournal(page);
+        const fermeture = j.filter(l => /contexte audio inactif fermé/.test(l));
+        check(fermeture.length === 1, `L. une fois le métronome arrêté, le contexte inactif est fermé, une seule fois (${fermeture.length} ligne)`);
+        check(/ctx\d+:running/.test(fermeture[0] || ''), `L. le journal dit lequel et son état (« ${(fermeture[0] || '').slice(-90)} »)`);
+        const osc0 = await page.evaluate(() => window.__osc);
+        await page.click('.metro-play-btn-big');
+        await page.waitForTimeout(1800);
+        const osc1 = await page.evaluate(() => window.__osc);
+        j = await attendreJournal(page);
+        vie = await page.evaluate(() => JSON.parse(localStorage.getItem('trainhub.audioAlive.v1') || 'null'));
+        check(osc1 > osc0 + 1, `L. le lancement suivant joue des clics sur un contexte neuf (${osc1 - osc0} clics)`);
+        check(vie && /^ctx\d+:running/.test(vie.ctx), `L. ce contexte neuf est en marche (${vie && vie.ctx})`);
+        check(j.filter(l => /contexte neuf adopté/.test(l)).length >= 2, 'L. le journal note l\'adoption d\'un contexte neuf au second lancement');
+        await page.click('.metro-play-btn-big');
+        check(erreurs.length === 0, 'L. aucune erreur JavaScript ' + JSON.stringify(erreurs));
         await ctx.close();
     }
 

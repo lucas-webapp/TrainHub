@@ -2041,6 +2041,43 @@
         render();
     }
 
+    // Vidage par ancienneté : les éléments mis à la corbeille il y a plus de `days` jours (la date de suppression fait foi).
+    var TRASH_AGE_CHOICES = [7, 30, 90];
+    function trashOlderThan(days) {
+        var limit = Date.now() - days * 86400000;
+        return state.settings.trash.filter(function (e) { return (e.deletedAt || 0) < limit; });
+    }
+    function purgeTrashEntries(entries) {
+        var ids = {};
+        entries.forEach(function (e) { ids[e.id] = true; });
+        var gone = state.settings.trash.filter(function (e) { return ids[e.id]; });
+        state.settings.trash = state.settings.trash.filter(function (e) { return !ids[e.id]; });
+        gone.forEach(purgeTrashEntry);
+        save();
+        render();
+    }
+    // Nombre d'exercices à la corbeille : ceux mis seuls, plus ceux qui sont dans un dossier ou un espace supprimé (les sessions ne comptent pas).
+    function trashExerciseCount() {
+        var n = 0;
+        (state.settings.trash || []).forEach(function (e) {
+            if (!e || !e.data) return;
+            if (e.type === "exercise") n++;
+            else if (e.type === "folder") n += folderExerciseIds(e.data).length;
+            else if (e.type === "instrument") (e.data.categories || []).forEach(function (c) { n += folderExerciseIds(c).length; });
+        });
+        return n;
+    }
+    // Rappel discret : plus de 20 exercices à la corbeille. Une fois par jour au plus (par appareil), jamais pendant une session ni sous une boîte ouverte.
+    var TRASH_REMIND_OVER = 20, TRASH_REMIND_KEY = "trainhub.trashRemind.v1";
+    function trashRemindCheck() {
+        var n = trashExerciseCount();
+        if (n <= TRASH_REMIND_OVER || dlgIsOpen() || freeRun || gsRunSession) return false;
+        var today = calTodayKey();
+        try { if (localStorage.getItem(TRASH_REMIND_KEY) === today) return false; localStorage.setItem(TRASH_REMIND_KEY, today); } catch (e) {}
+        showToast("La corbeille contient " + n + " exercices : pense à la vider.", 9000, { label: "Ouvrir", run: openTrashPanel });
+        return true;
+    }
+
     // Recherche un dossier (chapitre ou sous-dossier) par id dans TOUT l'instrument, pour retrouver
     // le parent d'un élément mis à la corbeille (voir restoreFromTrash).
     function findFolderById(inst, folderId) {
@@ -9399,6 +9436,30 @@
                         openTrashPanel();
                     });
                 });
+                var olderBtn = document.createElement("button");
+                olderBtn.type = "button";
+                olderBtn.className = "btn-ghost trash-older-btn";
+                olderBtn.textContent = "Vider les plus anciens…";
+                olderBtn.addEventListener("click", function () {
+                    var buttons = [];
+                    TRASH_AGE_CHOICES.forEach(function (days) {
+                        var list = trashOlderThan(days);
+                        if (!list.length || (buttons.length && buttons[buttons.length - 1].count === list.length)) return; // pas de choix qui viderait la même chose
+                        buttons.push({ label: "De plus de " + days + " jours (" + list.length + " élément" + (list.length > 1 ? "s" : "") + ")", kind: "danger", count: list.length, onClick: function () {
+                            var ids = [];
+                            list.forEach(function (e) { if (e.type === "exercise" && e.data) ids.push(e.data.id); else if (e.type === "folder" && e.data) ids = ids.concat(folderExerciseIds(e.data)); });
+                            var u = ids.length ? exerciseUsage(ids) : { sessions: [] };
+                            var warn = u.sessions.length ? [exerciseUsageText(u).replace(/^Utilisé/, "Des exercices sont utilisés") + " Ces pas resteront « exercice supprimé » pour de bon."] : [];
+                            dlgConfirm({ title: "Supprimer définitivement ?", message: list.length + " élément" + (list.length > 1 ? "s" : "") + " mis à la corbeille il y a plus de " + days + " jours ne pourront plus être récupérés.", warnings: warn, confirmLabel: "Supprimer", danger: true }, function () {
+                                purgeTrashEntries(list);
+                                openTrashPanel();
+                            });
+                        } });
+                    });
+                    if (!buttons.length) { showToast("Rien d'aussi ancien dans la corbeille (le plus vieux date de moins de " + TRASH_AGE_CHOICES[0] + " jours).", 4500); return; }
+                    dlgChoice({ title: "Vider les plus anciens", message: "Choisis l'ancienneté : seuls les éléments plus vieux que ça sont supprimés définitivement.", buttons: buttons });
+                });
+                emptyRow.appendChild(olderBtn);
                 emptyRow.appendChild(emptyAllBtn);
                 panel.appendChild(emptyRow);
             }
@@ -10407,7 +10468,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v259"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v260"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }
@@ -10573,7 +10634,31 @@
         if (metroAudioCtx.state !== "running") {
             try { var pr = metroAudioCtx.resume(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {}
         }
+        metroLastUse = Date.now();
+        if (!metroPlaying) metroIdleArm();
         return metroAudioCtx;
+    }
+    // Contexte audio inactif : après METRO_IDLE_MS sans métronome, lecteur d'harmonie, enregistrement ni son d'alerte à venir, on le FERME (le suivant sera
+    // un contexte neuf, créé pendant un geste). Un contexte laissé « en marche » des heures sans rien jouer est la piste retenue pour le son coupé de Safari en
+    // session libre : la sortie son est rendue au système, et il n'y a plus de contexte ancien qui puisse tomber muet pendant qu'une autre appli prend la main.
+    // Pas fermé pendant une session guidée dont la cloche ou l'enchaînement automatique sonnent sans geste (Safari ne réveillerait pas un contexte neuf).
+    var METRO_IDLE_MS = 60000, metroIdleTimer = null, metroLastUse = 0;
+    function metroIdleBusy() {
+        return metroPlaying || metroStarting || metroCtxBusy() || !!metroSwapCand || (!!gsRunSession && (gsAutoAdvanceOn() || gsBellOn()));
+    }
+    function metroIdleArm() {
+        if (metroIdleTimer) clearTimeout(metroIdleTimer);
+        metroIdleTimer = setTimeout(metroIdleCheck, METRO_IDLE_MS);
+    }
+    function metroIdleCheck() {
+        metroIdleTimer = null;
+        var ctx = metroAudioCtx;
+        if (!ctx) return;
+        if (metroIdleBusy()) metroLastUse = Date.now(); // le délai court à partir de la fin de l'usage (la queue du dernier son finit de jouer)
+        if (metroIdleBusy() || Date.now() - metroLastUse < METRO_IDLE_MS - 1000) { metroIdleArm(); return; }
+        audioLog("contexte audio inactif fermé (" + audioCtxTag(ctx) + ", rien joué depuis " + Math.round((Date.now() - metroLastUse) / 1000) + " s)");
+        try { ctx.onstatechange = null; ctx.close(); } catch (e) {}
+        metroAudioCtx = null; metroMasterGain = null; metroClockProbe = null;
     }
     // Tant que le métronome joue et que le contexte audio n'est pas en marche, on tente de le réveiller (toutes les 0,5 s).
     var metroReviveTimer = null;
@@ -15034,20 +15119,27 @@
         if (!mem.history) mem.history = [];
         var ids = harmActiveIds(cfg);
         if (!ids.length || harmEmptyDice(cfg).length) return null;
-        var pick = { aid: cfg.aid };
+        var pick = { aid: cfg.aid }, store = diceBagStore();
         ids.forEach(function (id) {
-            var faces = harmFaces(cfg, id), rec = mem.recent[id] || (mem.recent[id] = []);
+            var faces = harmFaces(cfg, id);
             if (id === "cons" && pick.prog) { // une consigne propre aux gammes harmonisées ne sort qu'avec une grille qui parcourt les degrés
                 var fit = faces.filter(function (f) { return harmConsFits(harmConsById(f), pick.prog); });
                 if (fit.length) faces = fit;
             }
-            var pool = faces.filter(function (f) { return rec.indexOf(f) === -1; });
-            if (!pool.length) pool = faces;
-            var f = pool[Math.floor(Math.random() * pool.length)];
-            rec.push(f);
-            while (rec.length > Math.max(0, Math.min(id === "key" ? 4 : 3, faces.length - 1))) rec.shift();
+            // Sans remise, comme le dé de gammes : chaque dé tire dans un sac mélangé (toutes ses faces passent avant qu'une revienne) ; la première
+            // du sac suivant évite les dernières sorties. Sac et dernières faces retenus sur l'appareil, par dé et par jeu de faces.
+            var sig = "h:" + id + ":" + faces.join(","), st = store[sig];
+            if (!st || !Array.isArray(st.bag) || !Array.isArray(st.last)) st = store[sig] = { bag: [], last: [] };
+            st.bag = st.bag.filter(function (f) { return faces.indexOf(f) !== -1; });
+            var keep = Math.max(0, Math.min(id === "key" ? 4 : 3, faces.length - 1));
+            if (!st.bag.length) st.bag = diceRefillBag(faces, st.last, keep);
+            var f = st.bag.shift();
+            st.last.push(f);
+            while (st.last.length > 4) st.last.shift();
+            delete store[sig]; store[sig] = st; // le plus récemment utilisé en dernier (ménage du plus ancien)
             pick[id] = f;
         });
+        diceBagSave(store);
         var pc = pick.cons != null && pick.prog ? harmConsById(pick.cons) : null;
         if (pc && !harmConsFits(pc, pick.prog)) { // aucune consigne compatible avec la grille tirée : on retire plutôt une grille compatible avec la consigne
             var okProgs = cfg.prog.filter(function (pid) { return harmConsFits(pc, pid); });
@@ -26407,6 +26499,7 @@
 
     // ---------- init ----------
     render();
+    setTimeout(trashRemindCheck, 4000); // plus de 20 exercices à la corbeille : un rappel par jour au plus
     setTimeout(gsLiveCheck, 400); // trace d'une session interrompée (fermeture brutale) : reprendre ou enregistrer
 
     if ("serviceWorker" in navigator) {

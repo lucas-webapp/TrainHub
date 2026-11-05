@@ -944,7 +944,7 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
 .backups-reason { font-size: var(--fs-2xs); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .backups-actions { display: flex; gap: 6px; flex: none; }
 .backups-actions button { font-size: var(--fs-2xs); padding: 6px 10px; }
-.backups-close-row { display: flex; justify-content: flex-end; }
+.backups-close-row { display: flex; justify-content: flex-end; gap: 8px; }
 
 /* ---------- menu contextuel (renommer / supprimer) ---------- */
 .ctx-backdrop { position: fixed; inset: 0; z-index: 900; background: transparent; }
