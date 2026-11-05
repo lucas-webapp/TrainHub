@@ -377,6 +377,7 @@ const comptesArbre = page => page.locator('.song-tree-node .tree-count').allInne
         // archiver : le morceau sort des rangements (on repart d'une page sans sélection)
         await page.reload(); await page.waitForTimeout(700); await ouvrirChapitre(page, 'Morceaux');
         await page.locator('.exercise[data-ex-id="m8"] .exercise-row').click({ button: 'right' });
+        await page.locator('.ctx-more-btn').click(); // les actions rares sont sous « Plus d'actions »
         check(await page.locator('.ctx-item', { hasText: 'Dupliquer' }).count() === 0 && await page.locator('.ctx-item', { hasText: 'Liaison' }).count() === 0 && await page.locator('.ctx-item', { hasText: 'Lier' }).count() === 0, 'F. un morceau ne se duplique pas et ne se lie pas : pas de « Dupliquer » ni de « Liaison »');
         check(await page.locator('.ctx-item', { hasText: 'Classer' }).count() === 1, 'F. mais « Classer : style, technique, travail… » est proposé');
         await page.locator('.ctx-item', { hasText: 'Archiver' }).click(); await page.waitForTimeout(400);
@@ -516,6 +517,7 @@ const comptesArbre = page => page.locator('.song-tree-node .tree-count').allInne
         const a = await ouvrir(browser, { etat: etatMorceaux() });
         await a.page.locator('.tree-node > .tree-row', { hasText: 'Technique' }).first().click(); await a.page.waitForTimeout(300);
         await a.page.locator('.exercise[data-ex-id="t1"] .exercise-row').click({ button: 'right' }); await a.page.waitForTimeout(250);
+        await a.page.locator('.ctx-more-btn').click();
         const items = await a.page.locator('.ctx-menu .ctx-item').allTextContents();
         check(items.some(t => /Transformer en morceau/.test(t)), 'K. le menu d\'un exercice ordinaire propose « Transformer en morceau… »');
         await a.page.locator('.ctx-item', { hasText: 'Transformer en morceau' }).click(); await a.page.waitForTimeout(300);
@@ -537,6 +539,7 @@ const comptesArbre = page => page.locator('.song-tree-node .tree-count').allInne
         const b = await ouvrir(browser, { etat: etatDepart() });
         await b.page.locator('.tree-node > .tree-row', { hasText: 'Technique' }).first().click(); await b.page.waitForTimeout(300);
         await b.page.locator('.exercise[data-ex-id="t1"] .exercise-row').click({ button: 'right' });
+        await b.page.locator('.ctx-more-btn').click();
         await b.page.locator('.ctx-item', { hasText: 'Transformer en morceau' }).click(); await b.page.waitForTimeout(300);
         const btns = await b.page.locator('.app-dialog button').allTextContents();
         check(btns.some(t => /Transformer « Morceaux »/.test(t)) && btns.some(t => /Créer un chapitre de morceaux/.test(t)), 'K. sans chapitre de morceaux : on propose de transformer « Morceaux » ou d\'en créer un (' + btns.join(' | ') + ')');

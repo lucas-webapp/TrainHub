@@ -5254,3 +5254,13 @@ html[data-glass="1"] .tree-node:is(.tree-title-top, .tree-title-bottom) > .tree-
 .songs-cleanup-note { font-size: var(--fs-xs); color: var(--text-muted); }
 .songs-cleanup-acts { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 button.songs-cleanup-btn { height: 32px; padding: 0 12px; font-size: var(--fs-xs); font-weight: 700; }
+
+/* v259 — menu « Plus d'actions », parenté morceau/exercice, doublons du ménage en lecture seule */
+.ctx-more { display: flex; flex-direction: column; border-left: 2px solid var(--border); margin: 0 0 2px 8px; }
+.ctx-more[hidden] { display: none; }
+.ctx-more-btn { color: var(--text-muted); font-weight: 600; }
+.ex-kin { margin-top: 8px; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.5; }
+button.ex-kin-link { border: 0; background: transparent; padding: 0; font: inherit; color: var(--accent); cursor: pointer; text-align: left; }
+button.ex-kin-link:hover { text-decoration: underline; }
+.songs-cleanup-dup-where { flex: 1; min-width: 0; }
+button.songs-cleanup-see { flex: none; height: 28px; padding: 0 10px; font-size: var(--fs-xs); }

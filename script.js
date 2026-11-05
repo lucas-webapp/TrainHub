@@ -3428,6 +3428,77 @@
 
     // Transforme un exercice ordinaire en morceau : « Artiste - Titre » (proposé d'après son titre), puis rangé dans un chapitre de morceaux de son espace.
     // Ses notes, liens, fichiers, tempo et favori suivent. Sans chapitre de morceaux : on propose de transformer un chapitre existant ou d'en créer un.
+    // Morceau → exercice : le passage qu'on veut travailler à part (« Slap », « Funk »…). Le nouvel exercice reprend le titre (modifiable) et les liens, puis vit sa vie : ses
+    // propres liens, métronome, notes, objectif tempo. Rien des caractéristiques du morceau (artiste, style, technique, travail) ne le suit. Il garde seulement le souvenir du
+    // morceau d'où il vient (`fromSongId`), pour passer de l'un à l'autre en un clic.
+    var SONG_TO_EX_KEY = "trainhub.songToEx.v1"; // dernier dossier choisi, proposé en premier la fois suivante
+    function folderPathIn(inst, folderId) {
+        var out = null;
+        (function walk(list, names) { list.forEach(function (f) { if (out) return; var n = names.concat(f.name); if (f.id === folderId) out = n; else walk(f.folders || [], n); }); })(inst.categories, []);
+        return out;
+    }
+    function songToExercise(song, after) {
+        var f = findExerciseById(song.id);
+        if (!f || !song.isSong) return;
+        var inst = f.inst, songChapIds = inst.categories.filter(isSongsChapter).map(function (c) { return c.id; });
+        function create(dest) {
+            dlgPrompt({ title: "Exercice tiré d'un morceau", message: "Il reprend le titre et les liens de « " + song.title + " », puis vit sa vie à part (liens, métronome, notes). Les caractéristiques du morceau ne le suivent pas.", value: song.title, confirmLabel: "Créer" }, function (txt) {
+                var title = String(txt || "").trim();
+                if (!title) return;
+                ifNameFree(exerciseTitleTaken(dest.exercises, title), "exercice", title, "Créer quand même", function () {
+                    var idMap = {};
+                    var links = (song.links || []).map(function (l) { var c = cloneJson(l); idMap[l.id] = c.id = uid(); return c; });
+                    var ex = { id: uid(), title: title, notes: "", fixedNotes: "", favorite: false, archived: false, links: links, files: [], images: [], metronome: null,
+                        pinnedLinkId: song.pinnedLinkId && idMap[song.pinnedLinkId] ? idMap[song.pinnedLinkId] : null, notesArchive: [], noteDates: [], collapsed: true, fromSongId: song.id, updatedAt: Date.now() };
+                    dest.exercises.push(ex);
+                    try { localStorage.setItem(SONG_TO_EX_KEY, dest.id); } catch (e) {}
+                    save(); render();
+                    if (after) after();
+                    toastUndo("Exercice « " + title + " » créé dans « " + dest.name + " »");
+                });
+            });
+        }
+        function pick() { openFolderPickerModal("Exercice tiré de « " + song.title + " » : dans quel dossier ?", songChapIds, create); }
+        var last = null; try { last = localStorage.getItem(SONG_TO_EX_KEY); } catch (e) {}
+        var lastFolder = last ? findFolderById(inst, last) : null, lastPath = lastFolder ? folderPathIn(inst, last) : null;
+        var lastRoot = lastFolder ? inst.categories.filter(function (c) { return !!findFolderById({ categories: [c] }, last); })[0] : null;
+        if (lastFolder && lastPath && lastRoot && songChapIds.indexOf(lastRoot.id) === -1) { // dernier dossier utilisé, s'il existe encore et n'est pas un chapitre de morceaux
+            dlgChoice({ title: "Travailler en exercice", message: "« " + song.title + " » : dans quel dossier créer l'exercice ?", buttons: [
+                { label: lastPath.join(" › "), kind: "primary", cls: "song-to-ex-last", onClick: function () { create(lastFolder); } },
+                { label: "Un autre dossier…", kind: "plain", cls: "song-to-ex-other", onClick: pick }
+            ] });
+            return;
+        }
+        pick();
+    }
+    // Lignes de parenté (fiche ouverte) : « Tiré du morceau : … » sur l'exercice, « Travaillé aussi en exercice : … » sur le morceau.
+    function buildKinshipLine(ex) {
+        var frag = document.createDocumentFragment();
+        function link(text, id) {
+            var b = document.createElement("button"); b.type = "button"; b.className = "ex-kin-link"; b.textContent = text;
+            b.addEventListener("click", function (e) { e.stopPropagation(); revealExercise(id); });
+            return b;
+        }
+        if (ex.fromSongId) {
+            var f = findExerciseById(ex.fromSongId);
+            if (f) {
+                var line = document.createElement("div"); line.className = "ex-kin ex-kin-from";
+                line.appendChild(document.createTextNode("Tiré du morceau : ")); line.appendChild(link(f.ex.title, f.ex.id));
+                frag.appendChild(line);
+            }
+        }
+        if (ex.isSong) {
+            var kids = [];
+            state.instruments.forEach(function (inst) { collectExercises(inst, function (o) { return o.fromSongId === ex.id; }).forEach(function (r) { kids.push(r); }); });
+            if (kids.length) {
+                var l2 = document.createElement("div"); l2.className = "ex-kin ex-kin-to";
+                l2.appendChild(document.createTextNode("Travaillé aussi en exercice : "));
+                kids.forEach(function (r, i) { if (i) l2.appendChild(document.createTextNode(", ")); l2.appendChild(link(r.pathNames.join(" › ") + " › " + r.ex.title, r.ex.id)); });
+                frag.appendChild(l2);
+            }
+        }
+        return frag;
+    }
     function exerciseToSong(ex, after) {
         var f = findExerciseById(ex.id);
         if (!f || ex.isSong) return;
@@ -3536,15 +3607,13 @@
             menu.appendChild(useLine);
         }
 
+        // Les actions de tous les jours sont en tête ; les plus rares sont rangées sous « Plus d'actions » (un clic les déplie).
+        var more = document.createElement("div"); more.className = "ctx-more"; more.hidden = true;
+        function rare(btn) { more.appendChild(btn); }
         if (opts.reveal) menu.appendChild(menuButton("Ouvrir dans son dossier", "", function () { closeFolderMenu(); revealExercise(ex.id); }));
         if (ex.isSong) menu.appendChild(menuButton("Classer : style, technique, travail…", "", function () { closeFolderMenu(); ex.collapsed = false; save(); render(); }));
         menu.appendChild(menuButton("Renommer…", "", function () { closeFolderMenu(); renameExercisePrompt(ex, folder, opts.after); }));
-        if (!ex.isSong && !ex.archived) menu.appendChild(menuButton("♪ Transformer en morceau…", "", function () { closeFolderMenu(); exerciseToSong(ex, opts.after); }));
         if (!opts.noAddToSession) menu.appendChild(menuButton("Ajouter à une session…", "", function () { closeFolderMenu(); openAddToSessionMenu(x, y, ex); }));
-        menu.appendChild(menuButton("Remplacer partout par…", "", function () { closeFolderMenu(); startReplaceEverywhere(ex.id, ex.title); }));
-        var nLinked = linkedOthers(ex).length;
-        if (!ex.isSong) menu.appendChild(menuButton(nLinked ? "🔗 Liaison (" + nLinked + ")… rompre ou modifier" : "🔗 Lier à un autre exercice…", "", function () { openExerciseLinksDialog(ex, opts.after); }));
-        if (!opts.noSelect) menu.appendChild(menuButton(ex.id in exSel ? "☐ Désélectionner" : "☑ Sélectionner (plusieurs)", "", function () { closeFolderMenu(); exSelToggle(ex.id); }));
         menu.appendChild(menuButton(exInProgress(ex) ? "● Retirer « En cours »" : "○ Marquer « En cours »", "", function () {
             exSetInProgress(ex, !exInProgress(ex));
             save();
@@ -3556,45 +3625,60 @@
             save();
             done();
         }));
-        menu.appendChild(menuButton(ex.archived ? "Désarchiver" : "Archiver", "", function () {
+        if (folder) menu.appendChild(menuButton("Déplacer vers…", "", function () {
+            closeFolderMenu();
+            openFolderPickerModal("Déplacer « " + ex.title + " » vers…", [], function (dest) {
+                if (dest === folder) return;
+                ifNameFree(exerciseTitleTaken(dest.exercises, ex.title), "exercice", ex.title, "Déplacer quand même", function () {
+                    folder.exercises.splice(folder.exercises.indexOf(ex), 1);
+                    dest.exercises.push(ex);
+                    save();
+                    render();
+                    if (opts.after) opts.after();
+                    toastUndo("« " + ex.title + " » déplacé vers « " + dest.name + " »");
+                });
+            });
+        }));
+
+        // ---- sous « Plus d'actions » ----
+        if (ex.isSong && !ex.archived) rare(menuButton("Travailler un passage en exercice…", "", function () { closeFolderMenu(); songToExercise(ex, opts.after); }));
+        if (!ex.isSong && !ex.archived) rare(menuButton("♪ Transformer en morceau…", "", function () { closeFolderMenu(); exerciseToSong(ex, opts.after); }));
+        rare(menuButton("Remplacer partout par…", "", function () { closeFolderMenu(); startReplaceEverywhere(ex.id, ex.title); }));
+        var nLinked = linkedOthers(ex).length;
+        if (!ex.isSong) rare(menuButton(nLinked ? "🔗 Liaison (" + nLinked + ")… rompre ou modifier" : "🔗 Lier à un autre exercice…", "", function () { openExerciseLinksDialog(ex, opts.after); }));
+        if (!opts.noSelect) rare(menuButton(ex.id in exSel ? "☐ Désélectionner" : "☑ Sélectionner (plusieurs)", "", function () { closeFolderMenu(); exSelToggle(ex.id); }));
+        if (folder && !ex.isSong) rare(menuButton("Dupliquer", "", function () { // un morceau ne se duplique pas : on le range par ses caractéristiques
+            folder.exercises.push(duplicateExercise(ex));
+            save();
+            done();
+            // La copie ne reprend pas le statut favori/archivé (voir duplicateExercise) : sans ce
+            // message, dupliquer depuis la vue Archivés ferait "disparaître" la copie de cette vue
+            // sans explication, l'air d'un bug plutôt que d'un choix.
+            if (ex.favorite || ex.archived) {
+                showToast("Copie créée dans « " + folder.name + " » (non " + (ex.archived ? "archivée" : "favorite") + ")");
+            } else showToast("Copie liée à l'original : pièces jointes et réglages communs (clic droit › Plus d'actions › Liaison pour les séparer)", 5000);
+        }));
+        rare(menuButton(ex.archived ? "Désarchiver" : "Archiver", "", function () {
             ex.archived = !ex.archived;
             touchExercise(ex);
             save();
             done();
             if (ex.archived && usage.sessions.length) showToast("« " + ex.title + " » archivé : il reste dans ses sessions (rien n'est perdu).", 4500);
         }));
-
-        if (folder) {
-            if (!ex.isSong) menu.appendChild(menuButton("Dupliquer", "", function () { // un morceau ne se duplique pas : on le range par ses caractéristiques
-                folder.exercises.push(duplicateExercise(ex));
-                save();
-                done();
-                // La copie ne reprend pas le statut favori/archivé (voir duplicateExercise) : sans ce
-                // message, dupliquer depuis la vue Archivés ferait "disparaître" la copie de cette vue
-                // sans explication, l'air d'un bug plutôt que d'un choix.
-                if (ex.favorite || ex.archived) {
-                    showToast("Copie créée dans « " + folder.name + " » (non " + (ex.archived ? "archivée" : "favorite") + ")");
-                } else showToast("Copie liée à l'original : pièces jointes et réglages communs (clic droit › Liaison pour les séparer)", 5000);
-            }));
-            menu.appendChild(menuButton("Déplacer vers…", "", function () {
-                closeFolderMenu();
-                openFolderPickerModal("Déplacer « " + ex.title + " » vers…", [], function (dest) {
-                    if (dest === folder) return;
-                    ifNameFree(exerciseTitleTaken(dest.exercises, ex.title), "exercice", ex.title, "Déplacer quand même", function () {
-                        folder.exercises.splice(folder.exercises.indexOf(ex), 1);
-                        dest.exercises.push(ex);
-                        save();
-                        render();
-                        if (opts.after) opts.after();
-                        toastUndo("« " + ex.title + " » déplacé vers « " + dest.name + " »");
-                    });
-                });
-            }));
-            menu.appendChild(menuButton("Supprimer…", "ctx-danger", function () {
-                closeFolderMenu();
-                deleteExerciseGuarded(ex, folder, (findExerciseById(ex.id) || {}).inst, opts.after);
-            }));
+        if (more.childNodes.length) {
+            var moreBtn = menuButton("Plus d'actions ▾", "ctx-more-btn", function () {
+                more.hidden = !more.hidden;
+                moreBtn.textContent = more.hidden ? "Plus d'actions ▾" : "Moins d'actions ▴";
+                moreBtn.setAttribute("aria-expanded", more.hidden ? "false" : "true");
+                place();
+            });
+            moreBtn.setAttribute("aria-expanded", "false");
+            menu.appendChild(moreBtn); menu.appendChild(more);
         }
+        if (folder) menu.appendChild(menuButton("Supprimer…", "ctx-danger", function () {
+            closeFolderMenu();
+            deleteExerciseGuarded(ex, folder, (findExerciseById(ex.id) || {}).inst, opts.after);
+        }));
 
         function onKey(e) { if (e.key === "Escape") closeFolderMenu(); }
 
@@ -5877,16 +5961,16 @@
         });
         return out;
     }
-    // Exercices (tous chapitres, hors archivés) qui portent le même titre.
+    // Exercices (tous chapitres, hors archivés) qui portent le même titre ; les morceaux ne sont comparés qu'entre eux.
     function exerciseTitleDuplicates(inst) {
         var by = {}, out = [];
-        collectExercises(inst, function (ex) { return !ex.archived; }).forEach(function (r) { var k = songNorm(r.ex.title); (by[k] || (by[k] = [])).push(r); });
-        Object.keys(by).forEach(function (k) { if (k && by[k].length > 1) out.push(by[k]); });
+        collectExercises(inst, function (ex) { return !ex.archived; }).forEach(function (r) { var k = (r.ex.isSong ? "s:" : "e:") + songNorm(r.ex.title); (by[k] || (by[k] = [])).push(r); });
+        Object.keys(by).forEach(function (k) { if (k.length > 2 && by[k].length > 1) out.push(by[k]); });
         return out;
     }
     function openSongsCleanupDialog(inst, ch) {
         openModal("songs-cleanup-panel", function (panel, close) {
-            var title = document.createElement("div"); title.className = "backups-title"; title.textContent = "Ménage : artistes et doublons"; panel.appendChild(title);
+            var title = document.createElement("div"); title.className = "backups-title"; title.textContent = "Ménage : artistes et titres en double"; panel.appendChild(title);
             var body = document.createElement("div"); body.className = "songs-cleanup-body"; panel.appendChild(body);
             function radios(name, items, label, onPick) {
                 var wrap = document.createElement("div"); wrap.className = "songs-cleanup-opts";
@@ -5923,30 +6007,24 @@
                     });
                     acts.appendChild(no); acts.appendChild(go); box.appendChild(acts); body.appendChild(box);
                 });
-                var h2 = document.createElement("div"); h2.className = "songs-cleanup-h"; h2.textContent = "Exercices au même titre"; body.appendChild(h2);
+                // Doublons de titre : on les MONTRE seulement (rien n'est fusionné ni supprimé ici) ; « Voir » ouvre l'exercice dans son dossier. Un morceau et un exercice
+                // qui portent le même titre (le passage travaillé en exercice) ne sont pas des doublons.
+                var h2 = document.createElement("div"); h2.className = "songs-cleanup-h"; h2.textContent = "Exercices au même titre (à titre d'information)"; body.appendChild(h2);
                 if (!dups.length) { var n2 = document.createElement("div"); n2.className = "gs-empty"; n2.textContent = "Aucun doublon de titre."; body.appendChild(n2); }
                 var idx = lastPlayedIndex();
-                dups.forEach(function (g, gi) {
-                    var info = g.map(function (r) {
-                        var played = (idx.by[r.ex.id] || {}).n || 0, nl = (r.ex.links || []).length + (r.ex.files || []).length + (r.ex.images || []).length, note = !!(r.ex.notes || "").trim();
-                        return { r: r, played: played, score: played * 3 + nl + (note ? 2 : 0), text: r.pathNames.join(" › ") + " — " + (nl ? nl + " pièce" + (nl > 1 ? "s" : "") + " jointe" + (nl > 1 ? "s" : "") + ", " : "") + (note ? "une note, " : "") + (played ? "jouée " + played + " fois" : "jamais jouée") };
-                    });
-                    info.sort(function (a, b) { return b.score - a.score; });
+                dups.forEach(function (g) {
                     var box = document.createElement("div"); box.className = "songs-cleanup-group"; box.dataset.kind = "dup";
                     var tt = document.createElement("div"); tt.className = "songs-cleanup-dup-title"; tt.textContent = "« " + g[0].ex.title + " » × " + g.length; box.appendChild(tt);
-                    var keep = 0;
-                    box.appendChild(radios("dup" + gi, info, function (x) { return x.text; }, function (i) { keep = i; }));
-                    var note = document.createElement("div"); note.className = "songs-cleanup-note"; note.textContent = "Garder la ligne cochée : les autres vont à la corbeille (rétablissables), leurs séances et leurs sessions passent sur celle gardée."; box.appendChild(note);
-                    var acts = document.createElement("div"); acts.className = "songs-cleanup-acts";
-                    var go = document.createElement("button"); go.type = "button"; go.className = "btn-accent songs-cleanup-go"; go.textContent = "Fusionner les doublons";
-                    go.addEventListener("click", function () {
-                        var kept = info[keep].r.ex, others = info.filter(function (x, i) { return i !== keep; });
-                        dlgConfirm({ title: "Fusionner les doublons de « " + kept.title + " » ?", message: others.length + " exemplaire" + (others.length > 1 ? "s" : "") + " à la corbeille ; leurs notes, liens et fichiers ne sont pas repris dans celui gardé (ils restent dans la corbeille).", confirmLabel: "Fusionner" }, function () {
-                            others.forEach(function (x) { replaceExerciseEverywhere(x.r.ex.id, kept, { regroup: true, trashOld: true, oldTitle: x.r.ex.title }); });
-                            paint();
-                        });
+                    g.forEach(function (r) {
+                        var played = (idx.by[r.ex.id] || {}).n || 0, nl = (r.ex.links || []).length + (r.ex.files || []).length + (r.ex.images || []).length, note = !!(r.ex.notes || "").trim();
+                        var line = document.createElement("div"); line.className = "songs-cleanup-opt";
+                        var t = document.createElement("span"); t.className = "songs-cleanup-dup-where";
+                        t.textContent = r.pathNames.join(" › ") + " — " + (nl ? nl + " pièce" + (nl > 1 ? "s" : "") + " jointe" + (nl > 1 ? "s" : "") + ", " : "") + (note ? "une note, " : "") + (played ? "jouée " + played + " fois" : "jamais jouée");
+                        var see = document.createElement("button"); see.type = "button"; see.className = "btn-ghost songs-cleanup-see"; see.textContent = "Voir";
+                        see.addEventListener("click", function () { close(); revealExercise(r.ex.id); });
+                        line.appendChild(t); line.appendChild(see); box.appendChild(line);
                     });
-                    acts.appendChild(go); box.appendChild(acts); body.appendChild(box);
+                    body.appendChild(box);
                 });
             }
             paint();
@@ -7060,6 +7138,7 @@
 
         bindImagePaste(details, ex);
 
+        details.appendChild(buildKinshipLine(ex));
         details.appendChild(buildLastPlayedLine(ex)); // tout en bas : la dernière fois jouée (information seule, aucun rappel)
 
         return details;
@@ -10328,7 +10407,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v258"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v259"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }

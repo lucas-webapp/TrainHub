@@ -24,7 +24,7 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
    `Claude-Session: https://claude.ai/code/session_…` (reprendre l'URL donnée par le rappel d'attribution de la session en cours).
 6. `git push -q origin main`, puis `git push -q origin HEAD:structure-dossiers`, puis vérifier avec `git ls-remote origin main structure-dossiers`
    que les deux pointent sur le même commit. (Le message « This repository moved » de GitHub est sans conséquence.)
-7. Dernière version livrée : **v258**. La suivante sera v259.
+7. Dernière version livrée : **v259**. La suivante sera v260.
 
 ## À ne pas toucher
 - **Le moteur de synchronisation cloud** (Firestore : envoi différé, écoute, reprise). Les nouveaux champs voyagent avec l'état sans le modifier.
@@ -73,7 +73,7 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
   `localStorage['compteCloud.trainhub.nePlusProposer'] = '1'` (pas de fenêtre de connexion), bloquer `https://www.gstatic.com/firebasejs/**`,
   `serviceWorkers: 'block'`. Horloge simulée (`page.clock`) pour les vraies sessions ; CDP pour les mesures de performance.
   Un vrai plantage de page ne se joue pas ici : on recopie le signe de vie (`trainhub.audioAlive.v1`) dans une nouvelle page.
-- Les **22 bancs** sont dans le dépôt : `tests/playwright/trainhub_<nom>_test.js` (morceaux 165, programmation 50, menage 39, rafale 42, choix 38, compte 68, note 34, note_session 86,
+- Les **22 bancs** sont dans le dépôt : `tests/playwright/trainhub_<nom>_test.js` (morceaux 165, programmation 50, menage 52, rafale 42, choix 38, compte 68, note 34, note_session 86,
   favoris 31, rideau 33, session_ui 55, son 67, video 22, preset 22, point 31, lecteur 29, audio_rate 19, audio_edit 80, de 13, eph 12, volet 20, tempo 15), avec leurs fichiers
   (`media/`, `yt_mock/`). Lancer : `tests/playwright/lancer.sh` (tous) ou `tests/playwright/lancer.sh morceaux choix` ; il démarre et arrête les
   serveurs :8765 et :8766. Un nouveau banc s'ajoute dans ce dossier, avec `plan(n)` ; le garder à jour quand un comportement change exprès.
@@ -85,5 +85,5 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
   étendus au lecteur et à la session libre) sont les pistes. À la prochaine alerte, demander : copier le **journal du son** tout de suite, avant de
   relancer l'appli ; dire si c'est l'écran ou le son qui se fige ; si le chrono continue ; si le métronome ou un MP3 jouait ; si la version est à jour.
 - Refusé pour l'instant : statistiques par artiste ou par style pour les morceaux.
-- Idées de l'utilisateur déjà livrées : programmation de session (v257), session créée depuis une séance libre / ménage des artistes et doublons / « dernière fois jouée » en bas de fiche (v258 — SANS rappel : l'utilisateur n'en veut pas), ajout en rafale, marques de doublons, onglet « En cours ». Idées proposées et refusées : « Tout ajouter » sur
+- Idées de l'utilisateur déjà livrées : programmation de session (v257), session créée depuis une séance libre / ménage des artistes et doublons / « dernière fois jouée » en bas de fiche (v258 — SANS rappel : l'utilisateur n'en veut pas), morceau → exercice « Travailler un passage en exercice… » (v259 : titre + liens copiés, AUCUNE caractéristique de morceau, `fromSongId`), menu clic droit regroupé sous « Plus d'actions » (v259) ; le Ménage ne supprime ni ne fusionne JAMAIS d'exercice (doublons de titre en lecture seule), ajout en rafale, marques de doublons, onglet « En cours ». Idées proposées et refusées : « Tout ajouter » sur
   un dossier, onglet « À reprendre », filtres combinés pour les morceaux.

@@ -4,7 +4,7 @@ const { chromium } = require('playwright');
 const harnais = require('/home/user/trainhub/tests/_harness');
 const { check, plan, bilan } = harnais('TrainHub : dernière fois jouée, session depuis une séance, ménage des artistes');
 const estBruitReseau = harnais.estBruitReseau;
-plan(39);
+plan(52);
 const URL = 'http://localhost:8765/index.html';
 
 async function ouvrir(browser, { journal = true, live = null } = {}) {
@@ -20,12 +20,12 @@ async function ouvrir(browser, { journal = true, live = null } = {}) {
             if (sessionStorage.getItem('__seed')) return;
             sessionStorage.setItem('__seed', '1');
             const ex = (id, title, o) => Object.assign({ id, title, notes: '', collapsed: true, links: [], files: [], images: [], favorite: false, archived: false, updatedAt: 1 }, o || {});
-            const song = (id, artist, name) => ex(id, artist + ' - ' + name, { isSong: true, artist, songName: name, styles: [], techniques: [], work: '' });
+            const song = (id, artist, name, o) => ex(id, artist + ' - ' + name, Object.assign({ isSong: true, artist, songName: name, styles: [], techniques: [], work: '' }, o || {}));
             localStorage.setItem('trainhub.v1', JSON.stringify({ activeInstrumentId: 'i1', updatedAt: 1, instruments: [{ id: 'i1', name: 'Basse', categories: [
                 { id: 'c1', name: 'Technique', color: '#e91e63', folders: [], exercises: [ex('t1', 'Gamme lente'), ex('t2', 'Legato'), ex('t3', 'Arpèges')] },
-                { id: 'c3', name: 'Autre', color: '#2196f3', folders: [], exercises: [ex('t4', 'Gamme lente', { links: [{ id: 'l1', label: 'x', url: 'https://youtube.com/watch?v=aaaaaaaaaaa' }] })] },
+                { id: 'c3', name: 'Autre', color: '#2196f3', folders: [], exercises: [ex('t4', 'Gamme lente', { links: [{ id: 'l1', label: 'x', url: 'https://youtube.com/watch?v=aaaaaaaaaaa' }] }), ex('t5', 'Red Hot Chili Peppers - Californication')] },
                 { id: 'c2', name: 'Morceaux', color: '#00e676', kind: 'songs', folders: [], vocab: { styles: ['Rock'], techniques: [], work: ['En cours', 'À maîtriser', 'Maîtrisé', 'Plus tard'] }, exercises: [
-                    song('m1', 'Red Hot Chili Peppers', 'Californication'), song('m2', 'RHCP', 'Snow'), song('m3', 'Future islands', 'Seasons'), song('m4', 'Futur islands', 'Tin Man'),
+                    song('m1', 'Red Hot Chili Peppers', 'Californication', { styles: ['Rock'], work: 'En cours', links: [{ id: 'ml1', label: 'Clip', url: 'https://youtube.com/watch?v=bbbbbbbbbbb' }], pinnedLinkId: 'ml1' }), song('m2', 'RHCP', 'Snow'), song('m3', 'Future islands', 'Seasons'), song('m4', 'Futur islands', 'Tin Man'),
                     song('m5', 'Sade', 'Smooth Operator'), song('m6', 'The Beatles', 'Help'), song('m7', 'Beatles', 'Yesterday')
                 ] }
             ] }], settings: { guidedSessions: [{ id: 'g1', name: 'Session vitesse', instrumentId: 'i1', tabIds: [], createdAt: 1, steps: [{ id: 'p1', exerciseId: 't4', minutes: 5 }] }] } }));
@@ -132,18 +132,18 @@ async function ouvrirHistorique(page) {
         check(await page.locator('.songs-cleanup-group[data-kind="artist"]').count() === 1, 'C. « Pas les mêmes » retire le groupe Beatles');
         st = await etatPage(page);
         check(exo(st, 'm7').artist === 'Beatles' && exo(st, 'm6').artist === 'The Beatles', 'C. et ne change rien aux morceaux');
-        // doublons de titre
+        // doublons de titre : en lecture seule, jamais un morceau contre un exercice
         const dup = page.locator('.songs-cleanup-group[data-kind="dup"]');
-        check(await dup.count() === 1 && /« Gamme lente » × 2/.test(await dup.innerText()), 'C. « Gamme lente » × 2 repéré dans les doublons');
-        const opts = await dup.locator('.songs-cleanup-opt').allInnerTexts();
-        check(/Technique/.test(opts[0]) && /jouée 3 fois|jouée 2 fois/.test(opts[0]) && /Autre/.test(opts[1]) && /jamais jouée/.test(opts[1]), 'C. celui qui a servi est proposé en premier : ' + JSON.stringify(opts));
-        await dup.locator('.songs-cleanup-go').click();
-        await page.locator('.app-dialog button', { hasText: /^Fusionner$/ }).click(); await sauve(page);
+        check(await dup.count() === 1 && /« Gamme lente » × 2/.test(await dup.innerText()), 'C. « Gamme lente » × 2 est montré, mais « Red Hot Chili Peppers - Californication » (morceau + exercice du même titre) n\'est pas un doublon');
+        check(await dup.locator('.songs-cleanup-go, input[type="radio"]').count() === 0 && await dup.locator('.songs-cleanup-see').count() === 2, 'C. aucun bouton de fusion ni de suppression : seulement « Voir » sur chaque exemplaire');
+        check(/jouée 2 fois|jouée 3 fois/.test(await dup.innerText()) && /jamais jouée/.test(await dup.innerText()), 'C. chaque ligne dit où il est rangé et s\'il a servi');
+        const ids = e => { const o = []; e.instruments.forEach(i => i.categories.forEach(c => (function w(f) { (f.exercises || []).forEach(x => o.push(x.id + '@' + f.id)); (f.folders || []).forEach(w); })(c))); return o.sort().join(','); };
+        const avant = ids(await etatPage(page));
+        await dup.locator('.songs-cleanup-see').nth(1).click(); await page.waitForTimeout(500);
+        check(await page.locator('.songs-cleanup-panel').count() === 0, 'C. « Voir » ferme la fenêtre et ouvre l\'exercice dans son dossier');
         st = await etatPage(page);
-        check(!exo(st, 't4') && !!exo(st, 't1'), 'C. le doublon (chapitre « Autre ») est retiré, l\'exercice joué est gardé');
-        check((st.settings.trash || []).some(t => t.type === 'exercise' && t.data && t.data.id === 't4'), 'C. il est à la corbeille (rétablissable)');
-        check(st.settings.guidedSessions[0].steps[0].exerciseId === 't1', 'C. la session qui l\'utilisait passe sur l\'exercice gardé');
-        check(await page.locator('.songs-cleanup-group[data-kind="dup"]').count() === 0 && /Aucun doublon/.test(await page.locator('.songs-cleanup-body').innerText()), 'C. plus de doublon dans la liste');
+        check(ids(st) === avant && !(st.settings.trash || []).some(t => t.type === 'exercise'), 'C. rien n\'a été supprimé ni déplacé : les deux exemplaires sont toujours là');
+        await page.locator('.songs-cleanup-btn').click().catch(() => {});
         check(erreurs.length === 0, 'C. aucune erreur JavaScript ' + JSON.stringify(erreurs));
         // le « pas les mêmes » est retenu
         await page.reload(); await page.waitForTimeout(700);
@@ -179,6 +179,53 @@ async function ouvrirHistorique(page) {
         await page.locator('.toast-action', { hasText: 'Ouvrir' }).click(); await page.waitForTimeout(500);
         check(await page.locator('.gs-edit-topbar').count() === 1 && await page.locator('.gs-step-row').count() === 2, 'D. « Ouvrir » affiche la session (2 pas) pour l\'ajuster');
         check(erreurs.length === 0, 'D. aucune erreur JavaScript ' + JSON.stringify(erreurs));
+        await ctx.close();
+    }
+
+    // ============ E. Morceau → exercice, menu regroupé ============
+    {
+        const { ctx, page, erreurs } = await ouvrir(browser);
+        await ouvrirChapitre(page, 'Morceaux');
+        await page.locator('.exercise[data-ex-id="m1"] .exercise-row').click({ button: 'right' });
+        await page.waitForSelector('.ctx-menu');
+        const hautMenu = (await page.locator('.ctx-menu > .ctx-item').allInnerTexts()).map(t => t.trim());
+        check(hautMenu.length <= 9 && hautMenu.some(t => /Renommer/.test(t)) && hautMenu.some(t => /Supprimer/.test(t)) && hautMenu.some(t => /Plus d'actions/.test(t)), 'E. menu d\'un morceau : les actions courantes + « Plus d\'actions » (' + hautMenu.length + ' lignes) : ' + hautMenu.join(' | '));
+        check(!(await page.locator('.ctx-more').isVisible()) && !hautMenu.some(t => /Archiver|Travailler un passage/.test(t)), 'E. les actions rares sont repliées par défaut');
+        await page.locator('.ctx-more-btn').click();
+        check(await page.locator('.ctx-more').isVisible() && await page.locator('.ctx-more .ctx-item', { hasText: 'Archiver' }).count() === 1 && await page.locator('.ctx-more .ctx-item', { hasText: 'Travailler un passage en exercice' }).count() === 1, 'E. « Plus d\'actions » déplie Archiver, « Travailler un passage en exercice… »…');
+        await page.locator('.ctx-more .ctx-item', { hasText: 'Travailler un passage en exercice' }).click();
+        await page.waitForSelector('.folder-picker-panel');
+        check(await page.locator('.folder-picker-panel .gs-pick-tree-row', { hasText: 'Morceaux' }).count() === 0 && await page.locator('.folder-picker-panel .gs-pick-tree-row', { hasText: 'Technique' }).count() === 1, 'E. le choix du dossier ne propose pas le chapitre de morceaux');
+        await page.locator('.folder-picker-panel .gs-pick-tree-row', { hasText: 'Technique' }).first().click();
+        await page.waitForSelector('.app-dialog-input');
+        check(await page.locator('.app-dialog-input').inputValue() === 'Red Hot Chili Peppers - Californication', 'E. titre du morceau proposé');
+        await page.locator('.app-dialog-input').fill('Californication (slap)');
+        await page.locator('.app-dialog button', { hasText: /^Créer$/ }).click(); await sauve(page);
+        let st = await etatPage(page);
+        const nv = st.instruments[0].categories.find(c => c.id === 'c1').exercises.find(x => x.title === 'Californication (slap)');
+        check(!!nv && nv.fromSongId === 'm1' && !nv.isSong && nv.artist === undefined && nv.styles === undefined && nv.work === undefined && nv.songName === undefined, 'E. exercice créé dans « Technique », sans aucune caractéristique de morceau (artiste, style, travail…)');
+        check(nv.links.length === 1 && nv.links[0].url === exo(st, 'm1').links[0].url && nv.links[0].id !== 'ml1' && nv.pinnedLinkId === nv.links[0].id && nv.files.length === 0 && nv.metronome === null, 'E. liens copiés (nouveaux identifiants, lien épinglé suivi), pas de fichiers ni de métronome');
+        check(exo(st, 'm1').styles[0] === 'Rock' && exo(st, 'm1').work === 'En cours' && exo(st, 'm1').links.length === 1, 'E. le morceau n\'est pas modifié');
+        // vie à part : ses liens ne sont pas partagés
+        await page.evaluate(() => { const s = JSON.parse(localStorage.getItem('trainhub.v1')); const e = s.instruments[0].categories[0].exercises.find(x => x.title === 'Californication (slap)'); e.links.push({ id: 'zz', label: 'autre', url: 'https://youtube.com/watch?v=ccccccccccc' }); localStorage.setItem('trainhub.v1', JSON.stringify(s)); });
+        st = await etatPage(page);
+        check(exo(st, 'm1').links.length === 1, 'E. ajouter un lien à l\'exercice ne touche pas le morceau (vie à part)');
+        await page.reload(); await page.waitForTimeout(700);
+        await ouvrirChapitre(page, 'Technique');
+        const idNv = (await etatPage(page)).instruments[0].categories.find(c => c.id === 'c1').exercises.find(x => x.title === 'Californication (slap)').id;
+        await page.locator('.exercise[data-ex-id="' + idNv + '"] .exercise-row-spacer').click(); await page.waitForTimeout(300);
+        check(!(await page.locator('.song-block').count()) && /Tiré du morceau : Red Hot Chili Peppers - Californication/.test((await page.locator('.ex-kin-from').innerText()).replace(/\s+/g, ' ')), 'E. la fiche de l\'exercice : pas de bloc « morceau », et « Tiré du morceau : … »');
+        await page.locator('.ex-kin-from .ex-kin-link').click(); await page.waitForTimeout(600);
+        check(await page.locator('.exercise[data-ex-id="m1"]').count() === 1, 'E. un clic sur le nom ouvre le morceau');
+        if (await page.locator('.exercise[data-ex-id="m1"].collapsed').count()) { await page.locator('.exercise[data-ex-id="m1"] .exercise-row-spacer').click(); await page.waitForTimeout(300); }
+        const kin = (await page.locator('.ex-kin-to').innerText().catch(() => '')).replace(/\s+/g, ' ');
+        check(/Travaillé aussi en exercice : Technique › Californication \(slap\)/.test(kin), 'E. la fiche du morceau : « Travaillé aussi en exercice : … » (' + kin + ')');
+        // 2e fois : le dernier dossier est proposé
+        await page.locator('.exercise[data-ex-id="m3"] .exercise-row').click({ button: 'right' }).catch(() => {});
+        await page.locator('.ctx-more-btn').click(); await page.locator('.ctx-more .ctx-item', { hasText: 'Travailler un passage en exercice' }).click();
+        check(await page.locator('.song-to-ex-last').count() === 1 && /Technique/.test(await page.locator('.song-to-ex-last').innerText()), 'E. la fois suivante : le dernier dossier (« Technique ») est proposé d\'emblée');
+        await page.locator('.app-dialog button', { hasText: 'Annuler' }).click().catch(() => {});
+        check(erreurs.length === 0, 'E. aucune erreur JavaScript ' + JSON.stringify(erreurs));
         await ctx.close();
     }
 
