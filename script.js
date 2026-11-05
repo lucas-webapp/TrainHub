@@ -5828,6 +5828,133 @@
         });
         return row;
     }
+    // ---- Ménage des artistes et des doublons (chapitre de morceaux) ----
+    // Variantes probables d'un même artiste : même nom à la ponctuation / « The » près, faute de frappe (une ou deux lettres), sigle (« RHCP » ↔ « Red Hot Chili Peppers »).
+    // On ne fusionne jamais tout seul : chaque groupe propose le nom à garder (par défaut le plus utilisé), et « Pas les mêmes » le mémorise sur cet appareil.
+    var ARTIST_IGNORE_KEY = "trainhub.artistIgnore.v1";
+    function artistIgnoreRead() { try { var a = JSON.parse(localStorage.getItem(ARTIST_IGNORE_KEY)); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+    function artistIgnoreAdd(names) { try { var a = artistIgnoreRead(), k = names.map(songNorm).sort().join("|"); if (a.indexOf(k) === -1) a.push(k); localStorage.setItem(ARTIST_IGNORE_KEY, JSON.stringify(a.slice(-300))); } catch (e) {} }
+    function artistLoose(name) { return songSortKey(name).replace(/&/g, " and ").replace(/\b(and|et)\b/g, " ").replace(/[^a-z0-9]/g, ""); }
+    function editDistance(a, b, max) {
+        if (Math.abs(a.length - b.length) > max) return max + 1;
+        var prev = [], i, j;
+        for (j = 0; j <= b.length; j++) prev[j] = j;
+        for (i = 1; i <= a.length; i++) {
+            var cur = [i], best = i;
+            for (j = 1; j <= b.length; j++) { cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a.charAt(i - 1) === b.charAt(j - 1) ? 0 : 1)); if (cur[j] < best) best = cur[j]; }
+            if (best > max) return max + 1;
+            prev = cur;
+        }
+        return prev[b.length];
+    }
+    function artistInitials(name) { return songNorm(name).split(/[^a-z0-9]+/).filter(Boolean).map(function (w) { return w.charAt(0); }).join(""); }
+    function artistsSimilar(a, b) {
+        var la = artistLoose(a.name), lb = artistLoose(b.name);
+        if (la && la === lb) return true;
+        var minLen = Math.min(la.length, lb.length);
+        if (minLen >= 4 && editDistance(la, lb, minLen >= 9 ? 2 : 1) <= (minLen >= 9 ? 2 : 1)) return true;
+        function sigle(x, y) { var w = songNorm(y.name).split(/[^a-z0-9]+/).filter(Boolean); return w.length >= 3 && /^[a-z0-9]{3,}$/.test(songNorm(x.name)) && songNorm(x.name) === artistInitials(y.name); }
+        return sigle(a, b) || sigle(b, a);
+    }
+    function songsArtistVariants(ch) {
+        var by = {}, list = [];
+        ch.exercises.forEach(function (ex) {
+            if (ex.archived || !ex.artist) return;
+            var k = songNorm(ex.artist);
+            if (!by[k]) { by[k] = { name: ex.artist, n: 0 }; list.push(by[k]); }
+            by[k].n++;
+        });
+        var parent = list.map(function (_, i) { return i; });
+        function find(i) { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; }
+        for (var i = 0; i < list.length; i++) for (var j = i + 1; j < list.length; j++) if (artistsSimilar(list[i], list[j])) parent[find(i)] = find(j);
+        var groups = {}, out = [], ignored = artistIgnoreRead();
+        list.forEach(function (a, i) { var r = find(i); (groups[r] || (groups[r] = [])).push(a); });
+        Object.keys(groups).forEach(function (r) {
+            var g = groups[r];
+            if (g.length < 2 || ignored.indexOf(g.map(function (x) { return songNorm(x.name); }).sort().join("|")) !== -1) return;
+            g.sort(function (x, y) { return y.n - x.n || y.name.length - x.name.length; });
+            out.push(g);
+        });
+        return out;
+    }
+    // Exercices (tous chapitres, hors archivés) qui portent le même titre.
+    function exerciseTitleDuplicates(inst) {
+        var by = {}, out = [];
+        collectExercises(inst, function (ex) { return !ex.archived; }).forEach(function (r) { var k = songNorm(r.ex.title); (by[k] || (by[k] = [])).push(r); });
+        Object.keys(by).forEach(function (k) { if (k && by[k].length > 1) out.push(by[k]); });
+        return out;
+    }
+    function openSongsCleanupDialog(inst, ch) {
+        openModal("songs-cleanup-panel", function (panel, close) {
+            var title = document.createElement("div"); title.className = "backups-title"; title.textContent = "Ménage : artistes et doublons"; panel.appendChild(title);
+            var body = document.createElement("div"); body.className = "songs-cleanup-body"; panel.appendChild(body);
+            function radios(name, items, label, onPick) {
+                var wrap = document.createElement("div"); wrap.className = "songs-cleanup-opts";
+                items.forEach(function (it, i) {
+                    var l = document.createElement("label"); l.className = "songs-cleanup-opt";
+                    var r = document.createElement("input"); r.type = "radio"; r.name = name; r.checked = i === 0; r.addEventListener("change", function () { onPick(i); });
+                    var t = document.createElement("span"); t.textContent = label(it);
+                    l.appendChild(r); l.appendChild(t); wrap.appendChild(l);
+                });
+                return wrap;
+            }
+            function paint() {
+                body.innerHTML = "";
+                var inst2 = getActiveInstrument(), variants = songsArtistVariants(ch), dups = exerciseTitleDuplicates(inst2);
+                var h1 = document.createElement("div"); h1.className = "songs-cleanup-h"; h1.textContent = "Artistes écrits de plusieurs façons"; body.appendChild(h1);
+                if (!variants.length) { var n1 = document.createElement("div"); n1.className = "gs-empty"; n1.textContent = "Aucune variante repérée."; body.appendChild(n1); }
+                variants.forEach(function (g, gi) {
+                    var box = document.createElement("div"); box.className = "songs-cleanup-group"; box.dataset.kind = "artist";
+                    var keep = 0;
+                    box.appendChild(radios("art" + gi, g, function (a) { return a.name + " (" + a.n + " morceau" + (a.n > 1 ? "x" : "") + ")"; }, function (i) { keep = i; }));
+                    var acts = document.createElement("div"); acts.className = "songs-cleanup-acts";
+                    var no = document.createElement("button"); no.type = "button"; no.className = "btn-ghost songs-cleanup-no"; no.textContent = "Pas les mêmes";
+                    no.addEventListener("click", function () { artistIgnoreAdd(g.map(function (a) { return a.name; })); paint(); });
+                    var go = document.createElement("button"); go.type = "button"; go.className = "btn-accent songs-cleanup-go"; go.textContent = "Fusionner sous « " + g[0].name + " »";
+                    var radiosEl = box.querySelector(".songs-cleanup-opts");
+                    radiosEl.addEventListener("change", function () { go.textContent = "Fusionner sous « " + g[keep].name + " »"; });
+                    go.addEventListener("click", function () {
+                        var target = g[keep].name;
+                        var before = {}; ch.exercises.forEach(function (ex) { before[ex.id] = ex.title; });
+                        g.forEach(function (a, i) { if (i !== keep) songsRenameValue(ch, "artist", a.name, target); });
+                        ch.exercises.forEach(function (ex) { if (before[ex.id] !== undefined && before[ex.id] !== ex.title) { recSyncAudioName(ex, before[ex.id]); touchExercise(ex); } });
+                        save(); render(); paint();
+                        toastUndo("Artistes fusionnés sous « " + target + " »");
+                    });
+                    acts.appendChild(no); acts.appendChild(go); box.appendChild(acts); body.appendChild(box);
+                });
+                var h2 = document.createElement("div"); h2.className = "songs-cleanup-h"; h2.textContent = "Exercices au même titre"; body.appendChild(h2);
+                if (!dups.length) { var n2 = document.createElement("div"); n2.className = "gs-empty"; n2.textContent = "Aucun doublon de titre."; body.appendChild(n2); }
+                var idx = lastPlayedIndex();
+                dups.forEach(function (g, gi) {
+                    var info = g.map(function (r) {
+                        var played = (idx.by[r.ex.id] || {}).n || 0, nl = (r.ex.links || []).length + (r.ex.files || []).length + (r.ex.images || []).length, note = !!(r.ex.notes || "").trim();
+                        return { r: r, played: played, score: played * 3 + nl + (note ? 2 : 0), text: r.pathNames.join(" › ") + " — " + (nl ? nl + " pièce" + (nl > 1 ? "s" : "") + " jointe" + (nl > 1 ? "s" : "") + ", " : "") + (note ? "une note, " : "") + (played ? "jouée " + played + " fois" : "jamais jouée") };
+                    });
+                    info.sort(function (a, b) { return b.score - a.score; });
+                    var box = document.createElement("div"); box.className = "songs-cleanup-group"; box.dataset.kind = "dup";
+                    var tt = document.createElement("div"); tt.className = "songs-cleanup-dup-title"; tt.textContent = "« " + g[0].ex.title + " » × " + g.length; box.appendChild(tt);
+                    var keep = 0;
+                    box.appendChild(radios("dup" + gi, info, function (x) { return x.text; }, function (i) { keep = i; }));
+                    var note = document.createElement("div"); note.className = "songs-cleanup-note"; note.textContent = "Garder la ligne cochée : les autres vont à la corbeille (rétablissables), leurs séances et leurs sessions passent sur celle gardée."; box.appendChild(note);
+                    var acts = document.createElement("div"); acts.className = "songs-cleanup-acts";
+                    var go = document.createElement("button"); go.type = "button"; go.className = "btn-accent songs-cleanup-go"; go.textContent = "Fusionner les doublons";
+                    go.addEventListener("click", function () {
+                        var kept = info[keep].r.ex, others = info.filter(function (x, i) { return i !== keep; });
+                        dlgConfirm({ title: "Fusionner les doublons de « " + kept.title + " » ?", message: others.length + " exemplaire" + (others.length > 1 ? "s" : "") + " à la corbeille ; leurs notes, liens et fichiers ne sont pas repris dans celui gardé (ils restent dans la corbeille).", confirmLabel: "Fusionner" }, function () {
+                            others.forEach(function (x) { replaceExerciseEverywhere(x.r.ex.id, kept, { regroup: true, trashOld: true, oldTitle: x.r.ex.title }); });
+                            paint();
+                        });
+                    });
+                    acts.appendChild(go); box.appendChild(acts); body.appendChild(box);
+                });
+            }
+            paint();
+            var foot = document.createElement("div"); foot.className = "songs-convert-foot";
+            var done = document.createElement("button"); done.type = "button"; done.className = "btn-ghost songs-cleanup-close"; done.textContent = "Fermer"; done.addEventListener("click", function () { close(); });
+            foot.appendChild(done); panel.appendChild(foot);
+        });
+    }
     function renderSongViewBar(inst, ch, pr, data, nSongs) {
         var bar = document.createElement("div"); bar.className = "songs-bar";
         var views = document.createElement("div"); views.className = "songs-views"; views.setAttribute("role", "group"); views.setAttribute("aria-label", "Rangement des morceaux");
@@ -5844,6 +5971,10 @@
         SONG_SORTS.forEach(function (s) { var o = document.createElement("option"); o.value = s[0]; o.textContent = s[1]; if (s[0] === pr.sort) o.selected = true; sel.appendChild(o); });
         sel.addEventListener("change", function () { songsPrefsSet(ch, { sort: sel.value }); render(); });
         tail.appendChild(sel);
+        var tidy = document.createElement("button"); tidy.type = "button"; tidy.className = "btn-ghost songs-cleanup-btn"; tidy.textContent = "Ménage…";
+        tidy.title = "Fusionner les artistes écrits de plusieurs façons (RHCP / Red Hot Chili Peppers…) et les exercices en double";
+        tidy.addEventListener("click", function () { openSongsCleanupDialog(inst, ch); });
+        tail.appendChild(tidy);
         var cnt = document.createElement("span"); cnt.className = "ex-view-count"; cnt.textContent = nSongs + " morceau" + (nSongs > 1 ? "x" : ""); tail.appendChild(cnt);
         bar.appendChild(tail);
         return bar;
@@ -6929,7 +7060,60 @@
 
         bindImagePaste(details, ex);
 
+        details.appendChild(buildLastPlayedLine(ex)); // tout en bas : la dernière fois jouée (information seule, aucun rappel)
+
         return details;
+    }
+
+    // ---- « Dernière fois jouée » : tout en bas de la fiche ouverte. Lue dans le journal des séances (sessions libres ET programmées) ; l'exercice
+    // regroupé sous un autre pour les statistiques compte pour celui-ci. Purement informatif : pas de pastille, pas de rappel ailleurs dans l'appli.
+    var lastPlayedCache = null;
+    function lastPlayedIndex() {
+        var flat = logAll();
+        if (lastPlayedCache && lastPlayedCache.flat === flat) return lastPlayedCache;
+        var rules = statsRules(), by = {}, first = 0;
+        flat.forEach(function (rec) {
+            if (!first || rec.date < first) first = rec.date;
+            var seen = {};
+            (rec.steps || []).forEach(function (st) {
+                var id = st.exerciseId, guard = 0;
+                while (id && rules.alias[id] && guard++ < 8) id = rules.alias[id];
+                if (!id) return;
+                var e = by[id] || (by[id] = { last: 0, lastRec: null, n: 0 });
+                if (!seen[id]) { seen[id] = true; e.n++; }
+                if (rec.date >= e.last) { e.last = rec.date; e.lastRec = rec; }
+            });
+        });
+        return (lastPlayedCache = { flat: flat, by: by, first: first });
+    }
+    function lastPlayedDateText(ts) {
+        var d = new Date(ts), now = new Date();
+        return CAL_DAYS_FULL[d.getDay()] + " " + d.getDate() + " " + CAL_MONTHS[d.getMonth()] + (d.getFullYear() !== now.getFullYear() ? " " + d.getFullYear() : "");
+    }
+    function lastPlayedAgoText(ts) {
+        var a = new Date(ts), b = new Date(); a.setHours(0, 0, 0, 0); b.setHours(0, 0, 0, 0);
+        var days = Math.round((b - a) / 86400000);
+        if (days <= 0) return "aujourd'hui";
+        if (days === 1) return "hier";
+        if (days < 60) return "il y a " + days + " jours";
+        var months = Math.round(days / 30.4);
+        return months < 24 ? "il y a " + months + " mois" : "il y a plus de 2 ans";
+    }
+    function lastPlayedText(ex) {
+        var idx = lastPlayedIndex();
+        if (!idx.first) return ""; // journal vide : rien à dire
+        var e = idx.by[ex.id];
+        if (!e) return "Jamais jouée en session depuis le " + lastPlayedDateText(idx.first) + " (début du journal).";
+        var how = e.lastRec.free ? "session libre" : "« " + e.lastRec.name + " »";
+        return "Dernière fois jouée : " + lastPlayedAgoText(e.last) + " (" + lastPlayedDateText(e.last) + ", " + how + ") · " + e.n + " séance" + (e.n > 1 ? "s" : "") + " depuis le " + lastPlayedDateText(idx.first) + ".";
+    }
+    function buildLastPlayedLine(ex) {
+        var el = document.createElement("div");
+        el.className = "ex-last-played";
+        var t = lastPlayedText(ex);
+        el.textContent = t;
+        if (!t) el.hidden = true;
+        return el;
     }
 
     // ---- fichiers audio : toutes les extensions se lisent de la même façon (lecteur intégré) ----
@@ -10144,7 +10328,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v257"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v258"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }
@@ -18913,6 +19097,83 @@
         setTimeout(function () { try { inp.focus(); inp.select(); } catch (e) {} }, 20);
         return true;
     }
+    // Créer une session ordinaire à partir d'une séance réellement jouée (surtout une session libre) : les exercices dans l'ordre où ils ont été joués, chacun avec le
+    // temps passé dessus (arrondi à la minute) ; ceux joués moins d'une minute, ou supprimés depuis, sont décochés (ou grisés). Nom et dossier(s) au choix.
+    function gsSessionFromRecord(rec, after) {
+        closeFolderMenu();
+        if (gsRunActive()) { showToast("Une session est en cours : termine-la avant d'en créer une autre.", 4500); return false; }
+        var instId = rec.instrumentId && findById(state.instruments, rec.instrumentId) ? rec.instrumentId : state.activeInstrumentId;
+        var tabs = state.settings.sessionFolders.filter(function (f) { return f.instrumentId === instId; });
+        var chosen = {}, rows = [], seen = {};
+        (rec.steps || []).forEach(function (st) {
+            if (!st.exerciseId || seen[st.exerciseId]) return;
+            seen[st.exerciseId] = true;
+            var f = findExerciseById(st.exerciseId), sec = st.actualSec || st.playedSec || 0;
+            rows.push({ id: st.exerciseId, title: f ? f.ex.title : (st.title || "exercice supprimé"), gone: !f, min: Math.max(1, Math.round(sec / 60)), on: !!f && sec >= 60 });
+        });
+        var backdrop = document.createElement("div"); backdrop.className = "ctx-backdrop";
+        var pop = document.createElement("div"); pop.className = "ctx-menu gs-pop gs-keep-pop gs-fromrec-pop"; pop.setAttribute("role", "dialog");
+        if (closeActiveModal) { backdrop.classList.add("ctx-over-modal"); pop.classList.add("ctx-over-modal"); }
+        function close() { closeFolderMenu(); }
+        backdrop.addEventListener("pointerdown", function (e) { e.preventDefault(); close(); });
+        backdrop.addEventListener("contextmenu", function (e) { e.preventDefault(); close(); });
+        var t = document.createElement("div"); t.className = "ctx-menu-title ctx-menu-title-wrap"; t.textContent = "Créer une session avec ces exercices"; pop.appendChild(t);
+        var inp = document.createElement("input"); inp.type = "text"; inp.className = "ctx-input gs-keep-name"; inp.setAttribute("aria-label", "Nom de la session");
+        inp.value = "Session du " + gsEphemeralDateText(calKey(new Date(rec.date))); pop.appendChild(inp);
+        var list = document.createElement("div"); list.className = "gs-fromrec-list";
+        var okBtn = document.createElement("button"), sum = document.createElement("div"); sum.className = "gs-fromrec-sum";
+        function refresh() {
+            var n = rows.filter(function (r) { return r.on; }), tot = n.reduce(function (a, r) { return a + r.min; }, 0);
+            sum.textContent = n.length ? n.length + " exercice" + (n.length > 1 ? "s" : "") + " · " + tot + " min" : "Aucun exercice coché";
+            okBtn.disabled = !n.length;
+        }
+        rows.forEach(function (r) {
+            var lb = document.createElement("label"); lb.className = "gs-fromrec-row" + (r.gone ? " gone" : "");
+            var cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = r.on; cb.disabled = r.gone;
+            cb.addEventListener("change", function () { r.on = cb.checked; refresh(); });
+            var nm = document.createElement("span"); nm.className = "gs-fromrec-name"; nm.textContent = r.title; nm.title = r.gone ? "Cet exercice n'existe plus" : r.title;
+            var mn = document.createElement("span"); mn.className = "gs-fromrec-min"; mn.textContent = r.min + " min";
+            lb.appendChild(cb); lb.appendChild(nm); lb.appendChild(mn); list.appendChild(lb);
+        });
+        if (!rows.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Cette séance ne contient aucun détail d'exercice."; list.appendChild(none); }
+        pop.appendChild(list); pop.appendChild(sum);
+        if (tabs.length) {
+            var trow = document.createElement("div"); trow.className = "gs-keep-tabs";
+            tabs.forEach(function (tb) {
+                var b = document.createElement("button"); b.type = "button"; b.className = "gs-tabpick-chip"; b.textContent = tb.name; b.setAttribute("aria-pressed", "false");
+                b.addEventListener("click", function () { chosen[tb.id] = !chosen[tb.id]; b.classList.toggle("active", chosen[tb.id]); b.setAttribute("aria-pressed", chosen[tb.id] ? "true" : "false"); });
+                trow.appendChild(b);
+            });
+            pop.appendChild(trow);
+        }
+        var acts = document.createElement("div"); acts.className = "ctx-actions";
+        var no = document.createElement("button"); no.type = "button"; no.className = "ctx-item ctx-secondary"; no.textContent = "Annuler"; no.addEventListener("click", close);
+        okBtn.type = "button"; okBtn.className = "ctx-item ctx-primary gs-fromrec-ok"; okBtn.textContent = "Créer la session";
+        function commit() {
+            var name = inp.value.trim();
+            if (!name) { inp.focus(); return; }
+            var steps = rows.filter(function (r) { return r.on; }).map(function (r) { return { id: uid(), exerciseId: r.id, minutes: r.min }; });
+            if (!steps.length) return;
+            close();
+            var sess = { id: uid(), name: name, steps: steps, instrumentId: instId, tabIds: tabs.filter(function (tb) { return chosen[tb.id]; }).map(function (tb) { return tb.id; }), createdAt: Date.now() };
+            state.settings.guidedSessions.push(sess);
+            save(); render();
+            if (after) after(sess);
+            showToast("« " + name + " » créée (" + steps.length + " exercice" + (steps.length > 1 ? "s" : "") + ", " + steps.reduce(function (a, st) { return a + st.minutes; }, 0) + " min)", 8000, { label: "Ouvrir", run: function () { gsOpenSessionEditor(sess); } });
+        }
+        okBtn.addEventListener("click", commit);
+        inp.addEventListener("keydown", function (e) { e.stopPropagation(); if (e.key === "Enter") commit(); if (e.key === "Escape") close(); });
+        acts.appendChild(no); acts.appendChild(okBtn); pop.appendChild(acts);
+        refresh();
+        function onKey(e) { if (e.key === "Escape") close(); }
+        document.body.appendChild(backdrop); document.body.appendChild(pop);
+        document.addEventListener("keydown", onKey, true);
+        openMenu = { backdrop: backdrop, menu: pop, onKey: onKey };
+        pop.style.left = Math.max(8, (window.innerWidth - pop.offsetWidth) / 2) + "px";
+        pop.style.top = Math.max(8, (window.innerHeight - pop.offsetHeight) / 4) + "px";
+        setTimeout(function () { try { inp.focus(); inp.select(); } catch (e) {} }, 20);
+        return true;
+    }
     function gsIsEphemeralId(id) { var g = gsFindSession(id); return !!(g && g.ephemeral); }
     function gsIsEphemeralRec(rec) { return !!(rec && (rec.ephemeral || gsIsEphemeralId(rec.sessionId))); } // la séance enregistrée garde le repère après la disparition de la session
     function gsNameActionLabel(sess, nm) { return sess && sess.ephemeral ? "Enregistrer dans mes sessions…" : "Renommer « " + nm + " »…"; }
@@ -21785,7 +22046,9 @@
                 var res = logAddMergingFree(rec), joined = rec.free && res !== rec;
                 gsNoteFromRun(rec); // la note donnée à la séance devient celle de la session (visible dans la liste)
                 save(); gsLiveClear();
-                savedToast(joined ? "Ajouté à la session libre du jour (total " + gsFmtDur(res.totalSec) + ")" : rec.free ? "Entraînement enregistré dans l'historique" : "Session enregistrée dans l'historique", joined ? 5000 : undefined);
+                var savedMsg = joined ? "Ajouté à la session libre du jour (total " + gsFmtDur(res.totalSec) + ")" : rec.free ? "Entraînement enregistré dans l'historique" : "Session enregistrée dans l'historique";
+                if (rec.free && (rec.steps || []).length) showToast(savedMsg + (!cloudSignedIn() && authKnown ? " (sur cet appareil seulement : pas connecté à Google)" : "") + " — en faire une session ?", 12000, { label: "Créer une session", run: function () { gsSessionFromRecord(rec); } }); // l'entraînement libre devient une session préparée
+                else savedToast(savedMsg, joined ? 5000 : undefined);
             },
             onCancel: function (edited) { park("Non enregistrée", edited); },
             onDismiss: function (edited) { park("Fenêtre fermée sans enregistrer", edited); }
@@ -22417,7 +22680,10 @@
             var acts = document.createElement("div"); acts.className = "cal-recap-actions";
             var editRec = document.createElement("button"); editRec.type = "button"; editRec.className = "btn-ghost cal-recap-open"; editRec.textContent = "✎ Modifier la séance";
             editRec.addEventListener("click", function () { close(); editLoggedRecord(rec, function () { openSessionCalendar({ focusDate: calKey(new Date(rec.date)) }); }); });
-            acts.appendChild(editRec); pop.appendChild(acts);
+            acts.appendChild(editRec);
+            var mkRec = document.createElement("button"); mkRec.type = "button"; mkRec.className = "btn-ghost cal-recap-open cal-recap-mksess"; mkRec.textContent = "＋ Créer une session avec ces exercices";
+            mkRec.addEventListener("click", function () { close(); gsSessionFromRecord(rec); });
+            acts.appendChild(mkRec); pop.appendChild(acts);
             if (g) {
                 acts = document.createElement("div"); acts.className = "cal-recap-actions";
                 var open = document.createElement("button"); open.type = "button"; open.className = "btn-ghost cal-recap-open"; open.textContent = "✎ Modifier les exercices de la session";
@@ -23931,7 +24197,9 @@
                         });
                     });
                     var edit = iconButton("✎", "Modifier cette séance (durées, tempo)", function () { editLoggedRecord(e, function () { openSessionHistory(); }); });
-                    head.appendChild(nm); head.appendChild(du); head.appendChild(edit); head.appendChild(del);
+                    var mkSess = iconButton("＋", "Créer une session avec les exercices de cette séance", function () { gsSessionFromRecord(e); });
+                    mkSess.classList.add("gs-history-mksess");
+                    head.appendChild(nm); head.appendChild(du); head.appendChild(mkSess); head.appendChild(edit); head.appendChild(del);
                     // note et commentaire : les étoiles se règlent d'un clic, sans ouvrir la séance
                     var cur = e, rateRow = document.createElement("div"); rateRow.className = "gs-history-rate";
                     var cmt = document.createElement("div"); cmt.className = "gs-history-comment";

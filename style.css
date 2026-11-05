@@ -5228,3 +5228,29 @@ html[data-glass="1"] .tree-node:is(.tree-title-top, .tree-title-bottom) > .tree-
 .gs-pick-legend-row b { margin-left: auto; padding-left: 6px; font-variant-numeric: tabular-nums; }
 .gs-pick-tabs { flex-wrap: wrap; }
 @media (max-width: 520px) { button.gs-pick-tab { padding: 0 9px; font-size: var(--fs-xs); } }
+
+/* v258 — « Dernière fois jouée » tout en bas de la fiche d'un exercice */
+.ex-last-played { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.4; }
+
+/* v258 — créer une session à partir d'une séance jouée */
+.gs-fromrec-list { display: flex; flex-direction: column; gap: 2px; max-height: min(46vh, 320px); overflow-y: auto; margin: 6px 0; }
+.gs-fromrec-row { display: flex; align-items: center; gap: 8px; padding: 5px 4px; border-radius: 6px; cursor: pointer; font-size: var(--fs-sm); }
+.gs-fromrec-row:hover { background: rgba(var(--ov), .07); }
+.gs-fromrec-row.gone { opacity: .5; cursor: default; }
+.gs-fromrec-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-fromrec-min { flex: none; color: var(--text-muted); font-variant-numeric: tabular-nums; font-size: var(--fs-xs); }
+.gs-fromrec-sum { padding: 2px 4px 6px; font-size: var(--fs-xs); color: var(--text-muted); }
+.gs-fromrec-pop { min-width: min(360px, calc(100vw - 24px)); }
+
+/* v258 — ménage des artistes et des doublons */
+.songs-cleanup-panel { width: min(560px, calc(100vw - 24px)); }
+.songs-cleanup-body { display: flex; flex-direction: column; gap: 8px; max-height: min(64vh, 520px); overflow-y: auto; padding-right: 2px; }
+.songs-cleanup-h { margin-top: 6px; font-size: var(--fs-xs); font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+.songs-cleanup-group { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.songs-cleanup-opts { display: flex; flex-direction: column; gap: 3px; }
+.songs-cleanup-opt { display: flex; align-items: flex-start; gap: 8px; font-size: var(--fs-sm); cursor: pointer; }
+.songs-cleanup-opt input { margin-top: 3px; }
+.songs-cleanup-dup-title { font-weight: 700; font-size: var(--fs-sm); }
+.songs-cleanup-note { font-size: var(--fs-xs); color: var(--text-muted); }
+.songs-cleanup-acts { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+button.songs-cleanup-btn { height: 32px; padding: 0 12px; font-size: var(--fs-xs); font-weight: 700; }
