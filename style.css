@@ -3477,7 +3477,7 @@ html[data-glass="1"] .tree-row-d0.selected { --tint: 15%; }
 html[data-glass="1"] .exercise:not(.collapsed) {
     background: linear-gradient(color-mix(in srgb, var(--chapter-accent) 6%, transparent), color-mix(in srgb, var(--chapter-accent) 6%, transparent)), var(--card-bg-2);
 }
-html[data-glass="1"] :is(.notes-fixed-textarea, .exercise-fixed-view, .gs-run-fixed, .gs-run-note) { border-left: 1px solid var(--border); box-shadow: none; }
+html[data-glass="1"] :is(.notes-fixed-textarea, .exercise-fixed-view, .gs-run-fixed, .gs-run-note, .folder-note-view, .folder-note-parent) { border-left: 1px solid var(--border); box-shadow: none; }
 
 /* repli sans flou : opaque si le navigateur ne sait pas flouter ou si l'appareil demande moins de transparence */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -5308,3 +5308,15 @@ button.gs-add-step-btn { width: auto; height: var(--gs-ctl-h); margin-top: 10px;
 .gs-edit-tools-row { flex-wrap: wrap; align-items: center; margin: 18px 0 12px; padding-top: 14px; border-top: 1px solid var(--border); }
 button.gs-edit-run-btn { width: auto; flex: none; height: var(--gs-ctl-h); margin: 0; padding: 0 16px; } /* dans la barre du haut, à droite d'Enregistrer */
 button.gs-pdf-btn, button.gs-edit-links-btn { flex: none; height: var(--gs-ctl-h); padding: 0 14px; font-size: var(--fs-sm); }
+
+/* ---------- note d'un dossier (pense-bête) ---------- */
+.folder-note-wrap { display: flex; flex-direction: column; gap: 4px; margin: 0 0 10px; min-width: 0; }
+.folder-note-wrap > * { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.folder-note-add { align-self: flex-start; background: transparent; border: 1px dashed var(--border); color: var(--text-muted); font-size: var(--fs-xs); font-weight: 700; padding: 3px 10px; border-radius: 999px; opacity: .75; }
+.folder-note-add:hover, .folder-note-add:focus-visible { opacity: 1; color: var(--text-main); border-color: var(--text-muted); }
+.folder-note-view, .folder-note-parent { padding: 6px 10px; border-left: 3px solid var(--accent); background: var(--card-bg-2); border-radius: 6px; font-size: var(--fs-sm); color: var(--text-main); overflow-wrap: anywhere; cursor: pointer; overflow: hidden; }
+.folder-note-view { white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.folder-note-parent { width: 0; min-width: 100%; white-space: nowrap; text-overflow: ellipsis; font-size: var(--fs-xs); color: var(--text-dim); padding: 3px 10px; }
+.folder-note-parent strong { color: var(--text-main); }
+.folder-note-view a, .folder-note-parent a { color: var(--accent); text-decoration: underline; }
+.folder-note-edit { width: 100%; box-sizing: border-box; resize: none; font: inherit; font-size: var(--fs-sm); line-height: 1.4; padding: 6px 10px; }

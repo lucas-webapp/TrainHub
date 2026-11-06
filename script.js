@@ -423,6 +423,7 @@
     }
 
     function normalizeFolder(f) {
+        if (typeof f.note !== "string" || !f.note.trim()) delete f.note; // note du dossier (rappel global, voir folderNoteBlock)
         if (!Array.isArray(f.folders)) f.folders = [];
         if (!Array.isArray(f.exercises)) f.exercises = [];
         f.folders.forEach(normalizeFolder);
@@ -2686,6 +2687,7 @@
             exercises: (folder.exercises || []).map(duplicateExercise)
         };
         if (folder.color) copy.color = folder.color;
+        if (folder.note) copy.note = folder.note;
         return copy;
     }
 
@@ -5167,6 +5169,102 @@
         });
     }
 
+    // ---------- note d'un dossier ----------
+    // Un petit pense-bête attaché à un dossier (pas à un chapitre) : « à me rappeler la prochaine fois », un lien utile à tous les sous-dossiers…
+    // Vide : un simple « ＋ Note » discret. Remplie : un cadre de 3 lignes au plus (clic = modifier ; les liens s'ouvrent). Dans un sous-dossier,
+    // la note des dossiers parents reste visible sur une ligne (clic = aller à ce dossier), pour ne pas la perdre en descendant.
+    function noteWithLinks(text, box) {
+        String(text).split(/(https?:\/\/[^\s<>"]+)/g).forEach(function (part, i) {
+            if (i % 2 === 0) { if (part) box.appendChild(document.createTextNode(part)); return; }
+            var url = part, tail = "";
+            var m = /[.,;:!?)\]]+$/.exec(url);
+            if (m) { tail = m[0]; url = url.slice(0, -tail.length); }
+            var a = document.createElement("a");
+            a.href = url; a.textContent = url; a.rel = "noopener noreferrer"; a.target = "_blank";
+            a.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); openExternalLink(url); });
+            box.appendChild(a);
+            if (tail) box.appendChild(document.createTextNode(tail));
+        });
+        return box;
+    }
+    function folderNoteBlock(inst, nodes) {
+        var folder = nodes[nodes.length - 1];
+        var wrap = document.createElement("div");
+        wrap.className = "folder-note-wrap";
+        // notes des dossiers parents (hors chapitre), une ligne chacune
+        nodes.slice(1, -1).forEach(function (anc, i) {
+            if (!anc.note) return;
+            var line = document.createElement("div");
+            line.className = "folder-note-parent";
+            line.title = "Note de « " + anc.name + " » (clic : ouvrir ce dossier)";
+            var who = document.createElement("strong");
+            who.textContent = anc.name + " : ";
+            line.appendChild(who);
+            noteWithLinks(anc.note.replace(/\s*\n\s*/g, " "), line);
+            line.addEventListener("click", function () {
+                setNavPath(inst, nodes.slice(0, i + 2).map(function (n) { return n.id; }));
+                render();
+            });
+            wrap.appendChild(line);
+        });
+        if (nodes.length < 2) return wrap.childNodes.length ? wrap : null;
+
+        var own = document.createElement("div");
+        own.className = "folder-note";
+        wrap.appendChild(own);
+        function showView() {
+            own.innerHTML = "";
+            if (!folder.note) {
+                var add = document.createElement("button");
+                add.type = "button";
+                add.className = "folder-note-add";
+                add.textContent = "＋ Note";
+                add.title = "Un pense-bête pour ce dossier et ses sous-dossiers : texte, lien…";
+                add.addEventListener("click", showEdit);
+                own.appendChild(add);
+                return;
+            }
+            var view = document.createElement("div");
+            view.className = "folder-note-view";
+            view.title = "Cliquer pour modifier la note";
+            noteWithLinks(folder.note, view);
+            view.addEventListener("click", showEdit);
+            own.appendChild(view);
+        }
+        function showEdit() {
+            own.innerHTML = "";
+            var ta = document.createElement("textarea");
+            ta.className = "folder-note-edit";
+            ta.value = folder.note || "";
+            ta.rows = 2;
+            ta.placeholder = "Pense-bête pour ce dossier et ses sous-dossiers : texte, lien…";
+            ta.setAttribute("aria-label", "Note du dossier « " + folder.name + " »");
+            own.appendChild(ta);
+            var done = false;
+            function finish(keep) {
+                if (done) return;
+                done = true;
+                var v = ta.value.trim();
+                if (keep && v !== (folder.note || "")) {
+                    if (v) folder.note = v; else delete folder.note;
+                    save();
+                }
+                showView();
+                if (keep) render(); // les lignes « note du parent » des sous-dossiers se mettent à jour
+            }
+            ta.addEventListener("input", function () { autoGrowNotes(ta); });
+            ta.addEventListener("blur", function () { finish(true); });
+            ta.addEventListener("keydown", function (e) {
+                if (e.key === "Escape") { e.preventDefault(); finish(false); }
+                else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); ta.blur(); }
+            });
+            autoGrowNotes(ta);
+            ta.focus({ preventScroll: true });
+        }
+        showView();
+        return wrap;
+    }
+
     function renderFolderBrowser(inst) {
         var path = getNavPath(inst);
         var nodes = resolvePath(inst, path);
@@ -5194,6 +5292,9 @@
 
         // Sous-dossiers du dossier courant, dans le MÊME ordre que l'arborescence de gauche (même
         // tableau de données) : la zone principale reflète exactement la branche sélectionnée.
+        var noteBlock = folderNoteBlock(inst, nodes);
+        if (noteBlock) $folderContainer.appendChild(noteBlock);
+
         var foldersGroup = document.createElement("div");
         foldersGroup.className = "section-group folders-group";
         if (currentFolder.folders.length) {
@@ -10544,7 +10645,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v265"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v266"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }
