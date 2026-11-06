@@ -5306,5 +5306,5 @@ textarea.gs-note-comment { min-height: 38px; margin-bottom: 10px; }
 .gs-steps-empty { padding: 16px 12px; border: 1px dashed var(--border); border-radius: 8px; text-align: center; font-size: var(--fs-sm); color: var(--text-muted); }
 button.gs-add-step-btn { width: auto; height: var(--gs-ctl-h); margin-top: 10px; padding: 0 16px; font-size: var(--fs-sm); }
 .gs-edit-tools-row { flex-wrap: wrap; align-items: center; margin: 18px 0 12px; padding-top: 14px; border-top: 1px solid var(--border); }
-button.gs-edit-run-btn { width: auto; flex: none; height: var(--gs-ctl-h); margin: 0; padding: 0 18px; }
+button.gs-edit-run-btn { width: auto; flex: none; height: var(--gs-ctl-h); margin: 0; padding: 0 16px; } /* dans la barre du haut, à droite d'Enregistrer */
 button.gs-pdf-btn, button.gs-edit-links-btn { flex: none; height: var(--gs-ctl-h); padding: 0 14px; font-size: var(--fs-sm); }

@@ -10544,7 +10544,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v264"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v265"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }
@@ -21022,7 +21022,7 @@
             editLinksBtn.addEventListener("click", function () { gsOpenLinks(session, "edit"); });
             editToolsRow.appendChild(editLinksBtn);
         }
-        editToolsRow.insertBefore(runBtn, editToolsRow.firstChild); // ligne d'actions : Lancer (seul bouton vert), puis PDF et liens, tous de la même hauteur ; placée sous la liste des exercices
+        topRow.appendChild(runBtn); // « Lancer » est dans la barre du haut (toujours sous la main, même sur une longue session), à côté d'Enregistrer ; PDF et liens restent sous la liste des exercices
 
         // Section des exercices : titre à gauche, durée totale à droite, puis la liste, puis « + Ajouter un exercice ».
         var stepsHead = document.createElement("div");

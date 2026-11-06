@@ -5,7 +5,7 @@ const { chromium } = require('playwright');
 const harnais = require('/home/user/trainhub/tests/_harness');
 const { check, plan, bilan } = harnais('TrainHub : écrans de session — largeur réglable, fiche dans l\'ordre, bandeau « Ma session » redimensionnable');
 const estBruitReseau = harnais.estBruitReseau;
-plan(43);
+plan(44);
 const URL = 'http://localhost:8765/index.html';
 
 function etat() {
@@ -80,7 +80,9 @@ const hauteur = (page, sel) => page.locator(sel).first().evaluate(e => Math.roun
 
         // ============ C. Fiche d'une session : l'ordre et les boutons ============
         const ordre = await page.evaluate(() => { const y = s => { const e = document.querySelector(s); return e ? Math.round(e.getBoundingClientRect().top) : -1; }; return { nom: y('.gs-name-row'), com: y('textarea.gs-note-comment'), onglets: y('.gs-tabpick'), tete: y('.gs-steps-head'), liste: y('.gs-steps-list'), ajout: y('.gs-add-step-btn'), actions: y('.gs-edit-tools-row') }; });
-        check(ordre.nom < ordre.com && ordre.com < ordre.onglets && ordre.onglets < ordre.tete && ordre.tete < ordre.liste && ordre.liste < ordre.ajout && ordre.ajout < ordre.actions, 'C. ordre de la fiche : nom, commentaire, onglets, exercices, « + Ajouter », actions : ' + JSON.stringify(ordre));
+        check(ordre.nom < ordre.com && ordre.com < ordre.onglets && ordre.onglets < ordre.tete && ordre.tete < ordre.liste && ordre.liste < ordre.ajout && ordre.ajout < ordre.actions, 'C. ordre de la fiche : nom, commentaire, onglets, exercices, « + Ajouter », PDF / liens : ' + JSON.stringify(ordre));
+        const lancer = await page.evaluate(() => { const b = document.querySelector('.gs-edit-run-btn'), s = document.querySelector('.gs-save-btn'), bar = document.querySelector('.gs-edit-topbar'); const rb = b.getBoundingClientRect(), rs = s.getBoundingClientRect(); return { dansBarre: bar.contains(b), aDroite: rb.left >= rs.right - 1, memeLigne: Math.abs(rb.top - rs.top) < 2, h: Math.round(rb.height), pasEnBas: !document.querySelector('.gs-edit-tools-row').contains(b) }; });
+        check(lancer.dansBarre && lancer.aDroite && lancer.memeLigne && lancer.h === 36 && lancer.pasEnBas, 'C. « Lancer la session » est dans la barre du haut, à droite d\'Enregistrer, à 36 px : ' + JSON.stringify(lancer));
         check((await page.locator('.gs-tabpick-label').innerText()).includes('Rangée dans'), 'C. les onglets sont introduits par « Rangée dans : »');
         check(await page.locator('.gs-steps-head .gs-total-row').innerText() === 'Durée totale : 15 min', 'C. la durée totale est sur la ligne du titre des exercices');
         const hs = await page.evaluate(() => ['.gs-back-btn', '.gs-add-step-btn', '.gs-edit-run-btn', '.gs-pdf-btn'].map(s => Math.round(document.querySelector(s).getBoundingClientRect().height)));
