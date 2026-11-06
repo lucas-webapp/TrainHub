@@ -26,12 +26,12 @@ async function ouvrir(browser, { tactile = false } = {}) {
             sessionStorage.setItem('__seed', '1');
             const ex = (id, title) => ({ id, title, notes: '', collapsed: true });
             localStorage.setItem('trainhub.v1', JSON.stringify({ activeInstrumentId: 'i1', updatedAt: 1, instruments: [{ id: 'i1', name: 'Guitare', categories: [{ id: 'c1', name: 'Technique', color: '#e91e63', folders: [], exercises: [ex('e1', 'Gamme lente'), ex('e2', 'Arpèges')] }] }], settings: { guidedSessions: [] } }));
-            // 7 séances sur 7 jours : tempo de « Gamme lente » ≈ 108 → 112, sauf la dernière (65 : erreur d'enregistrement) ; « Arpèges » toujours présent
+            // 7 séances sur les 7 derniers jours (ramenées au 1er du mois en début de mois) : tempo de « Gamme lente » ≈ 108 → 112, sauf la dernière (65 : erreur d'enregistrement) ; « Arpèges » toujours présent
             const bpm = [108, 109, 111, 110, 112, 111, 65];
             const mk = d => d.getFullYear() + '-' + (d.getMonth() < 9 ? '0' : '') + (d.getMonth() + 1);
             const par = {};
             bpm.forEach((b, i) => {
-                const d = new Date(); d.setDate(d.getDate() - (6 - i)); d.setHours(9, 0, 0, 0);
+                const d = new Date(); d.setDate(Math.max(1, d.getDate() - (6 - i))); d.setHours(1 + i, 0, 0, 0); // jamais avant le 1er du mois (la page Statistiques n'affiche que le mois) ; l'heure garde l'ordre des séances
                 const st = (id, ex, t, s, o) => Object.assign({ sid: 'p' + id, exerciseId: ex, title: t, chapterId: 'c1', chapterName: 'Technique', path: ['Technique'], pathIds: ['c1'], plannedMin: Math.round(s / 60), actualSec: s, bpmFirst: null, bpmMax: null, bpmEnd: null, playedSec: s }, o);
                 const rec = { v: 2, id: 'r' + i, instrumentId: 'i1', name: 'Technique du jour', date: d.getTime(), endedAt: d.getTime() + 1500000, totalSec: 600 + 300, plannedSec: 900,
                     steps: [st(i + 'a', 'e1', 'Gamme lente', 600, { bpmFirst: b - 4, bpmMax: b, bpmEnd: b, bpmHow: 'tenu 15 s' }), st(i + 'b', 'e2', 'Arpèges', 300, { bpmFirst: 80, bpmMax: 90 + i, bpmEnd: 90 + i })] };

@@ -5274,3 +5274,37 @@ button.song-prop:focus-visible { outline: 2px solid var(--accent); outline-offse
 #instrument-select, #instrument-select option { font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .07em; }
 #instrument-select { color: var(--text-muted); }
 #instrument-select option { color: var(--text-main); }
+
+/* ---------- v264 — écrans de préparation d'une session : colonne moins large, réglable ; fiche dans l'ordre ; boutons à taille normale ---------- */
+:root { --gs-ctl-h: 36px; } /* une seule hauteur pour les boutons de ces écrans (celle de « ← Retour ») */
+/* Largeur : 720 px au départ (1 120 px pour le choix, qui a deux colonnes) ; les poignées posent --gs-w. */
+.gs-main.gs-main-roomy, html:is(html, .sidebar-hidden, .metro-docked) .gs-main.gs-main-roomy { position: relative; max-width: var(--gs-w, 720px); margin-left: 0; margin-right: auto; } /* collée au volet de gauche : le vide reste à droite */
+html:is(html, .sidebar-hidden, .metro-docked) .gs-main.gs-main-roomy.gs-main-pick { max-width: var(--gs-w, 1120px); }
+/* Poignée de largeur (bord droit de la colonne) et poignée du bandeau « Ma session » : un trait discret, vert au survol. */
+.gs-grip { position: absolute; top: 0; bottom: 0; width: 14px; z-index: 5; cursor: col-resize; touch-action: none; -webkit-user-select: none; user-select: none; }
+.gs-grip-right { right: -15px; }
+.gs-grip > i { position: sticky; top: 42vh; display: block; width: 4px; height: 44px; margin: 0 auto; border-radius: 3px; background: var(--border); opacity: .6; transition: background .15s, opacity .15s; }
+.gs-grip:hover > i, .gs-grip:focus-visible > i, .gs-grip.dragging > i { background: var(--accent); opacity: 1; }
+.gs-grip:focus-visible { outline: none; }
+html.gs-resizing, html.gs-resizing * { cursor: col-resize !important; -webkit-user-select: none; user-select: none; }
+.gs-pick-layout.with-side { grid-template-columns: minmax(0, 1fr) 14px var(--gs-side, 340px); gap: 0; }
+.gs-pick-split { position: relative; top: auto; bottom: auto; left: auto; right: auto; align-self: stretch; }
+@media (max-width: 899px) {
+    .gs-grip { display: none; }
+    .gs-pick-layout.with-side { grid-template-columns: minmax(0, 1fr); }
+}
+/* Liste des sessions : « + Nouvelle session » est un bouton, pas une barre */
+.gs-newbar { display: flex; margin: 0 0 12px; }
+.gs-newbar .gs-add-session-btn { width: auto; flex: none; height: var(--gs-ctl-h); padding: 0 16px; }
+/* Fiche d'une session : nom et note, commentaire discret, onglets ; puis les exercices (titre + durée totale), « + Ajouter », et en bas les actions. */
+textarea.gs-note-comment { min-height: 38px; margin-bottom: 10px; }
+.gs-tabpick { align-items: center; }
+.gs-tabpick-label { font-size: var(--fs-xs); color: var(--text-muted); margin-right: 2px; }
+.gs-steps-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 18px 0 8px; }
+.gs-steps-head .section-label { margin: 0; }
+.gs-steps-head .gs-total-row { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.gs-steps-empty { padding: 16px 12px; border: 1px dashed var(--border); border-radius: 8px; text-align: center; font-size: var(--fs-sm); color: var(--text-muted); }
+button.gs-add-step-btn { width: auto; height: var(--gs-ctl-h); margin-top: 10px; padding: 0 16px; font-size: var(--fs-sm); }
+.gs-edit-tools-row { flex-wrap: wrap; align-items: center; margin: 18px 0 12px; padding-top: 14px; border-top: 1px solid var(--border); }
+button.gs-edit-run-btn { width: auto; flex: none; height: var(--gs-ctl-h); margin: 0; padding: 0 18px; }
+button.gs-pdf-btn, button.gs-edit-links-btn { flex: none; height: var(--gs-ctl-h); padding: 0 14px; font-size: var(--fs-sm); }

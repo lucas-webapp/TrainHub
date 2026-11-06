@@ -10544,7 +10544,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v263"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v264"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }
@@ -19171,6 +19171,52 @@
         }
     }
 
+    // ---- largeur des écrans de préparation d'une session ----
+    // La colonne (liste, fiche, choix, liens), collée au volet de gauche, se règle avec la poignée de son bord droit : glisser pour l'élargir ou la rétrécir,
+    // double-clic ou touche Début pour revenir à la taille d'origine ; flèches ← → au clavier. Retenue sur l'appareil (« trainhub.gsWidth.v1 »).
+    var GS_WIDTH_KEY = "trainhub.gsWidth.v1", GS_WIDTH_MIN = 480, GS_WIDTH_MAX = 1600;
+    function gsWidthLoad() { try { var n = parseInt(localStorage.getItem(GS_WIDTH_KEY), 10); return n >= GS_WIDTH_MIN && n <= GS_WIDTH_MAX ? n : 0; } catch (e) { return 0; } }
+    function gsWidthSave(n) { try { if (n) localStorage.setItem(GS_WIDTH_KEY, String(n)); else localStorage.removeItem(GS_WIDTH_KEY); } catch (e) {} }
+    // Poignée verticale générique : glisser (souris, doigt) et clavier ; `get()` donne la valeur de départ, `set(v, fin)` l'applique (fin = true au relâchement), `reset()` la remet par défaut.
+    function gsBindSplitGrip(grip, o) {
+        grip.tabIndex = 0;
+        grip.setAttribute("role", "separator"); grip.setAttribute("aria-orientation", "vertical");
+        grip.addEventListener("pointerdown", function (e) {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            var x0 = e.clientX, v0 = o.get(), last = v0;
+            try { grip.setPointerCapture(e.pointerId); } catch (x) {}
+            document.documentElement.classList.add("gs-resizing"); grip.classList.add("dragging");
+            function mv(ev) { last = o.set(v0 + o.sign * (ev.clientX - x0) * (o.factor || 1), false); }
+            function up() {
+                grip.removeEventListener("pointermove", mv); grip.removeEventListener("pointerup", up); grip.removeEventListener("pointercancel", up);
+                document.documentElement.classList.remove("gs-resizing"); grip.classList.remove("dragging");
+                o.set(last, true);
+            }
+            grip.addEventListener("pointermove", mv); grip.addEventListener("pointerup", up); grip.addEventListener("pointercancel", up);
+        });
+        grip.addEventListener("dblclick", function () { o.reset(); });
+        grip.addEventListener("keydown", function (e) {
+            if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); o.set(o.get() + o.sign * (e.key === "ArrowRight" ? 1 : -1) * 32 * (o.factor || 1), true); }
+            else if (e.key === "Home") { e.preventDefault(); o.reset(); }
+        });
+    }
+    function gsInstallWidthGrips(content) {
+        var saved = gsWidthLoad();
+        if (saved) content.style.setProperty("--gs-w", saved + "px");
+        var g = document.createElement("div");
+        g.className = "gs-grip gs-grip-right";
+        g.title = "Glisser pour élargir ou rétrécir la fenêtre (double-clic : taille d'origine)";
+        g.setAttribute("aria-label", "Largeur de la fenêtre"); g.innerHTML = "<i></i>";
+        gsBindSplitGrip(g, { // la colonne est collée au volet de gauche : seul son bord droit bouge
+            sign: 1,
+            get: function () { return content.getBoundingClientRect().width; },
+            set: function (v, end) { v = Math.max(GS_WIDTH_MIN, Math.min(GS_WIDTH_MAX, Math.round(v))); content.style.setProperty("--gs-w", v + "px"); if (end) gsWidthSave(v); return v; },
+            reset: function () { content.style.removeProperty("--gs-w"); gsWidthSave(0); }
+        });
+        content.appendChild(g);
+    }
+
     function renderGuidedSessionMain() {
         $contentHeading.innerHTML = "";
         var h2 = document.createElement("h2");
@@ -19187,8 +19233,8 @@
         var gsOpen = gsScreen === "edit" || gsScreen === "pick" ? gsEditingSession : gsScreen === "links" ? gsLinksSession : null;
         if (gsOpen && gsOpen.instrumentId !== state.activeInstrumentId) { gsEditingSession = null; gsScreen = "list"; }
         if (gsScreen !== "links") gsFileBlobCache = {};
-        // Préparation des sessions (liste, édition, choix, liens) : colonne plus large pour des titres lisibles.
-        if (gsScreen !== "run") content.classList.add("gs-main-roomy");
+        // Préparation des sessions (liste, édition, choix, liens) : colonne plus large pour des titres lisibles, réglable par deux poignées (bords gauche et droit).
+        if (gsScreen !== "run") { content.classList.add("gs-main-roomy"); if (gsScreen === "pick") content.classList.add("gs-main-pick"); gsInstallWidthGrips(content); }
         if (gsScreen === "run" && gsRunSession) renderGsRunScreen(content);
         else if (gsScreen === "links" && gsLinksSession) renderGsLinksScreen(content);
         else if (gsScreen === "pick" && gsEditingSession) renderGsPickScreen(content);
@@ -20912,7 +20958,7 @@
             content.appendChild(gsnRow);
             var gsnIn = document.createElement("textarea");
             gsnIn.className = "gs-note-comment";
-            gsnIn.rows = 2; gsnIn.maxLength = RATING_COMMENT_MAX;
+            gsnIn.rows = 1; gsnIn.maxLength = RATING_COMMENT_MAX;
             gsnIn.placeholder = "Commentaire sur la session (exercice trop long, bon enchaînement, à revoir…)";
             gsnIn.setAttribute("aria-label", "Commentaire sur la session");
             gsnIn.value = gsNote(real.id).comment;
@@ -20925,6 +20971,7 @@
             var tabPick = document.createElement("div");
             tabPick.className = "gs-tabpick";
             tabPick.setAttribute("aria-label", "Onglets de la session");
+            var tabPickLab = document.createElement("span"); tabPickLab.className = "gs-tabpick-label"; tabPickLab.textContent = "Rangée dans :"; tabPick.appendChild(tabPickLab);
             sessTabs.forEach(function (t) {
                 var chip = document.createElement("button");
                 chip.type = "button";
@@ -20956,7 +21003,6 @@
             var go = function () { delete gsDrafts[real.id]; gsStartRun(state.settings.guidedSessions.filter(function (g) { return g.id === real.id; })[0] || real); };
             if (gsDraftDirty(real.id)) gsDraftPrompt(real.id, { title: "Enregistrer avant de lancer ?", saveLabel: "Enregistrer et lancer", discard: false }, go); else go();
         });
-        content.appendChild(runBtn);
         var editRunBtn = runBtn;
 
         var editToolsRow = document.createElement("div");
@@ -20976,19 +21022,23 @@
             editLinksBtn.addEventListener("click", function () { gsOpenLinks(session, "edit"); });
             editToolsRow.appendChild(editLinksBtn);
         }
-        content.appendChild(editToolsRow);
+        editToolsRow.insertBefore(runBtn, editToolsRow.firstChild); // ligne d'actions : Lancer (seul bouton vert), puis PDF et liens, tous de la même hauteur ; placée sous la liste des exercices
 
+        // Section des exercices : titre à gauche, durée totale à droite, puis la liste, puis « + Ajouter un exercice ».
+        var stepsHead = document.createElement("div");
+        stepsHead.className = "gs-steps-head";
         var stepsLabel = document.createElement("div");
         stepsLabel.className = "section-label";
         stepsLabel.textContent = "Exercices de la session";
-        content.appendChild(stepsLabel);
+        stepsHead.appendChild(stepsLabel);
+        var totalRow = document.createElement("div");
+        totalRow.className = "gs-total-row";
+        stepsHead.appendChild(totalRow);
+        content.appendChild(stepsHead);
 
         var stepsList = document.createElement("div");
         stepsList.className = "gs-steps-list";
         content.appendChild(stepsList);
-
-        var totalRow = document.createElement("div");
-        totalRow.className = "gs-total-row";
 
         function refreshTotal() {
             totalRow.textContent = "Durée totale : " + sessionTotalMinutes(session) + " min";
@@ -21041,6 +21091,12 @@
 
         function renderSteps() {
             stepsList.innerHTML = "";
+            if (!session.steps.length) { // rien dans la session : on dit quoi faire
+                var none = document.createElement("div"); none.className = "gs-steps-empty";
+                none.textContent = "Aucun exercice pour l'instant : ajoute le premier avec le bouton ci-dessous.";
+                stepsList.appendChild(none);
+            }
+            if (typeof addStepBtn !== "undefined" && addStepBtn) addStepBtn.className = (session.steps.length ? "btn-ghost" : "btn-accent") + " gs-add-step-btn"; // vide : c'est LA prochaine étape, le bouton est vert
             session.steps.forEach(function (step) {
                 var found = findExerciseById(step.exerciseId);
                 var row = document.createElement("div");
@@ -21333,8 +21389,9 @@
             render();
         }
         addStepBtn.addEventListener("click", startAddStep);
+        addStepBtn.className = (session.steps.length ? "btn-ghost" : "btn-accent") + " gs-add-step-btn";
         content.appendChild(addStepBtn);
-        content.appendChild(totalRow);
+        content.appendChild(editToolsRow);
         if (gsAutoPick === real.id) { // session éphémère qu'on vient de créer : le choix du 1er exercice s'ouvre tout de suite
             gsAutoPick = null;
             setTimeout(function () { if (gsScreen === "edit" && gsEditingSession && gsEditingSession.id === real.id) startAddStep(); }, 0);
@@ -21694,6 +21751,30 @@
         paintSummary();
         side.scrollTop = scrollTop;
     }
+    // Poignée entre le choix et le bandeau « Ma session » : glisser vers la gauche pour élargir le bandeau (noms entiers, légende du camembert), vers la droite pour le rétrécir.
+    var GS_SIDE_KEY = "trainhub.gsSide.v1", GS_SIDE_DEFAULT = 340, GS_SIDE_MIN = 240, GS_SIDE_MAX = 720;
+    function gsSideLoad() { try { var n = parseInt(localStorage.getItem(GS_SIDE_KEY), 10); return n >= GS_SIDE_MIN && n <= GS_SIDE_MAX ? n : 0; } catch (e) { return 0; } }
+    function gsPickSplitGrip(layout) {
+        var g = document.createElement("div");
+        g.className = "gs-grip gs-pick-split";
+        g.title = "Glisser pour élargir ou rétrécir « Ma session » (double-clic : taille d'origine)";
+        g.setAttribute("aria-label", "Largeur de « Ma session »"); g.innerHTML = "<i></i>";
+        var saved = gsSideLoad();
+        if (saved) layout.style.setProperty("--gs-side", saved + "px");
+        gsBindSplitGrip(g, {
+            sign: -1, // vers la gauche = plus large
+            get: function () { var sd = layout.querySelector(".gs-pick-side"); return sd ? sd.getBoundingClientRect().width : GS_SIDE_DEFAULT; },
+            set: function (v, end) {
+                var room = layout.getBoundingClientRect().width - 300; // le choix garde au moins 300 px
+                v = Math.max(GS_SIDE_MIN, Math.min(GS_SIDE_MAX, Math.round(Math.min(v, Math.max(GS_SIDE_MIN, room)))));
+                layout.style.setProperty("--gs-side", v + "px");
+                if (end) { try { localStorage.setItem(GS_SIDE_KEY, String(v)); } catch (e) {} }
+                return v;
+            },
+            reset: function () { layout.style.removeProperty("--gs-side"); try { localStorage.removeItem(GS_SIDE_KEY); } catch (e) {} }
+        });
+        return g;
+    }
     function renderGsPickScreen(content) {
         var backBtn = document.createElement("button");
         backBtn.type = "button";
@@ -21720,7 +21801,7 @@
         var main = document.createElement("div"); main.className = "gs-pick-main";
         layout.appendChild(main); content.appendChild(layout);
         var side = null;
-        if (gsPickBurstOn() && gsPickSession) { side = document.createElement("aside"); side.className = "gs-pick-side"; side.setAttribute("aria-label", "Ma session"); layout.classList.add("with-side"); layout.appendChild(side); }
+        if (gsPickBurstOn() && gsPickSession) { side = document.createElement("aside"); side.className = "gs-pick-side"; side.setAttribute("aria-label", "Ma session"); layout.classList.add("with-side"); layout.appendChild(gsPickSplitGrip(layout)); layout.appendChild(side); }
 
         var searchInput = document.createElement("input");
         searchInput.type = "text";

@@ -6,8 +6,8 @@ La session Claude Code s'ouvre dans `/home/user/HarmoHub` : c'est **une autre ap
 Tout le travail TrainHub se fait dans `/home/user/trainhub`.
 
 ## Suite à faire (lue par `/reprise` — à réécrire à la fin de CHAQUE demande)
-- **Rien de prévu** (v263 livrée : nom de l'espace en haut seulement, en petites capitales ; avant : « En cours » discret, menus des caractéristiques d'un morceau). Aucune demande en attente : `/reprise` doit demander à l'utilisateur ce qui vient ensuite, sans rien commencer.
-- Idées déjà proposées, à ne remettre sur la table que si la conversation s'y prête : voir « Idées proposées, pas encore faites » plus bas. Banc `point` à corriger (dates fixées dans le mois) : tâche d'entretien, sans urgence.
+- **Rien de prévu** (v264 livrée : écrans de session cohérents, largeur réglable par poignées, bandeau « Ma session » redimensionnable ; avant : nom de l'espace en petites capitales, « En cours » discret, menus des caractéristiques d'un morceau). Aucune demande en attente : `/reprise` doit demander à l'utilisateur ce qui vient ensuite, sans rien commencer.
+- Idées déjà proposées, à ne remettre sur la table que si la conversation s'y prête : voir « Idées proposées, pas encore faites » plus bas.
 - **Règle** : à la fin de chaque demande, réécrire cette section (la suite annoncée par l'utilisateur, ou « Rien de prévu »), dans le même commit que la version.
 
 ## Comment travailler avec l'utilisateur
@@ -29,7 +29,7 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
    `Claude-Session: https://claude.ai/code/session_…` (reprendre l'URL donnée par le rappel d'attribution de la session en cours).
 6. `git push -q origin main`, puis `git push -q origin HEAD:structure-dossiers`, puis vérifier avec `git ls-remote origin main structure-dossiers`
    que les deux pointent sur le même commit. (Le message « This repository moved » de GitHub est sans conséquence.)
-7. Réécrire la section « Suite à faire » (en haut de ce fichier). Dernière version livrée : **v263**. La suivante sera v264.
+7. Réécrire la section « Suite à faire » (en haut de ce fichier). Dernière version livrée : **v264**. La suivante sera v265.
 
 ## À ne pas toucher
 - **Le moteur de synchronisation cloud** (Firestore : envoi différé, écoute, reprise). Les nouveaux champs voyagent avec l'état sans le modifier.
@@ -56,6 +56,7 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
   `songsPickContent`, `openSongsConvertDialog` (transformation d'un chapitre : fusion des doublons, remplacement dans les sessions, alias
   statistiques). Les morceaux ne se dupliquent ni ne se lient (pas de « Dupliquer » / « Liaison » dans leur menu).
 - **« En cours » (v245)** : `exInProgress(ex)` / `exSetInProgress(ex, on)` ; pastille `ex.inProgress` pour un exercice, état de Travail pour un morceau.
+- **Écrans de préparation d'une session (v264)** : `renderGuidedSessionMain` pose `gs-main-roomy` (+ `gs-main-pick` pour le choix) et `gsInstallWidthGrips` (poignée du bord droit, colonne collée au volet de gauche — le banc `rideau` exige un petit écart —, `--gs-w`, `trainhub.gsWidth.v1`, 720 px par défaut, 1 120 px pour le choix) ; `gsBindSplitGrip` = poignée générique (souris, clavier, double-clic) ; `gsPickSplitGrip` = poignée entre le choix et « Ma session » (`--gs-side`, `trainhub.gsSide.v1`). Hauteur unique des boutons de ces écrans : `--gs-ctl-h` (36 px). Fiche : nom, commentaire, onglets, exercices, « + Ajouter », actions (`.gs-edit-tools-row`, avec « Lancer » en tête).
 - **Choix d'un exercice en session** : écran `renderGsPickScreen` + arbre `renderGsPickTree`, et fenêtre `openExercisePickerModal`.
   Chapitres dans l'ordre de la barre latérale (`pickChapters`) ; dossiers replié/déplié **mémorisés à part** (`trainhub.pickOpen.v1`,
   `pickIsOpen / pickSetOpen`, tout replié au départ) ; onglets Exercices / Morceaux / Favoris / En cours (déplaçables, `tabsSortable("pick")`, `pickTabMem` = ex|so|fav|wip, zones `pickZone`/`pickKindZones`) ; **ajout en rafale** (`gsPickChoose`, compteur, « Terminer ») avec **rond de rang** (`gsPickMark`, reclic = retrait via `gsPickRemoveEx`, plus de ×n) et bandeau collant **« Ma session »** (`gsPickPanel` : durées `bindScrubInput`, ordre glissable, ✕, total, camembert trié ; PAS de tri par durée) ; dossiers du choix glissables à la souris par la poignée `.pick-grip` (`pickBindFolderReorder`, option `handle` de `setupDragReorder`) ;
@@ -89,8 +90,8 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
   `localStorage['compteCloud.trainhub.nePlusProposer'] = '1'` (pas de fenêtre de connexion), bloquer `https://www.gstatic.com/firebasejs/**`,
   `serviceWorkers: 'block'`. Horloge simulée (`page.clock`) pour les vraies sessions ; CDP pour les mesures de performance.
   Un vrai plantage de page ne se joue pas ici : on recopie le signe de vie (`trainhub.audioAlive.v1`) dans une nouvelle page.
-- Les **23 bancs** sont dans le dépôt : `tests/playwright/trainhub_<nom>_test.js` (morceaux 165, programmation 50, menage 52, rafale 42, choix 38, compte 68, note 34, note_session 86,
-  favoris 31, rideau 33, session_ui 71, son 75, video 22, preset 22, point 31, lecteur 29, audio_rate 19, audio_edit 80, de 19, eph 12, volet 20, tempo 15, corbeille 24), avec leurs fichiers
+- Les **24 bancs** sont dans le dépôt : `tests/playwright/trainhub_<nom>_test.js` (morceaux 165, programmation 50, menage 52, rafale 42, choix 38, compte 68, note 34, note_session 86,
+  favoris 31, rideau 33, session_ui 71, son 75, video 22, preset 22, point 31, lecteur 29, audio_rate 19, audio_edit 80, de 19, eph 12, volet 20, tempo 15, corbeille 24, sessions_ecrans 43), avec leurs fichiers
   (`media/`, `yt_mock/`). Lancer : `tests/playwright/lancer.sh` (tous) ou `tests/playwright/lancer.sh morceaux choix` ; il démarre et arrête les
   serveurs :8765 et :8766. Un nouveau banc s'ajoute dans ce dossier, avec `plan(n)` ; le garder à jour quand un comportement change exprès.
 - Lancer **toutes** les suites avant chaque livraison (≈ 15 min) ; adapter un banc existant seulement si le comportement a changé exprès.
@@ -106,8 +107,7 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
 
 ## Reprise (état au 5 novembre 2026, après la v260)
 - **Livré en v260** : vidage de la corbeille par ancienneté + rappel au-delà de 20 exercices ; dé d'harmonie sans remise ; fermeture du contexte audio inactif (piste du bug Safari). Banc `corbeille` ajouté.
-- **Banc `point`** : en échec depuis le début de novembre **sans lien avec le code** (son jeu de test crée 7 séances sur 7 jours, et en début de mois l'une tombe le mois précédent ; la page Statistiques n'affiche que le mois).
-  À corriger dans le banc (dates fixées dans le mois courant), pas dans l'appli.
+- **Banc `point`** : corrigé en v264 (ses 7 séances sont ramenées au 1er du mois en début de mois ; la page Statistiques n'affiche que le mois).
 - **Ce que l'utilisateur ne veut PAS** : aucun rappel pour reprendre un exercice (la « dernière fois jouée » est une information, pas une alerte) ; le Ménage ne supprime ni ne fusionne jamais un exercice ;
   un exercice tiré d'un morceau ne porte aucune caractéristique de morceau (artiste, style, technique, travail) ; pas de tri de la liste « Ma session » par durée ;
   **pas de filtre « fiches vides » / « sans lien ni note »** (un exercice peut se suffire de son titre : une fiche vide n'est pas un défaut).
