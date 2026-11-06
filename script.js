@@ -5170,7 +5170,7 @@
     }
 
     // ---------- note d'un dossier ----------
-    // Un petit pense-bête attaché à un dossier (pas à un chapitre) : « à me rappeler la prochaine fois », un lien utile à tous les sous-dossiers…
+    // Un petit pense-bête attaché à un dossier ou à un chapitre (v267) : « à me rappeler la prochaine fois », un lien utile à tous les sous-dossiers…
     // Vide : un simple « ＋ Note » discret. Remplie : un cadre de 3 lignes au plus (clic = modifier ; les liens s'ouvrent). Dans un sous-dossier,
     // la note des dossiers parents reste visible sur une ligne (clic = aller à ce dossier), pour ne pas la perdre en descendant.
     function noteWithLinks(text, box) {
@@ -5191,8 +5191,8 @@
         var folder = nodes[nodes.length - 1];
         var wrap = document.createElement("div");
         wrap.className = "folder-note-wrap";
-        // notes des dossiers parents (hors chapitre), une ligne chacune
-        nodes.slice(1, -1).forEach(function (anc, i) {
+        // notes des niveaux au-dessus (chapitre compris), une ligne chacune
+        nodes.slice(0, -1).forEach(function (anc, i) {
             if (!anc.note) return;
             var line = document.createElement("div");
             line.className = "folder-note-parent";
@@ -5202,12 +5202,11 @@
             line.appendChild(who);
             noteWithLinks(anc.note.replace(/\s*\n\s*/g, " "), line);
             line.addEventListener("click", function () {
-                setNavPath(inst, nodes.slice(0, i + 2).map(function (n) { return n.id; }));
+                setNavPath(inst, nodes.slice(0, i + 1).map(function (n) { return n.id; }));
                 render();
             });
             wrap.appendChild(line);
         });
-        if (nodes.length < 2) return wrap.childNodes.length ? wrap : null;
 
         var own = document.createElement("div");
         own.className = "folder-note";
@@ -6297,6 +6296,7 @@
             }
         }
         $folderContainer.innerHTML = "";
+        if (!group) $folderContainer.appendChild(folderNoteBlock(inst, [ch])); // note du chapitre (pas dans les dossiers calculés)
         var nSongs = data.songs.length;
         $folderContainer.appendChild(renderSongViewBar(inst, ch, pr, data, nSongs));
         var wrap = document.createElement("div"); wrap.className = "songs-wrap";
@@ -10645,7 +10645,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v266"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v267"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }

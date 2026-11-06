@@ -6,7 +6,7 @@ La session Claude Code s'ouvre dans `/home/user/HarmoHub` : c'est **une autre ap
 Tout le travail TrainHub se fait dans `/home/user/trainhub`.
 
 ## Suite à faire (lue par `/reprise` — à réécrire à la fin de CHAQUE demande)
-- **Rien de prévu** (v266 livrée : note (pense-bête) sur chaque dossier ; avant : « Lancer la session » dans la barre du haut de la fiche ; avant : écrans de session cohérents, largeur réglable par poignées, bandeau « Ma session » redimensionnable ; avant : nom de l'espace en petites capitales, « En cours » discret, menus des caractéristiques d'un morceau). Aucune demande en attente : `/reprise` doit demander à l'utilisateur ce qui vient ensuite, sans rien commencer.
+- **Rien de prévu** (v267 livrée : note aussi sur les chapitres ; avant : note (pense-bête) sur chaque dossier ; avant : « Lancer la session » dans la barre du haut de la fiche ; avant : écrans de session cohérents, largeur réglable par poignées, bandeau « Ma session » redimensionnable ; avant : nom de l'espace en petites capitales, « En cours » discret, menus des caractéristiques d'un morceau). Aucune demande en attente : `/reprise` doit demander à l'utilisateur ce qui vient ensuite, sans rien commencer.
 - Idées déjà proposées, à ne remettre sur la table que si la conversation s'y prête : voir « Idées proposées, pas encore faites » plus bas.
 - **Règle** : à la fin de chaque demande, réécrire cette section (la suite annoncée par l'utilisateur, ou « Rien de prévu »), dans le même commit que la version.
 
@@ -29,7 +29,7 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
    `Claude-Session: https://claude.ai/code/session_…` (reprendre l'URL donnée par le rappel d'attribution de la session en cours).
 6. `git push -q origin main`, puis `git push -q origin HEAD:structure-dossiers`, puis vérifier avec `git ls-remote origin main structure-dossiers`
    que les deux pointent sur le même commit. (Le message « This repository moved » de GitHub est sans conséquence.)
-7. Réécrire la section « Suite à faire » (en haut de ce fichier). Dernière version livrée : **v266**. La suivante sera v267.
+7. Réécrire la section « Suite à faire » (en haut de ce fichier). Dernière version livrée : **v267**. La suivante sera v268.
 
 ## À ne pas toucher
 - **Le moteur de synchronisation cloud** (Firestore : envoi différé, écoute, reprise). Les nouveaux champs voyagent avec l'état sans le modifier.
@@ -56,7 +56,7 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
   `songsPickContent`, `openSongsConvertDialog` (transformation d'un chapitre : fusion des doublons, remplacement dans les sessions, alias
   statistiques). Les morceaux ne se dupliquent ni ne se lient (pas de « Dupliquer » / « Liaison » dans leur menu).
 - **« En cours » (v245)** : `exInProgress(ex)` / `exSetInProgress(ex, on)` ; pastille `ex.inProgress` pour un exercice, état de Travail pour un morceau.
-- **Note d'un dossier (v266)** : `folder.note` (texte libre, absent si vide ; `normalizeFolder`, copié par `duplicateFolderDeep`). `folderNoteBlock(inst, nodes)` (sous le titre, dans `renderFolderBrowser`) : « ＋ Note » → cadre de 3 lignes → zone de saisie (blur = enregistre, Échap annule, Ctrl/Cmd+Entrée) ; `noteWithLinks` rend les URL cliquables (`openExternalLink`, jamais de HTML). Pas sur les chapitres (profondeur ≥ 2). Dans un sous-dossier, les notes des parents s'affichent sur une ligne (`.folder-note-parent`, clic = aller au parent). Banc `notedossier`.
+- **Note d'un dossier (v266)** : `folder.note` (texte libre, absent si vide ; `normalizeFolder`, copié par `duplicateFolderDeep`). `folderNoteBlock(inst, nodes)` (sous le titre, dans `renderFolderBrowser`) : « ＋ Note » → cadre de 3 lignes → zone de saisie (blur = enregistre, Échap annule, Ctrl/Cmd+Entrée) ; `noteWithLinks` rend les URL cliquables (`openExternalLink`, jamais de HTML). Depuis v267 aussi sur les chapitres, y compris `kind: "songs"` (page d'accueil du chapitre seulement, pas dans les dossiers calculés). Dans un dossier, les notes de tous les niveaux au-dessus (chapitre compris) s'affichent sur une ligne (`.folder-note-parent`, clic = aller au parent). Banc `notedossier`.
 - **Écrans de préparation d'une session (v264)** : `renderGuidedSessionMain` pose `gs-main-roomy` (+ `gs-main-pick` pour le choix) et `gsInstallWidthGrips` (poignée du bord droit, colonne collée au volet de gauche — le banc `rideau` exige un petit écart —, `--gs-w`, `trainhub.gsWidth.v1`, 720 px par défaut, 1 120 px pour le choix) ; `gsBindSplitGrip` = poignée générique (souris, clavier, double-clic) ; `gsPickSplitGrip` = poignée entre le choix et « Ma session » (`--gs-side`, `trainhub.gsSide.v1`). Hauteur unique des boutons de ces écrans : `--gs-ctl-h` (36 px). Fiche : « Lancer » dans la barre du haut (`.gs-edit-topbar`, à droite d'Enregistrer), puis nom, commentaire, onglets, exercices, « + Ajouter », PDF / liens (`.gs-edit-tools-row`).
 - **Choix d'un exercice en session** : écran `renderGsPickScreen` + arbre `renderGsPickTree`, et fenêtre `openExercisePickerModal`.
   Chapitres dans l'ordre de la barre latérale (`pickChapters`) ; dossiers replié/déplié **mémorisés à part** (`trainhub.pickOpen.v1`,
@@ -92,7 +92,7 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
   `serviceWorkers: 'block'`. Horloge simulée (`page.clock`) pour les vraies sessions ; CDP pour les mesures de performance.
   Un vrai plantage de page ne se joue pas ici : on recopie le signe de vie (`trainhub.audioAlive.v1`) dans une nouvelle page.
 - Les **25 bancs** sont dans le dépôt : `tests/playwright/trainhub_<nom>_test.js` (morceaux 165, programmation 50, menage 52, rafale 42, choix 38, compte 68, note 34, note_session 86,
-  favoris 31, rideau 33, session_ui 71, son 75, video 22, preset 22, point 31, lecteur 29, audio_rate 19, audio_edit 80, de 19, eph 12, volet 20, tempo 15, corbeille 24, sessions_ecrans 44, notedossier 24), avec leurs fichiers
+  favoris 31, rideau 33, session_ui 71, son 75, video 22, preset 22, point 31, lecteur 29, audio_rate 19, audio_edit 80, de 19, eph 12, volet 20, tempo 15, corbeille 24, sessions_ecrans 44, notedossier 31), avec leurs fichiers
   (`media/`, `yt_mock/`). Lancer : `tests/playwright/lancer.sh` (tous) ou `tests/playwright/lancer.sh morceaux choix` ; il démarre et arrête les
   serveurs :8765 et :8766. Un nouveau banc s'ajoute dans ce dossier, avec `plan(n)` ; le garder à jour quand un comportement change exprès.
 - Lancer **toutes** les suites avant chaque livraison (≈ 15 min) ; adapter un banc existant seulement si le comportement a changé exprès.

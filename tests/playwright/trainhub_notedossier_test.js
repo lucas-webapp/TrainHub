@@ -1,9 +1,9 @@
-// Note d'un dossier (pense-bête) : « ＋ Note » discret, saisie, liens cliquables, persistance, Échap, rappel dans les sous-dossiers, pas sur les chapitres.
+// Note d'un dossier ou d'un chapitre (pense-bête) : « ＋ Note » discret, saisie, liens cliquables, persistance, Échap, rappel dans les sous-dossiers, chapitres inclus.
 // Lancer :  NODE_PATH=/opt/node22/lib/node_modules node trainhub_notedossier_test.js   (serveur statique sur :8765)
 const { chromium } = require('playwright');
 const harnais = require('/home/user/trainhub/tests/_harness');
 const { check, plan, bilan } = harnais('TrainHub : note d\'un dossier');
-plan(24);
+plan(31);
 
 (async () => {
     const browser = await chromium.launch();
@@ -25,8 +25,8 @@ plan(24);
     await page.waitForTimeout(800);
     const note = async () => page.evaluate(() => { const s = JSON.parse(localStorage.getItem('trainhub.v1')); return s.instruments[0].categories[0].folders[0].note; });
 
-    // 1. Sur le chapitre : pas de note
-    check('chapitre : pas de bouton « Note »', await page.locator('.folder-note-add, .folder-note-view').count() === 0);
+    // 1. Sur le chapitre : « ＋ Note » aussi (v267)
+    check('chapitre : « ＋ Note » présent', await page.locator('.folder-note-add').count() === 1);
     // 2. Dans Slap
     await page.locator('.folder-row', { hasText: 'Slap' }).click();
     await page.waitForTimeout(300);
@@ -93,6 +93,41 @@ plan(24);
     await page.locator('h2', { hasText: 'Slap' }).click();
     await page.waitForTimeout(300);
     check('HTML dans la note : affiché tel quel, jamais exécuté', await page.locator('.folder-note-view img, .folder-note-view b').count() === 0 && !(await page.evaluate(() => window.__pwn)));
+    // 10. Note de chapitre (v267) : rappelée dans les dossiers en dessous
+    await page.locator('.crumb', { hasText: 'Technique' }).click();
+    await page.waitForTimeout(300);
+    await page.locator('.folder-note-add').click();
+    await page.keyboard.type('Chapitre : toujours chauffer 5 min https://exemple.fr/doc');
+    await page.keyboard.press('Control+Enter');
+    await page.waitForTimeout(300);
+    const chNote = await page.evaluate(() => JSON.parse(localStorage.getItem('trainhub.v1')).instruments[0].categories[0].note);
+    check('note de chapitre enregistrée', chNote === 'Chapitre : toujours chauffer 5 min https://exemple.fr/doc', chNote);
+    check('chapitre : cadre de lecture + lien cliquable', await page.locator('.folder-note-view a').count() === 1);
+    await page.locator('.folder-row', { hasText: 'Vitesse' }).click();
+    await page.waitForTimeout(300);
+    check('dossier : rappel « Technique : »', (await page.locator('.folder-note-parent').first().innerText()).startsWith('Technique :'));
+    await page.locator('.crumb', { hasText: 'Technique' }).click();
+    await page.waitForTimeout(300);
+    await page.locator('.folder-row', { hasText: 'Slap' }).click();
+    await page.waitForTimeout(300);
+    await page.locator('.folder-row', { hasText: 'Pouce' }).click();
+    await page.waitForTimeout(300);
+    check('sous-sous-dossier : rappels du chapitre et de Slap', await page.locator('.folder-note-parent').count() === 2);
+    await page.locator('.folder-note-parent').first().click({ position: { x: 5, y: 5 } });
+    await page.waitForTimeout(300);
+    check('clic sur le rappel du chapitre : retour au chapitre', await page.locator('.crumb-current', { hasText: 'Technique' }).count() === 1 && await page.locator('.folder-note-view').count() === 1);
+    // chapitre de morceaux
+    await page.evaluate(() => { const s = JSON.parse(localStorage.getItem('trainhub.v1')); s.instruments[0].categories.push({ id: 'c2', name: 'Morceaux', kind: 'songs', folders: [], exercises: [] }); s.updatedAt = 99; localStorage.setItem('trainhub.v1', JSON.stringify(s)); });
+    await page.reload();
+    await page.waitForTimeout(800);
+    await page.locator('.tree-label, .chapter-tab, .sidebar *', { hasText: /^Morceaux$/ }).first().click();
+    await page.waitForTimeout(400);
+    check('chapitre de morceaux : « ＋ Note » aussi', await page.locator('.folder-note-add').count() === 1);
+    await page.locator('.folder-note-add').click();
+    await page.keyboard.type('Setlist de samedi');
+    await page.keyboard.press('Control+Enter');
+    await page.waitForTimeout(300);
+    check('… et elle se garde', (await page.evaluate(() => JSON.parse(localStorage.getItem('trainhub.v1')).instruments[0].categories[1].note)) === 'Setlist de samedi');
     check('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await browser.close();
     bilan();
