@@ -6,7 +6,7 @@ La session Claude Code s'ouvre dans `/home/user/HarmoHub` : c'est **une autre ap
 Tout le travail TrainHub se fait dans `/home/user/trainhub`.
 
 ## Suite à faire (lue par `/reprise` — à réécrire à la fin de CHAQUE demande)
-- **Rien de prévu** (v262 livrée : « En cours » discret, caractéristiques d'un morceau en menus déroulants, ordre du Travail fixe). Aucune demande en attente : `/reprise` doit demander à l'utilisateur ce qui vient ensuite, sans rien commencer.
+- **Rien de prévu** (v263 livrée : nom de l'espace en haut seulement, en petites capitales ; avant : « En cours » discret, menus des caractéristiques d'un morceau). Aucune demande en attente : `/reprise` doit demander à l'utilisateur ce qui vient ensuite, sans rien commencer.
 - Idées déjà proposées, à ne remettre sur la table que si la conversation s'y prête : voir « Idées proposées, pas encore faites » plus bas. Banc `point` à corriger (dates fixées dans le mois) : tâche d'entretien, sans urgence.
 - **Règle** : à la fin de chaque demande, réécrire cette section (la suite annoncée par l'utilisateur, ou « Rien de prévu »), dans le même commit que la version.
 
@@ -29,7 +29,7 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
    `Claude-Session: https://claude.ai/code/session_…` (reprendre l'URL donnée par le rappel d'attribution de la session en cours).
 6. `git push -q origin main`, puis `git push -q origin HEAD:structure-dossiers`, puis vérifier avec `git ls-remote origin main structure-dossiers`
    que les deux pointent sur le même commit. (Le message « This repository moved » de GitHub est sans conséquence.)
-7. Réécrire la section « Suite à faire » (en haut de ce fichier). Dernière version livrée : **v262**. La suivante sera v263.
+7. Réécrire la section « Suite à faire » (en haut de ce fichier). Dernière version livrée : **v263**. La suivante sera v264.
 
 ## À ne pas toucher
 - **Le moteur de synchronisation cloud** (Firestore : envoi différé, écoute, reprise). Les nouveaux champs voyagent avec l'état sans le modifier.

@@ -4824,13 +4824,7 @@
         $sidebarTree.innerHTML = "";
         if (!inst) return;
 
-        var header = document.createElement("div");
-        header.className = "sidebar-header";
-        var title = document.createElement("span");
-        title.className = "sidebar-title";
-        title.textContent = inst.name;
-        header.appendChild(title);
-        $sidebarTree.appendChild(header);
+        // (le nom de l'espace n'est plus répété ici : il est déjà dans la liste en haut de l'écran)
 
         var path = getNavPath(inst);
 
@@ -10550,7 +10544,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v262"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v263"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }

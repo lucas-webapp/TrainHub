@@ -638,23 +638,6 @@ button.result-group-title:hover { background: color-mix(in srgb, var(--group-col
     flex-direction: column;
 }
 
-.sidebar-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 2px 10px 12px;
-    margin-bottom: 6px;
-    border-bottom: 1px solid var(--border);
-}
-.sidebar-title {
-    font-size: var(--fs-xs);
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: .07em;
-    color: var(--text-muted);
-}
-
 .tree-list { display: flex; flex-direction: column; gap: 2px; } /* les barres ne se touchent jamais */
 .tree-node { display: flex; flex-direction: column; }
 .tree-row {
@@ -5286,3 +5269,8 @@ button.song-prop:focus-visible { outline: 2px solid var(--accent); outline-offse
 .song-prop-sep { height: 1px; margin: 4px 2px; background: var(--border); flex: none; }
 .song-prop-add { color: var(--text-muted); }
 .song-prop-add:hover { color: var(--text-main); }
+
+/* ---------- v263 — le nom de l'espace (liste du haut) prend l'écriture qu'avait le titre de la barre latérale ---------- */
+#instrument-select, #instrument-select option { font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .07em; }
+#instrument-select { color: var(--text-muted); }
+#instrument-select option { color: var(--text-main); }
