@@ -4,7 +4,7 @@
 const { chromium } = require('playwright');
 const harnais = require('/home/user/trainhub/tests/_harness');
 const { check, plan, bilan } = harnais('TrainHub : ligne du dé d\'un exercice');
-plan(20);
+plan(23);
 
 (async () => {
     const browser = await chromium.launch();
@@ -20,7 +20,9 @@ plan(20);
             { id: 'c1', name: 'Technique', color: '#e91e63', folders: [], exercises: [
                 { id: 'e1', title: 'Avec dé', notes: '', collapsed: false, inProgress: true, tempoGoal: true, dice: { cfg: null } },
                 { id: 'e2', title: 'Sans dé', notes: '', collapsed: false },
-                { id: 'e3', title: 'Avec harmonie', notes: '', collapsed: false, harm: { cfg: null } }] }] }], settings: {} }));
+                { id: 'e3', title: 'Avec harmonie', notes: '', collapsed: false, harm: { cfg: null } },
+                { id: 'e4', title: 'Copie A', notes: '', collapsed: true, linkId: 'L', links: [{ id: 'l1', label: 'Site', url: 'https://exemple.fr' }] },
+                { id: 'e5', title: 'Copie B', notes: '', collapsed: true, linkId: 'L', links: [{ id: 'l2', label: 'Site', url: 'https://exemple.fr' }] }] }] }], settings: {} }));
     } catch (e) { } });
     await page.goto('http://localhost:8765/index.html');
     await page.waitForTimeout(900);
@@ -84,6 +86,12 @@ plan(20);
     await ex('e2').locator('.ex-wip-chip').click();
     await page.waitForTimeout(300);
     check('« En cours » s\'allume depuis la ligne du dé', await ex('e2').locator('.ex-wip-chip.on').count() === 1);
+    // 8. Vignette « lien » et badge « copie liée » : deux icônes bien différentes (v269)
+    const ico = async sel => ex('e4').locator(sel + ' svg').evaluate(s => s.innerHTML);
+    check('lien ordinaire : vignette chaîne (.exercise-link-quick)', await ex('e4').locator('.exercise-link-quick').count() === 1);
+    check('copie liée : badge avec le nombre de copies', (await ex('e4').locator('.exercise-link-badge').innerText()).trim() === '1');
+    const [icoLien, icoCopie] = [await ico('.exercise-link-quick'), await ico('.exercise-link-badge')];
+    check('les deux icônes sont différentes, et le badge n\'a plus de chaîne (deux feuilles : 1 rect + 1 path)', icoLien !== icoCopie && /<rect/.test(icoCopie) && (icoCopie.match(/<path/g) || []).length === 1, icoCopie.slice(0, 80));
     check('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await browser.close();
     bilan();

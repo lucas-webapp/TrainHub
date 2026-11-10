@@ -140,6 +140,7 @@ Ouvrir `index.html` dans un navigateur, ou héberger le dossier statique (aucune
 - Note d'un dossier (v266) — chaque dossier (pas les chapitres) peut porter un petit pense-bête : « ＋ Note » discret sous le titre, puis un cadre de 3 lignes au plus (clic = modifier, Échap = annuler, Ctrl/Cmd+Entrée = valider, vider le texte supprime la note). Les liens collés sont cliquables. Dans un sous-dossier, la note des dossiers parents reste rappelée sur une ligne (clic = aller à ce dossier). Suit la copie d'un dossier.
 - Note d'un chapitre (v267) — même pense-bête sur les chapitres (Technique, Morceaux…), sous leur titre. Dans un dossier ou un sous-dossier, la note du chapitre est rappelée sur une ligne au-dessus de celles des dossiers parents (clic = retour au chapitre).
 - Ligne du dé d'un exercice (v268) — plus de résumé « Tonalité-Gamme(2) » : un bouton-engrenage règle le dé ; « Tirer » devient un bouton vert collé au dé ; ordre dé · réglage · Tirer · objectif tempo · pastille « En cours » (désormais sur la même ligne). Cliquer sur le dé allumé demande confirmation avant de le retirer (dé de gammes comme dé d'harmonie ; « Annuler » reste proposé ensuite). Nouvelle icône d'objectif tempo : un petit métronome et une flèche en Z qui monte.
+- Icône des copies liées (v269) — le badge d'un exercice lié à d'autres copies n'est plus une chaîne (la même que celle de la vignette « lien ») mais deux feuilles superposées, avec le nombre d'autres copies. L'infobulle commence par « Copie liée à… ».
 
 ## Ce qui n'est pas inclus (volontairement)
 

@@ -3775,18 +3775,20 @@
     // ---------- liaison entre exercices (clic droit › Liaison…) ----------
     // Voir « exercices liés » : un exercice dupliqué reste lié à son original. Ici : rompre la liaison (l'exercice garde son contenu
     // actuel, en copies indépendantes) ou en créer une (en choisissant le sort des pièces jointes déjà présentes).
-    var CHAIN_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>';
+    // Exercice lié (copies qui partagent pièces jointes et réglages) : DEUX FEUILLES superposées + le nombre d'autres copies (v269). Avant, une chaîne :
+    // la même que celle de la vignette « lien » d'un exercice, ce qui les faisait confondre.
+    var COPIES_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
     function linkPathText(m) { return (m.inst && state.instruments.length > 1 ? m.inst.name + " › " : "") + m.pathNames.join(" › ") + " › " + m.ex.title; }
     function linkBadgeText(ex) {
         var o = linkedOthers(ex);
-        return "Lié à " + (o.length === 1 ? "un autre exercice" : o.length + " autres exercices") + " : pièces jointes et réglages communs (" + o.slice(0, 3).map(linkPathText).join(" ; ") + (o.length > 3 ? "…" : "") + "). Cliquer pour gérer la liaison.";
+        return "Copie liée à " + (o.length === 1 ? "un autre exercice" : o.length + " autres exercices") + " : pièces jointes et réglages communs (" + o.slice(0, 3).map(linkPathText).join(" ; ") + (o.length > 3 ? "…" : "") + "). Cliquer pour gérer la liaison.";
     }
     function appendExerciseLinkBadge(tools, ex) {
         var o = linkedOthers(ex);
         if (!o.length) return;
         var b = document.createElement("button");
         b.type = "button"; b.className = "exercise-link-badge";
-        b.innerHTML = CHAIN_ICON_SVG + '<span class="exercise-link-count">' + o.length + "</span>";
+        b.innerHTML = COPIES_ICON_SVG + '<span class="exercise-link-count">' + o.length + "</span>";
         b.title = linkBadgeText(ex); b.setAttribute("aria-label", "Exercice lié : gérer la liaison");
         b.addEventListener("click", function (e) { e.stopPropagation(); openExerciseLinksDialog(ex); });
         tools.appendChild(b);
@@ -10638,7 +10640,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v268"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v269"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }
