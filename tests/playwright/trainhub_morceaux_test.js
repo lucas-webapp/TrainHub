@@ -7,7 +7,7 @@ const path = require('path');
 const harnais = require('/home/user/trainhub/tests/_harness');
 const { check, plan, bilan } = harnais('TrainHub : chapitre Morceaux — artistes, styles, techniques, travail');
 const estBruitReseau = harnais.estBruitReseau;
-plan(172);
+plan(173);
 const SHOTS = path.join(__dirname, 'shots');
 fs.mkdirSync(SHOTS, { recursive: true });
 const URL = 'http://localhost:8765/index.html';
@@ -161,11 +161,14 @@ const comptesArbre = page => page.locator('.song-tree-node .tree-count').allInne
         await page.fill('.add-song-artist', 'the beatles');
         await page.fill('.add-song-title', 'Help!');
         await page.press('.add-song-title', 'Enter'); await page.waitForTimeout(500);
+        // v270 : le morceau ajouté s'ouvre aussitôt, dans le dossier où il est rangé (ici, celui des Beatles qui vient de se créer)
+        check((await page.locator('.crumb').allInnerTexts()).join('|') === 'Morceaux|The Beatles' && await page.locator('.song-block').count() === 1, 'B. (v270) le morceau ajouté s\'ouvre aussitôt dans son dossier : ' + (await page.locator('.crumb').allInnerTexts()).join('|'));
+        await page.locator('.crumb', { hasText: 'Morceaux' }).first().click(); await page.waitForTimeout(250);
         check((await dossiers(page)).join('|') === 'The Beatles|Red Hot Chili Peppers', 'B. le 2e morceau d\'un artiste crée son dossier tout seul : ' + (await dossiers(page)).join('|'));
         const ch1 = await chapitre(page, 'Morceaux'); await attendreSauvegarde(page);
         const help = (await chapitre(page, 'Morceaux')).exercises.find(e => e.songName === 'Help!');
         check(help && help.artist === 'The Beatles' && help.title === 'The Beatles - Help!', 'B. l\'artiste reprend la graphie existante (« the beatles » → « The Beatles ») : ' + (help && help.title));
-        check(await page.locator('.toast', { hasText: 'Help!' }).count() === 1 && await page.locator('.toast .toast-action', { hasText: 'Voir' }).count() === 1, 'B. un message dit où il est rangé et propose « Voir »');
+        check(await page.locator('.toast', { hasText: 'Help!' }).count() === 1 && await page.locator('.toast .toast-action', { hasText: 'Voir' }).count() === 0, 'B. (v270) un message dit que le morceau est ajouté (plus de « Voir » : on y est déjà)');
         // Styles
         await vue(page, 'style');
         check((await dossiers(page)).join('|') === 'Rock|Funk|Reggae|Sans style', 'B. Styles : ' + (await dossiers(page)).join('|'));
@@ -289,10 +292,8 @@ const comptesArbre = page => page.locator('.song-tree-node .tree-count').allInne
         // ajout depuis la racine d'un rangement par style : il tombe dans « Sans style » avec « Voir »
         await vue(page, 'style');
         await page.fill('.add-song-artist', 'Nirvana'); await page.fill('.add-song-title', 'Come as You Are'); await page.press('.add-song-title', 'Enter'); await page.waitForTimeout(500);
-        const voir = page.locator('.toast .toast-action', { hasText: 'Voir' });
-        check(await voir.count() === 1 && /Sans style/.test(await page.locator('.toast').innerText()), 'D. depuis la page des styles : « rangé dans Sans style », avec « Voir » : ' + (await page.locator('.toast').innerText()).replace(/\n/g, ' '));
-        await voir.click(); await page.waitForTimeout(400);
-        check((await page.locator('.crumb').allInnerTexts()).join('|') === 'Morceaux|Sans style' && await page.locator('.song-block').count() === 1, 'D. « Voir » ouvre le dossier et la fiche du morceau, prête à classer');
+        check(await page.locator('.toast .toast-action', { hasText: 'Voir' }).count() === 0 && /Sans style/.test(await page.locator('.toast').innerText()), 'D. (v270) depuis la page des styles : le message dit « dans Sans style » : ' + (await page.locator('.toast').innerText()).replace(/\n/g, ' '));
+        check((await page.locator('.crumb').allInnerTexts()).join('|') === 'Morceaux|Sans style' && await page.locator('.song-block').count() === 1, 'D. (v270) la page suit : le dossier « Sans style » s\'ouvre avec la fiche du morceau, prête à classer');
         check(erreurs.length === 0, 'D. aucune erreur JavaScript ' + JSON.stringify(erreurs));
         await ctx.close();
     }

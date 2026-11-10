@@ -6070,13 +6070,11 @@
                 ch.exercises.push(ex);
                 songDraft = { ch: ch.id, artist: artist };
                 save();
-                render();
-                // Où est-il rangé ? S'il n'est pas visible sur cette page, on le dit et on propose d'y aller.
+                // v270 : la fiche du morceau s'ouvre aussitôt (caractéristiques, liens de travail, notes), là où il est rangé : plus besoin de le chercher dans la grille.
                 var pr = songsPrefs(ch), path = songsPathFor(ch, ex), cur = getNavPath(inst), here = (cur[1] || "") === (path[1] || "") && cur[0] === ch.id;
-                if (!here && pr.view !== "all") {
-                    var gname = path[1] ? (songsGroups(ch, pr.view, pr.sort).folders.filter(function (f) { return f.id === path[1]; })[0] || {}).name : null;
-                    showToast("« " + title + " » ajouté" + (gname ? " : « " + gname + " »" : "") + ".", 6000, { label: "Voir", run: function () { ex.collapsed = false; save(); setNavPath(inst, path); render(); } });
-                } else showToast("« " + title + " » ajouté.", 2800);
+                var gname = !here && pr.view !== "all" && path[1] ? (songsGroups(ch, pr.view, pr.sort).folders.filter(function (f) { return f.id === path[1]; })[0] || {}).name : null;
+                revealExercise(ex.id);
+                showToast("« " + title + " » ajouté" + (gname ? " dans « " + gname + " »" : "") + " : complète sa fiche.", 3500);
             });
         }
         var btn = iconButton("+", "Ajouter le morceau", commit);
@@ -10640,7 +10638,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v269"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v270"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }

@@ -1,12 +1,12 @@
 #!/bin/bash
-# Lance les 26 bancs Playwright (Chromium) de TrainHub. Usage : tests/playwright/lancer.sh [nom ...]   (ex. : lancer.sh morceaux choix)
+# Lance les 27 bancs Playwright (Chromium) de TrainHub. Usage : tests/playwright/lancer.sh [nom ...]   (ex. : lancer.sh morceaux choix)
 # Sert l'appli sur :8765 et le faux lecteur YouTube sur :8766, puis arrête les deux serveurs.
 cd "$(dirname "$0")/../.." || exit 1
 export NODE_PATH=${NODE_PATH:-/opt/node22/lib/node_modules}
 (python3 -m http.server 8765 >/dev/null 2>&1 &)
 (cd tests/playwright/yt_mock && python3 -m http.server 8766 >/dev/null 2>&1 &)
 sleep 1
-NOMS=("$@"); [ ${#NOMS[@]} -eq 0 ] && NOMS=(de eph volet tempo programmation menage rafale choix morceaux compte note note_session favoris rideau session_ui son video preset point lecteur audio_rate audio_edit corbeille sessions_ecrans notedossier ligne_de)
+NOMS=("$@"); [ ${#NOMS[@]} -eq 0 ] && NOMS=(de eph volet tempo programmation menage rafale choix morceaux compte note note_session favoris rideau session_ui son video preset point lecteur audio_rate audio_edit corbeille sessions_ecrans notedossier ligne_de morceau_ajout)
 for t in "${NOMS[@]}"; do
   echo "--- $t"
   timeout 900 node "tests/playwright/trainhub_${t}_test.js" 2>&1 | grep -E "^FAIL|===" | cut -c1-260
