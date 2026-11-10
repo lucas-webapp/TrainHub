@@ -7061,13 +7061,6 @@
             set: function (p) { setExerciseMetronome(ex, p); }
         }));
         toolsLine.appendChild(buildExerciseDiceRow(ex));
-        if (!ex.isSong) { // une seule pastille d'état : « En cours » (même hauteur que les boutons voisins)
-            var wipChip = document.createElement("button"); wipChip.type = "button"; wipChip.className = "ex-wip-chip" + (exInProgress(ex) ? " on" : "");
-            wipChip.innerHTML = "<i></i><span>En cours</span>"; wipChip.setAttribute("aria-pressed", exInProgress(ex) ? "true" : "false");
-            wipChip.title = "Je travaille cet exercice en ce moment : il se retrouve dans l'onglet « En cours » du choix d'une session";
-            wipChip.addEventListener("click", function () { exSetInProgress(ex, !exInProgress(ex)); save(); render(); });
-            toolsLine.appendChild(wipChip);
-        }
         details.appendChild(toolsLine);
 
         // Notes fixes : consignes importantes, sans date, toujours visibles (aussi exercice replié et en session).
@@ -10645,7 +10638,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v267"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v268"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }
@@ -11897,7 +11890,8 @@
     // Tous les exercices n'ont pas pour but de faire accélérer : décoché, l'exercice sort des statistiques de tempo (ses séances restent
     // comptées pour le temps). La case est une propriété de l'EXERCICE : elle vaut dans toutes les sessions qui le contiennent, dans ses
     // copies liées (voir « exercices liés ») et, après question, dans ses homonymes non liés. Absent = oui (comportement d'avant).
-    var TARGET_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/></svg>';
+    // Objectif tempo (v268) : un petit métronome et une flèche en Z (éclair) qui monte = faire monter le tempo.
+    var TARGET_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 21 6 5.5h3.4L11.9 21z"/><path d="M7.7 17.2 8.6 10"/><path d="M14.6 19.5 18 13.5h-3.4L19.5 5.5"/><path d="M16.6 5.5h3v3"/></svg>';
     function tempoGoalOn(ex) { return !!ex && ex.tempoGoal !== false; }
     function setTempoGoal(ex, on) {
         on = !!on;
@@ -18571,21 +18565,32 @@
         // Le dé : une icône seule (pas de case). Grisée = pas de dé ; verte = dé de gammes ; violette = dé d'harmonie. Un clic l'allume (choix du dé) ou l'éteint.
         var lab = document.createElement("button");
         lab.type = "button"; lab.className = "dice-ex-btn"; lab.innerHTML = SCALES_DICE_SVG;
-        var sum = document.createElement("button"); sum.type = "button"; sum.className = "dice-ex-sum";
-        var go = document.createElement("button"); go.type = "button"; go.className = "btn-ghost dice-ex-go"; go.textContent = "Tirer";
+        // Réglage du dé : un bouton-engrenage (le résumé « Tonalité-Gamme(2) » ne disait rien et prenait de la place ; il reste dans l'infobulle).
+        var sum = document.createElement("button"); sum.type = "button"; sum.className = "dice-ex-set"; sum.innerHTML = GEAR_ICON_SVG;
+        // « Tirer » : le bouton vert, collé au dé et à son réglage (il ne se confond plus avec le dé qui éteint).
+        var go = document.createElement("button"); go.type = "button"; go.className = "btn-accent dice-ex-go"; go.textContent = "Tirer";
         var res = document.createElement("span"); res.className = "dice-ex-res";
-        row.appendChild(lab); row.appendChild(buildTempoGoalToggle(ex, true)); row.appendChild(sum); row.appendChild(go); row.appendChild(res); // « Objectif tempo » juste à côté du dé : même icône seule, grisée ou allumée en vert, même taille
+        // Ordre : dé · réglage · Tirer · objectif tempo · « En cours » (même ligne) · tirage obtenu
+        row.appendChild(lab); row.appendChild(sum); row.appendChild(go); row.appendChild(buildTempoGoalToggle(ex, true));
+        if (!ex.isSong) { // une seule pastille d'état : « En cours » (même hauteur que les boutons voisins ; un morceau a son état de Travail)
+            var wipChip = document.createElement("button"); wipChip.type = "button"; wipChip.className = "ex-wip-chip" + (exInProgress(ex) ? " on" : "");
+            wipChip.innerHTML = "<i></i><span>En cours</span>"; wipChip.setAttribute("aria-pressed", exInProgress(ex) ? "true" : "false");
+            wipChip.title = "Je travaille cet exercice en ce moment : il se retrouve dans l'onglet « En cours » du choix d'une session";
+            wipChip.addEventListener("click", function () { exSetInProgress(ex, !exInProgress(ex)); save(); render(); });
+            row.appendChild(wipChip);
+        }
+        row.appendChild(res);
         function paint() {
             var harm = !!(ex.harm && typeof ex.harm === "object");
             lab.innerHTML = harm ? HARM_DICE_SVG : SCALES_DICE_SVG;
             lab.classList.toggle("dice-ex-harm", harm);
             if (harm) {
                 lab.classList.add("dice-ex-on"); lab.setAttribute("aria-pressed", "true");
-                lab.title = "Dé d'harmonie : tire au sort une progression, une tonalité et une consigne — cliquer pour le retirer";
+                lab.title = "Dé d'harmonie : tire au sort une progression, une tonalité et une consigne — cliquer pour le retirer (avec confirmation)";
                 lab.setAttribute("aria-label", lab.title);
                 sum.hidden = go.hidden = res.hidden = false;
                 ex.harm.cfg = harmNormCfg(ex.harm.cfg, harmFamilyNow());
-                sum.textContent = harmCfgLabel(ex.harm.cfg); sum.title = "Modifier le dé d'harmonie de cet exercice";
+                sum.title = "Régler le dé d'harmonie de cet exercice (" + harmCfgLabel(ex.harm.cfg) + ")"; sum.setAttribute("aria-label", "Régler le dé d'harmonie");
                 var hp = exHarmDrawn[ex.id];
                 res.textContent = hp ? harmPickText(hp) : ""; res.title = hp ? "Voir dans l'outil Harmonie (grille, lecteur, diagramme)" : "";
                 return;
@@ -18598,8 +18603,7 @@
             res.hidden = !on;
             if (!on) return;
             var p = diceHolderPreset(ex.dice);
-            sum.textContent = diceHolderLabel(ex.dice);
-            sum.title = (p ? "Préréglage « " + p.name + " » : " : "") + diceSummary(diceHolderCfg(ex.dice)) + " — modifier le dé de cet exercice";
+            sum.title = "Régler le dé (" + (p ? "préréglage « " + p.name + " » : " : "") + diceSummary(diceHolderCfg(ex.dice)) + ")"; sum.setAttribute("aria-label", "Régler le dé de cet exercice");
             var pick = exDiceDrawn[ex.id];
             res.textContent = pick ? dicePickText(pick) : "";
             res.title = pick && diceViewLines(pick).length ? (diceViewLines(pick).length > 1 ? "Voir sur le manche : la gamme ou le mode (au choix)" : "Voir sur le manche") : "";
@@ -18613,23 +18617,27 @@
                     function () { paint(); });
                 return;
             }
-            if (ex.harm) {
-                var oldH = ex.harm;
-                delete ex.harm; delete exHarmDrawn[ex.id]; touchExercise(ex); saveSoon();
-                closeHarmDiceWindow();
-                showToast("Dé d'harmonie retiré de « " + ex.title + " ».", 5000, { label: "Annuler", run: function () { ex.harm = oldH; touchExercise(ex); saveSoon(); paint(); } });
-                paint();
-                return;
-            }
-            {
-                var old = ex.dice;
-                if (old) {
-                    delete ex.dice; delete exDiceDrawn[ex.id]; touchExercise(ex); saveSoon();
-                    showToast("Dé retiré de « " + ex.title + " ».", 5000, { label: "Annuler", run: function () { ex.dice = old; touchExercise(ex); saveSoon(); paint(); } });
+            // Allumé : un clic de travers retirait le dé et son réglage (v268 : on demande confirmation ; « Annuler » reste proposé ensuite).
+            var isHarm = !!ex.harm;
+            dlgConfirm({ title: isHarm ? "Retirer le dé d'harmonie ?" : "Retirer le dé de tirage au sort ?",
+                message: "« " + ex.title + " » — le dé et son réglage seront retirés de cet exercice (et de ses sessions).",
+                confirmLabel: "Retirer", danger: true }, function () {
+                if (isHarm) {
+                    var oldH = ex.harm;
+                    if (!oldH) return;
+                    delete ex.harm; delete exHarmDrawn[ex.id]; touchExercise(ex); saveSoon();
+                    closeHarmDiceWindow();
+                    showToast("Dé d'harmonie retiré de « " + ex.title + " ».", 5000, { label: "Annuler", run: function () { ex.harm = oldH; touchExercise(ex); saveSoon(); paint(); } });
+                } else {
+                    var old = ex.dice;
+                    if (old) {
+                        delete ex.dice; delete exDiceDrawn[ex.id]; touchExercise(ex); saveSoon();
+                        showToast("Dé retiré de « " + ex.title + " ».", 5000, { label: "Annuler", run: function () { ex.dice = old; touchExercise(ex); saveSoon(); paint(); } });
+                    }
+                    if (diceWin && diceWin.owner === ex) closeDiceWindow();
                 }
-                if (diceWin && diceWin.owner === ex) closeDiceWindow();
                 paint();
-            }
+            });
         });
         sum.addEventListener("click", function () { if (ex.harm) openExerciseHarmWindow(ex, paint); else openExerciseDiceWindow(ex, paint); });
         go.addEventListener("click", function () {

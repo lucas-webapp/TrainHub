@@ -5320,3 +5320,10 @@ button.gs-pdf-btn, button.gs-edit-links-btn { flex: none; height: var(--gs-ctl-h
 .folder-note-parent strong { color: var(--text-main); }
 .folder-note-view a, .folder-note-parent a { color: var(--accent); text-decoration: underline; }
 .folder-note-edit { width: 100%; box-sizing: border-box; resize: none; font: inherit; font-size: var(--fs-sm); line-height: 1.4; padding: 6px 10px; }
+
+/* ---------- ligne du dé d'un exercice (v268) : dé · réglage · Tirer · objectif tempo · « En cours » ---------- */
+button.dice-ex-set { flex: none; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; width: 36px; height: 32px; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: transparent; color: var(--text-muted); }
+button.dice-ex-set .icon { width: 17px; height: 17px; display: block; }
+button.dice-ex-set:hover { color: var(--accent); border-color: var(--accent); }
+button.dice-ex-set:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.btn-accent.dice-ex-go { flex: none; height: 32px; padding: 0 16px; font-size: var(--fs-sm); font-weight: 800; letter-spacing: .02em; color: #fff; }
