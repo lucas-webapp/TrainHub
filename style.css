@@ -1242,9 +1242,16 @@ button.metro-mini-btn.metro-mini-btn-icon .icon { width: 20px; height: 20px; }
 .metro-chrono-reset { flex: none; color: var(--text-muted); }
 .metro-chrono-reset .icon { width: 15px; height: 15px; }
 
-/* -- lecture : gros bouton rectangulaire (bords légèrement arrondis), en bas du panneau -- */
+/* -- lecture : gros bouton, en bas du panneau (v272 : « verre dépoli » teinté, plus calme que l'aplat vert vif) --
+   Le cadre n'est plus une bordure de 1 px (qui pouvait disparaître sur le bord bas quand le panneau est agrandi/réduit et que sa hauteur tombe entre deux pixels,
+   surtout sous Safari) mais des ombres internes : un filet fin tout autour + un bord coloré net en bas + un reflet clair en haut.
+   --pb = la couleur du bouton : le vert de l'appli à l'arrêt, un rouge doux pendant la lecture. */
 button.metro-play-btn-big {
+    --pb: var(--accent);
     box-sizing: border-box;
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
     width: 100%;
     height: 56px;
     margin-top: 14px;
@@ -1254,17 +1261,42 @@ button.metro-play-btn-big {
     gap: 10px;
     font-size: var(--fs-md);
     font-weight: 700;
-    border: 1px solid color-mix(in srgb, var(--accent) 48%, transparent);
+    letter-spacing: .01em;
+    border: 0;
     border-radius: var(--radius);
-    background: color-mix(in srgb, var(--accent) 20%, transparent); /* vert translucide : plus doux que l'aplat */
-    color: color-mix(in srgb, var(--accent) 62%, var(--mix-hi));
+    /* de haut en bas : grain fin (le dépoli), reflet de verre qui s'éteint, voile de couleur */
+    background:
+        url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 .55 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='.3'/></svg>"),
+        linear-gradient(180deg, rgba(255,255,255,.17) 0%, rgba(255,255,255,.05) 48%, rgba(255,255,255,0) 100%),
+        linear-gradient(color-mix(in srgb, var(--pb) 15%, transparent), color-mix(in srgb, var(--pb) 15%, transparent));
+    -webkit-backdrop-filter: blur(14px) saturate(160%);
+    backdrop-filter: blur(14px) saturate(160%);
+    box-shadow:
+        inset 0 0 0 1px color-mix(in srgb, var(--pb) 34%, transparent),   /* filet fin tout autour */
+        inset 0 1px 0 rgba(255,255,255,.30),                              /* reflet du bord haut */
+        inset 0 -2px 0 color-mix(in srgb, var(--pb) 62%, transparent),    /* bord coloré, net, en bas */
+        0 10px 22px -14px color-mix(in srgb, var(--pb) 70%, transparent); /* halo doux sous le bouton */
+    color: color-mix(in srgb, var(--pb) 52%, var(--mix-hi));
+    text-shadow: 0 1px 6px color-mix(in srgb, var(--pb) 35%, transparent);
     flex: none;
+    transition: box-shadow .18s ease, background-color .18s ease, color .18s ease, transform .05s ease;
 }
-@media (hover: hover) { button.metro-play-btn-big:hover { background: color-mix(in srgb, var(--accent) 28%, transparent); border-color: color-mix(in srgb, var(--accent) 62%, transparent); } }
+button.metro-play-btn-big::before { /* voile de lumière qui glisse au survol */
+    content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+    background: radial-gradient(120% 140% at 50% -30%, color-mix(in srgb, var(--pb) 26%, transparent), transparent 62%);
+    opacity: .7; transition: opacity .18s ease;
+}
+@media (hover: hover) {
+    button.metro-play-btn-big:hover { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pb) 50%, transparent), inset 0 1px 0 rgba(255,255,255,.36), inset 0 -2px 0 color-mix(in srgb, var(--pb) 78%, transparent), 0 12px 26px -14px color-mix(in srgb, var(--pb) 80%, transparent); }
+    button.metro-play-btn-big:hover::before { opacity: 1; }
+}
+button.metro-play-btn-big:focus-visible { outline: 2px solid color-mix(in srgb, var(--pb) 70%, transparent); outline-offset: 2px; }
 .metro-play-btn-icon { display: inline-flex; }
 .metro-play-btn-icon .icon { width: 24px; height: 24px; }
-button.metro-play-btn-big.metro-play-btn-active { background: rgba(255, 82, 82, .18); border-color: rgba(255, 82, 82, .5); color: var(--c-red-text); }
-@media (hover: hover) { button.metro-play-btn-big.metro-play-btn-active:hover { background: rgba(255, 82, 82, .26); border-color: rgba(255, 82, 82, .65); } }
+button.metro-play-btn-big.metro-play-btn-active { --pb: #ff5a5a; color: color-mix(in srgb, var(--pb) 46%, var(--mix-hi)); }
+/* verre (réglage d'apparence) : la règle générale des boutons y remet un simple reflet — on garde le cadre du gros bouton */
+html[data-glass="1"] button.metro-play-btn-big { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pb) 34%, transparent), inset 0 1px 0 rgba(255,255,255,.34), inset 0 -2px 0 color-mix(in srgb, var(--pb) 62%, transparent), 0 10px 22px -14px color-mix(in srgb, var(--pb) 70%, transparent); }
+@media (hover: hover) { html[data-glass="1"] button.metro-play-btn-big:hover { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pb) 50%, transparent), inset 0 1px 0 rgba(255,255,255,.4), inset 0 -2px 0 color-mix(in srgb, var(--pb) 78%, transparent), 0 12px 26px -14px color-mix(in srgb, var(--pb) 80%, transparent); } }
 
 /* ---------- aides : cercle des quintes ---------- */
 .aides-panel { align-items: center; text-align: center; display: flex; flex-direction: column; }
