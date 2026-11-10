@@ -1480,6 +1480,12 @@
     // retenues pour la prochaine image), ou en plein écran (bouton ⛶ ou double-clic sur l'image).
     var EXPAND_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/></svg>';
     var imageViewerClose = null;
+    // Nom d'une capture à AFFICHER (v271) : le nom du fichier importé (« Capture d'écran….png », « image.png ») n'en est pas un : seul un nom donné à la main s'affiche,
+    // posé par-dessus l'image (vignette et grand format).
+    function imgTitle(meta) {
+        var n = String((meta && meta.name) || "").trim();
+        return !n || /\.(png|jpe?g|gif|webp|heic|heif|bmp|tiff?|avif)$/i.test(n) || /^capture$/i.test(n) ? "" : n;
+    }
     function openImageViewer(images, startIndex, startFull) {
         if (imageViewerClose) imageViewerClose();
         var idx = startIndex;
@@ -1503,12 +1509,13 @@
             b.addEventListener("click", function (e) { e.stopPropagation(); fn(); });
             return b;
         }
-        var prevBtn = mkBtn("‹", "Image précédente", function () { step(-1); });
-        var nextBtn = mkBtn("›", "Image suivante", function () { step(1); });
+        // Flèches de part et d'autre de l'image (v271) ; ← et → du clavier font pareil ; un balayage au doigt aussi.
+        var prevBtn = mkBtn("‹", "Image précédente (←)", function () { step(-1); });
+        var nextBtn = mkBtn("›", "Image suivante (→)", function () { step(1); });
+        prevBtn.className += " img-viewer-nav img-viewer-nav-prev"; nextBtn.className += " img-viewer-nav img-viewer-nav-next";
         var fullBtn = mkBtn(EXPAND_ICON_SVG, "Plein écran / fenêtre", function () { setFull(!full); });
         var closeBtn = mkBtn("✕", "Fermer (Échap)", function () { closeBox(); });
         head.appendChild(caption);
-        if (images.length > 1) { head.appendChild(prevBtn); head.appendChild(nextBtn); }
         head.appendChild(fullBtn);
         head.appendChild(closeBtn);
         var body = document.createElement("div");
@@ -1516,6 +1523,10 @@
         var img = document.createElement("img");
         img.alt = "";
         body.appendChild(img);
+        var titleOver = document.createElement("div"); // le nom de la capture, par-dessus l'image
+        titleOver.className = "img-viewer-title";
+        body.appendChild(titleOver);
+        if (images.length > 1) { body.appendChild(prevBtn); body.appendChild(nextBtn); }
         panel.appendChild(head);
         panel.appendChild(body);
 
@@ -1530,7 +1541,9 @@
             var meta = images[idx];
             img.removeAttribute("src");
             loadImageInto(img, meta, function (why) { caption.textContent = why === "illisible" ? "Image illisible : format non pris en charge par ce navigateur" : "Image absente de cet appareil"; });
-            caption.textContent = (images.length > 1 ? (idx + 1) + " / " + images.length + " · " : "") + (meta.name || "");
+            caption.textContent = images.length > 1 ? (idx + 1) + " / " + images.length : "";
+            var tt = imgTitle(meta);
+            titleOver.textContent = tt; titleOver.hidden = !tt;
         }
         function step(d) { if (images.length > 1) { idx = (idx + d + images.length) % images.length; show(); } }
         function closeBox() {
@@ -1543,12 +1556,19 @@
         function onKey(e) {
             if (dlgIsOpen()) return;
             if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeBox(); }
-            else if (!typing() && e.key === "ArrowRight") { step(1); }
-            else if (!typing() && e.key === "ArrowLeft") { step(-1); }
+            else if (!typing() && !e.ctrlKey && !e.metaKey && !e.altKey && e.key === "ArrowRight") { e.preventDefault(); step(1); }
+            else if (!typing() && !e.ctrlKey && !e.metaKey && !e.altKey && e.key === "ArrowLeft") { e.preventDefault(); step(-1); }
             // les autres touches (barre espace…) ne sont pas interceptées
         }
         img.addEventListener("click", function () { step(1); });
         body.addEventListener("dblclick", function () { setFull(!full); });
+        var swipeX = null; // balayage horizontal au doigt (téléphone) : image suivante / précédente
+        body.addEventListener("touchstart", function (e) { swipeX = e.touches.length === 1 ? e.touches[0].clientX : null; }, { passive: true });
+        body.addEventListener("touchend", function (e) {
+            if (swipeX == null || !e.changedTouches.length) return;
+            var dx = e.changedTouches[0].clientX - swipeX; swipeX = null;
+            if (Math.abs(dx) > 60) step(dx < 0 ? 1 : -1);
+        }, { passive: true });
         imageViewerClose = closeBox;
         panel.style.visibility = "hidden";
         document.body.appendChild(panel);
@@ -1590,16 +1610,28 @@
                 var capW = parseInt(getComputedStyle(strip).getPropertyValue("--img-cap"), 10) || 520;
                 im.style.width = Math.max(24, Math.round(Math.min(im.naturalWidth * (IMG_HEIGHTS[getImgSize(where)] / im.naturalHeight), capW))) + "px";
             });
-            loadImageInto(im, meta, function (why) { b.classList.add("img-missing"); b.textContent = why === "illisible" ? "Image illisible : format non pris en charge par ce navigateur" : "Image absente de cet appareil"; });
+            var over = document.createElement("span"); // le nom par-dessus l'image (voir plus bas)
+            over.className = "img-title";
+            loadImageInto(im, meta, function (why) { b.classList.add("img-missing"); b.textContent = why === "illisible" ? "Image illisible : format non pris en charge par ce navigateur" : "Image absente de cet appareil"; b.appendChild(over); });
             b.classList.add("img-loading"); // réserve un peu de place le temps du chargement (le cadre épouse ensuite l'image)
             im.addEventListener("load", function () { b.classList.remove("img-loading"); });
             im.addEventListener("error", function () { b.classList.remove("img-loading"); });
             b.appendChild(im);
+            b.appendChild(over);
             b.addEventListener("click", function () {
                 if (suppressNextClick) { suppressNextClick = false; return; } // fin d'un glisser-déposer
                 openImageViewer(list, i, false);
             });
-            cell.appendChild(b);
+            // Le nom : posé PAR-DESSUS l'image (bandeau sombre dégradé, texte blanc : lisible sur toute image), donc aucune place prise ; le crayon n'apparaît qu'au survol.
+            var box = document.createElement("div");
+            box.className = "img-box";
+            box.appendChild(b);
+            var tagBtn = document.createElement("button");
+            tagBtn.type = "button";
+            tagBtn.className = "img-name-btn";
+            tagBtn.innerHTML = PENCIL_ICON_SVG;
+            box.appendChild(tagBtn);
+            cell.appendChild(box);
             var fs = document.createElement("button");
             fs.type = "button";
             fs.className = "img-thumb-full";
@@ -1630,26 +1662,26 @@
                 });
                 side.appendChild(rm);
             }
-            // Nom de la capture : sous la vignette, un clic permet de le modifier (Entrée enregistre, Échap annule).
+            // Nom de la capture : le crayon (au survol) ouvre une zone de saisie par-dessus l'image (Entrée enregistre, Échap annule, vide = sans nom).
             var fig = document.createElement("div");
             fig.className = "img-fig";
             fig.dataset.reorderId = meta.id; // glisser-déposer (voir bindMediaReorder)
             fig.appendChild(cell);
-            var cap = document.createElement("button");
-            cap.type = "button";
-            cap.className = "img-caption";
-            cap.title = "Donner un nom à cette capture";
-            function paintCap() {
-                var nm = (meta.name || "").trim();
-                cap.textContent = nm || "Nommer cette capture…";
-                cap.classList.toggle("img-caption-empty", !nm);
+            function paintTitle() {
+                var nm = imgTitle(meta);
+                over.textContent = nm; over.hidden = !nm;
                 b.title = (nm || "Image") + " — cliquer pour agrandir";
+                tagBtn.title = nm ? "Renommer cette capture (« " + nm + " »)" : "Donner un nom à cette capture (ex. « Couplet »)";
+                tagBtn.setAttribute("aria-label", tagBtn.title);
+                tagBtn.classList.toggle("img-name-btn-set", !!nm);
             }
-            paintCap();
-            cap.addEventListener("click", function () {
+            paintTitle();
+            tagBtn.addEventListener("click", function (e) {
+                e.stopPropagation();
+                if (box.querySelector(".img-title-input")) return;
                 var inp = document.createElement("input");
-                inp.type = "text"; inp.className = "img-caption-input"; inp.maxLength = 120;
-                inp.value = (meta.name || "").trim(); inp.placeholder = "Nom de la capture";
+                inp.type = "text"; inp.className = "img-title-input"; inp.maxLength = 120;
+                inp.value = imgTitle(meta); inp.placeholder = "Nom (ex. Couplet)";
                 inp.setAttribute("aria-label", "Nom de la capture");
                 var done = false;
                 function finish(keep) {
@@ -1657,21 +1689,21 @@
                     done = true;
                     if (keep) {
                         var v = inp.value.trim();
-                        if (v !== (meta.name || "").trim()) { meta.name = v; touchExercise(ex); save(); }
+                        if (v !== imgTitle(meta)) { meta.name = v; touchExercise(ex); save(); }
                     }
-                    if (inp.parentNode) inp.parentNode.replaceChild(cap, inp);
-                    paintCap();
+                    inp.remove();
+                    paintTitle();
                 }
-                inp.addEventListener("keydown", function (e) {
-                    e.stopPropagation(); // pas de raccourci (barre espace…) pendant la saisie
-                    if (e.key === "Enter") { e.preventDefault(); finish(true); }
-                    else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+                inp.addEventListener("keydown", function (ev) {
+                    ev.stopPropagation(); // pas de raccourci (barre espace…) pendant la saisie
+                    if (ev.key === "Enter") { ev.preventDefault(); finish(true); }
+                    else if (ev.key === "Escape") { ev.preventDefault(); finish(false); }
                 });
+                inp.addEventListener("click", function (ev) { ev.stopPropagation(); });
                 inp.addEventListener("blur", function () { finish(true); });
-                fig.replaceChild(inp, cap);
+                box.appendChild(inp);
                 inp.focus(); inp.select();
             });
-            fig.appendChild(cap);
             strip.appendChild(fig);
         });
         if (editable) bindMediaReorder(strip, ".img-fig", ex, "images", function () { return true; }, ".img-thumb-btn");
@@ -10638,7 +10670,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v270"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v271"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }
