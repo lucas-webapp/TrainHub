@@ -6,7 +6,8 @@ La session Claude Code s'ouvre dans `/home/user/HarmoHub` : c'est **une autre ap
 Tout le travail TrainHub se fait dans `/home/user/trainhub`.
 
 ## Suite à faire (lue par `/reprise` — à réécrire à la fin de CHAQUE demande)
-- **Rien de prévu** (v272 livrée : gros bouton Jouer/Arrêter du métronome en verre dépoli, bord bas coloré garanti ; avant : v271 : captures (nom par-dessus l'image, flèches du grand format) ; avant : v270 : ajout d'un morceau → sa fiche s'ouvre aussitôt (`revealExercise`) ; icône « Libre » ailée ; avant : v269 : badge des copies liées = deux feuilles (plus une chaîne, confondue avec la vignette « lien ») ; avant : v268 : ligne du dé refaite (réglage en engrenage, « Tirer » vert, confirmation avant de retirer le dé, icône d'objectif tempo métronome + flèche, « En cours » sur la même ligne) ; avant : note aussi sur les chapitres ; avant : note (pense-bête) sur chaque dossier ; avant : « Lancer la session » dans la barre du haut de la fiche ; avant : écrans de session cohérents, largeur réglable par poignées, bandeau « Ma session » redimensionnable ; avant : nom de l'espace en petites capitales, « En cours » discret, menus des caractéristiques d'un morceau). Aucune demande en attente : `/reprise` doit demander à l'utilisateur ce qui vient ensuite, sans rien commencer.
+- **Rien de prévu** (dernière livraison : **v272**, le 10 nov. 2026 ; le détail v266 → v272 est dans « Reprise » plus bas). Aucune demande en attente : `/reprise` doit demander à l'utilisateur ce qui vient ensuite, sans rien commencer.
+- **À confirmer par l'utilisateur sur Safari** (rien n'est vérifiable ici) : (a) le bord bas coloré du gros bouton Jouer/Arrêter du métronome (v272) ; (b) le bug « plus de son » du 7 nov. (voir « Sujets en cours »).
 - Idées déjà proposées, à ne remettre sur la table que si la conversation s'y prête : voir « Idées proposées, pas encore faites » plus bas.
 - **Règle** : à la fin de chaque demande, réécrire cette section (la suite annoncée par l'utilisateur, ou « Rien de prévu »), dans le même commit que la version.
 
@@ -18,6 +19,8 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
   claire, il veut que ce soit fait, testé et poussé. Il répond souvent « Fais au mieux » : trancher, puis l'expliquer.
 - Garder les écrans **légers** : l'appli a déjà retiré les étiquettes et les statuts, jugés trop compliqués au quotidien. Pas d'options à cocher en plus
   sans nécessité (il a refusé une case « Rester ici après chaque ajout » : l'ajout en rafale est le seul comportement).
+- Ce qu'il apprécie / demande souvent : des éléments qui **ne prennent pas de place** (nom posé par-dessus l'image, « ＋ Note » discret, bouton-engrenage à la place d'un texte), des **icônes qui ne se ressemblent pas** (il confond deux vignettes identiques), un contour ou un style **calme** plutôt que « flashy » (verre dépoli). Quand une demande existe déjà dans l'appli (ex. flèches du clavier et glisser-déposer des captures, v271), le dire honnêtement au lieu de la présenter comme nouvelle.
+- Il colle parfois son **journal du son** pour un bug : l'analyser (contextes « running » ou non, retard du planificateur, ce qui l'a rétabli) et dire ce qu'il prouve ou non ; il préfère qu'on **ne touche à rien** si la cause est probablement Safari/macOS.
 - Ne pas créer de pull request (on pousse directement sur `main` + `structure-dossiers`). Pas de nom de modèle dans les commits.
 
 ## Cycle de chaque demande (toujours dans cet ordre)
@@ -36,7 +39,7 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
 - Fichiers **partagés avec HarmoHub et TabHub**, à laisser tels quels : `compte-cloud.js`, `docs/fichiers-partages.md`, `tests/compte_cloud_test.js`,
   `tests/_harness.js` (un banc vérifie leur empreinte SHA-256 ; HarmoHub est la référence).
 
-## Architecture (script.js ≈ 25 600 lignes, une seule IIFE ; style.css ≈ 5 100 lignes)
+## Architecture (script.js ≈ 26 800 lignes, une seule IIFE ; style.css ≈ 5 400 lignes)
 - **État** : `localStorage "trainhub.v1"` → `state.instruments[]` (`{id, name, categories[], pinnedOrder}`) ; une catégorie = un **chapitre**, qui contient
   des `folders[]` (récursifs) et des `exercises[]`. `state.settings` : `guidedSessions`, `sessionFolders`, `sessionPlan`, `metronome`, `prefs`,
   `appearance`, `statsRules`, `trash`… La synchro cloud remplace l'état en bloc (le plus récent gagne, `updatedAt`).
@@ -95,23 +98,35 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
   `localStorage['compteCloud.trainhub.nePlusProposer'] = '1'` (pas de fenêtre de connexion), bloquer `https://www.gstatic.com/firebasejs/**`,
   `serviceWorkers: 'block'`. Horloge simulée (`page.clock`) pour les vraies sessions ; CDP pour les mesures de performance.
   Un vrai plantage de page ne se joue pas ici : on recopie le signe de vie (`trainhub.audioAlive.v1`) dans une nouvelle page.
-- Les **29 bancs** sont dans le dépôt : `tests/playwright/trainhub_<nom>_test.js` (morceaux 173, programmation 50, menage 52, rafale 42, choix 38, compte 68, note 34, note_session 86,
+- Les **29 bancs** sont dans le dépôt : `tests/playwright/trainhub_<nom>_test.js` (morceaux 173, programmation 50, menage 52, rafale 44, choix 38, compte 68, note 34, note_session 86,
   favoris 31, rideau 33, session_ui 71, son 75, video 22, preset 22, point 31, lecteur 29, audio_rate 19, audio_edit 80, de 19, eph 12, volet 20, tempo 15, corbeille 24, sessions_ecrans 44, notedossier 31, ligne_de 23, morceau_ajout 14, images 27, bouton_lecture 21), avec leurs fichiers
   (`media/`, `yt_mock/`). Lancer : `tests/playwright/lancer.sh` (tous) ou `tests/playwright/lancer.sh morceaux choix` ; il démarre et arrête les
   serveurs :8765 et :8766. Un nouveau banc s'ajoute dans ce dossier, avec `plan(n)` ; le garder à jour quand un comportement change exprès.
-- Lancer **toutes** les suites avant chaque livraison (≈ 15 min) ; adapter un banc existant seulement si le comportement a changé exprès.
+- Lancer **toutes** les suites avant chaque livraison (≈ 15 min, `lancer.sh` en arrière-plan puis attendre sa fin) ; adapter un banc existant seulement si le comportement a changé exprès (cas vécu : `morceaux` et `rafale` en v267/v270).
+- **Ne pas modifier `script.js`/`style.css`/`index.html` pendant qu'une série tourne** : les bancs relisent les fichiers à chaque page (mélange de versions). Une capture d'écran en lecture seule reste possible.
+- `plan(n)` doit être **égal** au nombre de `check(...)` écrits : un compte trop haut donne « COUVERTURE INCOMPLÈTE » alors que tout passe (ça m'est arrivé trois fois : recompter).
 
 ## Sujets en cours / à savoir
 - **Bug ouvert (Safari/macOS)** : son coupé ou application figée **en session libre uniquement** (jamais en session guidée ni hors session) ; une fois
   sur un MP3 du lecteur. Cause non établie ; v240 (plus de redémarrage du métronome au changement de préréglage), v242 (journal et signe de vie
   étendus au lecteur et à la session libre) et v260 (contexte audio inactif fermé, feu vert donné par l'utilisateur le 5 nov.) sont les pistes. **Non vérifié sur Safari** : à confirmer à l'usage. À la prochaine alerte, demander : copier le **journal du son** tout de suite, avant de
   relancer l'appli ; dire si c'est l'écran ou le son qui se fige ; si le chrono continue ; si le métronome ou un MP3 jouait ; si la version est à jour.
+- **Analyse du 7 nov. (journal v267, Safari 27)** : après ≈ 52 min de session libre puis des vidéos YouTube dans un autre onglet, **plus de son** alors que l'appli n'était pas figée. Le journal montre des contextes neufs (ctx10 → ctx15) tous « running » et dont l'horloge avance, sans « suspended »/« interrupted » ni retard du planificateur : l'appli croyait jouer. Le son de YouTube marchait, casque ou haut-parleur seul ; **seule la fermeture puis relance de TrainHub l'a rétabli** → état cassé propre à la page/au processus Safari (hypothèse, non prouvée). L'utilisateur a dit : si c'est lié au Mac/Safari, **on ne touche à rien**. Proposé et NON fait : mesurer le signal réellement produit (AnalyserNode) et l'écrire au journal. Piste gratuite donnée : au prochain bug, avant de fermer, « Tester le son » (Paramètres › Métronome : un bip Web Audio, un bip par le lecteur audio) pour voir si le **son de secours** (`<audio>`, coupé par défaut) passe quand Web Audio est muet ; puis copier le journal.
 - Refusé pour l'instant : statistiques par artiste ou par style pour les morceaux.
 - Idées de l'utilisateur déjà livrées : programmation de session (v257), session créée depuis une séance libre / ménage des artistes et doublons / « dernière fois jouée » en bas de fiche (v258 — SANS rappel : l'utilisateur n'en veut pas), morceau → exercice « Travailler un passage en exercice… » (v259 : titre + liens copiés, AUCUNE caractéristique de morceau, `fromSongId`), menu clic droit regroupé sous « Plus d'actions » (v259) ; le Ménage ne supprime ni ne fusionne JAMAIS d'exercice (doublons de titre en lecture seule), ajout en rafale, marques de doublons, onglet « En cours ». Idées proposées et refusées : « Tout ajouter » sur
   un dossier, onglet « À reprendre », filtres combinés pour les morceaux, filtre « fiches vides » (v260 : un exercice peut se suffire de son titre).
 
-## Reprise (état au 5 novembre 2026, après la v260)
+## Reprise (état au 10 novembre 2026, après la v272)
 - **Livré en v260** : vidage de la corbeille par ancienneté + rappel au-delà de 20 exercices ; dé d'harmonie sans remise ; fermeture du contexte audio inactif (piste du bug Safari). Banc `corbeille` ajouté.
+- **Livré de v262 à v265** : ordre fixe du menu « Travail » des morceaux (v262) ; nom de l'espace en petites capitales (v263) ; écrans de session cohérents, largeur réglable, bandeau « Ma session » redimensionnable (v264) ; « Lancer la session » dans la barre du haut de la fiche (v265).
+- **Livré de v266 à v272 (cette série de demandes, tout est dans « Architecture » ci-dessus)** :
+  - v266-v267 : **note (pense-bête)** sur chaque dossier, puis aussi sur les chapitres ; rappel des notes parentes sur une ligne dans les sous-dossiers. Banc `notedossier`.
+  - v268 : **ligne du dé** d'un exercice refaite (engrenage de réglage au lieu du résumé « Tonalité-Gamme(2) », « Tirer » vert collé au dé, confirmation avant de retirer le dé, nouvelle icône d'objectif tempo = métronome + flèche en Z, pastille « En cours » sur la même ligne). Banc `ligne_de`.
+  - v269 : **badge des copies liées** = deux feuilles + nombre (plus une chaîne, identique à la vignette « lien »).
+  - v270 : **ajout d'un morceau → sa fiche s'ouvre aussitôt** (`revealExercise`) ; icône « Libre » avec des ailes autour du chronomètre. Banc `morceau_ajout`.
+  - v271 : **captures** : nom posé par-dessus l'image (crayon au survol), flèches ‹ › de part et d'autre dans le grand format (+ ← →, balayage) ; réordonnancement à la souris (déjà là). Banc `images`.
+  - v272 : **gros bouton Jouer/Arrêter du métronome** en verre dépoli, cadre en ombres internes avec un bord bas coloré net. **Non reproduit sous Chromium** (la bordure y était bien là) : hypothèse = bordure de 1 px perdue sur Safari à hauteur fractionnaire ; à confirmer par l'utilisateur. Banc `bouton_lecture`.
+- **Idées évoquées, non faites** : ouvrir la fenêtre du dé toujours sur l'onglet « Réglages » quand on clique l'engrenage (elle s'ouvre sur le dernier onglet utilisé) ; modifier le nom d'une capture depuis le grand format ; mesure du signal audio (voir le bug du 7 nov.).
 - **Banc `point`** : corrigé en v264 (ses 7 séances sont ramenées au 1er du mois en début de mois ; la page Statistiques n'affiche que le mois).
 - **Ce que l'utilisateur ne veut PAS** : aucun rappel pour reprendre un exercice (la « dernière fois jouée » est une information, pas une alerte) ; le Ménage ne supprime ni ne fusionne jamais un exercice ;
   un exercice tiré d'un morceau ne porte aucune caractéristique de morceau (artiste, style, technique, travail) ; pas de tri de la liste « Ma session » par durée ;
