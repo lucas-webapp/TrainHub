@@ -6,7 +6,7 @@ const path = require('path');
 const harnais = require('/home/user/trainhub/tests/_harness');
 const { check, plan, bilan } = harnais('TrainHub : « En cours », ajout en rafale, marques de doublons');
 const estBruitReseau = harnais.estBruitReseau;
-plan(44);
+plan(45);
 const SHOTS = path.join(__dirname, 'shots');
 fs.mkdirSync(SHOTS, { recursive: true });
 const URL = 'http://localhost:8765/index.html';
@@ -65,15 +65,19 @@ const ligne = (page, titre) => page.locator('.gs-pick-exercise-row', { hasText: 
         const chip = page.locator('.exercise[data-ex-id="t3"] .ex-wip-chip');
         check(await chip.count() === 1 && /En cours/.test(await chip.innerText()) && await chip.getAttribute('aria-pressed') === 'false', 'A. la fiche d\'un exercice montre la pastille « ● En cours » (décochée)');
         // la pastille est sur la ligne des boutons de la fiche (métronome, dé), à leur hauteur
-        const geo = await page.locator('.exercise[data-ex-id="t3"]').evaluate(el => { const r = e => e.getBoundingClientRect(); const c = el.querySelector('.ex-wip-chip'), d = el.querySelector('.dice-ex-btn'), m = el.querySelector('.metro-preset-row');
-            return { chipH: Math.round(r(c).height), diceH: Math.round(r(d).height), memeLigne: Math.abs((r(c).top + r(c).height / 2) - (r(d).top + r(d).height / 2)) < 3, sousTitre: !!el.querySelector('.ex-wip-row'), dansOutils: c.parentElement.classList.contains('dice-ex-row') }; }); // v268 : la pastille est DANS la ligne du dé (dé · réglage · Tirer · objectif tempo · En cours)
-        check(geo.chipH === geo.diceH && geo.memeLigne && geo.dansOutils && !geo.sousTitre, 'A. la pastille est sur la ligne des autres boutons, à la même hauteur (plus de ligne à part) : ' + JSON.stringify(geo));
+        const geo = await page.locator('.exercise[data-ex-id="t3"]').evaluate(el => { const r = e => e.getBoundingClientRect(); const c = el.querySelector('.ex-wip-chip'), d = el.querySelector('.dice-ex-btn'), t = el.querySelector('input.exercise-title');
+            return { chipH: Math.round(r(c).height), diceH: Math.round(r(d).height), memeLigneQueTitre: Math.abs((r(c).top + r(c).height / 2) - (r(t).top + r(t).height / 2)) < 6, apresTitre: r(c).left >= r(t).right - 1, sousTitre: !!el.querySelector('.ex-wip-row'), dansEnTete: c.parentElement.classList.contains('exercise-row') }; }); // v276 : la pastille est dans l'EN-TÊTE, à droite du titre (elle était dans la ligne du dé)
+        check(geo.chipH === geo.diceH && geo.memeLigneQueTitre && geo.apresTitre && geo.dansEnTete && !geo.sousTitre, 'A. la pastille est dans l\'en-tête, juste après le titre, à la même hauteur que les boutons : ' + JSON.stringify(geo));
         await chip.click(); await page.waitForTimeout(250);
-        check(await page.locator('.exercise[data-ex-id="t3"] .ex-wip-chip.on').count() === 1 && await page.locator('.exercise[data-ex-id="t3"] .exercise-wip-badge').count() === 1, 'A. cochée : la pastille s\'allume et le badge apparaît sur la ligne');
+        check(await page.locator('.exercise[data-ex-id="t3"] .ex-wip-chip.on').count() === 1 && await page.locator('.exercise[data-ex-id="t3"] .exercise-wip-badge').count() === 0, 'A. cochée : la pastille s\'allume ; fiche ouverte, elle remplace le point (pas les deux)');
+        // exercice fermé : plus de pastille, seulement le point
+        await page.locator('.exercise[data-ex-id="t3"] .exercise-row-spacer').click(); await page.waitForTimeout(250);
+        check(await page.locator('.exercise[data-ex-id="t3"] .ex-wip-chip').count() === 0 && await page.locator('.exercise[data-ex-id="t3"] .exercise-wip-badge').count() === 1, 'A. exercice fermé : aucune pastille, seulement le point vert');
         const pt = await page.locator('.exercise[data-ex-id="t3"]').evaluate(el => { const b = el.querySelector('.exercise-wip-badge'), t = el.querySelector('input.exercise-title'), i = b.querySelector('i'); const rb = i.getBoundingClientRect(), rt = t.getBoundingClientRect(); return { w: b.offsetWidth, h: b.offsetHeight, texte: b.textContent, droite: rb.left > rt.left + rt.width / 2, bas: rb.top + rb.height / 2 > rt.top + rt.height / 2, dansOutils: !!el.querySelector('.exercise-row-tools .exercise-wip-badge') }; });
         check(pt.w === 0 && pt.h === 0 && pt.texte === '' && pt.droite && pt.bas && !pt.dansOutils, 'A. sur la ligne du titre : un simple point, en bas à droite du titre, hors des boutons, sans place prise : ' + JSON.stringify(pt));
         await sauve(page);
         check(exo(await etatPage(page), 't3').inProgress === true, 'A. l\'état est enregistré (inProgress)');
+        await page.locator('.exercise[data-ex-id="t3"] .exercise-row-spacer').click(); await page.waitForTimeout(250); // rouvre la fiche pour décocher
         await page.locator('.exercise[data-ex-id="t3"] .ex-wip-chip').click(); await page.waitForTimeout(250); await sauve(page);
         check(!('inProgress' in exo(await etatPage(page), 't3')) && await page.locator('.exercise[data-ex-id="t3"] .exercise-wip-badge').count() === 0, 'A. décochée : plus de badge, plus rien d\'enregistré');
         // menu contextuel

@@ -6749,11 +6749,7 @@
             tools.appendChild(archBadge);
         }
 
-        var delBtn = iconButton("✕", "Supprimer l'exercice", function () {
-            deleteExerciseGuarded(ex, folder, getActiveInstrument());
-        });
-        tools.appendChild(delBtn);
-
+        // v276 : plus de ✕ ici — on supprime un exercice par le clic droit (ou l'appui long) › « Supprimer… » (confirmation, corbeille, « Annuler »).
     }
     function renderExercise(folder, ex, orderingEnabled) {
         var el = document.createElement("div");
@@ -6826,8 +6822,15 @@
         });
         row.appendChild(title);
 
-        // « En cours » : un petit point vert posé en bas à droite du titre (comme l'étoile des favoris, il ne prend aucune place).
-        if (exInProgress(ex)) {
+        // « En cours » (v276) : fiche OUVERTE d'un exercice = pastille à côté du titre (grisée si pas en cours, un clic l'allume ou l'éteint) ; exercice fermé
+        // ou morceau = seulement un petit point vert posé en bas à droite du titre quand c'est en cours (comme l'étoile des favoris, il ne prend aucune place).
+        if (!ex.isSong && !ex.collapsed) {
+            var wipChip = document.createElement("button"); wipChip.type = "button"; wipChip.className = "ex-wip-chip" + (exInProgress(ex) ? " on" : "");
+            wipChip.innerHTML = "<i></i><span>En cours</span>"; wipChip.setAttribute("aria-pressed", exInProgress(ex) ? "true" : "false");
+            wipChip.title = "Je travaille cet exercice en ce moment : il se retrouve dans l'onglet « En cours » du choix d'une session";
+            wipChip.addEventListener("click", function () { exSetInProgress(ex, !exInProgress(ex)); save(); render(); });
+            row.appendChild(wipChip);
+        } else if (exInProgress(ex)) {
             var wipBadge = document.createElement("span");
             wipBadge.className = "exercise-wip-badge";
             wipBadge.innerHTML = "<i></i>";
@@ -7089,12 +7092,20 @@
         // la MÊME ligne que le métronome quand il y a la place, et passent dessous sinon (téléphone, fenêtre étroite) : voir .ex-tools-line.
         var toolsLine = document.createElement("div");
         toolsLine.className = "ex-tools-line";
-        toolsLine.appendChild(buildMetronomePresetRow({
+        // v276 : à GAUCHE tout ce qui touche au tempo (métronome, options, ▶, objectif tempo) avec dessous les vignettes « ＋ Note » (même largeur que la ligne,
+        // leur bord droit tombe sur le bouton d'objectif tempo) ; à DROITE le dé, son réglage et « Tirer ».
+        var toolsLeft = document.createElement("div");
+        toolsLeft.className = "ex-tools-left";
+        var presetRow = buildMetronomePresetRow({
             title: ex.title,
             exId: ex.id,
+            noRemove: true,
             get: function () { return ex.metronome; },
             set: function (p) { setExerciseMetronome(ex, p); }
-        }));
+        });
+        presetRow.appendChild(buildTempoGoalToggle(ex, true));
+        toolsLeft.appendChild(presetRow);
+        toolsLine.appendChild(toolsLeft);
         toolsLine.appendChild(buildExerciseDiceRow(ex));
         details.appendChild(toolsLine);
 
@@ -7165,7 +7176,7 @@
             noteAddSyncs.push(function () { return btn.style.display !== "none"; });
         }
         bindEmptyNoteReveal([fixedLabel, fixedTa], fixedTa, "＋ Note fixe", function () { return true; });
-        details.appendChild(noteAddRow);
+        toolsLeft.appendChild(noteAddRow); // sous la ligne du métronome (voir « Notes vides masquées », v273)
 
         var notesLabel = document.createElement("div");
         notesLabel.className = "section-label";
@@ -10728,7 +10739,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v275"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v276"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }
@@ -11879,7 +11890,7 @@
         }
         btn(GEAR_ICON_SVG, "Options : préconfigurer un métronome complet (progressif, entraînement, rythme…)", act.options, "metro-preset-btn-icon");
         if (act.eff) btn("▶", "Charger ce réglage dans le métronome et le lancer", act.play, "metro-preset-btn-icon");
-        if (act.cur) btn("✕", "Retirer ce réglage", act.remove, "metro-preset-btn-icon");
+        if (act.cur && !cfg.noRemove) btn("✕", "Retirer ce réglage", act.remove, "metro-preset-btn-icon"); // v276 : absent de la fiche d'exercice (pastille ♩ › « Retirer », ou champ du tempo vidé)
         if (cfg.goalEx) row.appendChild(buildTempoGoalToggle(cfg.goalEx, false));
         return row;
     }
@@ -18660,15 +18671,8 @@
         // « Tirer » : le bouton vert, collé au dé et à son réglage (il ne se confond plus avec le dé qui éteint).
         var go = document.createElement("button"); go.type = "button"; go.className = "btn-accent dice-ex-go"; go.textContent = "Tirer";
         var res = document.createElement("span"); res.className = "dice-ex-res";
-        // Ordre : dé · réglage · Tirer · objectif tempo · « En cours » (même ligne) · tirage obtenu
-        row.appendChild(lab); row.appendChild(sum); row.appendChild(go); row.appendChild(buildTempoGoalToggle(ex, true));
-        if (!ex.isSong) { // une seule pastille d'état : « En cours » (même hauteur que les boutons voisins ; un morceau a son état de Travail)
-            var wipChip = document.createElement("button"); wipChip.type = "button"; wipChip.className = "ex-wip-chip" + (exInProgress(ex) ? " on" : "");
-            wipChip.innerHTML = "<i></i><span>En cours</span>"; wipChip.setAttribute("aria-pressed", exInProgress(ex) ? "true" : "false");
-            wipChip.title = "Je travaille cet exercice en ce moment : il se retrouve dans l'onglet « En cours » du choix d'une session";
-            wipChip.addEventListener("click", function () { exSetInProgress(ex, !exInProgress(ex)); save(); render(); });
-            row.appendChild(wipChip);
-        }
+        // Ordre (v276) : dé · réglage · Tirer · tirage obtenu. L'objectif tempo est dans la ligne du métronome, « En cours » dans l'en-tête de la fiche.
+        row.appendChild(lab); row.appendChild(sum); row.appendChild(go);
         row.appendChild(res);
         function paint() {
             var harm = !!(ex.harm && typeof ex.harm === "object");

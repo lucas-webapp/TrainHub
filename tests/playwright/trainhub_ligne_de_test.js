@@ -35,11 +35,11 @@ plan(23);
     const txt = await ex('e1').locator('.dice-ex-row').innerText();
     check('aucun « Tonalité-Gamme » affiché dans la ligne', !/Tonalité|Gamme/.test(txt), txt);
     const ordre = await ex('e1').locator('.dice-ex-row').evaluate(r => Array.from(r.children).map(c => c.className.split(' ')[0]));
-    check('ordre : dé · réglage · Tirer · objectif tempo · En cours', ordre.slice(0, 5).join(',') === 'dice-ex-btn,dice-ex-set,btn-accent,tempo-goal-btn,ex-wip-chip', ordre.join(','));
+    check('ordre (v276) : dé · réglage · Tirer — l\'objectif tempo et « En cours » ne sont plus dans cette ligne', ordre.slice(0, 3).join(',') === 'dice-ex-btn,dice-ex-set,btn-accent' && !ordre.includes('tempo-goal-btn') && !ordre.includes('ex-wip-chip'), ordre.join(','));
     check('« Tirer » est un bouton vert (btn-accent)', await ex('e1').locator('button.btn-accent.dice-ex-go').innerText() === 'Tirer');
-    const geo = await ex('e1').locator('.dice-ex-row').evaluate(r => { const q = s => r.querySelector(s).getBoundingClientRect(); const mid = b => b.top + b.height / 2; const d = q('.dice-ex-btn'), g = q('.dice-ex-go'), t = q('.tempo-goal-btn'), w = q('.ex-wip-chip'), s = q('.dice-ex-set');
-        return { memeLigne: [g, t, w, s].every(b => Math.abs(mid(b) - mid(d)) < 3), colle: g.left - s.right < 14 && s.left - d.right < 14 }; });
-    check('tout sur la même ligne (« En cours » compris)', geo.memeLigne, JSON.stringify(geo));
+    const geo = await ex('e1').locator('.dice-ex-row').evaluate(r => { const q = s => r.querySelector(s).getBoundingClientRect(); const mid = b => b.top + b.height / 2; const d = q('.dice-ex-btn'), g = q('.dice-ex-go'), s = q('.dice-ex-set');
+        return { memeLigne: [g, s].every(b => Math.abs(mid(b) - mid(d)) < 3), colle: g.left - s.right < 14 && s.left - d.right < 14 }; });
+    check('dé, réglage et « Tirer » sur la même ligne', geo.memeLigne, JSON.stringify(geo));
     check('« Tirer » est collé au dé et à son réglage', geo.colle, JSON.stringify(geo));
     check('nouvelle icône d\'objectif tempo (métronome + flèche), plus de cible', await ex('e1').locator('.tempo-goal-btn svg path').count() === 4 && await ex('e1').locator('.tempo-goal-btn svg circle').count() === 0);
     check('sans dé : ni réglage ni « Tirer », mais objectif tempo et « En cours »', await ex('e2').locator('.dice-ex-set').isHidden() && await ex('e2').locator('.dice-ex-go').isHidden() && await ex('e2').locator('.tempo-goal-btn').isVisible() && await ex('e2').locator('.ex-wip-chip').isVisible());
@@ -85,7 +85,7 @@ plan(23);
     // 7. « En cours » fonctionne depuis la ligne
     await ex('e2').locator('.ex-wip-chip').click();
     await page.waitForTimeout(300);
-    check('« En cours » s\'allume depuis la ligne du dé', await ex('e2').locator('.ex-wip-chip.on').count() === 1);
+    check('« En cours » s\'allume depuis l\'en-tête de la fiche', await ex('e2').locator('.ex-wip-chip.on').count() === 1);
     // 8. Vignette « lien » et badge « copie liée » : deux icônes bien différentes (v269)
     const ico = async sel => ex('e4').locator(sel + ' svg').evaluate(s => s.innerHTML);
     check('lien ordinaire : vignette chaîne (.exercise-link-quick)', await ex('e4').locator('.exercise-link-quick').count() === 1);

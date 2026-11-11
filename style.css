@@ -598,8 +598,8 @@ button.result-group-title:hover { background: color-mix(in srgb, var(--group-col
 .add-file-row .add-file-input { display: none; }
 
 .add-exercise-row { display: flex; gap: 6px; padding: 4px; }
-.add-exercise-row input { flex: 1; height: 44px; box-sizing: border-box; } /* même hauteur que les cartes d'exercice au-dessus */
-.add-exercise-row button { flex: 0 0 56px; width: 56px; height: 44px; padding: 0; font-size: 1.5rem; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
+.add-exercise-row input { flex: 1; height: 40px; box-sizing: border-box; } /* même hauteur que les cartes d'exercice au-dessus (40 px depuis v276 : le ✕ de leur en-tête, qui les gonflait à 44, a disparu) */
+.add-exercise-row button { flex: 0 0 56px; width: 56px; height: 40px; padding: 0; font-size: 1.5rem; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
 
 .add-category-row { display: flex; gap: 8px; }
 .add-category-row input { flex: 1; }
@@ -5375,3 +5375,38 @@ button.img-viewer-btn.img-viewer-nav:hover { opacity: 1; background: rgba(0,0,0,
 button.img-viewer-btn.img-viewer-nav:active { transform: translateY(-50%); }
 .img-viewer-nav-prev { left: 6px; }
 .img-viewer-nav-next { right: 6px; }
+
+/* ===== Barre d'outils d'une fiche d'exercice (v276) =====
+   À gauche : métronome · tempo · options · ▶ · objectif tempo, et dessous les vignettes « ＋ Note » (même largeur que la ligne : leur bord droit tombe
+   sur le bouton d'objectif tempo). À droite : dé · réglage · Tirer. Tous les boutons à icône : 36 × 32 px, contour, coin --radius-sm (avant : l'engrenage
+   du métronome faisait 32 × 30 sur fond plein, celui du dé 36 × 32 transparent). */
+.ex-tools-line { align-items: flex-start; gap: 8px 14px; }
+.ex-tools-left { display: flex; flex-direction: column; gap: 8px; width: max-content; max-width: 100%; min-width: 0; }
+.ex-tools-line > .dice-ex-row { margin-left: auto; }
+.ex-tools-line .metro-preset-row { gap: 8px; }
+.ex-tools-line .metro-preset-row button.metro-preset-btn-icon,
+.ex-tools-line .metro-preset-row .tempo-goal-btn.tempo-goal-mini {
+    box-sizing: border-box; flex: none; width: 36px; min-width: 36px; height: 32px; margin: 0; padding: 0; gap: 0; justify-content: center;
+    display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: var(--radius-sm); background: transparent; color: var(--text-muted); box-shadow: none;
+}
+.ex-tools-line .metro-preset-row button.metro-preset-btn-icon:hover,
+.ex-tools-line .metro-preset-row .tempo-goal-btn.tempo-goal-mini:hover { color: var(--accent); border-color: var(--accent); background: transparent; }
+.ex-tools-line .metro-preset-row button.metro-preset-btn-icon .icon,
+.ex-tools-line .metro-preset-row .tempo-goal-btn.tempo-goal-mini .tempo-goal-ico .icon { width: 17px; height: 17px; display: block; }
+.ex-tools-line .metro-preset-row .tempo-goal-btn.tempo-goal-mini.tempo-goal-on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.ex-tools-line .metro-preset-row .metro-preset-tag, .ex-tools-line .metro-preset-row .metro-preset-figure { box-sizing: border-box; height: 32px; display: inline-flex; align-items: center; }
+/* Choix du tempo ‹ 120 › resserré : 76 px au lieu de 104 (flèches 26 → 20 px, champ 46 → 34 px) */
+.ex-tools-line .metro-preset-row .num-stepper { gap: 1px; }
+.ex-tools-line .metro-preset-row button.num-stepper-btn { width: 20px; min-width: 20px; height: 32px; }
+.ex-tools-line .metro-preset-row .num-stepper > input.num-in { width: 34px; height: 32px; box-sizing: border-box; }
+/* Vignettes « ＋ Note fixe » / « ＋ Note mobile » : la hauteur, le coin et l'espacement des boutons du dessus ; elles se partagent la largeur de la ligne du métronome
+   (width: 0 + min-width: 100% : elles ne comptent pas dans la largeur de la colonne, c'est la ligne du métronome qui la fixe). Une seule vignette : elle prend toute la largeur. */
+.ex-tools-left .ex-note-add-row { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; width: 0; min-width: 100%; margin: 0; }
+.ex-tools-left .ex-note-add { box-sizing: border-box; align-self: auto; width: 100%; min-width: 0; height: 32px; padding: 0 4px; border-radius: var(--radius-sm); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.exercise-row > button.ex-wip-chip { margin-left: 2px; }
+/* Écran étroit : la pastille « En cours » de l'en-tête se réduit à son rond (le titre garde la place) ; le nom reste dans l'infobulle et pour les lecteurs d'écran. */
+@media (max-width: 520px) {
+    .exercise-row > button.ex-wip-chip { width: 32px; padding: 0; justify-content: center; gap: 0; }
+    .exercise-row > button.ex-wip-chip > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
