@@ -6,7 +6,7 @@ La session Claude Code s'ouvre dans `/home/user/HarmoHub` : c'est **une autre ap
 Tout le travail TrainHub se fait dans `/home/user/trainhub`.
 
 ## Suite à faire (lue par `/reprise` — à réécrire à la fin de CHAQUE demande)
-- **Rien de prévu** (dernière livraison : **v272**, le 10 nov. 2026 ; le détail v266 → v272 est dans « Reprise » plus bas). Aucune demande en attente : `/reprise` doit demander à l'utilisateur ce qui vient ensuite, sans rien commencer.
+- **Rien de prévu** (dernière livraison : **v273**, le 10 nov. 2026 ; le détail v266 → v273 est dans « Reprise » plus bas). Aucune demande en attente : `/reprise` doit demander à l'utilisateur ce qui vient ensuite, sans rien commencer.
 - **À confirmer par l'utilisateur sur Safari** (rien n'est vérifiable ici) : (a) le bord bas coloré du gros bouton Jouer/Arrêter du métronome (v272) ; (b) le bug « plus de son » du 7 nov. (voir « Sujets en cours »).
 - Idées déjà proposées, à ne remettre sur la table que si la conversation s'y prête : voir « Idées proposées, pas encore faites » plus bas.
 - **Règle** : à la fin de chaque demande, réécrire cette section (la suite annoncée par l'utilisateur, ou « Rien de prévu »), dans le même commit que la version.
@@ -32,7 +32,7 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
    `Claude-Session: https://claude.ai/code/session_…` (reprendre l'URL donnée par le rappel d'attribution de la session en cours).
 6. `git push -q origin main`, puis `git push -q origin HEAD:structure-dossiers`, puis vérifier avec `git ls-remote origin main structure-dossiers`
    que les deux pointent sur le même commit. (Le message « This repository moved » de GitHub est sans conséquence.)
-7. Réécrire la section « Suite à faire » (en haut de ce fichier). Dernière version livrée : **v272**. La suivante sera v273.
+7. Réécrire la section « Suite à faire » (en haut de ce fichier). Dernière version livrée : **v273**. La suivante sera v274.
 
 ## À ne pas toucher
 - **Le moteur de synchronisation cloud** (Firestore : envoi différé, écoute, reprise). Les nouveaux champs voyagent avec l'état sans le modifier.
@@ -64,6 +64,7 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
 - **Ajout d'un morceau (v270)** : `renderAddSongForm` → après `save()`, `revealExercise(ex.id)` (navigue vers le dossier où il est rangé, ouvre la fiche, défile, un seul morceau ouvert) + toast « complète sa fiche ». Ne pas remettre `collapsed: false` avant l'appel (sinon `exCollapseOthers` n'est pas joué). Bouton « Libre » (`index.html`, `#free-btn`) : chronomètre + 4 plumes d'ailes (viewBox `2.5 2 26 19`). Banc `morceau_ajout`.
 - **Captures (v271)** : `ex.images[] = {id, name, type, size, addedAt}` (contenu dans IndexedDB). `imgTitle(meta)` = nom À AFFICHER (vide si `name` ressemble à un nom de fichier : extension d'image ou « Capture »). Vignette (`buildImageStrip`) : `.img-box` > bouton image + `.img-title` (bandeau par-dessus, `pointer-events:none`) + crayon `.img-name-btn` ; saisie `.img-title-input` par-dessus l'image. Plus de légende sous la vignette. Grand format (`openImageViewer`) : flèches `.img-viewer-nav` dans le corps, titre `.img-viewer-title`, ← → (capture, `preventDefault`), balayage tactile. Réordonnancement = `bindMediaReorder` (souris seulement, déjà là). Banc `images`. ⚠ `cloneFilesForDuplicate` ne recopie que id/name/type/size/addedAt : tout nouveau champ d'image doit y être ajouté.
 - **Bouton Jouer / Arrêter du métronome (v272)** : `button.metro-play-btn-big` (style.css, section « lecture ») ; variable `--pb` (vert de l'appli, `#ff5a5a` en lecture) ; cadre = `box-shadow` internes (PAS de bordure : un bord bas de 1 px disparaissait selon la hauteur fractionnaire du panneau), grain SVG + reflet + `backdrop-filter`. La règle générale `html[data-glass="1"] button { box-shadow }` écraserait le cadre : une règle dédiée le redonne. Banc `bouton_lecture` (lit les pixels du bord bas).
+- **Notes vides masquées (v273)** : dans `renderExerciseDetails`, `bindEmptyNoteReveal` masque (`style.display`) l'intitulé + la zone « Notes fixes » / « Notes mobiles » quand elles sont vides ; `.ex-note-add-row` > `.ex-note-add` (« ＋ Note fixe » / « ＋ Note mobile », style = `.folder-note-add`) les fait apparaître (curseur dedans) ; vide à la sortie du champ → rangée de nouveau. La zone mobile reste visible tant que `ex.notesArchive` n'est pas vide (le bouton « Archives » est dans son en-tête). Même code pour la fiche en liste et en session. Banc `notes_vides`. ⚠ Un banc qui compte sur la hauteur de la page (cas vécu : `preset`, fenêtre de 600 px) doit en tenir compte.
 - **Écrans de préparation d'une session (v264)** : `renderGuidedSessionMain` pose `gs-main-roomy` (+ `gs-main-pick` pour le choix) et `gsInstallWidthGrips` (poignée du bord droit, colonne collée au volet de gauche — le banc `rideau` exige un petit écart —, `--gs-w`, `trainhub.gsWidth.v1`, 720 px par défaut, 1 120 px pour le choix) ; `gsBindSplitGrip` = poignée générique (souris, clavier, double-clic) ; `gsPickSplitGrip` = poignée entre le choix et « Ma session » (`--gs-side`, `trainhub.gsSide.v1`). Hauteur unique des boutons de ces écrans : `--gs-ctl-h` (36 px). Fiche : « Lancer » dans la barre du haut (`.gs-edit-topbar`, à droite d'Enregistrer), puis nom, commentaire, onglets, exercices, « + Ajouter », PDF / liens (`.gs-edit-tools-row`).
 - **Choix d'un exercice en session** : écran `renderGsPickScreen` + arbre `renderGsPickTree`, et fenêtre `openExercisePickerModal`.
   Chapitres dans l'ordre de la barre latérale (`pickChapters`) ; dossiers replié/déplié **mémorisés à part** (`trainhub.pickOpen.v1`,
@@ -98,8 +99,8 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
   `localStorage['compteCloud.trainhub.nePlusProposer'] = '1'` (pas de fenêtre de connexion), bloquer `https://www.gstatic.com/firebasejs/**`,
   `serviceWorkers: 'block'`. Horloge simulée (`page.clock`) pour les vraies sessions ; CDP pour les mesures de performance.
   Un vrai plantage de page ne se joue pas ici : on recopie le signe de vie (`trainhub.audioAlive.v1`) dans une nouvelle page.
-- Les **29 bancs** sont dans le dépôt : `tests/playwright/trainhub_<nom>_test.js` (morceaux 173, programmation 50, menage 52, rafale 44, choix 38, compte 68, note 34, note_session 86,
-  favoris 31, rideau 33, session_ui 71, son 75, video 22, preset 22, point 31, lecteur 29, audio_rate 19, audio_edit 80, de 19, eph 12, volet 20, tempo 15, corbeille 24, sessions_ecrans 44, notedossier 31, ligne_de 23, morceau_ajout 14, images 27, bouton_lecture 21), avec leurs fichiers
+- Les **30 bancs** sont dans le dépôt : `tests/playwright/trainhub_<nom>_test.js` (morceaux 173, programmation 50, menage 52, rafale 44, choix 38, compte 68, note 34, note_session 86,
+  favoris 31, rideau 33, session_ui 71, son 75, video 22, preset 22, point 31, lecteur 29, audio_rate 19, audio_edit 80, de 19, eph 12, volet 20, tempo 15, corbeille 24, sessions_ecrans 44, notedossier 31, ligne_de 23, morceau_ajout 14, images 27, bouton_lecture 21, notes_vides 31), avec leurs fichiers
   (`media/`, `yt_mock/`). Lancer : `tests/playwright/lancer.sh` (tous) ou `tests/playwright/lancer.sh morceaux choix` ; il démarre et arrête les
   serveurs :8765 et :8766. Un nouveau banc s'ajoute dans ce dossier, avec `plan(n)` ; le garder à jour quand un comportement change exprès.
 - Lancer **toutes** les suites avant chaque livraison (≈ 15 min, `lancer.sh` en arrière-plan puis attendre sa fin) ; adapter un banc existant seulement si le comportement a changé exprès (cas vécu : `morceaux` et `rafale` en v267/v270).
@@ -116,16 +117,17 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
 - Idées de l'utilisateur déjà livrées : programmation de session (v257), session créée depuis une séance libre / ménage des artistes et doublons / « dernière fois jouée » en bas de fiche (v258 — SANS rappel : l'utilisateur n'en veut pas), morceau → exercice « Travailler un passage en exercice… » (v259 : titre + liens copiés, AUCUNE caractéristique de morceau, `fromSongId`), menu clic droit regroupé sous « Plus d'actions » (v259) ; le Ménage ne supprime ni ne fusionne JAMAIS d'exercice (doublons de titre en lecture seule), ajout en rafale, marques de doublons, onglet « En cours ». Idées proposées et refusées : « Tout ajouter » sur
   un dossier, onglet « À reprendre », filtres combinés pour les morceaux, filtre « fiches vides » (v260 : un exercice peut se suffire de son titre).
 
-## Reprise (état au 10 novembre 2026, après la v272)
+## Reprise (état au 10 novembre 2026, après la v273)
 - **Livré en v260** : vidage de la corbeille par ancienneté + rappel au-delà de 20 exercices ; dé d'harmonie sans remise ; fermeture du contexte audio inactif (piste du bug Safari). Banc `corbeille` ajouté.
 - **Livré de v262 à v265** : ordre fixe du menu « Travail » des morceaux (v262) ; nom de l'espace en petites capitales (v263) ; écrans de session cohérents, largeur réglable, bandeau « Ma session » redimensionnable (v264) ; « Lancer la session » dans la barre du haut de la fiche (v265).
-- **Livré de v266 à v272 (cette série de demandes, tout est dans « Architecture » ci-dessus)** :
+- **Livré de v266 à v273 (cette série de demandes, tout est dans « Architecture » ci-dessus)** :
   - v266-v267 : **note (pense-bête)** sur chaque dossier, puis aussi sur les chapitres ; rappel des notes parentes sur une ligne dans les sous-dossiers. Banc `notedossier`.
   - v268 : **ligne du dé** d'un exercice refaite (engrenage de réglage au lieu du résumé « Tonalité-Gamme(2) », « Tirer » vert collé au dé, confirmation avant de retirer le dé, nouvelle icône d'objectif tempo = métronome + flèche en Z, pastille « En cours » sur la même ligne). Banc `ligne_de`.
   - v269 : **badge des copies liées** = deux feuilles + nombre (plus une chaîne, identique à la vignette « lien »).
   - v270 : **ajout d'un morceau → sa fiche s'ouvre aussitôt** (`revealExercise`) ; icône « Libre » avec des ailes autour du chronomètre. Banc `morceau_ajout`.
   - v271 : **captures** : nom posé par-dessus l'image (crayon au survol), flèches ‹ › de part et d'autre dans le grand format (+ ← →, balayage) ; réordonnancement à la souris (déjà là). Banc `images`.
   - v272 : **gros bouton Jouer/Arrêter du métronome** en verre dépoli, cadre en ombres internes avec un bord bas coloré net. **Non reproduit sous Chromium** (la bordure y était bien là) : hypothèse = bordure de 1 px perdue sur Safari à hauteur fractionnaire ; à confirmer par l'utilisateur. Banc `bouton_lecture`.
+  - v273 : **notes fixes / mobiles vides masquées** dans la fiche d'un exercice, avec « ＋ Note fixe » / « ＋ Note mobile » pour les faire apparaître ; une note écrite reste toujours visible. Banc `notes_vides`.
 - **Idées évoquées, non faites** : ouvrir la fenêtre du dé toujours sur l'onglet « Réglages » quand on clique l'engrenage (elle s'ouvre sur le dernier onglet utilisé) ; modifier le nom d'une capture depuis le grand format ; mesure du signal audio (voir le bug du 7 nov.).
 - **Banc `point`** : corrigé en v264 (ses 7 séances sont ramenées au 1er du mois en début de mois ; la page Statistiques n'affiche que le mois).
 - **Ce que l'utilisateur ne veut PAS** : aucun rappel pour reprendre un exercice (la « dernière fois jouée » est une information, pas une alerte) ; le Ménage ne supprime ni ne fusionne jamais un exercice ;

@@ -7123,6 +7123,47 @@
         details.appendChild(fixedLabel);
         details.appendChild(fixedTa);
 
+        // Zones vides masquées (v273) : une note fixe ou mobile VIDE ne prend plus de place ; un petit « ＋ Note fixe » / « ＋ Note mobile »
+        // la fait apparaître. Dès qu'elle contient quelque chose, elle reste toujours visible. Vide à nouveau en quittant la zone → elle se range.
+        var noteAddRow = document.createElement("div");
+        noteAddRow.className = "ex-note-add-row";
+        var noteAddSyncs = [];
+        function refreshNoteAddRow() {
+            var any = false;
+            noteAddSyncs.forEach(function (f) { if (f()) any = true; });
+            noteAddRow.style.display = any ? "" : "none";
+        }
+        // `canHide()` : la zone peut se ranger (vide, et rien d'autre à montrer dedans).
+        function bindEmptyNoteReveal(parts, ta, btnText, canHide) {
+            var btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "ex-note-add";
+            btn.textContent = btnText;
+            function setOpen(open) {
+                parts.forEach(function (n) { n.style.display = open ? "" : "none"; });
+                btn.style.display = open ? "none" : "";
+            }
+            btn.addEventListener("click", function () {
+                setOpen(true);
+                refreshNoteAddRow();
+                autoGrowNotes(ta);
+                try { ta.focus({ preventScroll: true }); } catch (e) { ta.focus(); }
+            });
+            ta.addEventListener("blur", function () {
+                // Fenêtre quittée (pas la zone) : on ne range rien. setTimeout : laisse d'abord finir l'enregistrement et la question éventuelle.
+                setTimeout(function () {
+                    if (!document.hasFocus() || document.activeElement === ta || ta.value.trim() || !canHide()) return;
+                    setOpen(false);
+                    refreshNoteAddRow();
+                }, 0);
+            });
+            setOpen(!(ta.value.trim() === "" && canHide()));
+            noteAddRow.appendChild(btn);
+            noteAddSyncs.push(function () { return btn.style.display !== "none"; });
+        }
+        bindEmptyNoteReveal([fixedLabel, fixedTa], fixedTa, "＋ Note fixe", function () { return true; });
+        details.appendChild(noteAddRow);
+
         var notesLabel = document.createElement("div");
         notesLabel.className = "section-label";
         notesLabel.textContent = "Notes mobiles";
@@ -7205,6 +7246,9 @@
         details.appendChild(notesLabel);
         details.appendChild(notes);
         details.appendChild(archiveBox);
+        // Des archives existantes gardent la zone visible (le bouton « Archives » est dans son en-tête).
+        bindEmptyNoteReveal([notesLabel, notes], notes, "＋ Note mobile", function () { return !(ex.notesArchive || []).length; });
+        refreshNoteAddRow();
 
         // Ordre de la fiche : notes · onglets Vidéos / Images / Liens et fichiers · barre d'ajout unique tout en bas.
         // Les puces sont (re)construites à chaque mise à jour sur place de la section médias (voir buildMediaTabs).
@@ -10670,7 +10714,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v272"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v273"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }

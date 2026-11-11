@@ -89,8 +89,9 @@ const attendre = async page => { await page.waitForTimeout(1000); return journal
     }
 
     // ============ B. Session libre : « Suivre l'exercice ouvert » pendant la lecture ============
+    // (v273 : fenêtre de 600 px de haut — les notes vides sont masquées, la page est plus courte ; à 900 px le 1er exercice resterait le plus visible tout en bas)
     {
-        const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block', colorScheme: 'dark' });
+        const ctx = await browser.newContext({ viewport: { width: 1440, height: 600 }, serviceWorkers: 'block', colorScheme: 'dark' });
         const page = await ctx.newPage();
         const erreurs = [];
         page.on('pageerror', e => erreurs.push('pageerror: ' + e.message));

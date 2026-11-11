@@ -5337,10 +5337,11 @@ button.gs-edit-run-btn { width: auto; flex: none; height: var(--gs-ctl-h); margi
 button.gs-pdf-btn, button.gs-edit-links-btn { flex: none; height: var(--gs-ctl-h); padding: 0 14px; font-size: var(--fs-sm); }
 
 /* ---------- note d'un dossier (pense-bête) ---------- */
+.ex-note-add-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0; }
 .folder-note-wrap { display: flex; flex-direction: column; gap: 4px; margin: 0 0 10px; min-width: 0; }
 .folder-note-wrap > * { min-width: 0; max-width: 100%; box-sizing: border-box; }
-.folder-note-add { align-self: flex-start; background: transparent; border: 1px dashed var(--border); color: var(--text-muted); font-size: var(--fs-xs); font-weight: 700; padding: 3px 10px; border-radius: 999px; opacity: .75; }
-.folder-note-add:hover, .folder-note-add:focus-visible { opacity: 1; color: var(--text-main); border-color: var(--text-muted); }
+.folder-note-add, .ex-note-add { align-self: flex-start; background: transparent; border: 1px dashed var(--border); color: var(--text-muted); font-size: var(--fs-xs); font-weight: 700; padding: 3px 10px; border-radius: 999px; opacity: .75; }
+.folder-note-add:hover, .folder-note-add:focus-visible, .ex-note-add:hover, .ex-note-add:focus-visible { opacity: 1; color: var(--text-main); border-color: var(--text-muted); }
 .folder-note-view, .folder-note-parent { padding: 6px 10px; border-left: 3px solid var(--accent); background: var(--card-bg-2); border-radius: 6px; font-size: var(--fs-sm); color: var(--text-main); overflow-wrap: anywhere; cursor: pointer; overflow: hidden; }
 .folder-note-view { white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 .folder-note-parent { width: 0; min-width: 100%; white-space: nowrap; text-overflow: ellipsis; font-size: var(--fs-xs); color: var(--text-dim); padding: 3px 10px; }
