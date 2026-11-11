@@ -10739,7 +10739,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v276"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v277"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }
@@ -16921,13 +16921,16 @@
             var buf = ctx.createBuffer(ed.pcm.chans.length, n, sr);
             ed.pcm.chans.forEach(function (c, i) { if (buf.copyToChannel) buf.copyToChannel(c, i); else buf.getChannelData(i).set(c); });
             src = ctx.createBufferSource(); src.buffer = buf;
-            var g = ctx.createGain(), lin = ed.lin(), t0 = ctx.currentTime + 0.05, dur = (b - s0) / sr;
+            var g = ctx.createGain(), lin = ed.lin(), lastLin = lin, t0 = ctx.currentTime + 0.05, dur = (b - s0) / sr;
             g.gain.setValueAtTime(lin, t0);
             src.connect(g); g.connect(ctx.destination);
             if (loop) { src.loop = true; src.loopStart = a / sr; src.loopEnd = b / sr; src.start(t0, s0 / sr); }
             else { src.onended = function () { stop(true); }; src.start(t0, s0 / sr, dur); }
             (function tick() {
                 if (stopped) return;
+                // v277 : la barre « Volume » agit PENDANT l'écoute (avant, le gain était fixé au démarrage : il fallait relancer pour entendre la différence)
+                var nl = ed.lin();
+                if (nl !== lastLin) { lastLin = nl; try { g.gain.cancelScheduledValues(ctx.currentTime); g.gain.setTargetAtTime(nl, ctx.currentTime, 0.02); } catch (e) {} }
                 var el = Math.max(0, ctx.currentTime - t0);
                 var done = Math.round(el * sr), first = b - s0; // en boucle : on finit d'abord la première passe, puis on tourne sur [a, b[
                 if (onTick) onTick(loop ? (done < first ? s0 + done : a + (done - first) % Math.max(1, b - a)) : Math.min(b, s0 + done));
@@ -17587,11 +17590,11 @@
             nameIn.addEventListener("input", function () { nameTouched = true; });
             nameIn.addEventListener("keydown", function (e) { e.stopPropagation(); if (e.key === "Enter") { e.preventDefault(); doSave(); } });
             take.appendChild(nameIn);
-            var dSel = recEl("select", "rec-select rec-dest"); dSel.setAttribute("aria-label", "Où ranger le son modifié");
+            var dSel = recEl("select", "rec-select rec-dest"); dSel.setAttribute("aria-label", "Où ranger le son modifié"); dSel.title = "Nouveau fichier : le son modifié s'ajoute dans « " + owner.title + " » et l'original est gardé. Remplacer fichier : l'original est supprimé. Autre exercice : le son modifié est rangé ailleurs.";
             var dRow = recEl("div", "rec-row rec-dest-row"); dRow.appendChild(dSel); take.appendChild(dRow);
             var destSig = "";
             function paintDest() {
-                var opts = [["copy", "Nouveau fichier dans « " + owner.title + " » (l'original est gardé)"], ["replace", "Remplacer l'original « " + base + " »"], ["pick", destEx ? "Un autre exercice : « " + destEx.title + " »" : "Dans un autre exercice…"]];
+                var opts = [["copy", "Nouveau fichier"], ["replace", "Remplacer fichier"], ["pick", destEx ? "Autre exercice : « " + destEx.title + " »" : "Autre exercice…"]]; // libellés courts (v277) : le détail est dans l'infobulle
                 var sig = opts.map(function (o) { return o[0] + "|" + o[1]; }).join(";");
                 if (sig !== destSig) { destSig = sig; dSel.innerHTML = ""; opts.forEach(function (o) { var op = recEl("option", "", o[1]); op.value = o[0]; dSel.appendChild(op); }); }
                 dSel.value = destMode;
@@ -26720,6 +26723,30 @@
         return !!document.querySelector(".ctx-menu");
     }
     function isSpaceKeyEvent(e) { return e.code === "Space" || e.key === " " || e.key === "Spacebar"; }
+
+    // « Modifier le son » (fenêtre flottante, NON modale : le lecteur et le métronome restent derrière) prend la main sur TOUT le clavier tant qu'elle est ouverte
+    // (v277). Avant, l'Espace lançait le métronome resté ouvert derrière elle. Ici : Espace = écouter / arrêter l'aperçu de l'éditeur ; Ctrl/⌘ + Z = annuler la
+    // dernière coupe ; toute autre touche ne parvient plus aux raccourcis de l'appli (tempo, annuler/rétablir de l'appli, recherche rapide…). Restent normaux :
+    // la saisie dans un champ (nom, début/fin de la sélection, qualité), Tab, Échap, les touches F et ce qu'un bouton ou un curseur fait de lui-même.
+    // Écouté sur window en phase de capture : il passe avant tous les raccourcis posés sur document.
+    window.addEventListener("keydown", function (e) {
+        if (!audioEdit || e.isComposing || dlgIsOpen()) return;
+        var panel = document.querySelector(".audio-edit-panel");
+        if (!panel || e.key === "Tab" || e.key === "Escape" || /^F\d{1,2}$/.test(e.key)) return;
+        if (spaceKeyBelongsToTarget(e.target)) return; // champ de saisie : la touche garde son rôle (le champ gère lui-même ses touches)
+        var mod = e.ctrlKey || e.metaKey, k = (e.key || "").toLowerCase();
+        if (!mod && !e.altKey && isSpaceKeyEvent(e)) {
+            e.preventDefault(); e.stopPropagation();
+            if (!e.repeat) { spaceKeyHandled = true; var pb = panel.querySelector(".rec-wave-play"); if (pb) pb.click(); }
+            return;
+        }
+        if (mod && !e.altKey && (k === "z" || k === "y")) {
+            e.preventDefault(); e.stopPropagation();
+            if (k === "z" && !e.shiftKey) { var ub = panel.querySelector('button[aria-label="Annuler la dernière coupe"]'); if (ub) ub.click(); }
+            return;
+        }
+        e.stopPropagation(); // les actions par défaut du navigateur (copier, recharger…) continuent ; seuls les raccourcis de l'appli sont coupés
+    }, true);
 
     document.addEventListener("keydown", function (e) {
         if (!isSpaceKeyEvent(e) || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.isComposing) return;

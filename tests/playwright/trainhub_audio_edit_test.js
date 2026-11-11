@@ -9,7 +9,7 @@ const { execFileSync } = require('child_process');
 const harnais = require('/home/user/trainhub/tests/_harness');
 const { check, exiger, plan, bilan } = harnais('TrainHub : Modifier le son');
 const estBruitReseau = harnais.estBruitReseau;
-plan(79);
+plan(92);
 
 const SHOTS = path.join(__dirname, 'shots');
 const MEDIA = path.join(__dirname, 'media');
@@ -291,6 +291,8 @@ const rng = page => panneau(page).locator('.rec-wave-rng').innerText();
         await page.locator('.app-dialog button', { hasText: /Annuler/ }).click();
         check(await panneau(page).isVisible(), "E. « Annuler » : la fenêtre reste ouverte, rien n'est perdu");
         await bouton(page, /^Garder$/).click();
+        const libs = await panneau(page).locator('select.rec-dest option').allInnerTexts();
+        check(libs.map(l => l.trim()).join('|') === 'Nouveau fichier|Remplacer fichier|Autre exercice…', `E. la liste « Où ranger » est courte : ${JSON.stringify(libs)}`);
         await panneau(page).locator('select.rec-dest').selectOption('replace');
         check(await panneau(page).locator('input.rec-name').inputValue() === 'backing_test', "E. en mode « remplacer », le nom proposé est celui de l'original");
         await panneau(page).locator('button.rec-save').click();
@@ -434,6 +436,62 @@ const rng = page => panneau(page).locator('.rec-wave-rng').innerText();
         await page.locator('.recorder-panel button').filter({ hasText: /^↶$/ }).click();
         await page.screenshot({ path: path.join(SHOTS, 'edit-6-enregistreur.png') });
         check(erreurs.length === 0, 'I. aucune erreur JavaScript ' + JSON.stringify(erreurs));
+        await ctx.close();
+    }
+
+    // ===================== K. Le clavier est à « Modifier le son » (v277) ; le volume agit pendant l'écoute =====================
+    {
+        const { ctx, page, erreurs } = await ouvrir(browser);
+        await page.click('#metronome-btn');                       // un métronome ouvert derrière : l'Espace ne doit PAS le lancer
+        await page.waitForSelector('.metro-play-btn-big', { timeout: 5000 });
+        const metro = () => page.locator('.metro-play-btn-big').first().innerText();
+        const bpm = () => page.locator('.metro-dial-value').first().innerText();
+        const bpm0 = await bpm();
+        await page.evaluate(() => document.querySelector('.file-chip .link-edit-sound').click()); // le panneau du métronome (au centre) recouvre le ciseau : clic direct
+        await panneau(page).locator('canvas.rec-wave-cv').waitFor({ timeout: 15000 });
+        await page.evaluate(() => { window.__gains = []; const o = AudioContext.prototype.createGain; AudioContext.prototype.createGain = function () { const g = o.apply(this, arguments); window.__gains.push(g); return g; }; });
+        await page.locator('.audio-edit-panel .rec-wave-rng').click();        // focus sur du neutre dans la fenêtre (pas un champ de saisie)
+        await page.locator('.audio-edit-panel').evaluate(el => document.activeElement && document.activeElement.blur());
+        check(/Jouer/.test(await metro()), "K. départ : le métronome n'est pas lancé");
+        await page.keyboard.press('Space');
+        await page.waitForTimeout(500);
+        check(/Jouer/.test(await metro()), "K. Espace dans « Modifier le son » : le métronome du fond ne se lance PAS");
+        check(/Arrêter/.test(await panneau(page).locator('.rec-wave-play').innerText()), "K. … c'est l'aperçu de l'éditeur qui démarre (« Arrêter » proposé)");
+        // volume pendant l'écoute
+        const gain = () => page.evaluate(() => { const g = window.__gains; return g.length ? g[g.length - 1].gain.value : null; });
+        const g0 = await gain();
+        await panneau(page).locator('input.rec-wave-vrange').fill('12'); await page.waitForTimeout(400);
+        const g1 = await gain();
+        await panneau(page).locator('input.rec-wave-vrange').fill('-12'); await page.waitForTimeout(400);
+        const g2 = await gain();
+        check(g0 !== null && Math.abs(g0 - 1) < 0.02, `K. aperçu à 0 dB : gain ${g0 && g0.toFixed(2)}`);
+        check(Math.abs(g1 - 3.98) < 0.1 && Math.abs(g2 - 0.251) < 0.02, `K. la barre « Volume » agit PENDANT l'écoute : +12 dB → ${g1 && g1.toFixed(2)} (3,98), −12 dB → ${g2 && g2.toFixed(3)} (0,251)`);
+        await page.locator('.audio-edit-panel').evaluate(el => document.activeElement && document.activeElement.blur());
+        await page.keyboard.press('Space'); await page.waitForTimeout(300);
+        check(/Écouter/.test(await panneau(page).locator('.rec-wave-play').innerText()) && /Jouer/.test(await metro()), "K. un second Espace arrête l'aperçu (toujours sans toucher au métronome)");
+        // flèches : le tempo du métronome ne bouge pas
+        await page.keyboard.press('ArrowUp'); await page.keyboard.press('ArrowUp');
+        check(await bpm() === bpm0, `K. flèches ↑ ↑ dans « Modifier le son » : le tempo du métronome reste à ${bpm0} (${await bpm()})`);
+        // Ctrl/⌘ + Z : annule la dernière coupe de l'éditeur (pas l'annulation de l'appli)
+        await champs(page).nth(0).fill('3'); await champs(page).nth(0).press('Enter');
+        await bouton(page, /^Garder$/).click();
+        const apresGarder = (await rng(page)).trim();
+        await page.locator('.audio-edit-panel').evaluate(el => document.activeElement && document.activeElement.blur());
+        await page.keyboard.press('Control+z'); await page.waitForTimeout(250);
+        const apresZ = (await rng(page)).trim();
+        check(apresGarder !== apresZ, `K. Ctrl+Z annule la dernière coupe de l'éditeur (${apresGarder} → ${apresZ})`);
+        // saisie de texte : les touches gardent leur rôle (Espace dans le nom)
+        await panneau(page).locator('input.rec-name').fill('A');
+        await panneau(page).locator('input.rec-name').press('Space');
+        check((await panneau(page).locator('input.rec-name').inputValue()) === 'A ' && /Jouer/.test(await metro()), "K. dans le champ du nom, l'Espace écrit une espace (et ne lance rien)");
+        // fermée : le clavier est rendu à l'appli
+        await panneau(page).locator('button.rec-close').click();
+        await page.locator('.app-dialog button', { hasText: /Abandonner/ }).click().catch(() => {});
+        await panneau(page).waitFor({ state: 'detached', timeout: 5000 });
+        await page.evaluate(() => document.activeElement && document.activeElement.blur());
+        await page.keyboard.press('Space'); await page.waitForTimeout(400);
+        check(/Arrêter/.test(await metro()), "K. éditeur fermé : l'Espace relance le métronome comme avant");
+        check(erreurs.length === 0, 'K. aucune erreur JavaScript ' + JSON.stringify(erreurs));
         await ctx.close();
     }
 

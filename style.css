@@ -3610,10 +3610,11 @@ button.audio-tab-x:hover { opacity: 1; background: rgba(var(--ov), .12); }
 .audio-player-dock .audio-empty-hint { order: 3; flex: 1 1 200px; }
 .audio-player-dock .audio-title { order: 1; flex: 0 1 190px; min-width: 100px; cursor: default; }
 .audio-player-dock .audio-transport { order: 2; flex: none; }
-.audio-player-dock .audio-time { order: 3; flex: 1 1 250px; min-width: 190px; }
-.audio-player-dock .audio-ctl { flex: 0 1 150px; min-width: 112px; }
+/* v277 : volume et vitesse plus larges (jauges de 62 et 77 px avant) ; la jauge de temps grandit moins vite pour leur laisser la place */
+.audio-player-dock .audio-time { order: 3; flex: 0.5 1 190px; min-width: 190px; }
+.audio-player-dock .audio-ctl { flex: 1 1 190px; min-width: 170px; max-width: 300px; }
 .audio-player-dock .audio-ctl-vol { order: 4; }
-.audio-player-dock .audio-ctl-rate { order: 5; flex: 0 1 205px; min-width: 165px; }
+.audio-player-dock .audio-ctl-rate { order: 5; flex: 1.5 1 265px; min-width: 235px; max-width: 460px; }
 .audio-player-dock .audio-actions { order: 6; margin-left: auto; }
 .audio-player-dock .audio-player-error { order: 7; flex: 1 1 100%; }
 html.audio-docked .layout { padding-bottom: calc(var(--audio-dock-h, 0px) + 12px); }
@@ -3648,7 +3649,7 @@ html.audio-docked :is(.sel-bar, .update-banner) { bottom: calc(14px + var(--audi
     .audio-player-dock .audio-actions { order: 2; margin-left: 0; }
     .audio-player-dock .audio-time { order: 3; flex: 1 1 100%; }
     .audio-player-dock .audio-transport { order: 4; flex: 1 1 100%; }
-    .audio-player-dock .audio-ctl { flex: 1 1 calc(50% - 6px); min-width: 0; }
+    .audio-player-dock .audio-ctl { flex: 1 1 calc(50% - 6px); min-width: 0; max-width: none; }
     .audio-player-dock .audio-ctl-vol { flex: 1 1 34%; }
     .audio-player-dock .audio-ctl-rate { flex: 1 1 60%; }
     .audio-player-dock .audio-ctl-val { width: 38px; }

@@ -6,7 +6,7 @@ const path = require('path');
 const harnais = require('/home/user/trainhub/tests/_harness');
 const { check, plan, bilan } = harnais('TrainHub : vitesse du lecteur audio jusqu\'à 150 %');
 const estBruitReseau = harnais.estBruitReseau;
-plan(19);
+plan(24);
 
 const SHOTS = path.join(__dirname, 'shots');
 fs.mkdirSync(SHOTS, { recursive: true });
@@ -136,6 +136,23 @@ const lire = page => page.evaluate(() => { const r = document.querySelector('.au
         check(g.w >= 80 && g.txtR <= 390 && g.doc <= 0, `D. téléphone : jauge de ${g.w} px, chiffre dans l'écran, rien ne déborde (${JSON.stringify(g)})`);
         await page.screenshot({ path: path.join(SHOTS, 'audio-tel-150.png') });
         await ctx.close();
+    }
+
+    // ===== E. Barre épinglée (v277) : jauges de volume et de vitesse plus larges (62 et 77 px avant) =====
+    {
+        const mesure = async largeur => {
+            const { ctx, page, erreurs } = await ouvrir(browser, { viewport: { width: largeur, height: 800 }, mode: 'dock' });
+            await page.waitForSelector('.audio-dock .audio-player-vol', { timeout: 5000 });
+            await page.waitForTimeout(400);
+            const m = await page.evaluate(() => { const w = s => Math.round(document.querySelector(s).getBoundingClientRect().width); return { vol: w('.audio-player-vol'), rate: w('.audio-player-rate'), haut: w('.audio-dock') && Math.round(document.querySelector('.audio-dock').getBoundingClientRect().height), doc: document.documentElement.scrollWidth - innerWidth, txtR: document.querySelector('.audio-player-rate-txt').getBoundingClientRect().right, ecran: innerWidth }; });
+            m.erreurs = erreurs.length; await ctx.close(); return m;
+        };
+        const g1280 = await mesure(1280), g1600 = await mesure(1600), g1000 = await mesure(1000);
+        check(g1280.vol >= 100 && g1280.rate >= 130, `E. 1280 px : volume ${g1280.vol} px et vitesse ${g1280.rate} px (avant : 62 et 77)`);
+        check(g1280.haut < 70, `E. … et la barre tient toujours sur une seule ligne (${g1280.haut} px de haut)`);
+        check(g1600.vol > g1280.vol && g1600.rate > g1280.rate, `E. fenêtre plus large : les jauges grandissent encore (${g1600.vol} / ${g1600.rate} px à 1600)`);
+        check(g1000.vol >= 150 && g1000.rate >= 200 && g1000.doc <= 0 && g1000.txtR <= g1000.ecran, `E. 1000 px : jauges ${g1000.vol} / ${g1000.rate} px, rien ne déborde`);
+        check(g1280.erreurs + g1600.erreurs + g1000.erreurs === 0, 'E. aucune erreur JavaScript');
     }
 
     await browser.close();
