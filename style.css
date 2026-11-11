@@ -4785,6 +4785,9 @@ button.dice-ex-btn:focus-visible { outline: 2px solid var(--accent); outline-off
 .gs-yt-head { gap: 8px; }
 .gs-yt-btn.gs-yt-icon-btn { width: 40px; height: 36px; padding: 0; justify-content: center; font-size: var(--fs-sm); }
 .gs-yt-btn.gs-yt-icon-btn .icon { width: 18px; height: 18px; }
+/* Plein écran (v275) : bouton plus large, icône en rectangle, contour de la couleur de l'appli (la règle générale button.btn-ghost le rendait transparent). */
+.gs-yt-btn.gs-yt-full-btn { width: 58px; color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.gs-yt-btn.gs-yt-full-btn .icon-wide { width: 26px; height: 20px; }
 .gs-yt-btn.gs-yt-hide-btn:hover { color: var(--c-red); border-color: color-mix(in srgb, var(--c-red) 60%, var(--border)); background: color-mix(in srgb, var(--c-red) 10%, transparent); }
 .gs-yt-btn.gs-yt-bars-btn-on { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 
@@ -4899,8 +4902,6 @@ button.st-since-auto { height: 30px; padding: 0 10px; }
 
 /* ===== v221 : clavier de la vidéo ===== */
 .gs-yt-card.gs-yt-kbd { border-color: color-mix(in srgb, var(--accent) 65%, var(--border)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
-.gs-yt-btn.gs-yt-kbd-badge { height: 30px; padding: 0 10px; color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
-.gs-yt-btn.gs-yt-kbd-badge[hidden] { display: none; }
 
 /* ===== v222 : métronome — le tempo progressif s'aligne sur la ligne des signatures, tableau plus compact et plus discret ===== */
 /* Le bloc progressif et la ligne des signatures partagent un rail de même largeur (celle des signatures) : mêmes bords gauche et droit. */

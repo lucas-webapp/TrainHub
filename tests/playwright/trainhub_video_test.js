@@ -8,7 +8,7 @@ const path = require('path');
 const harnais = require('/home/user/trainhub/tests/_harness');
 const { check, plan, bilan } = harnais('TrainHub : plein écran des vidéos');
 const estBruitReseau = harnais.estBruitReseau;
-plan(22);
+plan(28);
 const API = fs.readFileSync(path.join(__dirname, 'yt_mock_api.js'), 'utf8');
 const SHOTS = path.join(__dirname, 'shots');
 
@@ -146,6 +146,21 @@ const appels = page => page.evaluate(() => window.__ytCalls || []);
         await page.waitForTimeout(500);
         const t = await page.locator('.toast, .app-dialog').allInnerTexts();
         check(t.join(' ').includes('Journal des vidéos'), `E. « Journal des vidéos » : ${t.join(' | ').slice(0, 90)}`);
+        await ctx.close();
+    }
+
+    // ===== F. En-tête de la carte (v275) : bouton plein écran large et cerclé, plus de pastille « Clavier : vidéo » =====
+    {
+        const { ctx, page, cadre, erreurs } = await ouvrir(browser);
+        const b = await page.locator('.gs-yt-full-btn').first().evaluate(e => { const r = e.getBoundingClientRect(), cs = getComputedStyle(e), sv = e.querySelector('svg').getBoundingClientRect(); return { w: r.width, h: r.height, bord: cs.borderTopWidth, coul: cs.borderTopColor, svw: sv.width, svh: sv.height }; });
+        check(b.w >= 54 && b.w > b.h + 10, `F. bouton plein écran plus large que haut (${Math.round(b.w)} × ${Math.round(b.h)} px)`);
+        check(b.bord === '1px' && !/rgba\(0, 0, 0, 0\)|transparent/.test(b.coul), `F. … avec un contour visible (${b.coul})`);
+        check(b.svw > b.svh + 3, `F. … et une icône en rectangle (${Math.round(b.svw)} × ${Math.round(b.svh)} px)`);
+        await page.click('#free-btn'); await page.waitForTimeout(600);     // session libre : les raccourcis de TrainHub sont en concurrence avec ceux de la vidéo
+        await cadre.locator('#pp').click(); await page.waitForTimeout(500); // un clic DANS la vidéo lui donne le clavier
+        check(await page.locator('.gs-yt-card.gs-yt-kbd').count() === 1, 'F. la vidéo qui a le clavier garde son liseré autour de la carte');
+        check(await page.locator('.gs-yt-kbd-badge').count() === 0 && (await page.locator('.gs-yt-card').first().innerText()).indexOf('Clavier') === -1, 'F. mais plus aucune pastille « Clavier : vidéo »');
+        check(erreurs.length === 0, 'F. aucune erreur JavaScript ' + JSON.stringify(erreurs));
         await ctx.close();
     }
 

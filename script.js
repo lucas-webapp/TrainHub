@@ -1478,6 +1478,9 @@
     // Visionneuse d'images : une fenêtre flottante NON modale (le métronome, la session… restent visibles et
     // utilisables, et la barre espace garde son effet). Déplaçable à la main, redimensionnable (taille et position
     // retenues pour la prochaine image), ou en plein écran (bouton ⛶ ou double-clic sur l'image).
+    // Versions « rectangle » (viewBox 32 × 24) des icônes plein écran, pour le bouton des vidéos (v275) : plus larges que hautes, comme un écran.
+    var EXPAND_WIDE_ICON_SVG = '<svg class="icon icon-wide" viewBox="0 0 32 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h6"/><path d="M28 9V4h-6"/><path d="M4 15v5h6"/><path d="M28 15v5h-6"/></svg>';
+    var COMPRESS_WIDE_ICON_SVG = '<svg class="icon icon-wide" viewBox="0 0 32 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 4v5H4"/><path d="M22 4v5h6"/><path d="M10 20v-5H4"/><path d="M22 20v-5h6"/></svg>';
     var EXPAND_ICON_SVG = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/></svg>';
     var imageViewerClose = null;
     // Nom d'une capture à AFFICHER (v271) : le nom du fichier importé (« Capture d'écran….png », « image.png ») n'en est pas un : seul un nom donné à la main s'affiche,
@@ -10725,7 +10728,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v274"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v275"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }
@@ -25015,7 +25018,7 @@
         var sizeBtn = document.createElement("button");
         sizeBtn.type = "button";
         sizeBtn.className = "btn-ghost gs-yt-btn gs-yt-icon-btn gs-yt-full-btn";
-        sizeBtn.innerHTML = EXPAND_ICON_SVG;
+        sizeBtn.innerHTML = EXPAND_WIDE_ICON_SVG;
         var FULL_TITLE = "Afficher la vidéo en plein écran : ce bouton, ou un double-clic sur la vidéo en cours de lecture (Échap pour en sortir)";
         sizeBtn.title = FULL_TITLE;
         sizeBtn.setAttribute("aria-label", "Plein écran");
@@ -25031,7 +25034,7 @@
         function inFullscreen() { var fe = document.fullscreenElement; return !!fe && (fe === frame || fe === fsTarget()); }
         function refreshSizeBtn() {
             var on = inFullscreen() || card.classList.contains("gs-yt-large");
-            sizeBtn.innerHTML = on ? COMPRESS_ICON_SVG : EXPAND_ICON_SVG;
+            sizeBtn.innerHTML = on ? COMPRESS_WIDE_ICON_SVG : EXPAND_WIDE_ICON_SVG;
             sizeBtn.title = on ? "Revenir à la taille normale (Échap)" : FULL_TITLE;
             sizeBtn.setAttribute("aria-label", on ? "Réduire" : "Plein écran");
         }
@@ -25102,23 +25105,15 @@
         });
         head.insertBefore(barsBtn, head.children[1] || null);
         // Qui a le clavier ? Un clic dans la vidéo donne le clavier à YouTube (Espace = lecture/pause de la vidéo, flèches, M, F… ) : l'iframe
-        // est d'un autre site, TrainHub ne voit alors plus aucune touche. C'est la règle partout : la vidéo cliquée garde le clavier, tant qu'on
-        // ne clique pas ailleurs. On le montre (la carte s'entoure, une pastille « Clavier : vidéo ») dès qu'un raccourci de TrainHub est en
-        // concurrence (session, chrono libre, métronome ouvert) ; un clic sur la pastille, ou n'importe où ailleurs, rend le clavier à l'application.
-        var kbdBadge = document.createElement("button");
-        kbdBadge.type = "button";
-        kbdBadge.className = "btn-ghost gs-yt-btn gs-yt-kbd-badge";
-        kbdBadge.hidden = true;
-        kbdBadge.textContent = "⌨ Clavier : vidéo";
-        kbdBadge.title = "Espace, flèches… agissent sur la vidéo. Clique ici (ou ailleurs dans la page) pour rendre le clavier à la session et au métronome.";
-        head.insertBefore(kbdBadge, head.children[1] || null);
+        // est d'un autre site, TrainHub ne voit alors plus aucun raccourci. La vidéo cliquée garde le clavier tant qu'on ne clique pas ailleurs ; dès
+        // qu'un raccourci de TrainHub est en concurrence (session, chrono libre, métronome ouvert), la carte s'entoure (liseré). Depuis v275, plus de
+        // pastille « Clavier : vidéo » (jugée inutile) : un clic n'importe où ailleurs dans la page rend le clavier à l'application.
         function ytIframe() { return card.querySelector("iframe"); }
         function refreshKbd() {
             var f = ytIframe();
             if (f && document.contains(card)) card._ytSeen = true;
             var on = !!f && document.activeElement === f && !!(gsRunSession || freeRun || metroPanelApi);
             card.classList.toggle("gs-yt-kbd", on);
-            kbdBadge.hidden = !on;
         }
         function kbdWatch() {
             if (card._ytSeen && !document.contains(card)) { window.removeEventListener("blur", kbdWatch); window.removeEventListener("focus", kbdWatch); return; }
@@ -25129,12 +25124,6 @@
         }
         window.addEventListener("blur", kbdWatch);
         window.addEventListener("focus", kbdWatch);
-        kbdBadge.addEventListener("click", function () {
-            var f = ytIframe();
-            if (f) try { f.blur(); } catch (e) {}
-            try { window.focus(); } catch (e) {}
-            refreshKbd();
-        });
         card.appendChild(head);
 
         var body = document.createElement("div");
