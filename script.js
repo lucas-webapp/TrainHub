@@ -7441,9 +7441,10 @@
                 var id = st.exerciseId, guard = 0;
                 while (id && rules.alias[id] && guard++ < 8) id = rules.alias[id];
                 if (!id) return;
-                var e = by[id] || (by[id] = { last: 0, lastRec: null, n: 0 });
+                var e = by[id] || (by[id] = { last: 0, lastRec: null, n: 0, bpm: 0, bpmAt: 0 });
                 if (!seen[id]) { seen[id] = true; e.n++; }
                 if (rec.date >= e.last) { e.last = rec.date; e.lastRec = rec; }
+                if (st.bpmMax && rec.date >= e.bpmAt) { e.bpm = st.bpmMax; e.bpmAt = rec.date; } // dernier tempo tenu lors d'une séance (v274)
             });
         });
         return (lastPlayedCache = { flat: flat, by: by, first: first });
@@ -7461,13 +7462,23 @@
         var months = Math.round(days / 30.4);
         return months < 24 ? "il y a " + months + " mois" : "il y a plus de 2 ans";
     }
+    // Rythme moyen d'un exercice : séances / mois depuis le début du journal. Avant un mois de journal, la moyenne ne veut rien dire : on donne le total.
+    function lastPlayedRateText(n, first) {
+        var months = (Date.now() - first) / (30.44 * 86400000);
+        if (months < 1) return n + " séance" + (n > 1 ? "s" : "") + " en tout.";
+        var rate = n / months;
+        if (rate < 0.75) return "Moins d'une séance par mois.";
+        var r = Math.round(rate);
+        return "Environ " + r + " séance" + (r > 1 ? "s" : "") + " par mois.";
+    }
     function lastPlayedText(ex) {
         var idx = lastPlayedIndex();
         if (!idx.first) return ""; // journal vide : rien à dire
         var e = idx.by[ex.id];
         if (!e) return "Jamais jouée en session depuis le " + lastPlayedDateText(idx.first) + " (début du journal).";
-        var how = e.lastRec.free ? "session libre" : "« " + e.lastRec.name + " »";
-        return "Dernière fois jouée : " + lastPlayedAgoText(e.last) + " (" + lastPlayedDateText(e.last) + ", " + how + ") · " + e.n + " séance" + (e.n > 1 ? "s" : "") + " depuis le " + lastPlayedDateText(idx.first) + ".";
+        var t = "Dernière fois jouée : " + lastPlayedAgoText(e.last) + " (" + lastPlayedDateText(e.last) + "). " + lastPlayedRateText(e.n, idx.first);
+        if (e.bpm && tempoGoalOn(ex)) t += " Dernier tempo atteint : " + e.bpm + " BPM."; // seulement avec un objectif tempo
+        return t;
     }
     function buildLastPlayedLine(ex) {
         var el = document.createElement("div");
@@ -10714,7 +10725,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v273"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v274"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }

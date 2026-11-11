@@ -64,13 +64,13 @@ async function ouvrirHistorique(page) {
         await ouvrirChapitre(page, 'Technique');
         await ouvrirFiche(page, 't1');
         const t1 = (await derniere(page, 't1').innerText()).replace(/\s+/g, ' ');
-        check(/Dernière fois jouée : il y a 2 jours/.test(t1) && /session libre/.test(t1) && /2 séances/.test(t1), 'A. « Gamme lente » : il y a 2 jours, session libre, 2 séances : « ' + t1 + ' »');
+        check(/Dernière fois jouée : il y a 2 jours \(\p{L}+ \d+ \p{L}+\)\. 2 séances en tout\./u.test(t1) && !/session libre|depuis le/.test(t1), 'A. « Gamme lente » : il y a 2 jours (date), 2 séances en tout (journal de moins d\'un mois), sans le détail de la session : « ' + t1 + ' »');
         check(await page.locator('.exercise[data-ex-id="t1"] .ex-last-played').evaluate(e => { const d = e.closest('.exercise-details') || e.parentElement; return d.lastElementChild === e; }), 'A. la ligne est bien tout en bas de la fiche ouverte');
         await ouvrirFiche(page, 't2');
         check(/Jamais jouée en session depuis le/.test(await derniere(page, 't2').innerText()), 'A. « Legato » (jamais joué) : « Jamais jouée en session depuis le… »');
         await ouvrirFiche(page, 't3');
         const t3 = (await derniere(page, 't3').innerText()).replace(/\s+/g, ' ');
-        check(/il y a 20 jours/.test(t3) && /« Session vitesse »/.test(t3) && /1 séance depuis/.test(t3), 'A. « Arpèges » : il y a 20 jours, session « Session vitesse », 1 séance : « ' + t3 + ' »');
+        check(/il y a 20 jours/.test(t3) && /1 séance en tout\./.test(t3) && !/Session vitesse/.test(t3), 'A. « Arpèges » : il y a 20 jours, 1 séance en tout : « ' + t3 + ' »');
         check(await page.locator('.ex-last-played').count() === 1 && await page.locator('.toast').count() === 0 && await page.locator('.exercise-wip-badge, .exercise-stale-badge').count() === 0, 'A. information seule : une seule ligne (celle de la fiche ouverte), aucun rappel ni pastille ailleurs');
         check(erreurs.length === 0, 'A. aucune erreur JavaScript ' + JSON.stringify(erreurs));
         await ctx.close();
