@@ -10739,7 +10739,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v277"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v278"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }
@@ -16943,7 +16943,7 @@
     // Dessin de la prise en cours : une bande qui DÉFILE à vitesse constante (comme GarageBand). Chaque barre est posée d'après l'instant où elle a
     // été mesurée — la plus récente à droite, sous le repère rouge — et glisse vers la gauche à chaque image : rien n'est jamais regroupé ni recalculé.
     var REC_LIVE_PX_MS = 0.075; // 75 px par seconde (une barre de 2 px toutes les 40 ms)
-    var recLiveCol = { at: 0, accent: "#00e676", muted: "#888", red: "#ff5252" };
+    var recLiveCol = { at: 0, accent: "#00e676", muted: "#888", red: "#ff5252", line: "#444", fg: "#eee" };
     function recCanvasPrep(cv) {
         var r = cv.getBoundingClientRect(), dpr = Math.min(3, window.devicePixelRatio || 1), w = Math.max(40, Math.round(r.width)), h = Math.max(30, Math.round(r.height));
         if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
@@ -16951,9 +16951,9 @@
         var now = Date.now();
         if (now - recLiveCol.at > 1000) { // couleurs relues une fois par seconde seulement (le thème peut changer, mais pas à chaque image)
             var cs = getComputedStyle(cv);
-            recLiveCol.accent = (cs.getPropertyValue("--accent") || "#00e676").trim(); recLiveCol.muted = (cs.getPropertyValue("--text-muted") || "#888").trim(); recLiveCol.at = now;
+            recLiveCol.accent = (cs.getPropertyValue("--accent") || "#00e676").trim(); recLiveCol.muted = (cs.getPropertyValue("--text-muted") || "#888").trim(); recLiveCol.line = (cs.getPropertyValue("--border") || "#444").trim(); recLiveCol.fg = (cs.getPropertyValue("--text-main") || "#eee").trim(); recLiveCol.at = now;
         }
-        return { g: g, w: w, h: h, dpr: dpr, accent: recLiveCol.accent, muted: recLiveCol.muted, red: recLiveCol.red };
+        return { g: g, w: w, h: h, dpr: dpr, accent: recLiveCol.accent, muted: recLiveCol.muted, red: recLiveCol.red, line: recLiveCol.line, fg: recLiveCol.fg };
     }
     function recBar(g, x, w, h, a, color) { var bh = Math.max(2, Math.pow(a, 0.6) * (h - 6)), y = (h - bh) / 2; g.fillStyle = color; g.fillRect(x, y, w, bh); }
     // Instant (ms depuis le début de la prise) auquel la bande est dessinée : figé à l'arrêt.
@@ -17340,115 +17340,66 @@
     }
     window.addEventListener("beforeunload", function () { if (rec.phase === "recording") { try { rec.mr.stop(); } catch (e) {} } });
 
-    // ---------- éditeur de forme d'onde (enregistreur, et « Modifier le son » d'un fichier joint) ----------
-    // Monte dans `wave` la forme d'onde du modèle `ed` (makeRecEditor) : sélection à la souris ou au doigt, écoute, garder / couper, annuler,
-    // volume. o.onRedraw : appelé à chaque changement du modèle ; o.aria : description du dessin. o.precise (fichier à modifier) ajoute ce qu'il
-    // faut pour caler une coupure ou une boucle : début et fin de la sélection au centième de seconde (saisis, ou posés sur le repère rouge
-    // PENDANT l'écoute), zoom avec défilement, écoute en boucle sans coupure. Renvoie { detach, redraw } : detach avant de remonter autre chose.
+    // ---------- éditeur de forme d'onde (enregistreur ET « Modifier le son ») ----------
+    // v278 : un seul éditeur précis pour les deux. Règle de temps au-dessus de la forme d'onde (graduations qui suivent le zoom), vue d'ensemble dessous
+    // (le cadre montre la partie zoomée ; on le tire pour se déplacer, on tire ses bords pour zoomer), repère rouge qu'on attrape (bulle de temps, ← → au
+    // clavier), poignées de sélection avec bulle (Maj = dix fois plus lent), aimantation au passage par zéro (coupe sans « clac »), « Écouter la coupe »
+    // (0,5 s avant + 0,5 s après, collées), zoom jusqu'à 5 ms. Boutons rangés : écoute · modification · repère, puis zoom, début/fin, volume.
     function recEl(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+    var REC_SNAP_KEY = "trainhub.audioSnap.v1"; // aimantation au passage par zéro : active par défaut
+    var REC_STEPS = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600];
+    function recFmtT3(sec) { var t = Math.max(0, Math.round(sec * 1000)), m = Math.floor(t / 60000), s = (t % 60000) / 1000; return m + ":" + (s < 10 ? "0" : "") + s.toFixed(3); }
+    function recFmtRuler(sec, dec) { var m = Math.floor(sec / 60), s = sec - m * 60; return m + ":" + (s < 10 ? "0" : "") + s.toFixed(dec); }
+    function recSc(v) { return v < 0 ? -Math.pow(-v, 0.6) : Math.pow(v, 0.6); } // même échelle « douce » que les barres du niveau : les sons faibles restent visibles
+    // Minimum et maximum (moyenne des voies) de chaque colonne de pixels ; au plus ~128 échantillons lus par colonne.
+    function recWaveMinMax(pcm, n, a, b) {
+        var out = new Float32Array(n * 2), ch = pcm.chans, nc = ch.length, len = ch[0].length, per = (b - a) / n;
+        for (var x = 0; x < n; x++) {
+            var s0 = Math.max(0, Math.floor(a + x * per)), s1 = Math.max(s0 + 1, Math.floor(a + (x + 1) * per)), inc = Math.max(1, Math.floor((s1 - s0) / 128)), mn = 1, mx = -1;
+            for (var k = s0; k < s1 && k < len; k += inc) { var v = ch[0][k]; for (var c = 1; c < nc; c++) v += ch[c][k]; if (nc > 1) v /= nc; if (v < mn) mn = v; if (v > mx) mx = v; }
+            if (mn > mx) { mn = 0; mx = 0; }
+            out[x * 2] = mn; out[x * 2 + 1] = mx;
+        }
+        return out;
+    }
     function recMountWave(wave, ed, o) {
         o = o || {};
-        var precise = !!o.precise;
         wave.innerHTML = ""; wave.hidden = false;
-        var cv = recEl("canvas", "rec-wave-cv" + (precise ? " rec-wave-cv-tall" : "")); cv.setAttribute("aria-label", o.aria || "Forme d'onde : glisser pour sélectionner une partie, cliquer pour placer le repère"); wave.appendChild(cv);
-        var zRow = null, zOut = null, zIn = null, zSel = null, zAll = null, zScroll = null;
-        if (precise) { zRow = recEl("div", "rec-wave-zoom"); wave.appendChild(zRow); }
-        var rng = recEl("div", "rec-wave-rng"); wave.appendChild(rng);
+        var snapOn = true; try { snapOn = localStorage.getItem(REC_SNAP_KEY) !== "0"; } catch (e) {}
+
+        // -- 1. rangée du haut : écoute (à gauche) · modification (au milieu) · repère (à droite)
         var tools = recEl("div", "rec-wave-tools"); wave.appendChild(tools);
-        function tb(label, title, fn, aria) { var b = recEl("button", "btn-ghost rec-wave-btn", label); b.type = "button"; b.title = title; if (aria) b.setAttribute("aria-label", aria); b.addEventListener("click", fn); tools.appendChild(b); return b; }
+        var gListen = recEl("div", "rec-wave-grp"), gEdit = recEl("div", "rec-wave-grp");
+        tools.appendChild(gListen); tools.appendChild(gEdit);
+        function tb(label, title, fn, aria, parent) { var b = recEl("button", "btn-ghost rec-wave-btn", label); b.type = "button"; b.title = title; if (aria) b.setAttribute("aria-label", aria); b.addEventListener("click", fn); (parent || tools).appendChild(b); return b; }
+        var headRead = recEl("span", "rec-wave-headread"); tools.appendChild(headRead);
 
-        // -- partie visible (zoom) : en échantillons ; tout le son tant qu'on ne zoome pas
-        var view = { a: 0, b: ed.len() }, viewPcm = ed.pcm;
-        function minSpan() { return Math.min(ed.len(), Math.max(256, Math.round(ed.pcm.sr * 0.05))); }
-        function clampView() { var n = ed.len(), span = Math.max(minSpan(), Math.min(n, view.b - view.a)); view.a = Math.max(0, Math.min(n - span, view.a)); view.b = view.a + span; }
-        function fitView() { view.a = 0; view.b = ed.len(); }
-        function zoomTo(a, b) { var span = Math.max(minSpan(), (b - a) * 1.2), c = (a + b) / 2; view.a = c - span / 2; view.b = c + span / 2; clampView(); redraw(); }
-        function zoomBy(f, center) {
-            var span = view.b - view.a, c = center != null ? center : ed.sel ? (ed.sel.a + ed.sel.b) / 2 : (ed.head >= view.a && ed.head <= view.b ? ed.head : view.a + span / 2);
-            var ns = Math.max(minSpan(), Math.min(ed.len(), span / f)), rel = (c - view.a) / span;
-            view.a = c - rel * ns; view.b = view.a + ns; clampView(); redraw();
-        }
-        function followHead(pos) { if (precise && (pos < view.a || pos > view.b)) { var span = view.b - view.a; view.a = pos - span * 0.1; view.b = view.a + span; clampView(); } } // écoute : la vue suit le repère
+        // -- 2. forme d'onde : règle · onde · vue d'ensemble
+        var box = recEl("div", "rec-wavebox"); wave.appendChild(box);
+        var cvR = recEl("canvas", "rec-wave-ruler"); cvR.setAttribute("aria-label", "Règle de temps : glisser pour se déplacer dans le son");
+        var cv = recEl("canvas", "rec-wave-cv rec-wave-cv-tall"); cv.tabIndex = 0;
+        cv.setAttribute("aria-label", (o.aria || "Forme d'onde : glisser pour sélectionner une partie, cliquer pour placer le repère") + ". Flèches : déplacer le repère de 10 ms (Maj : 100 ms, Alt : 1 ms). + et − : zoomer.");
+        var cvO = recEl("canvas", "rec-wave-over"); cvO.setAttribute("aria-label", "Vue d'ensemble : glisser le cadre pour se déplacer, tirer ses bords pour zoomer");
+        box.appendChild(cvR); box.appendChild(cv); box.appendChild(cvO);
 
-        // -- écoute (avec le volume choisi) ; en boucle, sans coupure, sur la sélection ou sur tout
-        var playing = false, looping = false;
-        function startPlay() {
-            playing = true;
-            var stop = recPlayPreview(ed, function (pos) { ed.head = pos; followHead(pos); drawOnly(); }, function (fromEnd) { playing = false; if (fromEnd && !ed.sel) ed.head = 0; redraw(); }, { loop: looping, from: precise && ed.sel ? ed.head : null });
-            if (!stop) playing = false;
-            redraw();
-        }
-        var playB = tb("▶ Écouter", "Écouter la sélection, ou depuis le repère jusqu'à la fin (avec le volume choisi)", function () {
-            if (playing) { if (rec.stopPlay) rec.stopPlay(); return; }
-            startPlay();
+        // -- 3. zoom, aimantation
+        var zRow = recEl("div", "rec-wave-zoom"); wave.appendChild(zRow);
+        function zb(label, title, fn) { var b = recEl("button", "btn-ghost rec-wave-btn rec-wave-zb", label); b.type = "button"; b.title = title; b.setAttribute("aria-label", title); b.addEventListener("click", fn); zRow.appendChild(b); return b; }
+        var zOut = zb("−", "Dézoomer", function () { zoomBy(0.5); });
+        var zIn = zb("+", "Zoomer (autour de la sélection, ou du repère)", function () { zoomBy(2); });
+        var zSel = zb("Sélection", "Zoomer sur la sélection", function () { if (ed.sel) zoomTo(ed.sel.a, ed.sel.b); });
+        var zAll = zb("Tout voir", "Voir tout le son", function () { fitView(); redraw(); });
+        var snapB = zb("Aimanter", "Aimanter les poignées et le repère au passage par zéro (la coupe ne fait pas de « clac »). À fort zoom, ces points sont marqués d'un petit trait.", function () {
+            snapOn = !snapOn; try { localStorage.setItem(REC_SNAP_KEY, snapOn ? "1" : "0"); } catch (e) {} redraw();
         });
-        playB.classList.add("rec-wave-play");
-        var loopB = null;
-        if (precise) loopB = tb("⟲ Boucle", "Écouter en boucle, sans coupure : la sélection, ou tout le son si rien n'est sélectionné — pour juger un raccord avant d'enregistrer", function () {
-            looping = !looping;
-            if (playing) { if (rec.stopPlay) rec.stopPlay(); startPlay(); } else redraw();
-        });
-        var allB = tb("Tout", "Sélectionner toute la prise", function () { if (rec.stopPlay) rec.stopPlay(); ed.setSel(0, ed.len()); }, "Tout sélectionner");
-        var keepB = tb("Garder", "Garder la sélection : tout le reste est coupé", function () { if (rec.stopPlay) rec.stopPlay(); ed.keep(); }, "Garder la sélection");
-        var cutB = tb("Couper", "Couper la sélection (le début et la fin se rejoignent)", function () { if (rec.stopPlay) rec.stopPlay(); ed.cut(); }, "Couper la sélection");
-        var undoB = tb("↶", "Annuler la dernière coupe", function () { if (rec.stopPlay) rec.stopPlay(); ed.undo(); }, "Annuler la dernière coupe");
+        snapB.classList.remove("rec-wave-zb");
+        var zoomRead = recEl("span", "rec-wave-zoomread"); zRow.appendChild(zoomRead);
 
-        // -- début et fin de la sélection (précis) : champs au centième de seconde, ↑ ↓ = ±0,01 s (Maj : ±0,1 s) ; boutons « ici » = repère rouge
-        var aIn = null, bIn = null;
-        if (precise) {
-            var eRow = recEl("div", "rec-wave-edges"); wave.appendChild(eRow);
-            var curA = function () { return ed.sel ? ed.sel.a : 0; }, curB = function () { return ed.sel ? ed.sel.b : ed.len(); };
-            var minSel = function () { return Math.round(ed.pcm.sr * 0.02); };
-            var mkT = function (aria, ph) { var i = recEl("input", "rec-wave-t"); i.type = "text"; i.inputMode = "decimal"; i.autocomplete = "off"; i.spellcheck = false; i.setAttribute("aria-label", aria); i.placeholder = ph; return i; };
-            var applyEdge = function (which, sec) {
-                var sr = ed.pcm.sr, n = ed.len(), min = minSel(), s = Math.max(0, Math.min(n, Math.round(sec * sr))), a = curA(), b = curB();
-                if (which === "a") { a = s; if (b - a < min) b = Math.min(n, a + min); if (b - a < min) a = Math.max(0, b - min); }
-                else { b = s; if (b - a < min) a = Math.max(0, b - min); if (b - a < min) b = Math.min(n, a + min); }
-                ed.setSel(a, b);
-            };
-            var bindT = function (inp, which) {
-                function commit() { delete inp.dataset.typing; var v = recParseT(inp.value); if (v == null) redraw(); else applyEdge(which, v); }
-                inp.addEventListener("input", function () { inp.dataset.typing = "1"; });
-                inp.addEventListener("change", commit);
-                inp.addEventListener("blur", function () { if (inp.dataset.typing) commit(); });
-                inp.addEventListener("keydown", function (e) {
-                    e.stopPropagation(); // les raccourcis de l'appli (espace, flèches…) ne doivent pas prendre la main dans ce champ
-                    if (e.key === "Enter") { e.preventDefault(); commit(); inp.blur(); }
-                    else if (e.key === "Escape") { delete inp.dataset.typing; redraw(); inp.blur(); }
-                    else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
-                        e.preventDefault();
-                        var cur = recParseT(inp.value); if (cur == null) cur = (which === "a" ? curA() : curB()) / ed.pcm.sr;
-                        delete inp.dataset.typing;
-                        applyEdge(which, cur + (e.shiftKey ? 0.1 : 0.01) * (e.key === "ArrowUp" ? 1 : -1));
-                    }
-                });
-            };
-            var aBtn = recEl("button", "btn-ghost rec-wave-btn", "Début ici"); aBtn.type = "button"; aBtn.title = "Poser le début de la sélection sur le repère rouge (même pendant l'écoute : on peut « taper » au bon moment)";
-            aBtn.addEventListener("click", function () { var h = Math.round(ed.head), n = ed.len(); if (h > n - minSel()) return; ed.setSel(h, ed.sel && ed.sel.b - h >= minSel() ? ed.sel.b : n); });
-            aIn = mkT("Début de la sélection (minutes:secondes)", "0:00.00"); bindT(aIn, "a");
-            bIn = mkT("Fin de la sélection (minutes:secondes)", "fin"); bindT(bIn, "b");
-            var bBtn = recEl("button", "btn-ghost rec-wave-btn", "Fin ici"); bBtn.type = "button"; bBtn.title = "Poser la fin de la sélection sur le repère rouge (même pendant l'écoute)";
-            bBtn.addEventListener("click", function () { var h = Math.round(ed.head); if (h < minSel()) return; ed.setSel(ed.sel && h - ed.sel.a >= minSel() ? ed.sel.a : 0, h); });
-            var gA = recEl("div", "rec-wave-edge"), gB = recEl("div", "rec-wave-edge"); // deux groupes : début (bouton + champ), fin (champ + bouton) ; côte à côte, ou en grille sur téléphone
-            gA.appendChild(aBtn); gA.appendChild(aIn); gB.appendChild(bIn); gB.appendChild(bBtn);
-            eRow.appendChild(gA); eRow.appendChild(recEl("span", "rec-wave-arrow", "→")); eRow.appendChild(gB);
+        // -- 4. début et fin de la sélection (champs au millième de seconde)
+        var eRow = recEl("div", "rec-wave-edges"); wave.appendChild(eRow);
+        var rng = recEl("div", "rec-wave-rng"); wave.appendChild(rng);
 
-            // zoom : − + sélection / tout voir ; une barre de défilement quand on est zoomé ; Ctrl + molette zoome sous le curseur, molette seule défile
-            var zb = function (label, title, fn) { var b = recEl("button", "btn-ghost rec-wave-btn rec-wave-zb", label); b.type = "button"; b.title = title; b.setAttribute("aria-label", title); b.addEventListener("click", fn); zRow.appendChild(b); return b; };
-            zOut = zb("−", "Dézoomer", function () { zoomBy(0.5); });
-            zIn = zb("+", "Zoomer (autour de la sélection, ou du repère)", function () { zoomBy(2); });
-            zSel = zb("Sélection", "Zoomer sur la sélection", function () { if (ed.sel) zoomTo(ed.sel.a, ed.sel.b); });
-            zAll = zb("Tout voir", "Voir tout le son", function () { fitView(); redraw(); });
-            zScroll = recEl("input", "rec-wave-scroll"); zScroll.type = "range"; zScroll.min = "0"; zScroll.max = "1000"; zScroll.step = "1"; zScroll.value = "0"; zScroll.setAttribute("aria-label", "Faire défiler la partie zoomée");
-            zScroll.addEventListener("input", function () { var n = ed.len(), span = view.b - view.a; view.a = zScroll.value / 1000 * (n - span); view.b = view.a + span; clampView(); drawOnly(); });
-            zRow.appendChild(zScroll);
-            cv.addEventListener("wheel", function (e) {
-                var n = ed.len(), span = view.b - view.a;
-                if (e.ctrlKey || e.metaKey) { e.preventDefault(); zoomBy(e.deltaY < 0 ? 1.25 : 0.8, xSample(e.clientX)); }
-                else if (span < n) { e.preventDefault(); var d = (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) / Math.max(1, cv.getBoundingClientRect().width) * span; view.a += d; view.b += d; clampView(); redraw(); }
-            }, { passive: false });
-        }
-
+        // -- 5. volume
         var vRow = recEl("div", "rec-wave-vol");
         vRow.appendChild(recEl("span", "rec-lab", "Volume"));
         var vIn = recEl("input", "rec-wave-vrange"); vIn.type = "range"; vIn.min = "-12"; vIn.max = "24"; vIn.step = "1"; vIn.value = String(ed.gainDb); vIn.setAttribute("aria-label", "Volume de l'enregistrement (dB)");
@@ -17459,69 +17410,287 @@
         vIn.addEventListener("input", function () { ed.gainDb = parseInt(vIn.value, 10) || 0; redraw(); });
         normB.addEventListener("click", function () { ed.normalize(); });
 
-        // sélection : glisser dans le vide = nouvelle sélection ; glisser une poignée = l'ajuster ; clic = placer le repère
-        var drag = null;
+        // -- partie visible (zoom), en échantillons ; tout le son tant qu'on ne zoome pas
+        var view = { a: 0, b: ed.len() }, viewPcm = ed.pcm;
+        function sr() { return ed.pcm.sr; }
+        function minSpan() { return Math.min(ed.len(), Math.max(32, Math.round(sr() * 0.005))); } // 5 ms visibles au plus serré
+        function clampView() { var n = ed.len(), span = Math.max(minSpan(), Math.min(n, view.b - view.a)); view.a = Math.max(0, Math.min(n - span, view.a)); view.b = view.a + span; }
+        function fitView() { view.a = 0; view.b = ed.len(); }
+        function zoomTo(a, b) { var span = Math.max(minSpan(), (b - a) * 1.2), c = (a + b) / 2; view.a = c - span / 2; view.b = c + span / 2; clampView(); redraw(); }
+        function zoomBy(f, center) {
+            var span = view.b - view.a, c = center != null ? center : ed.sel ? (ed.sel.a + ed.sel.b) / 2 : (ed.head >= view.a && ed.head <= view.b ? ed.head : view.a + span / 2);
+            var ns = Math.max(minSpan(), Math.min(ed.len(), span / f)), rel = (c - view.a) / span;
+            view.a = c - rel * ns; view.b = view.a + ns; clampView(); redraw();
+        }
+        function followHead(pos) { if (pos < view.a || pos > view.b) { var span = view.b - view.a; view.a = pos - span * 0.1; view.b = view.a + span; clampView(); } } // écoute : la vue suit le repère
+        function cw() { return Math.max(40, cv.getBoundingClientRect().width); }
         function xSample(clientX) { var r = cv.getBoundingClientRect(); return view.a + Math.max(0, Math.min(1, (clientX - r.left) / Math.max(1, r.width))) * (view.b - view.a); }
-        function grabPx() { return 10 / Math.max(1, cv.getBoundingClientRect().width) * (view.b - view.a); }
+        function sampleX(s, w) { return (s - view.a) / (view.b - view.a) * w; }
+        function sppx() { return (view.b - view.a) / cw(); } // échantillons par pixel
+
+        // -- aimantation : l'échantillon voisin où l'onde (moyenne des voies) croise la ligne du milieu ; au plus 12 ms, 10 pixels
+        function mixAt(i) { var ch = ed.pcm.chans, v = ch[0][i]; for (var c = 1; c < ch.length; c++) v += ch[c][i]; return v; }
+        function snapSample(s) {
+            var n = ed.len(); s = Math.max(0, Math.min(n, Math.round(s)));
+            if (!snapOn || n < 3) return s;
+            var R = Math.max(2, Math.min(Math.round(sr() * 0.012), Math.round(10 * sppx())));
+            var best = -1, bd = 1e12;
+            for (var k = Math.max(1, s - R); k <= Math.min(n - 1, s + R); k++) {
+                var p = mixAt(k - 1), q = mixAt(k);
+                if (p === 0 || (p < 0) !== (q < 0)) { var idx = Math.abs(p) <= Math.abs(q) ? k - 1 : k, d = Math.abs(idx - s); if (d < bd) { bd = d; best = idx; } }
+            }
+            return best >= 0 ? best : s;
+        }
+        var minSel = function () { return Math.round(sr() * 0.02); };
+
+        // -- écoute (avec le volume choisi) ; en boucle, sans coupure, sur la sélection ou sur tout
+        var playing = false, looping = false;
+        function startPlay() {
+            playing = true;
+            var stop = recPlayPreview(ed, function (pos) { ed.head = pos; followHead(pos); drawOnly(); }, function (fromEnd) { playing = false; if (fromEnd && !ed.sel) ed.head = 0; redraw(); }, { loop: looping, from: ed.sel ? ed.head : null });
+            if (!stop) playing = false;
+            redraw();
+        }
+        // « Écouter la coupe » : 0,5 s avant la sélection collée à 0,5 s après elle = ce qu'on entendra à l'endroit du raccord si l'on appuie sur « Couper ».
+        function startListenCut() {
+            if (!ed.sel) return;
+            var a = ed.sel.a, b = ed.sel.b, n = ed.len(), half = Math.round(sr() * 0.5), p0 = Math.max(0, a - half), p1 = Math.min(n, b + half), before = a - p0, keepHead = ed.head;
+            var chans = ed.pcm.chans.map(function (c) { var out = new Float32Array(before + (p1 - b)); out.set(c.subarray(p0, a), 0); out.set(c.subarray(b, p1), before); return out; });
+            if (!chans[0].length) return;
+            var tmp = { pcm: { sr: sr(), chans: chans }, sel: null, head: 0, len: function () { return chans[0].length; }, lin: ed.lin };
+            playing = true;
+            var stop = recPlayPreview(tmp, function (pos) { ed.head = pos < before ? p0 + pos : b + (pos - before); followHead(ed.head); drawOnly(); },
+                function () { playing = false; ed.head = Math.min(ed.len(), keepHead); redraw(); }, {});
+            if (!stop) playing = false;
+            redraw();
+        }
+        var playB = tb("▶ Écouter", "Écouter la sélection, ou depuis le repère jusqu'à la fin (avec le volume choisi). Espace dans « Modifier le son ».", function () {
+            if (playing) { if (rec.stopPlay) rec.stopPlay(); return; }
+            startPlay();
+        }, null, gListen);
+        playB.classList.add("rec-wave-play");
+        var loopB = tb("⟲ Boucle", "Écouter en boucle, sans coupure : la sélection, ou tout le son si rien n'est sélectionné — pour juger un raccord avant d'enregistrer", function () {
+            looping = !looping;
+            if (playing) { if (rec.stopPlay) rec.stopPlay(); startPlay(); } else redraw();
+        }, null, gListen);
+        var listenB = tb("Écouter la coupe", "Joue 0,5 s avant et 0,5 s après la sélection, collées : on entend le raccord avant de couper", function () {
+            if (playing) { if (rec.stopPlay) rec.stopPlay(); return; }
+            startListenCut();
+        }, null, gListen);
+        var allB = tb("Tout", "Sélectionner toute la prise", function () { if (rec.stopPlay) rec.stopPlay(); ed.setSel(0, ed.len()); }, "Tout sélectionner", gEdit);
+        var keepB = tb("Garder", "Garder la sélection : tout le reste est coupé", function () { if (rec.stopPlay) rec.stopPlay(); ed.keep(); }, "Garder la sélection", gEdit);
+        var cutB = tb("Couper", "Couper la sélection (le début et la fin se rejoignent)", function () { if (rec.stopPlay) rec.stopPlay(); ed.cut(); }, "Couper la sélection", gEdit);
+        var undoB = tb("↶", "Annuler la dernière coupe", function () { if (rec.stopPlay) rec.stopPlay(); ed.undo(); }, "Annuler la dernière coupe", gEdit);
+
+        // -- début et fin de la sélection : champs au millième, ↑ ↓ = ±0,01 s (Maj : ±0,1 s, Alt : ±0,001 s) ; boutons « ici » = repère rouge
+        var applyEdge = function (which, sec) {
+            var rate = sr(), n = ed.len(), min = minSel(), s = Math.max(0, Math.min(n, Math.round(sec * rate))), a = ed.sel ? ed.sel.a : 0, b = ed.sel ? ed.sel.b : n;
+            if (which === "a") { a = s; if (b - a < min) b = Math.min(n, a + min); if (b - a < min) a = Math.max(0, b - min); }
+            else { b = s; if (b - a < min) a = Math.max(0, b - min); if (b - a < min) b = Math.min(n, a + min); }
+            ed.setSel(a, b);
+        };
+        var mkT = function (aria, ph) { var i = recEl("input", "rec-wave-t"); i.type = "text"; i.inputMode = "decimal"; i.autocomplete = "off"; i.spellcheck = false; i.setAttribute("aria-label", aria); i.placeholder = ph; return i; };
+        var bindT = function (inp, which) {
+            function commit() { delete inp.dataset.typing; var v = recParseT(inp.value); if (v == null) redraw(); else applyEdge(which, v); }
+            inp.addEventListener("input", function () { inp.dataset.typing = "1"; });
+            inp.addEventListener("change", commit);
+            inp.addEventListener("blur", function () { if (inp.dataset.typing) commit(); });
+            inp.addEventListener("keydown", function (e) {
+                e.stopPropagation(); // les raccourcis de l'appli (espace, flèches…) ne doivent pas prendre la main dans ce champ
+                if (e.key === "Enter") { e.preventDefault(); commit(); inp.blur(); }
+                else if (e.key === "Escape") { delete inp.dataset.typing; redraw(); inp.blur(); }
+                else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                    e.preventDefault();
+                    var cur = recParseT(inp.value); if (cur == null) cur = (which === "a" ? (ed.sel ? ed.sel.a : 0) : (ed.sel ? ed.sel.b : ed.len())) / sr();
+                    delete inp.dataset.typing;
+                    applyEdge(which, cur + (e.altKey ? 0.001 : e.shiftKey ? 0.1 : 0.01) * (e.key === "ArrowUp" ? 1 : -1));
+                }
+            });
+        };
+        var aBtn = recEl("button", "btn-ghost rec-wave-btn", "Début ici"); aBtn.type = "button"; aBtn.title = "Poser le début de la sélection sur le repère rouge (même pendant l'écoute : on peut « taper » au bon moment)";
+        aBtn.addEventListener("click", function () { var h = Math.round(ed.head), n = ed.len(); if (h > n - minSel()) return; ed.setSel(h, ed.sel && ed.sel.b - h >= minSel() ? ed.sel.b : n); });
+        var aIn = mkT("Début de la sélection (minutes:secondes)", "0:00.000"); bindT(aIn, "a");
+        var bIn = mkT("Fin de la sélection (minutes:secondes)", "fin"); bindT(bIn, "b");
+        var bBtn = recEl("button", "btn-ghost rec-wave-btn", "Fin ici"); bBtn.type = "button"; bBtn.title = "Poser la fin de la sélection sur le repère rouge (même pendant l'écoute)";
+        bBtn.addEventListener("click", function () { var h = Math.round(ed.head); if (h < minSel()) return; ed.setSel(ed.sel && h - ed.sel.a >= minSel() ? ed.sel.a : 0, h); });
+        var gA = recEl("div", "rec-wave-edge"), gB = recEl("div", "rec-wave-edge"); // deux groupes : début (bouton + champ), fin (champ + bouton) ; côte à côte, ou en grille sur téléphone
+        gA.appendChild(aBtn); gA.appendChild(aIn); gB.appendChild(bIn); gB.appendChild(bBtn);
+        eRow.appendChild(gA); eRow.appendChild(recEl("span", "rec-wave-arrow", "→")); eRow.appendChild(gB);
+
+        // -- souris : glisser dans le vide = nouvelle sélection ; glisser une poignée = l'ajuster (Maj : dix fois plus lent) ; glisser le repère = le déplacer ;
+        //    clic = placer le repère ; double-clic dans la sélection = zoomer dessus ; Ctrl + molette = zoom sous le curseur, molette seule = défilement
+        var drag = null, hover = null, nudgeUntil = 0;
+        function hit(x, w) {
+            var best = null, bd = 1e9;
+            function test(name, s, tol) { var d = Math.abs(sampleX(s, w) - x); if (d <= tol && d < bd) { bd = d; best = name; } }
+            test("head", ed.head, 8);
+            if (ed.sel) { test("a", ed.sel.a, 9); test("b", ed.sel.b, 9); }
+            return best;
+        }
         cv.addEventListener("pointerdown", function (e) {
-            e.preventDefault();
+            e.preventDefault(); cv.focus();
             try { cv.setPointerCapture(e.pointerId); } catch (er) {}
-            var sm = xSample(e.clientX), sel = ed.sel, g = grabPx();
-            if (sel && Math.abs(sm - sel.a) <= g) drag = { fixed: sel.b };
-            else if (sel && Math.abs(sm - sel.b) <= g) drag = { fixed: sel.a };
-            else drag = { anchor: sm, x0: e.clientX, moved: false };
+            var r = cv.getBoundingClientRect(), w = r.width, x = e.clientX - r.left, sm = xSample(e.clientX), sel = ed.sel;
+            if (e.detail >= 2 && sel && sm > sel.a && sm < sel.b) { drag = null; zoomTo(sel.a, sel.b); return; }
+            var h = hit(x, w);
+            if (h === "head") drag = { kind: "head", x0: e.clientX, s0: ed.head, moved: false };
+            else if (h === "a" || h === "b") drag = { kind: "handle", which: h, x0: e.clientX, s0: h === "a" ? sel.a : sel.b, moved: false };
+            else drag = { kind: "new", anchor: sm, x0: e.clientX, moved: false };
         });
         cv.addEventListener("pointermove", function (e) {
-            if (!drag) { var sm = xSample(e.clientX), g = grabPx(); cv.style.cursor = ed.sel && (Math.abs(sm - ed.sel.a) <= g || Math.abs(sm - ed.sel.b) <= g) ? "ew-resize" : "crosshair"; return; }
-            if (drag.fixed !== undefined) { ed.setSel(drag.fixed, xSample(e.clientX)); return; }
-            if (!drag.moved && Math.abs(e.clientX - drag.x0) < 4) return;
-            if (!drag.moved) { drag.moved = true; if (rec.stopPlay) rec.stopPlay(); }
-            ed.setSel(drag.anchor, xSample(e.clientX));
+            var r = cv.getBoundingClientRect(), w = r.width, x = e.clientX - r.left;
+            if (!drag) { var h = hit(x, w); if (h !== hover) { hover = h; drawOnly(); } cv.style.cursor = h ? "ew-resize" : "crosshair"; return; }
+            var slow = e.shiftKey ? 0.1 : 1, dS = (e.clientX - drag.x0) * sppx() * slow;
+            if (!drag.moved) { if (Math.abs(e.clientX - drag.x0) < 4 && drag.kind !== "handle") return; drag.moved = true; if (rec.stopPlay) rec.stopPlay(); }
+            if (drag.kind === "head") { ed.head = snapSample(drag.s0 + dS); ed.emit(); }
+            else if (drag.kind === "handle") {
+                var cur = snapSample(drag.s0 + dS), other = drag.which === "a" ? ed.sel.b : ed.sel.a;
+                if (Math.abs(cur - other) >= minSel()) { ed.setSel(cur, other); drag.which = cur < other ? "a" : "b"; }
+            } else { var s2 = snapSample(xSample(e.clientX)), a0 = snapSample(drag.anchor); ed.setSel(a0, s2); }
         });
         function endDrag() {
             if (!drag) return;
             var d = drag; drag = null;
-            if (d.fixed === undefined && !d.moved) { // simple clic : repère de lecture ; hors de la sélection elle s'efface (en précis, dedans elle reste : on pose « Début ici » puis « Fin ici »)
-                if (!(precise && ed.sel && d.anchor > ed.sel.a && d.anchor < ed.sel.b)) ed.sel = null;
-                ed.head = Math.round(d.anchor); ed.emit();
-            }
-            else if (ed.sel && ed.sel.b - ed.sel.a < ed.pcm.sr * 0.05) ed.clearSel(); // sélection minuscule : écartée
+            if (d.kind === "new" && !d.moved) { // simple clic : repère de lecture ; hors de la sélection elle s'efface (dedans elle reste : on pose « Début ici » puis « Fin ici »)
+                var s = snapSample(d.anchor);
+                if (!(ed.sel && d.anchor > ed.sel.a && d.anchor < ed.sel.b)) ed.sel = null;
+                ed.head = s; ed.emit();
+            } else if (d.kind === "new" && ed.sel && ed.sel.b - ed.sel.a < sr() * 0.05) ed.clearSel(); // sélection minuscule : écartée
+            else ed.emit();
         }
         cv.addEventListener("pointerup", endDrag); cv.addEventListener("pointercancel", endDrag);
+        cv.addEventListener("pointerleave", function () { if (!drag && hover) { hover = null; drawOnly(); } });
+        cv.addEventListener("wheel", function (e) {
+            var n = ed.len(), span = view.b - view.a;
+            if (e.ctrlKey || e.metaKey) { e.preventDefault(); zoomBy(e.deltaY < 0 ? 1.25 : 0.8, xSample(e.clientX)); }
+            else if (span < n) { e.preventDefault(); var d = (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) / Math.max(1, cv.getBoundingClientRect().width) * span; view.a += d; view.b += d; clampView(); redraw(); }
+        }, { passive: false });
+        // clavier (la forme d'onde a le focus) : ← → = repère ±10 ms (Maj : 100 ms, Alt : 1 ms), Début / Fin, + − = zoom
+        cv.addEventListener("keydown", function (e) {
+            var k = e.key, mv = e.altKey ? 0.001 : e.shiftKey ? 0.1 : 0.01;
+            if (e.ctrlKey || e.metaKey) return;
+            if (k === "ArrowLeft" || k === "ArrowRight") { e.preventDefault(); e.stopPropagation(); if (rec.stopPlay) rec.stopPlay(); ed.head = snapKeep(ed.head + (k === "ArrowLeft" ? -1 : 1) * Math.round(mv * sr())); keepHeadVisible(); nudgeUntil = Date.now() + 1500; ed.emit(); setTimeout(drawOnly, 1600); }
+            else if (k === "Home" || k === "End") { e.preventDefault(); e.stopPropagation(); ed.head = k === "Home" ? 0 : ed.len(); keepHeadVisible(); ed.emit(); }
+            else if (k === "+" || k === "=" || k === "-" || k === "_") { e.preventDefault(); e.stopPropagation(); zoomBy(k === "+" || k === "=" ? 2 : 0.5, ed.head); }
+        });
+        function snapKeep(s) { return Math.max(0, Math.min(ed.len(), Math.round(s))); } // au clavier le repère va EXACTEMENT où on le pousse (pas d'aimantation)
+        function keepHeadVisible() { if (ed.head < view.a || ed.head > view.b) { var span = view.b - view.a; view.a = ed.head - span / 2; view.b = view.a + span; clampView(); } }
 
-        var cache = { pcm: null, n: 0, a: 0, b: 0, v: null };
-        function drawOnly() {
-            var c = recCanvasPrep(cv), g = c.g, n = ed.len(), cols = Math.max(10, Math.floor(c.w / 3));
-            var va = Math.round(view.a), vb = Math.max(va + 1, Math.round(view.b)), span = vb - va;
-            if (cache.pcm !== ed.pcm || cache.n !== cols || cache.a !== va || cache.b !== vb) cache = { pcm: ed.pcm, n: cols, a: va, b: vb, v: recWaveCols(ed.pcm, cols, va, vb) };
-            function px(s) { return (s - va) / span * c.w; }
-            var sa = ed.sel ? px(ed.sel.a) : -1, sb = ed.sel ? px(ed.sel.b) : -1, bw = Math.max(1.5, c.w / cols - 1);
-            g.fillStyle = c.muted; g.globalAlpha = 0.25; g.fillRect(0, c.h / 2 - 0.5, c.w, 1); g.globalAlpha = 1;
-            if (ed.sel && sb > 0 && sa < c.w) { var x0 = Math.max(0, sa), x1 = Math.min(c.w, sb); g.fillStyle = c.accent; g.globalAlpha = 0.18; g.fillRect(x0, 0, x1 - x0, c.h); g.globalAlpha = 1; }
-            for (var i = 0; i < cols; i++) { var x = i * c.w / cols, on = !ed.sel || (x + bw >= sa && x <= sb); recBar(g, x, bw, c.h, cache.v[i], on ? c.accent : c.muted); }
-            if (ed.sel) { g.fillStyle = c.accent; [sa, sb].forEach(function (x) { if (x < -1 || x > c.w + 1) return; g.fillRect(x - 1, 0, 2, c.h); g.fillRect(x - 4, c.h / 2 - 11, 8, 22); }); }
-            var hx = px(ed.head); if (hx >= 0 && hx <= c.w) { g.fillStyle = c.red; g.fillRect(Math.min(c.w - 1, hx) - 0.5, 0, 1.5, c.h); }
-            if (precise && span < n) { g.fillStyle = c.muted; g.globalAlpha = 0.6; g.font = "10px sans-serif"; g.fillText("zoom ×" + (n / span).toFixed(n / span < 10 ? 1 : 0), 6, 12); g.globalAlpha = 1; }
+        // règle : glisser = se déplacer ; vue d'ensemble : cadre = partie visible
+        var rdrag = null;
+        cvR.addEventListener("pointerdown", function (e) { try { cvR.setPointerCapture(e.pointerId); } catch (er) {} rdrag = { x0: e.clientX, a0: view.a, span: view.b - view.a }; });
+        cvR.addEventListener("pointermove", function (e) { if (!rdrag) return; var d = -(e.clientX - rdrag.x0) / Math.max(1, cvR.getBoundingClientRect().width) * rdrag.span; view.a = rdrag.a0 + d; view.b = view.a + rdrag.span; clampView(); redraw(); });
+        cvR.addEventListener("pointerup", function () { rdrag = null; }); cvR.addEventListener("pointercancel", function () { rdrag = null; });
+        var odrag = null;
+        cvO.addEventListener("pointerdown", function (e) {
+            try { cvO.setPointerCapture(e.pointerId); } catch (er) {}
+            var r = cvO.getBoundingClientRect(), n = ed.len(), x = e.clientX - r.left, x0 = view.a / n * r.width, x1 = view.b / n * r.width, s = x / r.width * n;
+            if (Math.abs(x - x0) <= 8 && x1 - x0 > 20) odrag = { kind: "l" }; else if (Math.abs(x - x1) <= 8 && x1 - x0 > 20) odrag = { kind: "r" };
+            else if (x > x0 && x < x1) odrag = { kind: "m", off: s - view.a };
+            else { var span = view.b - view.a; view.a = s - span / 2; view.b = view.a + span; clampView(); redraw(); odrag = { kind: "m", off: span / 2 }; }
+        });
+        cvO.addEventListener("pointermove", function (e) {
+            var r = cvO.getBoundingClientRect(), n = ed.len();
+            if (!odrag) { var x = e.clientX - r.left, x0 = view.a / n * r.width, x1 = view.b / n * r.width; cvO.style.cursor = (Math.abs(x - x0) <= 8 || Math.abs(x - x1) <= 8) && x1 - x0 > 20 ? "ew-resize" : "grab"; return; }
+            var s = Math.max(0, Math.min(n, (e.clientX - r.left) / r.width * n));
+            if (odrag.kind === "m") { var span = view.b - view.a; view.a = s - odrag.off; view.b = view.a + span; clampView(); }
+            else if (odrag.kind === "l") view.a = Math.min(s, view.b - minSpan()); else view.b = Math.max(s, view.a + minSpan());
+            redraw();
+        });
+        cvO.addEventListener("pointerup", function () { odrag = null; }); cvO.addEventListener("pointercancel", function () { odrag = null; });
+
+        // -- dessin
+        var cache = { pcm: null, w: 0, a: 0, b: 0, v: null }, ovCache = { pcm: null, w: 0, v: null };
+        function bubble(g, x, y, text, color, w) {
+            g.font = "11px system-ui, sans-serif"; var tw = g.measureText(text).width + 10, bx = Math.max(2, Math.min(w - tw - 2, x - tw / 2));
+            g.fillStyle = color; g.beginPath(); if (g.roundRect) g.roundRect(bx, y, tw, 17, 4); else g.rect(bx, y, tw, 17); g.fill();
+            g.fillStyle = "#06120c"; g.textBaseline = "middle"; g.fillText(text, bx + 5, y + 9);
         }
+        function drawRuler() {
+            var c = recCanvasPrep(cvR), g = c.g, span = (view.b - view.a) / sr(), step = REC_STEPS[REC_STEPS.length - 1];
+            for (var i = 0; i < REC_STEPS.length; i++) if (REC_STEPS[i] / span * c.w >= 72) { step = REC_STEPS[i]; break; }
+            var dec = step < 0.01 ? 3 : step < 0.1 ? 2 : step < 1 ? 1 : 0, minor = step / 5, t0 = view.a / sr(), t1 = view.b / sr();
+            g.fillStyle = c.muted; g.strokeStyle = c.line; g.font = "10px system-ui, sans-serif"; g.textBaseline = "top"; g.lineWidth = 1;
+            for (var t = Math.ceil(t0 / minor) * minor, guard = 0; t <= t1 + 1e-9 && guard < 400; t += minor, guard++) {
+                var x = Math.round((t - t0) / span * c.w) + 0.5, major = Math.abs(t / step - Math.round(t / step)) < 1e-6;
+                g.beginPath(); g.moveTo(x, c.h); g.lineTo(x, c.h - (major ? 10 : 4)); g.stroke();
+                if (major) g.fillText(recFmtRuler(t, dec), x + 3, 3);
+            }
+        }
+        function drawMain() {
+            var c = recCanvasPrep(cv), g = c.g, w = c.w, h = c.h, n = ed.len(), a = view.a, b = view.b, span = b - a, rate = sr(), nc = Math.floor(w);
+            if (cache.pcm !== ed.pcm || cache.w !== nc || cache.a !== a || cache.b !== b) cache = { pcm: ed.pcm, w: nc, a: a, b: b, v: recWaveMinMax(ed.pcm, nc, a, b) };
+            var px = function (s) { return (s - a) / span * w; }, mid = h / 2, amp = h / 2 - 8, sa = ed.sel ? px(ed.sel.a) : -1, sb = ed.sel ? px(ed.sel.b) : -1;
+            g.fillStyle = c.muted; g.globalAlpha = 0.25; g.fillRect(0, mid - 0.5, w, 1); g.globalAlpha = 1;
+            if (ed.sel && sb > 0 && sa < w) { var x0 = Math.max(0, sa), x1 = Math.min(w, sb); g.fillStyle = c.accent; g.globalAlpha = 0.18; g.fillRect(x0, 0, x1 - x0, h); g.globalAlpha = 1; }
+            if (span <= w * 1.2) { // zoom au niveau de l'échantillon : on relie les échantillons par une ligne (et on les marque quand il y a la place)
+                g.lineWidth = 1.5; g.beginPath();
+                var s0 = Math.max(0, Math.floor(a) - 1), s1 = Math.min(n - 1, Math.ceil(b) + 1);
+                for (var k = s0; k <= s1; k++) { var m = 0, ch = ed.pcm.chans; for (var q = 0; q < ch.length; q++) m += ch[q][k]; m /= ch.length; var X = px(k), Y = mid - recSc(Math.max(-1, Math.min(1, m))) * amp; if (k === s0) g.moveTo(X, Y); else g.lineTo(X, Y); }
+                g.strokeStyle = c.accent; g.stroke();
+                if (w / span >= 6) { g.fillStyle = c.accent; for (var k2 = s0; k2 <= s1; k2++) { var m2 = 0, ch2 = ed.pcm.chans; for (var q2 = 0; q2 < ch2.length; q2++) m2 += ch2[q2][k2]; m2 /= ch2.length; g.fillRect(px(k2) - 1.5, mid - recSc(Math.max(-1, Math.min(1, m2))) * amp - 1.5, 3, 3); } }
+            } else {
+                for (var x = 0; x < nc; x++) {
+                    var on = !ed.sel || (x >= sa && x <= sb), y0 = mid - recSc(Math.min(1, cache.v[x * 2 + 1])) * amp, y1 = mid - recSc(Math.max(-1, cache.v[x * 2])) * amp;
+                    g.fillStyle = on ? c.accent : c.muted; g.fillRect(x, y0, 1, Math.max(1, y1 - y0));
+                }
+            }
+            if (snapOn && span < w * 6) { // passages par zéro : de petits traits sur la ligne du milieu
+                g.fillStyle = c.fg; g.globalAlpha = 0.5;
+                for (var z = Math.max(1, Math.floor(a)); z < Math.min(n - 1, Math.ceil(b)); z++) { var p = mixAt(z - 1), qv = mixAt(z); if (p !== 0 && (p < 0) !== (qv < 0)) g.fillRect(Math.round(px(Math.abs(p) <= Math.abs(qv) ? z - 1 : z)) - 0.5, mid - 3, 1, 6); }
+                g.globalAlpha = 1;
+            }
+            if (ed.sel) {
+                g.fillStyle = c.accent;
+                [[sa, ed.sel.a, "a"], [sb, ed.sel.b, "b"]].forEach(function (p) {
+                    if (p[0] < -6 || p[0] > w + 6) return;
+                    g.fillRect(p[0] - 1, 0, 2, h); g.fillRect(p[0] - 5, mid - 13, 10, 26);
+                    if ((drag && drag.kind === "handle" && drag.which === p[2]) || (!drag && hover === p[2]) || (drag && drag.kind === "new" && drag.moved)) bubble(g, p[0], h - 24, recFmtT3(p[1] / rate), c.accent, w);
+                });
+            }
+            var hx = px(ed.head);
+            if (hx >= -2 && hx <= w + 2) {
+                g.fillStyle = c.red; g.fillRect(Math.min(w - 1, hx) - 0.75, 0, 1.5, h);
+                g.beginPath(); g.moveTo(hx - 6, 0); g.lineTo(hx + 6, 0); g.lineTo(hx, 9); g.fill();
+                if ((drag && drag.kind === "head") || (!drag && hover === "head") || Date.now() < nudgeUntil) bubble(g, hx, 12, recFmtT3(ed.head / rate), c.red, w);
+            }
+            var msPx = span / rate / w * 1000;
+            g.fillStyle = c.muted; g.globalAlpha = 0.8; g.font = "10px system-ui, sans-serif"; g.textBaseline = "alphabetic";
+            g.fillText("1 px = " + (msPx < 0.1 ? msPx.toFixed(3) : msPx < 10 ? msPx.toFixed(1) : msPx.toFixed(0)) + " ms", 6, h - 6); g.globalAlpha = 1;
+        }
+        function drawOver() {
+            var c = recCanvasPrep(cvO), g = c.g, w = c.w, h = c.h, n = ed.len(), nc = Math.floor(w);
+            if (ovCache.pcm !== ed.pcm || ovCache.w !== nc) ovCache = { pcm: ed.pcm, w: nc, v: recWaveMinMax(ed.pcm, nc, 0, n) };
+            g.fillStyle = c.muted; g.globalAlpha = 0.9;
+            for (var x = 0; x < nc; x++) { var y0 = h / 2 - recSc(Math.min(1, ovCache.v[x * 2 + 1])) * (h / 2 - 4), y1 = h / 2 - recSc(Math.max(-1, ovCache.v[x * 2])) * (h / 2 - 4); g.fillRect(x, y0, 1, Math.max(1, y1 - y0)); }
+            g.globalAlpha = 1;
+            if (ed.sel) { g.fillStyle = c.accent; g.globalAlpha = 0.3; g.fillRect(ed.sel.a / n * w, 0, Math.max(1, (ed.sel.b - ed.sel.a) / n * w), h); g.globalAlpha = 1; }
+            var x0 = view.a / n * w, x1 = view.b / n * w, zoomed = view.b - view.a < n - 1;
+            if (zoomed) { g.fillStyle = "#000"; g.globalAlpha = 0.4; g.fillRect(0, 0, x0, h); g.fillRect(x1, 0, w - x1, h); g.globalAlpha = 1; }
+            g.strokeStyle = c.accent; g.lineWidth = 2; g.strokeRect(x0 + 1, 1, Math.max(6, x1 - x0) - 2, h - 2);
+            if (zoomed) { g.fillStyle = c.accent; g.fillRect(x0 - 1, h / 2 - 9, 4, 18); g.fillRect(x1 - 3, h / 2 - 9, 4, 18); }
+            g.fillStyle = c.red; g.fillRect(ed.head / n * w - 0.75, 0, 1.5, h);
+        }
+        function drawOnly() { drawRuler(); drawMain(); drawOver(); }
         function redraw() {
             if (viewPcm !== ed.pcm) { viewPcm = ed.pcm; fitView(); } else clampView();
             drawOnly();
-            var n = ed.len(), sr = ed.pcm.sr;
-            rng.textContent = ed.sel ? "Sélection " + recFmtT(ed.sel.a / sr) + " → " + recFmtT(ed.sel.b / sr) + " · " + recFmtT((ed.sel.b - ed.sel.a) / sr) : recFmtT(n / sr);
+            var n = ed.len(), rate = sr(), span = view.b - view.a, zoomed = span < n - 1;
+            rng.textContent = ed.sel ? "Sélection " + recFmtT(ed.sel.a / rate) + " → " + recFmtT(ed.sel.b / rate) + " · " + recFmtT((ed.sel.b - ed.sel.a) / rate) : recFmtT(n / rate);
+            headRead.textContent = "Repère " + recFmtT3(ed.head / rate);
+            zoomRead.textContent = zoomed ? "zoom ×" + (n / span).toFixed(n / span < 10 ? 1 : 0) + " · " + recFmtT2(view.a / rate) + " → " + recFmtT2(view.b / rate) : "tout le son";
             playB.textContent = playing ? "■ Arrêter" : "▶ Écouter";
-            if (loopB) { loopB.classList.toggle("on", looping); loopB.setAttribute("aria-pressed", looping ? "true" : "false"); }
+            loopB.classList.toggle("on", looping); loopB.setAttribute("aria-pressed", looping ? "true" : "false");
+            snapB.classList.toggle("on", snapOn); snapB.setAttribute("aria-pressed", snapOn ? "true" : "false");
             keepB.disabled = !ed.sel; cutB.disabled = !ed.sel || (ed.sel.b - ed.sel.a >= n); allB.disabled = !!(ed.sel && ed.sel.a === 0 && ed.sel.b === n);
+            listenB.disabled = !ed.sel || (ed.sel.b - ed.sel.a >= n);
             undoB.disabled = !ed.hist.length;
             vVal.textContent = (ed.gainDb > 0 ? "+" : ed.gainDb < 0 ? "−" : "") + Math.abs(ed.gainDb) + " dB";
             if (parseInt(vIn.value, 10) !== ed.gainDb) vIn.value = String(ed.gainDb);
-            if (precise) {
-                if (!aIn.dataset.typing) aIn.value = ed.sel ? recFmtT2(ed.sel.a / sr) : "";
-                if (!bIn.dataset.typing) bIn.value = ed.sel ? recFmtT2(ed.sel.b / sr) : "";
-                bIn.placeholder = recFmtT2(n / sr);
-                var span = view.b - view.a, zoomed = span < n - 1;
-                zOut.disabled = !zoomed; zIn.disabled = span <= minSpan() + 1; zSel.disabled = !ed.sel; zAll.disabled = !zoomed;
-                zScroll.hidden = !zoomed; if (zoomed) zScroll.value = String(Math.round(view.a / Math.max(1, n - span) * 1000));
-            }
+            if (!aIn.dataset.typing) aIn.value = ed.sel ? recFmtT3(ed.sel.a / rate) : "";
+            if (!bIn.dataset.typing) bIn.value = ed.sel ? recFmtT3(ed.sel.b / rate) : "";
+            bIn.placeholder = recFmtT3(n / rate);
+            zOut.disabled = !zoomed; zIn.disabled = span <= minSpan() + 1; zSel.disabled = !ed.sel; zAll.disabled = !zoomed;
             if (o.onRedraw) o.onRedraw();
         }
         var observer = null;
@@ -17716,7 +17885,7 @@
                         kSel.value = String(kbps);
                         sub.textContent = meta.name + " · " + recFmtT(pcm.chans[0].length / pcm.sr) + (pcm.chans.length > 1 ? " · stéréo" : " · mono");
                         msg.hidden = true; take.hidden = false;
-                        handle = recMountWave(wave, ed, { precise: true, aria: "Forme d'onde du son : glisser pour sélectionner une partie, cliquer pour placer le repère", onRedraw: paintSave });
+                        handle = recMountWave(wave, ed, { aria: "Forme d'onde du son : glisser pour sélectionner une partie, cliquer pour placer le repère", onRedraw: paintSave });
                         paintSave();
                         requestAnimationFrame(function () { clampPanelToViewport(panel); });
                     });
@@ -26734,6 +26903,7 @@
         var panel = document.querySelector(".audio-edit-panel");
         if (!panel || e.key === "Tab" || e.key === "Escape" || /^F\d{1,2}$/.test(e.key)) return;
         if (spaceKeyBelongsToTarget(e.target)) return; // champ de saisie : la touche garde son rôle (le champ gère lui-même ses touches)
+        if (e.target && e.target.classList && e.target.classList.contains("rec-wave-cv") && !(e.ctrlKey || e.metaKey) && /^(ArrowLeft|ArrowRight|Home|End|\+|=|-|_)$/.test(e.key)) return; // la forme d'onde a ses propres touches (repère, zoom)
         var mod = e.ctrlKey || e.metaKey, k = (e.key || "").toLowerCase();
         if (!mod && !e.altKey && isSpaceKeyEvent(e)) {
             e.preventDefault(); e.stopPropagation();

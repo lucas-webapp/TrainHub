@@ -4,12 +4,13 @@
 // Lancer :  NODE_PATH=/opt/node22/lib/node_modules node trainhub_audio_edit_test.js   (serveur statique sur :8765, make_mp3.js déjà lancé)
 const { chromium } = require('playwright');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const harnais = require('/home/user/trainhub/tests/_harness');
 const { check, exiger, plan, bilan } = harnais('TrainHub : Modifier le son');
 const estBruitReseau = harnais.estBruitReseau;
-plan(92);
+plan(114);
 
 const SHOTS = path.join(__dirname, 'shots');
 const MEDIA = path.join(__dirname, 'media');
@@ -131,12 +132,12 @@ const rng = page => panneau(page).locator('.rec-wave-rng').innerText();
         await champs(page).nth(0).press('Enter');
         let r = await rng(page);
         check(/Sélection 0:03\.0 → 0:08\.0 · 0:05\.0/.test(r), `B. le champ « début » pose la sélection : ${r.replace(/\n/g, ' ')}`);
-        check(await champs(page).nth(0).inputValue() === '0:03.00' && /^0:08\.0\d$/.test(await champs(page).nth(1).inputValue()), `B. les champs affichent le début et la fin au centième : ${await champs(page).nth(0).inputValue()} → ${await champs(page).nth(1).inputValue()} (le MP3 décodé dure 8,05 s : délai de l'encodeur)`);
+        check(await champs(page).nth(0).inputValue() === '0:03.000' && /^0:08\.0\d\d$/.test(await champs(page).nth(1).inputValue()), `B. les champs affichent le début et la fin au millième : ${await champs(page).nth(0).inputValue()} → ${await champs(page).nth(1).inputValue()} (le MP3 décodé dure 8,05 s : délai de l'encodeur)`);
         // flèche haut = +0,01 s, Maj + flèche bas = −0,1 s
         await champs(page).nth(0).focus(); await champs(page).nth(0).press('ArrowUp');
-        check(await champs(page).nth(0).inputValue() === '0:03.01', `B. ↑ avance le début de 0,01 s (${await champs(page).nth(0).inputValue()})`);
+        check(await champs(page).nth(0).inputValue() === '0:03.010', `B. ↑ avance le début de 0,01 s (${await champs(page).nth(0).inputValue()})`);
         await champs(page).nth(0).press('Shift+ArrowDown');
-        check(await champs(page).nth(0).inputValue() === '0:02.91', `B. Maj+↓ recule de 0,1 s (${await champs(page).nth(0).inputValue()})`);
+        check(await champs(page).nth(0).inputValue() === '0:02.910', `B. Maj+↓ recule de 0,1 s (${await champs(page).nth(0).inputValue()})`);
         await champs(page).nth(0).fill('3'); await champs(page).nth(0).press('Enter');
         check(await panneau(page).locator('button.rec-save').isEnabled(), "B. une sélection active « Enregistrer »");
         check(/Enregistrer la sélection \(0:05\.0\)/.test(await panneau(page).locator('.rec-save-lab').innerText()), "B. et le bouton annonce la durée gardée");
@@ -199,7 +200,7 @@ const rng = page => panneau(page).locator('.rec-wave-rng').innerText();
         // on règle au centième : 4 s → 6 s
         await champs(page).nth(0).fill('4'); await champs(page).nth(0).press('Enter');
         await champs(page).nth(1).fill('6,0'); await champs(page).nth(1).press('Enter');
-        check(await champs(page).nth(0).inputValue() === '0:04.00' && await champs(page).nth(1).inputValue() === '0:06.00', "C. début 4 s, fin 6 s (virgule décimale acceptée)");
+        check(await champs(page).nth(0).inputValue() === '0:04.000' && await champs(page).nth(1).inputValue() === '0:06.000', "C. début 4 s, fin 6 s (virgule décimale acceptée)");
         // un clic hors sélection l'efface
         await page.mouse.click(box.x + box.width * 0.05, box.y + box.height / 2);
         check(!/Sélection/.test(await rng(page)), "C. un clic hors de la sélection l'efface");
@@ -221,7 +222,7 @@ const rng = page => panneau(page).locator('.rec-wave-rng').innerText();
         await bouton(page, /Boucle/).click();
         // zoom sur la sélection : le repère et les clics suivent la partie visible
         await bouton(page, /^Sélection$/).click();
-        check(await panneau(page).locator('input.rec-wave-scroll').isVisible(), "C. zoomé : la barre de défilement apparaît");
+        check(/^zoom ×/.test((await panneau(page).locator('.rec-wave-zoomread').innerText()).trim()) && await panneau(page).locator('canvas.rec-wave-over').isVisible(), "C. zoomé : l'indication de zoom s'affiche, la vue d'ensemble montre la partie visible");
         check(await bouton(page, /^Tout voir$/).isEnabled(), "C. « Tout voir » est disponible une fois zoomé");
         await page.waitForTimeout(100);
         await page.mouse.click(box.x + box.width * 0.5, box.y + box.height / 2); // milieu de la partie visible
@@ -231,7 +232,7 @@ const rng = page => panneau(page).locator('.rec-wave-rng').innerText();
         check(proche(secMid, 5, 0.25) && !proche(secMid, 4, 0.2), `C. zoomé, le milieu de l'écran est ≈ 5,0 s (pas 4,0 comme sans zoom) : ${mid}`);
         await page.screenshot({ path: path.join(SHOTS, 'edit-3-zoom-boucle.png') });
         await bouton(page, /^Tout voir$/).click();
-        check(!(await panneau(page).locator('input.rec-wave-scroll').isVisible()), "C. « Tout voir » ramène la vue entière");
+        check(/tout le son/.test(await panneau(page).locator('.rec-wave-zoomread').innerText()), "C. « Tout voir » ramène la vue entière");
         // enregistrer la sélection 4 → 6 s sous un nom
         await champs(page).nth(0).fill('4'); await champs(page).nth(0).press('Enter');
         await champs(page).nth(1).fill('6'); await champs(page).nth(1).press('Enter');
@@ -422,8 +423,8 @@ const rng = page => panneau(page).locator('.rec-wave-rng').innerText();
         await page.click('.recorder-panel .rec-go');
         await page.locator('.recorder-panel canvas.rec-wave-cv').waitFor({ timeout: 15000 });
         const n = await page.locator('.recorder-panel .rec-wave-tools button').allInnerTexts();
-        check(n.length === 5 && /Écouter/.test(n[0]), `I. enregistreur : la barre d'outils habituelle (${JSON.stringify(n)})`);
-        check(await page.locator('.recorder-panel .rec-wave-edges').count() === 0 && await page.locator('.recorder-panel .rec-wave-zoom').count() === 0, "I. enregistreur : pas de repères précis ni de zoom (réservés à « Modifier le son »)");
+        check(n.map(t => t.trim()).join('|') === '▶ Écouter|⟲ Boucle|Écouter la coupe|Tout|Garder|Couper|↶', `I. enregistreur : la même barre d'outils que « Modifier le son » (${JSON.stringify(n)})`);
+        check(await page.locator('.recorder-panel .rec-wave-edges').count() === 1 && await page.locator('.recorder-panel .rec-wave-zoom').count() === 1 && await page.locator('.recorder-panel canvas.rec-wave-ruler').count() === 1 && await page.locator('.recorder-panel canvas.rec-wave-over').count() === 1, "I. enregistreur : mêmes outils précis que le ciseau (zoom, début/fin, règle de temps, vue d'ensemble)");
         const dur0 = (await page.locator('.recorder-panel .rec-wave-rng').innerText()).trim();
         await page.locator('.recorder-panel button').filter({ hasText: /^Tout$/ }).click();
         await page.locator('.recorder-panel button').filter({ hasText: /^Garder$/ }).click();
@@ -492,6 +493,100 @@ const rng = page => panneau(page).locator('.rec-wave-rng').innerText();
         await page.keyboard.press('Space'); await page.waitForTimeout(400);
         check(/Arrêter/.test(await metro()), "K. éditeur fermé : l'Espace relance le métronome comme avant");
         check(erreurs.length === 0, 'K. aucune erreur JavaScript ' + JSON.stringify(erreurs));
+        await ctx.close();
+    }
+
+
+    // ===================== L. Éditeur précis (v278) : règle, vue d'ensemble, zoom à 5 ms, repère au clavier et à la souris =====================
+    {
+        const { ctx, page, erreurs } = await ouvrir(browser);
+        await ouvrirEditeur(page);
+        const P = panneau(page), zoomTxt = () => P.locator('.rec-wave-zoomread').innerText(), headTxt = async () => (await P.locator('.rec-wave-headread').innerText()).replace('Repère', '').trim();
+        const tOf = v => { const m = /^(\d+):(\d+(?:\.\d+)?)$/.exec(String(v).trim()); return m ? +m[1] * 60 + parseFloat(m[2]) : NaN; };
+        check(await P.locator('canvas.rec-wave-ruler').count() === 1 && await P.locator('canvas.rec-wave-cv').count() === 1 && await P.locator('canvas.rec-wave-over').count() === 1 && await P.locator('.rec-wave-grp').count() === 2, "L. règle de temps, forme d'onde, vue d'ensemble, et deux groupes de boutons (écoute · modification)");
+        check(await bouton(page, /^Aimanter$/).getAttribute('aria-pressed') === 'true', "L. « Aimanter » est activé par défaut");
+        // zoom jusqu'à 5 ms
+        for (let i = 0; i < 40 && await bouton(page, /^\+$/).isEnabled(); i++) await bouton(page, /^\+$/).click();
+        const zmax = parseFloat(/zoom ×([\d.]+)/.exec(await zoomTxt())[1]);
+        check(zmax >= 1000, `L. zoom maximal : ×${zmax} (≈ 5 ms visibles sur 8 s : ×1600)`);
+        check(await bouton(page, /^\+$/).isDisabled() && await bouton(page, /^−$/).isEnabled(), "L. au zoom maximal « + » est grisé, « − » reste disponible");
+        await bouton(page, /^Tout voir$/).click();
+        // clavier : la forme d'onde a le focus
+        const cv = P.locator('canvas.rec-wave-cv');
+        await cv.focus();
+        await page.keyboard.press('Home');
+        check(await headTxt() === '0:00.000', `L. Début : repère à 0:00.000 (${await headTxt()})`);
+        for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight');
+        check(await headTxt() === '0:00.030', `L. → ×3 : +30 ms (${await headTxt()})`);
+        await page.keyboard.press('Shift+ArrowRight');
+        check(await headTxt() === '0:00.130', `L. Maj + → : +100 ms (${await headTxt()})`);
+        await page.keyboard.press('Alt+ArrowRight');
+        check(await headTxt() === '0:00.131', `L. Alt + → : +1 ms (${await headTxt()})`);
+        await page.keyboard.press('End');
+        check(/^0:08\.0\d\d$/.test(await headTxt()), `L. Fin : repère au bout du son (${await headTxt()})`);
+        await page.keyboard.press('+');
+        check(/^zoom ×/.test((await zoomTxt()).trim()), `L. la touche + zoome (${(await zoomTxt()).trim()})`);
+        await page.keyboard.press('-');
+        check(/tout le son/.test(await zoomTxt()), `L. la touche − dézoome (${(await zoomTxt()).trim()})`);
+        // on attrape le repère à la souris
+        await page.keyboard.press('Home');
+        const bx = await cv.boundingBox();
+        await page.mouse.move(bx.x + 2, bx.y + 80); await page.mouse.down(); await page.mouse.move(bx.x + bx.width * 0.5, bx.y + 80, { steps: 8 }); await page.mouse.up();
+        const th = tOf(await headTxt());
+        check(th > 3.9 && th < 4.2, `L. glisser le repère rouge : il suit la souris (${await headTxt()} ≈ 4,0 s)`);
+        // vue d'ensemble : un clic recentre la partie zoomée
+        await bouton(page, /^\+$/).click(); await bouton(page, /^\+$/).click();
+        const fin = t => tOf(/→\s*([\d:.]+)/.exec(t)[1]);
+        const f0 = fin(await zoomTxt());
+        const ob = await P.locator('canvas.rec-wave-over').boundingBox();
+        await page.mouse.click(ob.x + ob.width * 0.9, ob.y + ob.height / 2);
+        const f1 = fin(await zoomTxt());
+        check(f1 > f0 + 2, `L. clic sur la vue d'ensemble : la partie visible se déplace (fin ${f0.toFixed(2)} → ${f1.toFixed(2)} s)`);
+        // règle : glisser = se déplacer
+        const rb = await P.locator('canvas.rec-wave-ruler').boundingBox();
+        const d0 = tOf(/zoom ×[\d.]+ · ([\d:.]+)/.exec(await zoomTxt())[1]);
+        await page.mouse.move(rb.x + rb.width * 0.4, rb.y + 10); await page.mouse.down(); await page.mouse.move(rb.x + rb.width * 0.8, rb.y + 10, { steps: 6 }); await page.mouse.up(); // la vue est au bout : on la tire vers la gauche du son
+        const d1 = tOf(/zoom ×[\d.]+ · ([\d:.]+)/.exec(await zoomTxt())[1]);
+        check(Math.abs(d1 - d0) > 0.3, `L. glisser la règle déplace la partie visible (début ${d0.toFixed(2)} → ${d1.toFixed(2)} s)`);
+        check(erreurs.length === 0, 'L. aucune erreur JavaScript ' + JSON.stringify(erreurs));
+        await ctx.close();
+    }
+
+    // ===================== M. Aimantation au passage par zéro, « Écouter la coupe » (v278) — un sinus de 30 Hz : passages par zéro tous les 1/60 s =====================
+    {
+        const SINE = path.join(os.tmpdir(), 'trainhub_sinus30.wav');
+        execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=30:duration=4:sample_rate=44100', '-ac', '2', SINE]);
+        const { ctx, page, erreurs } = await ouvrir(browser, { fichier: SINE, nom: 'Sinus' });
+        await ouvrirEditeur(page);
+        const P = panneau(page), cv = P.locator('canvas.rec-wave-cv'), bx = await cv.boundingBox();
+        const tOf = v => { const m = /^(\d+):(\d+(?:\.\d+)?)$/.exec(String(v).trim()); return m ? +m[1] * 60 + parseFloat(m[2]) : NaN; };
+        const frac = t => t * 60 - Math.round(t * 60);                   // 0 = pile sur un passage par zéro, ±0,5 = au milieu de deux
+        const xAt = t => bx.x + t / 4 * bx.width;
+        const glisser = async (ta, tb) => { await page.mouse.move(xAt(ta), bx.y + 90); await page.mouse.down(); await page.mouse.move(xAt(tb), bx.y + 90, { steps: 10 }); await page.mouse.up(); };
+        const ta = 60.5 / 60, tb = 180.5 / 60;                            // deux points choisis AU MILIEU de deux passages par zéro
+        await glisser(ta, tb);
+        const a1 = tOf(await champs(page).nth(0).inputValue()), b1 = tOf(await champs(page).nth(1).inputValue());
+        check(Math.abs(frac(a1)) < 0.05 && Math.abs(frac(b1)) < 0.05, `M. aimantation active : début ${a1.toFixed(3)} s et fin ${b1.toFixed(3)} s tombent sur des passages par zéro (écarts ${frac(a1).toFixed(2)} / ${frac(b1).toFixed(2)} demi-période)`);
+        // « Écouter la coupe » : 0,5 s avant + 0,5 s après, collées
+        await page.evaluate(() => { window.__src.length = 0; });
+        await bouton(page, /^Écouter la coupe$/).click(); await page.waitForTimeout(400);
+        const src = await page.evaluate(() => window.__src.slice(-1)[0]);
+        check(src && src.loop === false && Math.abs(src.offset) < 0.01 && Math.abs(src.dur - 1.0) < 0.05, `M. « Écouter la coupe » joue un raccord de 1,0 s sans boucle (${JSON.stringify(src)})`);
+        check(/Arrêter/.test(await P.locator('.rec-wave-play').innerText()), "M. … et le bouton d'écoute propose « Arrêter » pendant ce temps");
+        await P.locator('.rec-wave-play').click(); await page.waitForTimeout(200);
+        // aimantation coupée : le point tombe où on a cliqué
+        await bouton(page, /^Aimanter$/).click();
+        check(await bouton(page, /^Aimanter$/).getAttribute('aria-pressed') === 'false' && await page.evaluate(() => localStorage.getItem('trainhub.audioSnap.v1')) === '0', "M. « Aimanter » se désactive, et le choix est mémorisé");
+        await page.mouse.click(xAt(3.7), bx.y + 90); // un clic à l'écart efface la sélection (sinon le départ à 8 ms d'une poignée l'attraperait)
+        await glisser(ta, tb);
+        const a2 = tOf(await champs(page).nth(0).inputValue()), b2 = tOf(await champs(page).nth(1).inputValue());
+        check(Math.abs(Math.abs(frac(a2)) - 0.5) < 0.12 && Math.abs(Math.abs(frac(b2)) - 0.5) < 0.12, `M. aimantation coupée : début ${a2.toFixed(3)} s et fin ${b2.toFixed(3)} s restent là où l'on a cliqué (écarts ${frac(a2).toFixed(2)} / ${frac(b2).toFixed(2)})`);
+        // Maj enfoncé : poignée dix fois plus lente (on tire la poignée de début de 100 px : le début bouge d'environ 10 px)
+        const dx = 100, avant = a2, hx = xAt(a2);
+        await page.mouse.move(hx, bx.y + 90); await page.mouse.down(); await page.keyboard.down('Shift'); await page.mouse.move(hx + dx, bx.y + 90, { steps: 10 }); await page.keyboard.up('Shift'); await page.mouse.up();
+        const a3 = tOf(await champs(page).nth(0).inputValue()), pxSec = 4 / bx.width;
+        check(a3 > avant && Math.abs((a3 - avant) / pxSec - dx * 0.1) < 4, `M. Maj + glisser : poignée dix fois plus lente (${((a3 - avant) / pxSec).toFixed(1)} px au lieu de ${dx})`);
+        check(erreurs.length === 0, 'M. aucune erreur JavaScript ' + JSON.stringify(erreurs));
         await ctx.close();
     }
 

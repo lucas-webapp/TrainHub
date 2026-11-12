@@ -5411,3 +5411,39 @@ button.img-viewer-btn.img-viewer-nav:active { transform: translateY(-50%); }
     .exercise-row > button.ex-wip-chip { width: 32px; padding: 0; justify-content: center; gap: 0; }
     .exercise-row > button.ex-wip-chip > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 }
+
+/* ===== Éditeur de forme d'onde, enregistreur ET « Modifier le son » (v278) =====
+   Rangée du haut : écoute (Écouter en vert, Boucle, Écouter la coupe) · modification (Tout, Garder, Couper, Annuler) · repère. Tous les boutons : 32 px de haut,
+   contour, lisibles même inactifs. Dessous : règle de temps, forme d'onde, vue d'ensemble (une seule boîte), puis zoom, début/fin et volume. */
+.rec-wave-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.audio-edit-panel .rec-wave-tools, .recorder-panel .rec-wave-tools { display: flex; grid-template-columns: none; }
+.rec-wave-grp { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.rec-wave-grp + .rec-wave-grp { margin-left: 8px; }
+.rec-wave-headread { margin-left: auto; font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rec-wave button.rec-wave-btn, .rec-wave-tools button.rec-wave-btn, .rec-wave-zoom button.rec-wave-btn, .rec-wave-edges button.rec-wave-btn, .rec-wave-vol button.rec-wave-btn {
+    flex: none; height: 32px; min-width: 0; padding: 0 11px; font-size: var(--fs-sm); font-weight: 700; border: 1px solid var(--border); background: transparent; color: var(--text-main); border-radius: var(--radius-sm);
+}
+.rec-wave button.rec-wave-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.rec-wave button.rec-wave-btn:disabled { opacity: .42; cursor: not-allowed; }
+.rec-wave button.rec-wave-btn.rec-wave-play { color: var(--text-main); border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.rec-wave button.rec-wave-btn.on { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.rec-wave-tools button.rec-wave-btn[aria-label="Annuler la dernière coupe"] { width: 36px; padding: 0; }
+.rec-wavebox { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: rgba(var(--ov), .04); }
+.rec-wavebox canvas { display: block; width: 100%; box-sizing: border-box; touch-action: none; border: 0; border-radius: 0; background: transparent; }
+canvas.rec-wave-ruler { height: 24px; border-bottom: 1px solid var(--border); background: rgba(var(--ov), .05); cursor: ew-resize; }
+.rec-wavebox canvas.rec-wave-cv { height: 150px; }
+.rec-wavebox canvas.rec-wave-cv.rec-wave-cv-tall { height: 170px; }
+canvas.rec-wave-over { height: 46px; border-top: 1px solid var(--border); background: rgba(var(--ov), .03); cursor: grab; }
+.rec-wavebox canvas.rec-wave-cv:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.rec-wave-zoom { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.rec-wave-zoomread { margin-left: auto; font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.rec-wave-edges { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.rec-wave-vol .rec-lab { min-width: 52px; white-space: nowrap; }
+@media (max-width: 520px) {
+    .rec-wave-grp { flex: 1 1 100%; }
+    .rec-wave-grp + .rec-wave-grp { margin-left: 0; }
+    .rec-wave-headread { margin-left: 0; flex: 1 1 100%; }
+    .rec-wavebox canvas.rec-wave-cv.rec-wave-cv-tall { height: 150px; }
+    .rec-wave-edges { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .rec-wave-arrow { display: none; }
+}
