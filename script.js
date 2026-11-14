@@ -10739,7 +10739,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v280"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v281"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }
@@ -24311,6 +24311,9 @@
             var idle = Math.floor((now - o.last) / STATS_DAY);
             if (n >= 3 && idle >= 21) al.push({ kind: "dormant", level: "info", text: "Plus travaillé depuis " + idle + " jours.", advice: "Glisse-le dans une prochaine session pour ne pas perdre le bénéfice." });
             if (nEx >= 4 && periodSec > 0 && o.sec / periodSec > 0.4) al.push({ kind: "dominant", level: "info", text: "Cet exercice représente " + Math.round(o.sec / periodSec * 100) + " % de ton temps de pratique.", advice: "Vérifie que cela correspond à ta priorité du moment." });
+            // v281 : deux familles. Objectif tempo = on ne suit que le tempo ; sinon que la durée. Les alertes de durée ne concernent donc pas un exercice à objectif tempo.
+            o.tempoGoal = !!(n && o.rows[0].tempoGoal !== false && k.indexOf("t:") !== 0);
+            if (o.tempoGoal) o.alerts = al = al.filter(function (a) { return ["short", "long", "tiny", "dominant"].indexOf(a.kind) === -1; });
             o.warn = al.filter(function (a) { return a.level === "warn"; }).length;
             return o;
         });
@@ -24687,25 +24690,42 @@
             var cmp = { alerts: function (a, b) { return b.warn - a.warn || b.alerts.length - a.alerts.length || b.sec - a.sec; }, time: function (a, b) { return b.sec - a.sec; }, gain: function (a, b) { return b.delta - a.delta || b.sec - a.sec; }, idle: function (a, b) { return a.last - b.last; }, name: function (a, b) { return a.title.localeCompare(b.title, "fr", { sensitivity: "base" }); } }[statsExSort] || function () { return 0; };
             list.sort(cmp);
             if (!list.length) { var ok = document.createElement("div"); ok.className = "gs-empty"; ok.textContent = "Aucun exercice à surveiller sur cette période."; box.appendChild(ok); }
-            list.forEach(function (o) {
-                var open = !!statsExOpen[o.key];
-                var card = document.createElement("div"); card.className = "st-ex" + (open ? " open" : "") + (o.warn ? " st-ex-warn" : ""); card.dataset.key = o.key;
-                var hd = document.createElement("button"); hd.type = "button"; hd.className = "st-ex-row"; hd.setAttribute("aria-expanded", open ? "true" : "false");
+            // v281 : deux groupes. « Objectif tempo » : SEULEMENT la progression du tempo, date après date. « Sans objectif tempo » : SEULEMENT la durée (temps passé, réel contre prévu).
+            function groupTitle(text, caption, n) {
+                var gt = document.createElement("div"); gt.className = "st-ex-group";
+                var a = document.createElement("strong"); a.textContent = text + " · " + n + " exercice" + (n > 1 ? "s" : "");
+                var b = document.createElement("span"); b.textContent = caption;
+                gt.appendChild(a); gt.appendChild(b); box.appendChild(gt);
+            }
+            function renderExCard(o) {
+                var tempoMode = !!o.tempoGoal, open = !!statsExOpen[o.key];
+                var card = document.createElement("div"); card.className = "st-ex" + (open ? " open" : "") + (o.warn ? " st-ex-warn" : "") + (tempoMode ? " st-ex-tempomode" : " st-ex-durmode"); card.dataset.key = o.key;
+                var hd = document.createElement("button"); hd.type = "button"; hd.className = "st-ex-row st-ex-r2"; hd.setAttribute("aria-expanded", open ? "true" : "false");
                 var nm = document.createElement("span"); nm.className = "st-ex-name"; nm.textContent = o.title;
                 var ch = document.createElement("small"); ch.textContent = o.chapterName; nm.appendChild(ch);
-                var meta = document.createElement("span"); meta.className = "st-ex-meta"; meta.textContent = o.n + " séance" + (o.n > 1 ? "s" : "") + " · " + gsFmtMin(o.sec);
-                var dur = document.createElement("span"); dur.className = "st-ex-dur";
-                dur.textContent = o.plannedN ? Math.round(o.avgSec / 60) + " / " + Math.round(o.avgPlannedSec / 60) + " min" + (o.ratio !== null ? " · " + Math.round(o.ratio * 100) + " %" : "") : Math.round(o.avgSec / 60) + " min en moyenne";
-                dur.title = "Durée moyenne réelle / durée moyenne prévue";
-                var tp = document.createElement("span"); tp.className = "st-ex-tempo";
-                if (o.pts.length) {
-                    var tt = document.createElement("span"); tt.className = o.delta > 0 ? "st-ex-gain" : ""; tt.textContent = o.from + " → " + o.to + " BPM" + (o.delta ? " (" + (o.delta > 0 ? "+" : "") + o.delta + ")" : "");
-                    tp.appendChild(tt);
-                    if (o.pts.length >= 2) { var sp = document.createElement("span"); sp.className = "gs-stat-spark"; sp.innerHTML = gsStatsSparkline(o.pts); tp.appendChild(sp); }
-                } else tp.textContent = "–";
+                var meta = document.createElement("span"); meta.className = "st-ex-meta";
                 var bd = document.createElement("span"); bd.className = "st-ex-badges";
                 if (o.alerts.length) { var b1 = document.createElement("span"); b1.className = "gs-tab-count" + (o.warn ? " st-issue-count" : ""); b1.textContent = String(o.alerts.length); b1.title = o.alerts.length + " alerte(s)"; bd.appendChild(b1); }
-                hd.appendChild(nm); hd.appendChild(meta); hd.appendChild(dur); hd.appendChild(tp); hd.appendChild(bd);
+                hd.appendChild(nm); hd.appendChild(meta);
+                if (tempoMode) {
+                    // tempo seulement : nombre de séances, puis du premier au dernier tempo avec sa petite courbe
+                    meta.textContent = o.pts.length ? o.pts.length + " séance" + (o.pts.length > 1 ? "s" : "") + " avec tempo" : o.n + " séance" + (o.n > 1 ? "s" : "");
+                    var tp = document.createElement("span"); tp.className = "st-ex-tempo";
+                    if (o.pts.length) {
+                        var tt = document.createElement("span"); tt.className = o.delta > 0 ? "st-ex-gain" : ""; tt.textContent = o.from + " → " + o.to + " BPM" + (o.delta ? " (" + (o.delta > 0 ? "+" : "") + o.delta + ")" : "");
+                        tp.appendChild(tt);
+                        if (o.pts.length >= 2) { var sp = document.createElement("span"); sp.className = "gs-stat-spark"; sp.innerHTML = gsStatsSparkline(o.pts); tp.appendChild(sp); }
+                    } else tp.textContent = "aucun tempo noté";
+                    hd.appendChild(tp);
+                } else {
+                    // durée seulement : nombre de séances et temps total, durée moyenne réelle contre prévue
+                    meta.textContent = o.n + " séance" + (o.n > 1 ? "s" : "") + " · " + gsFmtMin(o.sec);
+                    var dur = document.createElement("span"); dur.className = "st-ex-dur";
+                    dur.textContent = o.plannedN ? Math.round(o.avgSec / 60) + " / " + Math.round(o.avgPlannedSec / 60) + " min" + (o.ratio !== null ? " · " + Math.round(o.ratio * 100) + " %" : "") : Math.round(o.avgSec / 60) + " min en moyenne";
+                    dur.title = "Durée moyenne réelle / durée moyenne prévue";
+                    hd.appendChild(dur);
+                }
+                hd.appendChild(bd);
                 hd.addEventListener("click", function () { if (suppressNextClick) { suppressNextClick = false; return; } statsExOpen[o.key] = !statsExOpen[o.key]; rerender(); });
                 bindExMenu(hd, o.key);
                 card.appendChild(hd);
@@ -24718,20 +24738,28 @@
                             var av = document.createElement("div"); av.className = "st-alert-advice"; av.textContent = "Conseil : " + a.advice;
                             al.appendChild(at); al.appendChild(av); body.appendChild(al);
                         });
-                    } else { var fine = document.createElement("div"); fine.className = "st-ex-fine"; fine.textContent = "Rien à signaler : durées et tempo sont réguliers."; body.appendChild(fine); }
-                    if (o.pts.length >= 2) {
+                    } else { var fine = document.createElement("div"); fine.className = "st-ex-fine"; fine.textContent = tempoMode ? "Rien à signaler : le tempo évolue normalement." : "Rien à signaler : les durées sont régulières."; body.appendChild(fine); }
+                    if (tempoMode) {
                         var t1 = document.createElement("div"); t1.className = "st-sub-title"; t1.textContent = "Progression du tempo (meilleur BPM de chaque séance)"; body.appendChild(t1);
-                        var tw = document.createElement("div"); tw.className = "st-chart-wrap";
-                        tw.appendChild(statsTempoChart(o.pts, function (p, x, y) { statsPointMenu(x, y, p, o.title, function () { if (box.isConnected) { rerender(); refreshStatsBadge(); } }); }));
-                        body.appendChild(tw);
-                        var hint = document.createElement("div"); hint.className = "st-hint"; hint.textContent = "Erreur d'enregistrement ? Clic droit (appui long sur téléphone) sur un point pour le retirer."; body.appendChild(hint);
+                        if (o.pts.length >= 2) {
+                            var tw = document.createElement("div"); tw.className = "st-chart-wrap";
+                            tw.appendChild(statsTempoChart(o.pts, function (p, x, y) { statsPointMenu(x, y, p, o.title, function () { if (box.isConnected) { rerender(); refreshStatsBadge(); } }); }));
+                            body.appendChild(tw);
+                            var hint = document.createElement("div"); hint.className = "st-hint"; hint.textContent = "Erreur d'enregistrement ? Clic droit (appui long sur téléphone) sur un point pour le retirer."; body.appendChild(hint);
+                        } else {
+                            var few = document.createElement("div"); few.className = "st-hint"; few.textContent = o.pts.length ? "Un seul tempo noté pour l'instant : la courbe apparaît à partir de deux séances." : "Aucun tempo noté sur cette période : lancez le métronome pendant l'exercice pour que son tempo soit suivi."; body.appendChild(few);
+                        }
+                    } else {
+                        var t2 = document.createElement("div"); t2.className = "st-sub-title"; t2.textContent = "Durée réelle de chaque séance" + (o.plannedN ? " (trait = durée prévue)" : ""); body.appendChild(t2);
+                        var dw = document.createElement("div"); dw.className = "st-chart-wrap"; dw.appendChild(statsDurationChart(o.rows.map(function (r) { return { date: r.date, sec: r.sec, plannedSec: r.plannedSec }; }))); body.appendChild(dw);
                     }
-                    var t2 = document.createElement("div"); t2.className = "st-sub-title"; t2.textContent = "Durée réelle de chaque séance" + (o.plannedN ? " (trait = durée prévue)" : ""); body.appendChild(t2);
-                    var dw = document.createElement("div"); dw.className = "st-chart-wrap"; dw.appendChild(statsDurationChart(o.rows.map(function (r) { return { date: r.date, sec: r.sec, plannedSec: r.plannedSec }; }))); body.appendChild(dw);
                     card.appendChild(body);
                 }
                 box.appendChild(card);
-            });
+            }
+            var withTempo = list.filter(function (o) { return o.tempoGoal; }), withoutTempo = list.filter(function (o) { return !o.tempoGoal; });
+            if (withTempo.length) { groupTitle("Objectif tempo", "progression du tempo, séance après séance", withTempo.length); withTempo.forEach(renderExCard); }
+            if (withoutTempo.length) { groupTitle("Sans objectif tempo", "temps passé sur l'exercice", withoutTempo.length); withoutTempo.forEach(renderExCard); }
         }
 
         ({ overview: tabOverview, time: tabTime, split: tabSplit, ex: tabExercises }[statsTab] || tabOverview)();
