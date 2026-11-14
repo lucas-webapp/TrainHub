@@ -10739,7 +10739,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v279"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v280"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }
@@ -26176,6 +26176,10 @@
         wrap.__centerCur = function () { if (curRow && box.scrollHeight > box.clientHeight) box.scrollTop = Math.max(0, curRow.offsetTop - (box.clientHeight - curRow.offsetHeight) / 2); };
         return wrap;
     }
+    // Largeur de la liste des exercices (colonne de droite de l'écran de session), réglable par une poignée : px, 0 = taille d'origine.
+    var GS_RUN_SIDE_KEY = "trainhub.gsRunSide.v1", GS_RUN_SIDE_MIN = 150, GS_RUN_SIDE_MAX = 460, GS_RUN_MAIN_MIN = 340;
+    function gsRunSideLoad() { try { var v = parseInt(localStorage.getItem(GS_RUN_SIDE_KEY), 10); return v >= GS_RUN_SIDE_MIN ? v : 0; } catch (e) { return 0; } }
+    function gsRunSideSave(v) { try { if (v) localStorage.setItem(GS_RUN_SIDE_KEY, String(v)); else localStorage.removeItem(GS_RUN_SIDE_KEY); } catch (e) {} }
     var GS_RUN_TWOCOL_MIN = 560; // largeur de la zone principale (px) à partir de laquelle la liste des exercices se place à droite du guidage
     function renderGsRunScreen(content) {
         var session = gsRunSession;
@@ -26235,6 +26239,23 @@
         runHead.appendChild(runBar);
         var upNext = buildRunUpNext(session);
         colSide.appendChild(upNext);
+        // poignée sur le bord gauche de la liste : élargit ou rétrécit la colonne (double-clic ou Début : taille d'origine ; ← → au clavier)
+        var sideSaved = gsRunSideLoad();
+        if (sideSaved) content.style.setProperty("--gs-run-side", sideSaved + "px");
+        var sideGrip = document.createElement("div");
+        sideGrip.className = "gs-grip gs-grip-left";
+        sideGrip.title = "Glisser pour élargir ou rétrécir la liste des exercices (double-clic : taille d'origine)";
+        sideGrip.setAttribute("aria-label", "Largeur de la liste des exercices"); sideGrip.innerHTML = "<i></i>";
+        gsBindSplitGrip(sideGrip, {
+            sign: -1, // la liste est à droite : tirer vers la gauche l'élargit
+            get: function () { return colSide.getBoundingClientRect().width; },
+            set: function (v, end) {
+                v = Math.round(Math.max(GS_RUN_SIDE_MIN, Math.min(GS_RUN_SIDE_MAX, content.clientWidth - GS_RUN_MAIN_MIN - 16, v)));
+                content.style.setProperty("--gs-run-side", v + "px"); if (end) gsRunSideSave(v); return v;
+            },
+            reset: function () { content.style.removeProperty("--gs-run-side"); gsRunSideSave(0); }
+        });
+        colSide.appendChild(sideGrip);
         content.classList.add("gs-main-run");
         content.appendChild(colMain); content.appendChild(colSide);
         colMain.appendChild(runHead);

@@ -7,7 +7,7 @@ const path = require('path');
 const harnais = require('/home/user/trainhub/tests/_harness');
 const { check, plan, bilan } = harnais('TrainHub : session en cours — barre d\'avancement, boutons, temps sous le métronome, logo');
 const estBruitReseau = harnais.estBruitReseau;
-plan(81);
+plan(88);
 const SHOTS = path.join(__dirname, 'shots');
 fs.mkdirSync(SHOTS, { recursive: true });
 
@@ -307,6 +307,27 @@ const sec = t => { const p = t.replace('+', '').split(':').map(Number); return p
         check(m.ctlW <= 340 && m.navW <= 340, `G. boutons resserrés : ${m.ctlW} px et ${m.navW} px de large (440 avant)`);
         check(m.hPause <= 40 && m.hNext <= 40 && m.hStop <= 40 && m.unelig, `G. boutons moins hauts : ${m.hPause}, ${m.hNext}, ${m.hStop} px, « Arrêter la session » sur une seule ligne`);
         check(m.bas < m.haut, `G. tous les boutons sont visibles sans défiler (bas à ${Math.round(m.bas)} px sur ${m.haut})`);
+        // v280 : le bouton « fenêtre flottante » ne mord plus sur la barre d'avancement
+        const rec = await page.evaluate(() => { const b = document.querySelector('.gs-run-mini-btn').getBoundingClientRect(), bar = document.querySelector('.gs-run-bar').getBoundingClientRect(); return { bas: b.bottom, barre: bar.top }; });
+        check(rec.bas <= rec.barre + 0.5, `G. le bouton « fenêtre flottante » ne chevauche plus la barre d'avancement (bas ${Math.round(rec.bas)} px, barre à ${Math.round(rec.barre)} px)`);
+        // poignée de la liste des exercices
+        const side = () => page.locator('.gs-run-colside').evaluate(e => Math.round(e.getBoundingClientRect().width));
+        const gr = page.locator('.gs-run-colside .gs-grip');
+        const w0 = await side(), gb = await gr.boundingBox();
+        check(await gr.count() === 1 && gb.width > 6 && gb.height > 30, `G. une poignée de largeur sur le bord gauche de la liste (${Math.round(gb.width)} × ${Math.round(gb.height)} px)`);
+        await page.mouse.move(gb.x + gb.width / 2, gb.y + gb.height / 2); await page.mouse.down(); await page.mouse.move(gb.x + gb.width / 2 - 60, gb.y + gb.height / 2, { steps: 8 }); await page.mouse.up();
+        const w1 = await side();
+        check(Math.abs(w1 - w0 - 60) <= 4, `G. tirer la poignée vers la gauche élargit la liste (${w0} → ${w1} px)`);
+        check(await page.evaluate(() => localStorage.getItem('trainhub.gsRunSide.v1')) === String(w1), 'G. la largeur choisie est mémorisée');
+        await gr.dblclick(); await page.waitForTimeout(200);
+        check(await side() === w0 && await page.evaluate(() => localStorage.getItem('trainhub.gsRunSide.v1')) === null, `G. double-clic : taille d'origine (${await side()} px)`);
+        // poignée du métronome épinglé (avec la carte des temps) : repère visible en permanence, et elle fonctionne
+        const dk = await page.evaluate(() => { const g = document.querySelector('.metro-dock-grip-w'), a = getComputedStyle(g, '::after'); return { op: parseFloat(a.opacity), h: parseFloat(a.height), w: Math.round(document.querySelector('.metro-dock').getBoundingClientRect().width) }; });
+        check(dk.op >= 0.4 && dk.h >= 30, `G. la poignée du métronome est visible sans survol (opacité ${dk.op}, ${dk.h} px de haut)`);
+        const g2 = await page.locator('.metro-dock-grip-w').boundingBox();
+        await page.mouse.move(g2.x + g2.width / 2, g2.y + 100); await page.mouse.down(); await page.mouse.move(g2.x + g2.width / 2 - 80, g2.y + 100, { steps: 8 }); await page.mouse.up(); await page.waitForTimeout(250);
+        const dk2 = await page.evaluate(() => Math.round(document.querySelector('.metro-dock').getBoundingClientRect().width));
+        check(Math.abs(dk2 - dk.w - 80) <= 6, `G. tirer cette poignée élargit le métronome et la carte des temps (${dk.w} → ${dk2} px)`);
         await ctx.close();
     }
     {
