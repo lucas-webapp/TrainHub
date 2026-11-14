@@ -7,7 +7,7 @@ const path = require('path');
 const harnais = require('/home/user/trainhub/tests/_harness');
 const { check, plan, bilan } = harnais('TrainHub : session en cours — barre d\'avancement, boutons, temps sous le métronome, logo');
 const estBruitReseau = harnais.estBruitReseau;
-plan(70);
+plan(81);
 const SHOTS = path.join(__dirname, 'shots');
 fs.mkdirSync(SHOTS, { recursive: true });
 
@@ -166,8 +166,9 @@ const sec = t => { const p = t.replace('+', '').split(':').map(Number); return p
         let l = await lignes(page);
         check(l.length === 9 && l[0].cls === 'gs-run-up-cur' && l.slice(1).every(x => x.cls === 'gs-run-up-next'), `F. au 1er exercice de 9 : les 9 sont listés, le premier en évidence (${l.length})`);
         check(l[0].txt === 'Gamme avec accents' && l.slice(1, 6).map(x => x.txt).join('|') === 'Arpèges|Blue Bossa|Tremolo|Legato|Slap' && l[8].txt === 'Improvisation' && l[0].min === '2 min', 'F. les titres sont dans l\'ordre de la session, avec leur durée');
-        const g = await page.evaluate(() => { const u = document.querySelector('.gs-run-upnext').getBoundingClientRect(), h = document.querySelector('.gs-run-head').getBoundingClientRect(), bar = document.querySelector('.gs-run-bar').getBoundingClientRect(); return { haut: u.height, gauche: u.left - h.left, larg: u.width, tete: h.width, souslabarre: u.top - bar.bottom }; });
-        check(Math.abs(g.gauche) <= 1 && g.larg <= g.tete + 1 && g.souslabarre >= 0 && g.souslabarre < 16, `F. la liste est sous la barre, dans la colonne (hauteur ${Math.round(g.haut)} px)`);
+        const g = await page.evaluate(() => { const u = document.querySelector('.gs-run-upnext').getBoundingClientRect(), h = document.querySelector('.gs-run-head').getBoundingClientRect(), row = document.querySelector('.gs-run-up-row').getBoundingClientRect(); return { haut: u.height, ecart: u.left - h.right, larg: u.width, dessus: u.top - h.top, ligne: row.height }; });
+        check(g.ecart >= 8 && g.larg <= 260 && Math.abs(g.dessus) <= 14, `F. (v279) la liste est dans une colonne à DROITE du guidage, alignée en haut (hauteur ${Math.round(g.haut)} px, largeur ${Math.round(g.larg)} px)`);
+        check(g.ligne <= 22, `F. (v279) les lignes sont compactes (${Math.round(g.ligne)} px)`);
         check(await page.locator('.gs-plan').count() === 0 && await page.getByText('Plan de la session').count() === 0, 'F. plus de barre « Plan de la session » tout en bas');
         // clic = aller à l'exercice
         await page.locator('.gs-run-up-row').nth(3).click(); await page.waitForTimeout(400);
@@ -209,11 +210,11 @@ const sec = t => { const p = t.replace('+', '').split(':').map(Number); return p
         check(erreurs.length === 0, 'F. aucune erreur JavaScript ' + JSON.stringify(erreurs));
         await ctx.close();
     }
-    {   // beaucoup d'exercices : la liste défile et garde l'exercice en cours visible ; grand écran : liste dans la marge de gauche
+    {   // beaucoup d'exercices : la liste défile et garde l'exercice en cours visible ; grand écran : liste à droite du guidage, contre le métronome
         const { ctx, page } = await ouvrir(browser, { viewport: { width: 1920, height: 1000 }, etapes: 9 });
         await lancerSession(page);
-        const g = await page.evaluate(() => { const u = document.querySelector('.gs-run-steps').getBoundingClientRect(), h = document.querySelector('.gs-run-head').getBoundingClientRect(), s = document.querySelector('.sidebar, #sidebar, aside'), sb = s ? s.getBoundingClientRect().right : 0; return { droite: u.right, gauche: u.left, tete: h.left, sb: sb }; });
-        check(g.droite <= g.tete && g.gauche > g.sb, `F. à 1920 px la liste est à gauche de la colonne de guidage, sans toucher le volet des dossiers (${Math.round(g.gauche)}→${Math.round(g.droite)} px, colonne dès ${Math.round(g.tete)}, volet jusqu'à ${Math.round(g.sb)})`);
+        const g = await page.evaluate(() => { const u = document.querySelector('.gs-run-steps').getBoundingClientRect(), h = document.querySelector('.gs-run-head').getBoundingClientRect(), d = document.querySelector('.metro-dock'), dk = d ? d.getBoundingClientRect() : null; return { droite: u.right, gauche: u.left, teteDroite: h.right, dock: dk ? dk.left : null }; });
+        check(g.gauche >= g.teteDroite && g.dock !== null && g.droite <= g.dock + 1 && g.dock - g.droite < 40, `F. à 1920 px la liste est à droite de la colonne de guidage, collée au métronome épinglé (${Math.round(g.gauche)}→${Math.round(g.droite)} px, guidage jusqu'à ${Math.round(g.teteDroite)}, métronome dès ${Math.round(g.dock)})`);
         await ctx.close();
     }
     {   // téléphone : rien ne déborde
@@ -289,6 +290,33 @@ const sec = t => { const p = t.replace('+', '').split(':').map(Number); return p
         check(g.doc <= 0 && g.head.l >= 0 && g.head.r <= 390 && g.mini.r <= g.head.r + 1 && g.controls.w <= 441, `E. téléphone : barre, boutons et bouton flottant dans l'écran (${JSON.stringify(g)})`);
         await page.screenshot({ path: path.join(SHOTS, 'sui-6-tel.png') });
         check(erreurs.length === 0, 'E. aucune erreur JavaScript ' + JSON.stringify(erreurs));
+        await ctx.close();
+    }
+
+
+    // ============ G. Deux colonnes (v279) : guidage à gauche tout en haut, liste compacte à droite, boutons resserrés ; sans la place, pas de liste ============
+    {
+        const { ctx, page, erreurs } = await ouvrir(browser, { viewport: { width: 1440, height: 900 }, etapes: 9 });
+        await lancerSession(page);
+        const m = await page.evaluate(() => {
+            const r = s => { const e = document.querySelector(s); return e ? e.getBoundingClientRect() : null; }, head = r('.gs-run-head'), timer = r('.gs-run-timer-row'), ctl = r('.gs-run-controls'), nav = r('.gs-run-nav-row'), stop = document.querySelector('.gs-run-stop-btn'), pause = document.querySelector('.gs-run-pause-btn'), next = document.querySelector('.gs-run-nav-row button.btn-accent');
+            return { deux: document.querySelector('.gs-main-run').classList.contains('gs-run-twocol'), tdep: timer.top - head.bottom, ctlW: Math.round(ctl.width), navW: Math.round(nav.width), hStop: Math.round(stop.getBoundingClientRect().height), unelig: stop.scrollHeight <= stop.clientHeight + 1, hPause: Math.round(pause.getBoundingClientRect().height), hNext: Math.round(next.getBoundingClientRect().height), bas: nav.bottom, haut: innerHeight };
+        });
+        check(m.deux, 'G. à 1440 px (métronome épinglé) : écran en deux colonnes');
+        check(m.tdep < 150, `G. le chrono est tout en haut, juste sous le titre (${Math.round(m.tdep)} px sous la barre d'avancement ; avant : sous la liste)`);
+        check(m.ctlW <= 340 && m.navW <= 340, `G. boutons resserrés : ${m.ctlW} px et ${m.navW} px de large (440 avant)`);
+        check(m.hPause <= 40 && m.hNext <= 40 && m.hStop <= 40 && m.unelig, `G. boutons moins hauts : ${m.hPause}, ${m.hNext}, ${m.hStop} px, « Arrêter la session » sur une seule ligne`);
+        check(m.bas < m.haut, `G. tous les boutons sont visibles sans défiler (bas à ${Math.round(m.bas)} px sur ${m.haut})`);
+        await ctx.close();
+    }
+    {
+        const { ctx, page, erreurs } = await ouvrir(browser, { viewport: { width: 500, height: 900 }, etapes: 9 });
+        await lancerSession(page, { metronome: false });
+        const m = await page.evaluate(() => { const side = document.querySelector('.gs-run-colside'); return { deux: document.querySelector('.gs-main-run').classList.contains('gs-run-twocol'), disp: getComputedStyle(side).display, vis: !!document.querySelector('.gs-run-upnext').offsetParent, larg: document.documentElement.scrollWidth - innerWidth }; });
+        check(!m.deux && m.disp === 'none' && !m.vis, 'G. à 500 px (pas la place) : la liste des exercices n\'est pas affichée');
+        check(m.larg <= 0, 'G. … et rien ne déborde de l\'écran');
+        check(await page.locator('.gs-run-nav-row button').count() === 2, 'G. Précédent / Suivant restent disponibles');
+        check(erreurs.length === 0, 'G. aucune erreur JavaScript ' + JSON.stringify(erreurs));
         await ctx.close();
     }
 

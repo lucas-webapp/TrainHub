@@ -10739,7 +10739,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v278"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v279"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }
@@ -26176,10 +26176,15 @@
         wrap.__centerCur = function () { if (curRow && box.scrollHeight > box.clientHeight) box.scrollTop = Math.max(0, curRow.offsetTop - (box.clientHeight - curRow.offsetHeight) / 2); };
         return wrap;
     }
+    var GS_RUN_TWOCOL_MIN = 560; // largeur de la zone principale (px) à partir de laquelle la liste des exercices se place à droite du guidage
     function renderGsRunScreen(content) {
         var session = gsRunSession;
         var step = session.steps[gsRunStepIndex];
         var found = findExerciseById(step.exerciseId);
+        // v279 : deux colonnes quand la place le permet : à gauche le guidage (titre, chrono, dé, boutons), à DROITE la liste des exercices, collée au métronome
+        // (lignes compactes). Sans la place, la liste n'est pas affichée (Précédent / Suivant restent). Classe `gs-run-twocol` posée d'après la largeur réelle.
+        var colMain = document.createElement("div"); colMain.className = "gs-run-colmain";
+        var colSide = document.createElement("div"); colSide.className = "gs-run-colside";
 
         var runHead = document.createElement("div"); // ligne du haut + barre d'avancement : dans la même colonne que les boutons (le bouton « fenêtre flottante » n'est plus rejeté au bord de la page)
         runHead.className = "gs-run-head";
@@ -26229,17 +26234,21 @@
         }
         runHead.appendChild(runBar);
         var upNext = buildRunUpNext(session);
-        runHead.appendChild(upNext);
+        colSide.appendChild(upNext);
         content.classList.add("gs-main-run");
-        content.appendChild(runHead);
+        content.appendChild(colMain); content.appendChild(colSide);
+        colMain.appendChild(runHead);
         if (upNext.__centerCur) setTimeout(upNext.__centerCur, 0);
+        function syncRunCols() { content.classList.toggle("gs-run-twocol", content.clientWidth >= GS_RUN_TWOCOL_MIN); if (upNext.__centerCur) upNext.__centerCur(); }
+        syncRunCols();
+        if (window.ResizeObserver) new ResizeObserver(syncRunCols).observe(content);
 
-        if (found) content.appendChild(gsThemeBadge(found.pathNames, found.chapterColor));
+        if (found) colMain.appendChild(gsThemeBadge(found.pathNames, found.chapterColor));
 
         var exTitle = document.createElement("div");
         exTitle.className = "gs-run-title";
         exTitle.textContent = found ? found.ex.title : "(exercice supprimé)";
-        content.appendChild(exTitle);
+        colMain.appendChild(exTitle);
 
         var presetNow = gsEffectiveMetronome(step, found && found.ex);
         if (presetNow) {
@@ -26247,7 +26256,7 @@
             presetLine.className = "gs-run-preset";
             presetLine.textContent = "♩ " + metroPresetSummary(presetNow);
             presetLine.title = "Réglage du métronome prédéfini pour cet exercice (appliqué au changement d'exercice)";
-            content.appendChild(presetLine);
+            colMain.appendChild(presetLine);
         }
 
         // Les liens/fichiers de l'exercice en cours sont visibles tout de suite (pas besoin de
@@ -26257,7 +26266,7 @@
             var noteEl = document.createElement("div");
             noteEl.className = "gs-run-note";
             noteEl.textContent = step.note.trim();
-            content.appendChild(noteEl);
+            colMain.appendChild(noteEl);
         }
 
         // Liens et fichiers de l'exercice (sauf ceux masqués pour cette session, et sauf les liens
@@ -26281,7 +26290,7 @@
                 resourcesRow.appendChild(imgChip);
                 found.ex.images.forEach(function (m) { loadImageInto(new Image(), m, function () {}); }); // préchargées
             }
-            if (resourcesRow.children.length) content.appendChild(resourcesRow);
+            if (resourcesRow.children.length) colMain.appendChild(resourcesRow);
         }
 
         var timerEl = document.createElement("div");
@@ -26289,11 +26298,11 @@
         var timerRow = document.createElement("div");
         timerRow.className = "gs-run-timer-row";
         timerRow.appendChild(timerEl);
-        content.appendChild(timerRow);
+        colMain.appendChild(timerRow);
         var totalEl = document.createElement("div");
         totalEl.className = "gs-run-total";
         totalEl.title = "Durée totale de la session (s'arrête pendant la pause)";
-        content.appendChild(totalEl);
+        colMain.appendChild(totalEl);
         // Dé de gamme (exercices pour lesquels il a été réglé) : un clic tire une gamme, le tirage s'affiche sous le chrono.
         var sdice = gsStepDice(step, found ? found.ex : null);
         if (sdice) {
@@ -26355,7 +26364,7 @@
                 refreshDiceLine();
             });
             refreshDiceLine();
-            content.appendChild(diceLine);
+            colMain.appendChild(diceLine);
         } else if (found && found.ex.harm) {
             // Dé d'HARMONIE de l'exercice : tirage près du chrono, résumé et consigne dessous, l'outil Harmonie pour la grille, le lecteur et le diagramme.
             var hx = found.ex, hLine = document.createElement("div");
@@ -26391,7 +26400,7 @@
                 gsHarmDrawn[step.id] = pk; refreshHarmLine();
             });
             refreshHarmLine();
-            content.appendChild(hLine);
+            colMain.appendChild(hLine);
         }
 
         function refreshTimer() {
@@ -26422,7 +26431,7 @@
             refreshTimer();
             refreshKeepBtn();
         }));
-        content.appendChild(adjustRow);
+        colMain.appendChild(adjustRow);
 
         // −1/+1 min ne valent que pour cette fois ; ce bouton (visible seulement quand la durée a
         // changé) l'enregistre dans la session pour les prochaines fois.
@@ -26442,7 +26451,7 @@
             showToast("Durée enregistrée : " + step.minutes + " min");
             var curMin = document.querySelector(".gs-run-up-cur .gs-run-up-min"); if (curMin) curMin.textContent = step.minutes + " min";
         });
-        content.appendChild(keepBtn);
+        colMain.appendChild(keepBtn);
         refreshKeepBtn();
 
         var pauseStopRow = document.createElement("div");
@@ -26474,7 +26483,7 @@
             dlgConfirm({ title: "Arrêter la session ?", message: "Tu pourras ensuite l'enregistrer dans l'historique.", confirmLabel: "Arrêter la session", cancelLabel: "Continuer" }, gsEndRun);
         });
         pauseStopRow.appendChild(stopBtn);
-        content.appendChild(pauseStopRow);
+        colMain.appendChild(pauseStopRow);
 
         var toolsRow = document.createElement("div");
         toolsRow.className = "gs-run-tools-row";
@@ -26577,7 +26586,7 @@
         });
         navRow.appendChild(prevBtn);
         navRow.appendChild(nextBtn);
-        content.appendChild(navRow);
+        colMain.appendChild(navRow);
 
         // Images de l'exercice (captures de partition) : visibles d'office juste sous les boutons, pour les lire en jouant ;
         // un clic sur la barre les masque (choix retenu), un clic sur une vignette l'agrandit.
