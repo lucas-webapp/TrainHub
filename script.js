@@ -10739,7 +10739,7 @@
                 + (o.nodes ? ", session libre " + (o.free ? "active" : "non") + ", " + o.nodes + " éléments dans la page, dernier affichage de la page : " + (o.renderMs || 0) + " ms" : ""));
         } catch (e) {}
     })();
-    var APP_VERSION = "v281"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
+    var APP_VERSION = "v282"; // à tenir au même numéro que CACHE_NAME dans sw.js : le journal dit quelle version tournait
     function audioLogText() {
         return "TrainHub " + APP_VERSION + " — journal du son\n" + (navigator.userAgent || "") + "\n" + audioLogBuf.join("\n");
     }
@@ -24347,7 +24347,7 @@
     function statsSeenSave(o) { try { localStorage.setItem(STATS_SEEN_KEY, JSON.stringify(o)); } catch (e) {} }
     var STATS_TABS = [["overview", "Aperçu"], ["time", "Temps"], ["split", "Répartition"], ["ex", "Exercices"]];
     var statsPickSel = null, statsScrollMem = null; // barre touchée (détail) et position du défilement du graphique, gardées d'un affichage à l'autre
-    var statsTab = "overview", statsSubChapter = "", statsExFilter = "all", statsExSort = "alerts", statsExOpen = {}, statsIssuesOpen = false;
+    var statsTab = "overview", statsSubChapter = "", statsExFilter = "all", statsExSort = "alerts", statsExOpen = {}, statsIssuesOpen = false, statsExMode = ""; // statsExMode : "tempo" | "dur" (vue de l'onglet Exercices, v282)
     function stSection(box, title, extra) {
         var h = document.createElement("div"); h.className = "gs-stat-title"; h.textContent = title;
         if (extra) h.appendChild(extra);
@@ -24675,28 +24675,39 @@
         // ============ EXERCICES : analyse, alertes, conseils, progression du tempo ============
         function tabExercises() {
             if (!exList.length) { var none = document.createElement("div"); none.className = "gs-empty"; none.textContent = "Aucun exercice travaillé sur cette période."; box.appendChild(none); return; }
+            // v282 : DEUX vues, à basculer. « Tempo progressif » : les exercices à objectif tempo, SEULEMENT leur progression de tempo, date après date.
+            // « Durées » : les exercices sans objectif tempo, SEULEMENT le temps passé (réel contre prévu). Plus rien de mélangé dans une même liste.
+            var tempoAll = exList.filter(function (o) { return o.tempoGoal; }), durAll = exList.filter(function (o) { return !o.tempoGoal; });
+            if (statsExMode !== "tempo" && statsExMode !== "dur") statsExMode = tempoAll.length || !durAll.length ? "tempo" : "dur";
+            var inMode = statsExMode === "tempo" ? tempoAll : durAll, modeWarn = inMode.filter(function (o) { return o.warn > 0; }).length;
+            var sw = document.createElement("div"); sw.className = "st-ex-mode"; sw.setAttribute("role", "group"); sw.setAttribute("aria-label", "Type de statistiques");
+            [["tempo", "Tempo progressif", tempoAll.length, "Exercices avec objectif tempo : progression du tempo, séance après séance"], ["dur", "Durées", durAll.length, "Exercices sans objectif tempo : temps passé, réel contre prévu"]].forEach(function (m) {
+                var b = stBtn(m[1], "st-ex-mode-btn" + (statsExMode === m[0] ? " active" : ""), function () { statsExMode = m[0]; rerender(); });
+                b.dataset.mode = m[0]; b.title = m[3]; b.setAttribute("aria-pressed", statsExMode === m[0] ? "true" : "false");
+                var n = document.createElement("span"); n.className = "st-ex-mode-n"; n.textContent = String(m[2]); b.appendChild(n);
+                sw.appendChild(b);
+            });
+            box.appendChild(sw);
+            var cap = document.createElement("div"); cap.className = "st-ex-caption";
+            cap.textContent = statsExMode === "tempo" ? "Exercices avec objectif tempo : progression du tempo, séance après séance." : "Exercices sans objectif tempo : temps passé sur chacun, réel contre prévu.";
+            box.appendChild(cap);
             var head = document.createElement("div"); head.className = "st-ex-head-bar";
             var info = document.createElement("span"); info.className = "st-ex-info";
-            info.textContent = exList.length + " exercice" + (exList.length > 1 ? "s" : "") + " analysé" + (exList.length > 1 ? "s" : "") + " · " + (warnCount ? warnCount + " à surveiller" : "rien d'inquiétant");
+            info.textContent = inMode.length + " exercice" + (inMode.length > 1 ? "s" : "") + " analysé" + (inMode.length > 1 ? "s" : "") + " · " + (modeWarn ? modeWarn + " à surveiller" : "rien d'inquiétant");
             var chips = document.createElement("span"); chips.className = "st-ex-chips";
             [["all", "Tous"], ["alerts", "À surveiller"]].forEach(function (c) {
                 var b = stBtn(c[1], "cal-pick-chip" + (statsExFilter === c[0] ? " active" : ""), function () { statsExFilter = c[0]; rerender(); }); chips.appendChild(b);
             });
             var sort = document.createElement("select"); sort.className = "st-ex-sort"; sort.setAttribute("aria-label", "Trier");
-            [["alerts", "À surveiller d'abord"], ["time", "Plus travaillés"], ["gain", "Meilleure progression du tempo"], ["idle", "Moins récents d'abord"], ["name", "Ordre alphabétique"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if (statsExSort === o[0]) op.selected = true; sort.appendChild(op); });
+            (statsExMode === "tempo" ? [["alerts", "À surveiller d'abord"], ["gain", "Meilleure progression du tempo"], ["idle", "Moins récents d'abord"], ["name", "Ordre alphabétique"]] : [["alerts", "À surveiller d'abord"], ["time", "Plus travaillés"], ["idle", "Moins récents d'abord"], ["name", "Ordre alphabétique"]]).forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if (statsExSort === o[0]) op.selected = true; sort.appendChild(op); });
             sort.addEventListener("change", function () { statsExSort = sort.value; rerender(); });
             head.appendChild(info); head.appendChild(chips); head.appendChild(sort); box.appendChild(head);
-            var list = exList.filter(function (o) { return statsExFilter === "all" || o.warn > 0; });
+            if (statsExMode === "tempo" && statsExSort === "time") statsExSort = "alerts";
+            if (statsExMode === "dur" && statsExSort === "gain") statsExSort = "alerts";
+            var list = inMode.filter(function (o) { return statsExFilter === "all" || o.warn > 0; });
             var cmp = { alerts: function (a, b) { return b.warn - a.warn || b.alerts.length - a.alerts.length || b.sec - a.sec; }, time: function (a, b) { return b.sec - a.sec; }, gain: function (a, b) { return b.delta - a.delta || b.sec - a.sec; }, idle: function (a, b) { return a.last - b.last; }, name: function (a, b) { return a.title.localeCompare(b.title, "fr", { sensitivity: "base" }); } }[statsExSort] || function () { return 0; };
             list.sort(cmp);
-            if (!list.length) { var ok = document.createElement("div"); ok.className = "gs-empty"; ok.textContent = "Aucun exercice à surveiller sur cette période."; box.appendChild(ok); }
-            // v281 : deux groupes. « Objectif tempo » : SEULEMENT la progression du tempo, date après date. « Sans objectif tempo » : SEULEMENT la durée (temps passé, réel contre prévu).
-            function groupTitle(text, caption, n) {
-                var gt = document.createElement("div"); gt.className = "st-ex-group";
-                var a = document.createElement("strong"); a.textContent = text + " · " + n + " exercice" + (n > 1 ? "s" : "");
-                var b = document.createElement("span"); b.textContent = caption;
-                gt.appendChild(a); gt.appendChild(b); box.appendChild(gt);
-            }
+            if (!list.length) { var ok = document.createElement("div"); ok.className = "gs-empty"; ok.textContent = !inMode.length ? (statsExMode === "tempo" ? "Aucun exercice avec objectif tempo travaillé sur cette période. L'objectif tempo se règle dans la fiche d'un exercice (bouton métronome + flèche)." : "Aucun exercice sans objectif tempo travaillé sur cette période.") : "Aucun exercice à surveiller sur cette période."; box.appendChild(ok); }
             function renderExCard(o) {
                 var tempoMode = !!o.tempoGoal, open = !!statsExOpen[o.key];
                 var card = document.createElement("div"); card.className = "st-ex" + (open ? " open" : "") + (o.warn ? " st-ex-warn" : "") + (tempoMode ? " st-ex-tempomode" : " st-ex-durmode"); card.dataset.key = o.key;
@@ -24757,9 +24768,7 @@
                 }
                 box.appendChild(card);
             }
-            var withTempo = list.filter(function (o) { return o.tempoGoal; }), withoutTempo = list.filter(function (o) { return !o.tempoGoal; });
-            if (withTempo.length) { groupTitle("Objectif tempo", "progression du tempo, séance après séance", withTempo.length); withTempo.forEach(renderExCard); }
-            if (withoutTempo.length) { groupTitle("Sans objectif tempo", "temps passé sur l'exercice", withoutTempo.length); withoutTempo.forEach(renderExCard); }
+            list.forEach(renderExCard);
         }
 
         ({ overview: tabOverview, time: tabTime, split: tabSplit, ex: tabExercises }[statsTab] || tabOverview)();

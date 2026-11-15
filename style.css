@@ -5481,3 +5481,11 @@ canvas.rec-wave-over { height: 46px; border-top: 1px solid var(--border); backgr
 .st-ex-group span { font-size: var(--fs-2xs); color: var(--text-muted); }
 button.st-ex-row.st-ex-r2 { grid-template-columns: minmax(0, 1.6fr) auto minmax(0, 1.5fr) auto; }
 @container sts (max-width: 640px) { button.st-ex-row.st-ex-r2 { grid-template-columns: minmax(0, 1fr) auto; } }
+
+/* v282 : l'onglet Exercices des statistiques a deux vues à basculer (Tempo progressif / Durées) au lieu de deux groupes empilés */
+.st-ex-mode { display: flex; gap: 6px; margin: 2px 0 6px; }
+button.st-ex-mode-btn { flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 38px; padding: 0 12px; font-size: var(--fs-sm); font-weight: 700; color: var(--text-muted); background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+button.st-ex-mode-btn:hover { color: var(--text-main); border-color: var(--border-hi, var(--text-muted)); }
+button.st-ex-mode-btn.active { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.st-ex-mode-n { font-size: var(--fs-2xs); font-weight: 800; min-width: 20px; padding: 1px 6px; border-radius: 999px; background: rgba(var(--ov), .1); color: inherit; text-align: center; }
+.st-ex-caption { margin: 0 0 8px; font-size: var(--fs-xs); color: var(--text-muted); }
