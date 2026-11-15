@@ -623,8 +623,12 @@ button.result-group-title:hover { background: color-mix(in srgb, var(--group-col
     color: var(--text-main);
     box-shadow: 0 6px 20px rgba(0,0,0,calc(.4 * var(--sh-k)));
     z-index: 950;
+    /* left:50% ne laisse que la MOITIÉ de l'écran à un bloc fixe de largeur auto : max-width ne servait à rien et un
+       message un peu long (« D'autres modifications ont suivi… ») était écrasé en colonne étroite sur téléphone. */
+    width: max-content;
     max-width: calc(100vw - 32px);
     text-align: center;
+    overflow-wrap: anywhere;
     animation: toast-in .15s ease;
 }
 @keyframes toast-in {
@@ -5489,3 +5493,6 @@ button.st-ex-mode-btn:hover { color: var(--text-main); border-color: var(--borde
 button.st-ex-mode-btn.active { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .st-ex-mode-n { font-size: var(--fs-2xs); font-weight: 800; min-width: 20px; padding: 1px 6px; border-radius: 999px; background: rgba(var(--ov), .1); color: inherit; text-align: center; }
 .st-ex-caption { margin: 0 0 8px; font-size: var(--fs-xs); color: var(--text-muted); }
+
+/* v283 — les pastilles à 999 px ne doivent jamais passer sur deux lignes (les bouts arrondis rognent le texte) */
+.gs-files-badge, .gs-yt-side-value, .ex-note-add, .harm-deg-fn, .media-tab-count { white-space: nowrap; }
