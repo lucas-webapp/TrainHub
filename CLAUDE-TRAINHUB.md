@@ -136,6 +136,8 @@ et les **tests de bout en bout `@playwright/test`** (`tests/e2e/`, 7 navigateurs
   à la demande (matrice complète), WebKit macOS à la demande ; `bancs.yml` dimanche et à la demande (les bancs ci-dessous, tels quels).
 
 ### Bancs historiques (Playwright, Chromium)
+- ⚠ **Lancer les bancs SANS la sortie audio factice** : `pulseaudio --kill` avant `tests/playwright/lancer.sh` (le script de préparation des tests e2e la démarre pour Firefox ;
+  avec elle, le banc `preset` échoue sur 3 vérifications, sans elle il passe — voir `tests/PLAN.md` § 7 et `tests/reports/bugs.md` B-01). Les tests e2e, eux, la gardent.
 - `require('playwright')` fonctionne avec `NODE_PATH=/opt/node22/lib/node_modules` (ne pas réinstaller Playwright).
 - Serveur statique depuis la racine du dépôt sur `:8765` (le banc vidéo a aussi besoin du faux lecteur YouTube sur `:8766`) : `lancer.sh` s'en charge.
 - Harnais : `tests/_harness.js` → `const { check, plan, bilan } = require('…/_harness')('titre')` ; `plan(n)` déclare le minimum de vérifications

@@ -1,7 +1,7 @@
 # Plan des tests Playwright (`@playwright/test`) — TrainHub
 
-État : **phase 3 faite (infrastructure en place), phase 4 (validation) en cours** — 23/11/2026. Plan validé par l'utilisateur le 23/11 (§ 8).
-Dans la VM : `@smoke` vert sur les 7 projets ; module `demarrage` 24 réussis / 25 sautés voulus / 0 échec sur les 7 projets (garde-fou : 2 échecs attendus, Chromium seul ; fenêtre Google : CI seulement).
+État : **phases 3 et 4 faites (infrastructure et validation), phase 5 (couverture intégrale) prête à démarrer** — 23/11/2026. Plan validé par l'utilisateur le 23/11 (§ 8).
+Dans la VM : `@smoke` vert sur les 7 projets ; module `demarrage` 59 réussis / 25 sautés voulus / 0 échec sur les 7 projets (13 tests, hors ligne et accueil ajoutés) (garde-fou : 2 échecs attendus, Chromium seul ; fenêtre Google : CI seulement).
 Ce fichier est la mémoire de ce chantier : le sous-agent `testeur-e2e` y lit l'état de chaque module ; après un `/clear`, c'est ici qu'on reprend
 (« Reprends la phase 5 » → § 3, premier module qui n'est pas ☑).
 Référence reprise : l'infrastructure d'HarmoHub (`lucas-webapp/HarmoHub`, branche `claude/harmohub-travail-Claude`, `tests/PLAN.md` § 9), lue le 23/11.
@@ -50,13 +50,20 @@ Référence reprise : l'infrastructure d'HarmoHub (`lucas-webapp/HarmoHub`, bran
 - ✔ **Mises en page** : téléphone **≤ 700 px** (`.phone-only`, barre des chapitres, menu « ⋯ », bouton « Outils de musique ») ; métronome épinglé
   en bas sous 1 100 px, à droite au-dessus. L'iPad Pro 11 en paysage (1 194 px) a la mise en page ordinateur.
 - ✔ **Sélecteurs** : 187 `aria-label` dans `script.js`, des `title` partout, des `id` stables dans `index.html` ; **aucun `data-testid`**.
-- ✔ **Bancs existants** : 35 bancs `tests/playwright/trainhub_<nom>_test.js` (Node + Playwright, Chromium, harnais `tests/_harness.js`), lancés par
+- ✔ **Bancs existants** : 34 bancs `tests/playwright/trainhub_<nom>_test.js` (Node + Playwright, Chromium, harnais `tests/_harness.js`), lancés par
   `tests/playwright/lancer.sh` (≈ 15 min, serveur :8765 et faux YouTube :8766) + `tests/compte_cloud_test.js` (composant partagé, empreinte SHA-256).
   **Aucune CI** (pas de `.github/`). `lancer.sh` rend toujours le code 0 (il filtre la sortie).
-- ✔ **Les bancs ne contactent pas la production** (lecture du code, 23/11) : chacun interrompt `https://www.gstatic.com/firebasejs/**` dans chaque page
-  qu'il ouvre (`abort`), donc le SDK ne se charge jamais et aucune requête Firebase ne peut partir ; `trainhub_compte` sert un **faux** SDK ;
-  `compte_cloud_test` charge le composant sur une fausse origine (`http://harnais.test`). À confirmer par une mesure (toutes requêtes Google
-  interceptées) en phase 3.
+- ✔ **Les bancs ne contactent pas la production** — **mesuré le 23/11** : les 34 bancs + `compte_cloud_test` ont été rejoués avec un espion (chargé par
+  `NODE_OPTIONS`, sans modifier aucun banc) qui note chaque requête vers un domaine Google ou Firebase. Résultat : **0 requête partie vers Firestore,
+  Auth (`identitytoolkit`, `securetoken`), `firebaseapp`, `firebaseio` ou `web.app`**. Seules sortent les polices Google (`fonts.googleapis.com`,
+  `fonts.gstatic.com`, sans rapport avec Firebase). Le SDK (`www.gstatic.com/firebasejs/**`) est tenté par chaque banc puis interrompu ; seul `trainhub_compte`
+  reçoit une réponse, celle de son FAUX SDK. (Une première mesure, qui n'accrochait pas la copie de Playwright du dépôt, ne voyait rien : refaite et corrigée.)
+- ✔ **Piège : la sortie audio factice change le résultat d'un banc.** Avec PulseAudio (`pactl load-module module-null-sink`, nécessaire à Firefox pour les tests
+  e2e), le banc `preset` échoue sur 3 vérifications (« aucun contexte audio neuf créé (1 → 2) », journal, « Précédent » : même contexte) ; **sans PulseAudio,
+  il passe (22 / 22)**. L'appli n'a pas changé (aucun diff de `script.js`). Conséquences : les bancs se lancent **sans PulseAudio** (`pulseaudio --kill` avant
+  `lancer.sh`), le workflow `bancs.yml` n'en démarre pas, et c'est consigné comme **à confirmer** dans `tests/reports/bugs.md` (B-01) : avec une sortie audio,
+  appliquer un préréglage pendant la lecture crée un contexte audio de plus, ce que le banc dit ne pas devoir arriver. Le banc `son` a aussi échoué une fois sur
+  une vérification (« lancement suivant : clics sur un contexte neuf ») au premier passage avec PulseAudio, puis réussi (75 / 75) au second : à surveiller.
 
 ### Ce qui diffère d'HarmoHub
 | HarmoHub | TrainHub | Adaptation |
@@ -94,7 +101,7 @@ Priorité : **P1** parcours principal, **P2** important, **P3** secondaire. Stat
 
 | # | Module (`tests/e2e/<module>/`) | Parcours à tester | Prio. | Statut |
 |---|---|---|---|---|
-| 1 | `demarrage` | l'appli s'ouvre (fenêtre d'accueil, « continuer sans compte »), créer un exercice, lancer et arrêter le métronome, rechargement = tout est resté (`@smoke`) ; garde-fou production (Firestore et Storage) ; les deux modes (sans connexion, connexion Google fictive, vraie fenêtre de l'émulateur en CI) ; hors ligne (SDK refusé : pilule grisée, appli utilisable) | P1 | ◐ 23/11 : 3 fichiers, 7 tests (smoke, garde-fou ×3, deux modes ×3) ; reste : hors ligne (testeur) |
+| 1 | `demarrage` | l'appli s'ouvre (fenêtre d'accueil, « continuer sans compte »), créer un exercice, lancer et arrêter le métronome, rechargement = tout est resté (`@smoke`) ; garde-fou production (Firestore et Storage) ; les deux modes (sans connexion, connexion Google fictive, vraie fenêtre de l'émulateur en CI) ; hors ligne (SDK refusé : pilule grisée, appli utilisable) | P1 | ☑ 23/11 : 5 fichiers, 13 tests (smoke, garde-fou ×3, deux modes ×3, hors ligne ×4, accueil ×2) ; 59 réussis / 25 sautés voulus sur les 7 projets ; bug D-01 (mineur) |
 | 2 | `bibliotheque` | espaces (créer, renommer, supprimer, changer) ; chapitres ; dossiers (créer, renommer, déplacer, fusionner, dupliquer, note du dossier) ; exercices (ajouter en rafale, renommer, dupliquer, copies liées, supprimer → corbeille, favori, « En cours », archiver) ; menu clic droit et « Plus d'actions » ; sélection multiple ; glisser-déposer ; volet latéral (largeur, masquer) ; fil d'Ariane ; tri et filtres ; recherche et recherche rapide (Ctrl+F) ; annuler / rétablir | P1 | ☐ |
 | 3 | `fiche` | fiche d'un exercice : notes fixes / mobiles (lignes datées, archives, notes vides masquées), liens (YouTube, web), fichiers joints PDF / MP3, captures (ajout, nom, grand format, flèches), métronome prédéfini, objectif tempo, dé de l'exercice, « Dernière fois jouée », copies liées | P1 | ☐ |
 | 4 | `session` | session guidée : créer, choisir les exercices (onglets, rafale, rond de rang, « Ma session »), durées, réordonner, note de session, lancer ; déroulé (chrono, Précédent / Suivant, Pause, −1 / +1 min, cloche, enchaînement auto, deux colonnes), fin et enregistrement ; historique ; calendrier et programmation ; session depuis une séance ; export PDF ; reprise après fermeture brutale | P1 | ☐ |
@@ -142,7 +149,7 @@ seul un utilisateur connecté lit et écrit `users/{son uid}/apps/{appId}`. Les 
 
 ## 7. Ce que couvrent DÉJÀ les bancs (ne pas écrire en double)
 
-35 bancs + `compte_cloud_test` (Chromium, ordinateur et téléphone selon le banc), écrits au fil des versions ; ils tiennent surtout les **détails fins**
+34 bancs + `compte_cloud_test` (Chromium, ordinateur et téléphone selon le banc), écrits au fil des versions ; ils tiennent surtout les **détails fins**
 (mesures au pixel, cas limites). Les tests e2e visent les **parcours**, sur **tous les navigateurs**, et la **vraie synchro** contre l'émulateur.
 
 | Module | Bancs | Ce qu'ils tiennent déjà |

@@ -14,6 +14,9 @@ else log "dépendances déjà installées"; fi
 # 2. playwright-cli (exploration) et son skill, versionné dans .claude/skills/.
 command -v playwright-cli >/dev/null 2>&1 || { log "installation de playwright-cli"; npm install -g @playwright/cli@latest --loglevel=error; }
 [ -f .claude/skills/playwright-cli/SKILL.md ] || playwright-cli install --skills
+# son propre Chromium (sa version de Playwright n'est pas celle du projet ; .playwright/cli.config.json lui demande « chromium », pas Google Chrome).
+# Constat du 23/11 : sans ce téléchargement, `playwright-cli open` échoue. Idempotent (rien n'est retéléchargé s'il est déjà là).
+playwright-cli install-browser chromium >/dev/null 2>&1 && log "navigateur de playwright-cli prêt" || log "ÉCHEC du navigateur de playwright-cli (cdn.playwright.dev ?)"
 
 # 3. Navigateurs, avec la version de Playwright DU PROJET (pas celle installée en global).
 present() { node -e "const fs=require('fs');const p=require('@playwright/test')['$1'].executablePath();process.exit(fs.existsSync(p)?0:1)" 2>/dev/null; }

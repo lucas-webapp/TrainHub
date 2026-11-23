@@ -1,4 +1,10 @@
 {
+  "browser": {
+    "browserName": "chromium",
+    "launchOptions": {
+      "headless": true
+    }
+  },
   "network": {
     "blockedOrigins": [
       "https://firestore.googleapis.com",
