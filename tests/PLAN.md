@@ -1,7 +1,12 @@
 # Plan des tests Playwright (`@playwright/test`) — TrainHub
 
-État : **phases 3 et 4 faites (infrastructure et validation), phase 5 (couverture intégrale) prête à démarrer** — 23/11/2026. Plan validé par l'utilisateur le 23/11 (§ 8).
-Dans la VM : `@smoke` vert sur les 7 projets ; module `demarrage` 59 réussis / 25 sautés voulus / 0 échec sur les 7 projets (13 tests, hors ligne et accueil ajoutés) (garde-fou : 2 échecs attendus, Chromium seul ; fenêtre Google : CI seulement).
+État : **phases 1 à 4 faites (23/11/2026) ; phase 5 (couverture intégrale) EN COURS — prochain module : `bibliotheque`.** Plan validé par l'utilisateur le 23/11 (§ 8).
+Validation phase 4 : `@smoke` vert sur les 7 projets (VM et CI, https://github.com/lucas-webapp/TrainHub/actions/runs/45262782406) ; garde-fou éprouvé (requête de production
+bloquée → test en échec ; projet sans `demo-` refusé) ; testeur : rapport `tests/reports/latest.md` ; vidéos du smoke : https://claude.ai/artifact/LCAUcZ53M5ocBrShSBqHxF.
+**L'utilisateur a autorisé (23/11) l'enchaînement automatique de la phase 5, sans qu'il le redise** ; il fera des `/clear` : tout l'état doit rester ICI et dans
+`CLAUDE-TRAINHUB.md` (« Suite à faire »). Après un module : Chromium vert, `@smoke` + `@critique` verts sur les 7 projets, PLAN à jour, push sur `main` ET
+`structure-dossiers`, CI verte, point de 3 lignes à l'utilisateur.
+Avancement : 1 module sur 16 fait (`demarrage`).
 Ce fichier est la mémoire de ce chantier : le sous-agent `testeur-e2e` y lit l'état de chaque module ; après un `/clear`, c'est ici qu'on reprend
 (« Reprends la phase 5 » → § 3, premier module qui n'est pas ☑).
 Référence reprise : l'infrastructure d'HarmoHub (`lucas-webapp/HarmoHub`, branche `claude/harmohub-travail-Claude`, `tests/PLAN.md` § 9), lue le 23/11.

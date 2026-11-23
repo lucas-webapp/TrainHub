@@ -8,8 +8,16 @@ PWA d'entraînement musical (basse, guitare, piano) en JavaScript « vanille »,
 dans le dépôt `trainhub`, et on lance soi-même `bash scripts/setup-tests.sh` avant les tests de bout en bout (le hook de TrainHub ne se déclenche pas).
 
 ## Suite à faire (lue par `/reprise` — à réécrire à la fin de CHAQUE demande)
-- **Chantier en cours : tests de bout en bout (Playwright + émulateurs Firebase)**, repris d'HarmoHub. État exact et suite : `tests/PLAN.md` (en-tête et § 3).
-  Après un `/clear`, « Reprends la phase 5 » = reprendre au premier module de `tests/PLAN.md` § 3 qui n'est pas ☑.
+- **Chantier en cours : tests de bout en bout (Playwright + émulateurs Firebase)**, repris d'HarmoHub. **Phases 1 à 4 faites le 23/11/2026** (infrastructure, garde-fou,
+  smoke sur 7 projets, CI, vidéos : https://claude.ai/artifact/LCAUcZ53M5ocBrShSBqHxF). **Phase 5 (couverture intégrale) : l'utilisateur a autorisé l'enchaînement
+  AUTOMATIQUE, sans qu'il le redise** (consigne du 23/11). État exact, module en cours et ordre : `tests/PLAN.md` (en-tête et § 3, tableau des modules).
+  **« Reprends la phase 5 » (ou `/reprise` après un `/clear`)** = 1) lire `tests/PLAN.md` ; 2) `bash scripts/setup-tests.sh` ; 3) prendre le **premier module du § 3 qui n'est
+  pas ☑** (ordre : bibliotheque, fiche, session, libre, metronome, synchro, mobile, puis P2, puis P3) ; 4) l'écrire avec le sous-agent `testeur-e2e` (ou, si ce
+  sous-agent n'est pas encore chargé dans la session, un agent général qui reçoit le contenu exact de `.claude/agents/testeur-e2e.md`, `model: sonnet`, `effort: high`) ;
+  5) vérifier que le module passe sur Chromium et que `@smoke` + `@critique` passent sur les 7 projets ; 6) mettre à jour `PLAN.md` (statut, nombre de tests, bugs) ;
+  7) pousser sur `main` ET `structure-dossiers`, attendre la CI verte ; 8) point de 3 lignes à l'utilisateur ; 9) module suivant. Les bugs trouvés ne sont **jamais corrigés** :
+  ils vont dans `tests/reports/bugs.md`. Ne jamais affaiblir une vérification pour passer. Compte rendu final (couverture par module, bugs par gravité, à vérifier sur
+  Safari / iPhone, leçons pour TabHub) quand tous les modules sont ☑.
 - **Rien de prévu** (dernière livraison : **v283**, le 15 nov. 2026 ; le détail v266 → v283 est dans « Reprise » plus bas). Aucune demande en attente : `/reprise` doit demander à l'utilisateur ce qui vient ensuite, sans rien commencer.
 - **À confirmer par l'utilisateur sur Safari** (rien n'est vérifiable ici) : (a) le bord bas coloré du gros bouton Jouer/Arrêter du métronome (v272) ; (b) le bug « plus de son » du 7 nov. (voir « Sujets en cours »).
 - Idées déjà proposées, à ne remettre sur la table que si la conversation s'y prête : voir « Idées proposées, pas encore faites » plus bas.
