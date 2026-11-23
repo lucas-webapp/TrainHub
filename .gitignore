@@ -1,0 +1,21 @@
+.DS_Store
+# Le dossier de Claude reste local (réglages de cette machine)… SAUF ce qui doit exister dans une session cloud qui part d'un clone neuf :
+# les commandes (/reprise), les réglages du projet (hook de préparation, permissions), le sous-agent testeur et le skill playwright-cli.
+.claude/*
+!.claude/commands/
+!.claude/settings.json
+!.claude/agents/
+!.claude/skills/
+
+# Tests @playwright/test (tests/PLAN.md) : dépendances et sorties régénérées. tests/reports/ reste versionné.
+node_modules/
+test-results/
+playwright-report/
+blob-report/
+.playwright-cli/
+.playwright/*
+!.playwright/cli.config.json
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.firebase/

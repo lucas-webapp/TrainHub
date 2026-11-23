@@ -2,10 +2,14 @@
 
 PWA d'entraînement musical (basse, guitare, piano) en JavaScript « vanille », sans framework. Dépôt `lucas-webapp/trainhub`
 (copie de travail : `/home/user/trainhub`). **Branches `main` et `structure-dossiers` : toujours identiques.**
-La session Claude Code s'ouvre dans `/home/user/HarmoHub` : c'est **une autre appli** (la référence des trois), on n'y touche pas.
-Tout le travail TrainHub se fait dans `/home/user/trainhub`.
+**Ouverture des sessions (décision de l'utilisateur, 23/11/2026)** : désormais, l'utilisateur ouvre les sessions TrainHub **directement sur le dépôt TrainHub**
+(le hook `SessionStart` de `.claude/settings.json` y prépare alors les tests tout seul). Dans une ancienne configuration (session ouverte dans
+`/home/user/HarmoHub`, TrainHub à côté), HarmoHub est **une autre appli** (la référence des trois) : on n'y touche pas, tout le travail TrainHub se fait
+dans le dépôt `trainhub`, et on lance soi-même `bash scripts/setup-tests.sh` avant les tests de bout en bout (le hook de TrainHub ne se déclenche pas).
 
 ## Suite à faire (lue par `/reprise` — à réécrire à la fin de CHAQUE demande)
+- **Chantier en cours : tests de bout en bout (Playwright + émulateurs Firebase)**, repris d'HarmoHub. État exact et suite : `tests/PLAN.md` (en-tête et § 3).
+  Après un `/clear`, « Reprends la phase 5 » = reprendre au premier module de `tests/PLAN.md` § 3 qui n'est pas ☑.
 - **Rien de prévu** (dernière livraison : **v283**, le 15 nov. 2026 ; le détail v266 → v283 est dans « Reprise » plus bas). Aucune demande en attente : `/reprise` doit demander à l'utilisateur ce qui vient ensuite, sans rien commencer.
 - **À confirmer par l'utilisateur sur Safari** (rien n'est vérifiable ici) : (a) le bord bas coloré du gros bouton Jouer/Arrêter du métronome (v272) ; (b) le bug « plus de son » du 7 nov. (voir « Sujets en cours »).
 - Idées déjà proposées, à ne remettre sur la table que si la conversation s'y prête : voir « Idées proposées, pas encore faites » plus bas.
@@ -25,7 +29,8 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
 
 ## Cycle de chaque demande (toujours dans cet ordre)
 1. Implémenter dans `script.js` / `style.css` (`node --check script.js` après chaque modification).
-2. Tester avec Playwright (voir « Tests »), toutes les suites existantes à la fin, pas seulement la nouvelle.
+2. Tester avec Playwright (voir « Tests »), toutes les suites existantes à la fin, pas seulement la nouvelle. **Avant tout envoi qui modifie l'appli** :
+   `npm run test:e2e:avant-envoi` (`@smoke` et `@critique` sur Chromium, émulateurs) — **s'ils échouent, on ne pousse pas**.
 3. `README.md` : **une puce par version** (« - Titre (vNNN) — description… »), insérée après la puce de la version précédente.
 4. `sw.js` : incrémenter `CACHE_NAME = "trainhub-vNNN"` (sinon l'appli installée garde l'ancien code) **et** `APP_VERSION = "vNNN"` dans `script.js` (écrit en tête du journal du son).
 5. Commit avec les deux lignes finales fournies par la session : `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>` puis
@@ -98,7 +103,39 @@ Tout le travail TrainHub se fait dans `/home/user/trainhub`.
   session libre et le lecteur) : c'est ce qui permet de diagnostiquer après coup. **Contexte inactif fermé (v260)** : `metroIdleArm / metroIdleCheck` (`METRO_IDLE_MS` = 60 s) ferment le contexte qui ne joue plus rien
   (jamais pendant métronome, lecteur d'harmonie, enregistrement avec clic, ni session guidée avec cloche/enchaînement automatique) ; le lancement suivant repart sur un contexte neuf.
 
-## Tests (Playwright, Chromium)
+## Tests
+
+Deux familles, à ne pas confondre : les **bancs** historiques (`tests/playwright/trainhub_*_test.js`, scripts Node, Chromium, `lancer.sh`, détail plus bas)
+et les **tests de bout en bout `@playwright/test`** (`tests/e2e/`, 7 navigateurs et appareils, émulateurs Firebase). Plan et état : `tests/PLAN.md`.
+
+### Tests de bout en bout (`tests/e2e/`, repris d'HarmoHub le 23/11/2026)
+- **Préparation** : `bash scripts/setup-tests.sh` (idempotent ; lancé tout seul par le hook `SessionStart` quand la session s'ouvre sur ce dépôt).
+- **Appli en mode test** : `npm run app:test` → http://127.0.0.1:8937/index.html (serveur `scripts/serveur-test.cjs` : SDK Firebase servi depuis
+  `node_modules` à la place de `www.gstatic.com` — adresse remplacée EN MÉMOIRE dans `script.js` —, configuration `demo-trainhub` branchée sur les
+  émulateurs ; port 8938 = même dossier, autre origine, pour le faux lecteur YouTube). L'appli n'est pas modifiée.
+- **Émulateurs** : `npm run emulateurs` (`--project demo-trainhub --only auth,firestore` ; Auth **9199**, Firestore **8180**, hub 4410, journal 4510 :
+  ports propres pour ne pas gêner HarmoHub dans la même VM ; règles = `firestore.rules`, copie de la production, jamais déployée).
+  TrainHub n'utilise **ni Firebase Storage** ni Functions : captures et fichiers joints sont des documents **Firestore** (`trainhub-img-…`, `trainhub-file-…`).
+- **Tests complets** : `npm run test:e2e` ; **smoke** : `npm run test:e2e:smoke` ; **un module** : `npm run test:e2e:module -- <module>` ;
+  **la sélection de la CI à chaque envoi** : `npm run test:e2e:envoi` ; **avant un envoi** : `npm run test:e2e:avant-envoi` (`@smoke` et `@critique` sur Chromium) ;
+  **émulateurs déjà lancés** : `npx playwright test [tests/e2e/<module>] [--project=chromium]`. Projets : `chromium`, `firefox`, `webkit`, `edge`,
+  `mobile-android`, `mobile-iphone`, `tablette`. Tags : `@smoke`, `@critique`, `@<module>`, `@ordinateur` / `@mobile` (rupture à 700 px), `@micro` (faux micro, pas sur WebKit).
+- **Deux modes** testés : sans connexion (données dans le navigateur) et avec une connexion Google **fictive** (jeton non signé accepté par l'émulateur Auth).
+  La vraie fenêtre « Se connecter avec Google » (celle de l'émulateur) a besoin de `apis.google.com`, bloqué dans la VM : ce test tourne **en CI seulement**.
+- **Session playwright-cli** : `trainhub` (`playwright-cli -s=trainhub open http://127.0.0.1:8937/index.html`). Configuration : `.playwright/cli.config.json`
+  (origines de la production bloquées).
+- **Émulateurs UNIQUEMENT, aucune commande d'écriture Firebase** (`deploy`, `firestore:delete`, `use`, `login`… interdits dans `.claude/settings.json`).
+  Garde-fou : le `globalSetup` refuse un projet qui n'est pas `demo-…` ou des émulateurs absents ; la fixture commune (`tests/e2e/support/fixtures.ts`)
+  bloque toute requête vers la production Firebase (Firestore, Auth, Storage…) et fait échouer le test. Le service worker est bloqué dans les tests.
+- **Rapports** : `tests/reports/latest.md` (+ copies datées), bugs dans `tests/reports/bugs.md` (bloquant / gênant / mineur, **jamais corrigés** pendant
+  l'écriture des tests) ; en CI, rapport HTML et vidéos en artefacts.
+- **Déroulé** : après une fonctionnalité, appeler le sous-agent `testeur-e2e` sur le module concerné (« utilise testeur-e2e pour tester le module `<module>` »),
+  lire `tests/reports/latest.md`. Un sous-agent créé en cours de session n'est utilisable qu'à la session suivante : en attendant, lancer un agent
+  général avec, comme consignes, le contenu exact de `.claude/agents/testeur-e2e.md`.
+- **CI** (`.github/workflows/`) : `e2e.yml` à chaque envoi sur `structure-dossiers` (tout sur chromium, `@smoke|@critique` sur les 6 autres), lundi et
+  à la demande (matrice complète), WebKit macOS à la demande ; `bancs.yml` dimanche et à la demande (les bancs ci-dessous, tels quels).
+
+### Bancs historiques (Playwright, Chromium)
 - `require('playwright')` fonctionne avec `NODE_PATH=/opt/node22/lib/node_modules` (ne pas réinstaller Playwright).
 - Serveur statique depuis la racine du dépôt sur `:8765` (le banc vidéo a aussi besoin du faux lecteur YouTube sur `:8766`) : `lancer.sh` s'en charge.
 - Harnais : `tests/_harness.js` → `const { check, plan, bilan } = require('…/_harness')('titre')` ; `plan(n)` déclare le minimum de vérifications

@@ -1,6 +1,7 @@
 # Plan des tests Playwright (`@playwright/test`) — TrainHub
 
-État : **phase 2 (plan) faite — en attente de l'accord de l'utilisateur** — 23/11/2026.
+État : **phase 3 faite (infrastructure en place), phase 4 (validation) en cours** — 23/11/2026. Plan validé par l'utilisateur le 23/11 (§ 8).
+Dans la VM : `@smoke` vert sur les 7 projets ; module `demarrage` 24 réussis / 25 sautés voulus / 0 échec sur les 7 projets (garde-fou : 2 échecs attendus, Chromium seul ; fenêtre Google : CI seulement).
 Ce fichier est la mémoire de ce chantier : le sous-agent `testeur-e2e` y lit l'état de chaque module ; après un `/clear`, c'est ici qu'on reprend
 (« Reprends la phase 5 » → § 3, premier module qui n'est pas ☑).
 Référence reprise : l'infrastructure d'HarmoHub (`lucas-webapp/HarmoHub`, branche `claude/harmohub-travail-Claude`, `tests/PLAN.md` § 9), lue le 23/11.
@@ -67,8 +68,8 @@ Référence reprise : l'infrastructure d'HarmoHub (`lucas-webapp/HarmoHub`, bran
 | `window.app` pour relire l'état | rien d'exposé | on relit `localStorage["trainhub.v1"]` et l'écran (boîte noire) |
 | rupture de mise en page à 900 px | à **700 px** | mêmes tags `@ordinateur` / `@mobile` ; mêmes projets (aucun n'est entre 700 et 900 px) |
 | Tone.js en ligne | piano local, mais **YouTube** et **micro** | faux lecteur YouTube (`tests/playwright/yt_mock_api.js`, déjà écrit pour les bancs) servi partout ; faux micro (Chromium, Edge, Firefox) |
-| branche de travail `claude/harmohub-travail-Claude` | publication par `structure-dossiers`, `main` recopiée | voir décision D1 |
-| la session s'ouvre dans le dépôt | la session s'ouvre dans **HarmoHub** ; TrainHub est à côté | le hook `SessionStart` de TrainHub ne se déclenche pas dans ce cas : voir D8 |
+| branche de travail `claude/harmohub-travail-Claude` | publication par `structure-dossiers`, `main` recopiée | on pousse sur les deux ; CI sur `structure-dossiers` (D1) |
+| la session s'ouvre dans le dépôt | jusqu'ici dans **HarmoHub**, TrainHub à côté ; désormais directement sur TrainHub | hook `SessionStart` + consigne de repli (D8) |
 | ports 8936 / 8080 / 9099 | les deux dépôts sont dans la même VM | ports propres : appli **8937**, Firestore **8180**, Auth **9199** (D3) |
 
 ## 2. Constat → conséquence → choix
@@ -93,7 +94,7 @@ Priorité : **P1** parcours principal, **P2** important, **P3** secondaire. Stat
 
 | # | Module (`tests/e2e/<module>/`) | Parcours à tester | Prio. | Statut |
 |---|---|---|---|---|
-| 1 | `demarrage` | l'appli s'ouvre (fenêtre d'accueil, « continuer sans compte »), créer un exercice, ouvrir sa fiche, lancer et arrêter le métronome, rechargement = tout est resté (`@smoke`) ; garde-fou production ; hors ligne (SDK refusé : pilule grisée, appli utilisable) | P1 | ☐ |
+| 1 | `demarrage` | l'appli s'ouvre (fenêtre d'accueil, « continuer sans compte »), créer un exercice, lancer et arrêter le métronome, rechargement = tout est resté (`@smoke`) ; garde-fou production (Firestore et Storage) ; les deux modes (sans connexion, connexion Google fictive, vraie fenêtre de l'émulateur en CI) ; hors ligne (SDK refusé : pilule grisée, appli utilisable) | P1 | ◐ 23/11 : 3 fichiers, 7 tests (smoke, garde-fou ×3, deux modes ×3) ; reste : hors ligne (testeur) |
 | 2 | `bibliotheque` | espaces (créer, renommer, supprimer, changer) ; chapitres ; dossiers (créer, renommer, déplacer, fusionner, dupliquer, note du dossier) ; exercices (ajouter en rafale, renommer, dupliquer, copies liées, supprimer → corbeille, favori, « En cours », archiver) ; menu clic droit et « Plus d'actions » ; sélection multiple ; glisser-déposer ; volet latéral (largeur, masquer) ; fil d'Ariane ; tri et filtres ; recherche et recherche rapide (Ctrl+F) ; annuler / rétablir | P1 | ☐ |
 | 3 | `fiche` | fiche d'un exercice : notes fixes / mobiles (lignes datées, archives, notes vides masquées), liens (YouTube, web), fichiers joints PDF / MP3, captures (ajout, nom, grand format, flèches), métronome prédéfini, objectif tempo, dé de l'exercice, « Dernière fois jouée », copies liées | P1 | ☐ |
 | 4 | `session` | session guidée : créer, choisir les exercices (onglets, rafale, rond de rang, « Ma session »), durées, réordonner, note de session, lancer ; déroulé (chrono, Précédent / Suivant, Pause, −1 / +1 min, cloche, enchaînement auto, deux colonnes), fin et enregistrement ; historique ; calendrier et programmation ; session depuis une séance ; export PDF ; reprise après fermeture brutale | P1 | ☐ |
@@ -159,28 +160,33 @@ seul un utilisateur connecté lit et écrit `users/{son uid}/apps/{appId}`. Les 
 
 Les bancs restent **tels quels**, dans un workflow à part (à la demande + chaque dimanche).
 
-## 8. Décisions — recommandation (« OK » = toutes appliquées)
+## 8. Décisions (validées par l'utilisateur le 23/11, avec les précisions D1 et D8)
 
-- **D1. Branche.** Recommandation : pousser **seulement sur `structure-dossiers`** (elle publie le site ; la CI s'y déclenche) et **ne plus toucher
-  à `main`**, qui reste ta version de secours à la v283, comme tu le demandes. Conséquence : je mets à jour le « Cycle de chaque demande » de
-  `CLAUDE-TRAINHUB.md` (étape 6 : plus de recopie sur `main`) et `/reprise` (plus de comparaison des deux branches). Le présent plan est poussé sur
-  `structure-dossiers` seulement (un fichier de `tests/`, le site ne change pas).
+- **D1. Branche** (tranché le 23/11) : on pousse sur **les deux branches**, `main` puis `structure-dossiers`, comme le « Cycle de chaque demande » de
+  `CLAUDE-TRAINHUB.md` (elles restent identiques). `structure-dossiers` publie le site ; la CI « Tests e2e » se déclenche sur elle (pas sur `main`, pour ne
+  pas jouer deux fois le même commit). Pas de pull request.
 - **D2. Firebase en test** : serveur de test qui réécrit en mémoire l'adresse du SDK dans `script.js` et remplace `firebase-config.js` (aucune modification de l'appli).
 - **D3. Ports** : appli 8937, Firestore 8180, Auth 9199, projet `demo-trainhub` (pour ne pas gêner HarmoHub ni les bancs dans la même VM).
 - **D4. `data-testid`** : aucun pour l'instant ; proposés au cas par cas, seulement si un élément n'a ni rôle ni étiquette.
 - **D5. Micro** : faux micro sur Chromium, Edge, Firefox ; tests `@micro` sautés sur WebKit (iPhone, iPad, Safari), à vérifier par toi sur l'iPhone.
 - **D6. YouTube** : le faux lecteur des bancs, partout.
 - **D7. Service worker** : bloqué partout, sauf un test PWA sur Chromium.
-- **D8. Autonomie** : `scripts/setup-tests.sh` + hook `SessionStart` dans `trainhub/.claude/settings.json` (pour une session ouverte sur TrainHub) ;
-  comme tes sessions s'ouvrent dans HarmoHub, j'ajoute aussi dans `CLAUDE-TRAINHUB.md` la consigne « lancer `bash scripts/setup-tests.sh` avant les
-  tests e2e » (idempotent). Option possible plus tard : le mettre dans le script de préparation de l'environnement cloud (je te le proposerais par l'outil prévu, avec ton accord).
+- **D8. Autonomie** (tranché le 23/11) : `scripts/setup-tests.sh` + hook `SessionStart` dans `.claude/settings.json`. **Désormais l'utilisateur ouvre
+  les sessions TrainHub directement sur ce dépôt** : le hook y prépare tout seul. Consigne de repli dans `CLAUDE-TRAINHUB.md` (session ouverte dans HarmoHub :
+  lancer soi-même `bash scripts/setup-tests.sh`).
 - **D9. Bancs en CI** : workflow `bancs.yml` (dimanche + à la demande) qui lance `lancer.sh` tel quel et rougit si la sortie contient `FAIL` ou
   « COUVERTURE INCOMPLÈTE » (`lancer.sh` lui-même ne change pas).
 - **D10. Fichiers publiés** : `package.json`, `playwright.config.ts`, `scripts/`, `.github/`, `tests/` seront visibles sur GitHub Pages comme le sont déjà
   `tests/` et `README.md` ; ils ne sont ni chargés ni mis en cache par l'appli (le service worker a sa liste fixe) : même affichage, même comportement.
 - **D11. Sous-agent** `testeur-e2e` repris d'HarmoHub (`model: sonnet`, `effort: high`), rapports dans `tests/reports/`, bugs dans `tests/reports/bugs.md` (bloquant / gênant / mineur).
 
+Précisions confirmées le 23/11 :
+- **Deux modes testés** : sans connexion (données dans le navigateur) et connexion Google **fictive** par l'émulateur Auth (`demarrage/deux-modes.spec.ts`,
+  puis le module `synchro`). La vraie fenêtre « Se connecter avec Google » (celle de l'émulateur) a besoin de `apis.google.com`, bloqué dans la VM : **en CI seulement**.
+- **Captures et fichiers joints = Firestore**, pas Firebase Storage : documents `users/{uid}/apps/trainhub-img-<id>` (image en base64, ≤ 700 Ko) et
+  `users/{uid}/apps/trainhub-file-<cid>-<n>` (fichier découpé) ; `script.js` n'appelle jamais `firebase.storage()` et ne charge pas le SDK Storage.
+  L'émulateur Storage est donc inutile. Le garde-fou bloque quand même `firebasestorage.googleapis.com` (test `garde-fou.spec.ts`).
+
 ## 9. Ce qui reste à la charge de l'utilisateur
 1. Si les règles Firestore changent dans la console, les recopier dans `firestore.rules`.
-2. Décider plus tard s'il faut remettre `main` à jour (Claude n'y touche pas sans accord).
-3. Vérifier sur Safari / iPhone ce que WebKit sous Linux ne prouve pas (liste dans le compte rendu final).
+2. Vérifier sur Safari / iPhone ce que WebKit sous Linux ne prouve pas (liste dans le compte rendu final).

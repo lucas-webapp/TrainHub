@@ -1,0 +1,51 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ \"$CLAUDE_CODE_REMOTE\" = \"true\" ]; then bash \"$CLAUDE_PROJECT_DIR/scripts/setup-tests.sh\" > /tmp/setup-tests.log 2>&1; tail -n 8 /tmp/setup-tests.log; fi",
+            "timeout": 600
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(playwright-cli:*)",
+      "Bash(npx playwright:*)",
+      "Bash(npm run test:e2e:*)",
+      "Bash(npm run test:e2e)",
+      "Bash(npm run emulateurs)",
+      "Bash(npm run app:test)",
+      "Bash(npx firebase emulators:*)",
+      "Bash(firebase emulators:*)",
+      "Bash(bash scripts/setup-tests.sh)"
+    ],
+    "deny": [
+      "Bash(firebase deploy:*)",
+      "Bash(npx firebase deploy:*)",
+      "Bash(firebase firestore:delete:*)",
+      "Bash(npx firebase firestore:delete:*)",
+      "Bash(firebase firestore:indexes:*)",
+      "Bash(firebase functions:delete:*)",
+      "Bash(npx firebase functions:delete:*)",
+      "Bash(firebase hosting:*)",
+      "Bash(npx firebase hosting:*)",
+      "Bash(firebase database:*)",
+      "Bash(npx firebase database:*)",
+      "Bash(firebase auth:import:*)",
+      "Bash(npx firebase auth:import:*)",
+      "Bash(firebase use:*)",
+      "Bash(npx firebase use:*)",
+      "Bash(firebase projects:*)",
+      "Bash(npx firebase projects:*)",
+      "Bash(firebase apps:*)",
+      "Bash(npx firebase apps:*)",
+      "Bash(firebase login:*)",
+      "Bash(npx firebase login:*)"
+    ]
+  }
+}

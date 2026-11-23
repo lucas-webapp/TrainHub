@@ -1,0 +1,19 @@
+{
+  "name": "trainhub-tests",
+  "private": true,
+  "description": "Outils de test de TrainHub (le site lui-même n'a ni build ni dépendance). Voir tests/PLAN.md.",
+  "scripts": {
+    "app:test": "node scripts/serveur-test.cjs",
+    "emulateurs": "firebase emulators:start --project demo-trainhub --only auth,firestore",
+    "test:e2e": "firebase emulators:exec --project demo-trainhub --only auth,firestore \"playwright test\"",
+    "test:e2e:smoke": "firebase emulators:exec --project demo-trainhub --only auth,firestore \"playwright test --grep @smoke\"",
+    "test:e2e:avant-envoi": "firebase emulators:exec --project demo-trainhub --only auth,firestore \"playwright test --project=chromium --grep '@smoke|@critique'\"",
+    "test:e2e:module": "sh -c 'firebase emulators:exec --project demo-trainhub --only auth,firestore \"playwright test tests/e2e/$0\"'",
+    "test:e2e:envoi": "firebase emulators:exec --project demo-trainhub --only auth,firestore \"playwright test --project=chromium && playwright test --grep '@smoke|@critique' --project=firefox --project=webkit --project=edge --project=mobile-android --project=mobile-iphone --project=tablette\""
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "firebase": "10.13.2",
+    "firebase-tools": "15.36.0"
+  }
+}

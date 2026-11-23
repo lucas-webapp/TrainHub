@@ -1,0 +1,20 @@
+{
+  "network": {
+    "blockedOrigins": [
+      "https://firestore.googleapis.com",
+      "https://identitytoolkit.googleapis.com",
+      "https://securetoken.googleapis.com",
+      "https://firebaseinstallations.googleapis.com",
+      "https://firebasestorage.googleapis.com",
+      "https://firebase.googleapis.com",
+      "https://www.googleapis.com",
+      "https://lucas-apps-479b9.firebaseapp.com",
+      "https://lucas-apps-479b9.web.app",
+      "https://lucas-apps-479b9.firebaseio.com",
+      "https://fonts.googleapis.com",
+      "https://fonts.gstatic.com",
+      "https://www.youtube.com",
+      "https://i.ytimg.com"
+    ]
+  }
+}

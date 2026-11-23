@@ -1,0 +1,10 @@
+// RÈGLES FIRESTORE — COPIE de celles de la console du projet partagé (HarmoHub, TrainHub, TabHub), pour l'ÉMULATEUR SEULEMENT.
+// Ce fichier n'est JAMAIS déployé (aucune commande `firebase deploy` : interdite dans .claude/settings.json). Voir tests/PLAN.md § 6.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId}/apps/{appId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}

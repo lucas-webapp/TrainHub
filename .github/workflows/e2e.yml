@@ -1,0 +1,111 @@
+# TESTS DE BOUT EN BOUT (@playwright/test) contre les ÉMULATEURS Firebase (projet demo-trainhub) — jamais la production.
+# - À chaque envoi sur structure-dossiers (la branche que GitHub Pages publie ; main en est la copie, poussée en même temps ; projet personnel, pas de pull request) : TOUS les tests sur
+#   chromium ; les tests @smoke et @critique sur firefox, webkit, edge, mobile-android, mobile-iphone, tablette.
+# - Lundi 5 h (UTC) et à la demande : la matrice complète (tous les tests sur tous les projets).
+# - À la demande seulement (case « webkit_macos ») : WebKit sur un runner macOS, plus proche du vrai Safari.
+# Chaque projet publie son rapport HTML (vidéos des tests @smoke comprises) et ses traces en artefacts. Plan : tests/PLAN.md.
+name: Tests e2e
+
+on:
+  push:
+    branches: [structure-dossiers]
+  workflow_dispatch:
+    inputs:
+      matrice:
+        description: "complete = tous les tests partout ; envoi = la sélection lancée à chaque envoi"
+        type: choice
+        options: [complete, envoi]
+        default: complete
+      webkit_macos:
+        description: "Lancer aussi WebKit sur macOS (10 × plus coûteux sur un dépôt privé ; gratuit sur un dépôt public)"
+        type: boolean
+        default: false
+  schedule:
+    - cron: "0 5 * * 1"
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: ${{ matrix.projet }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { projet: chromium, navigateur: chromium }
+          - { projet: firefox, navigateur: firefox }
+          - { projet: webkit, navigateur: webkit }
+          - { projet: edge, navigateur: msedge }
+          - { projet: mobile-android, navigateur: chromium }
+          - { projet: mobile-iphone, navigateur: webkit }
+          - { projet: tablette, navigateur: webkit }
+    env:
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - run: npm ci --no-fund --no-audit
+      - name: Navigateur
+        run: npx playwright install --with-deps ${{ matrix.navigateur }}
+      - name: Cache des émulateurs Firebase
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: emulateurs-firebase-${{ hashFiles('package-lock.json') }}
+      - name: Sortie audio factice (sans carte son, Firefox ne démarre jamais la lecture)
+        run: |
+          sudo apt-get install -y -q pulseaudio > /dev/null
+          pulseaudio -D --exit-idle-time=-1 && sleep 1 && pactl load-module module-null-sink sink_name=factice
+      - name: Choix des tests
+        id: choix
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.matrice }}" = "envoi" ]; then
+            if [ "${{ matrix.projet }}" = "chromium" ]; then echo "filtre=" >> "$GITHUB_OUTPUT"; else echo "filtre=--grep='@smoke|@critique'" >> "$GITHUB_OUTPUT"; fi
+          else echo "filtre=" >> "$GITHUB_OUTPUT"; fi
+      - name: Tests (émulateurs demo-trainhub)
+        env:
+          FILTRE: ${{ steps.choix.outputs.filtre }}
+        run: npx firebase emulators:exec --project demo-trainhub --only auth,firestore "npx playwright test --project=${{ matrix.projet }} $FILTRE"
+      - name: Rapport HTML et vidéos
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapport-${{ matrix.projet }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+
+  webkit-macos:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.webkit_macos }}
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - run: npm ci --no-fund --no-audit
+      - run: npx playwright install webkit
+      - run: npx firebase emulators:exec --project demo-trainhub --only auth,firestore "npx playwright test --project=webkit --project=mobile-iphone --project=tablette"
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapport-webkit-macos
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14

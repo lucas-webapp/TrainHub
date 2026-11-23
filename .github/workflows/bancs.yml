@@ -1,0 +1,50 @@
+# LES BANCS HISTORIQUES (tests/playwright/trainhub_*_test.js et tests/compte_cloud_test.js : scripts Node qui pilotent Chromium), gardés TELS QUELS,
+# HORS de la CI lancée à chaque envoi. Lancés à la demande et chaque dimanche (3 h 20 UTC). Ils n'utilisent jamais la production Firebase :
+# chacun interrompt le chargement du SDK (https://www.gstatic.com/firebasejs/**) dans chaque page, `trainhub_compte` sert un FAUX SDK, et
+# `compte_cloud_test` charge le composant sur une fausse origine — vérifié le 23/11, voir tests/PLAN.md § 7.
+# `lancer.sh` rend toujours le code 0 (il filtre la sortie) : ce workflow rougit lui-même si un banc écrit « FAIL » ou ne rend pas de bilan (« === »).
+name: Bancs historiques
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "20 3 * * 0"
+
+permissions:
+  contents: read
+
+jobs:
+  bancs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Playwright (même version que les bancs) et Chromium
+        run: |
+          npm install -g playwright@1.63.0
+          npx playwright@1.63.0 install --with-deps chromium
+      - name: Sortie audio factice
+        run: |
+          sudo apt-get install -y -q pulseaudio > /dev/null
+          pulseaudio -D --exit-idle-time=-1 && sleep 1 && pactl load-module module-null-sink sink_name=factice
+      - name: Les 35 bancs (lancer.sh, serveurs :8765 et :8766)
+        run: |
+          export NODE_PATH="$(npm root -g)"
+          bash tests/playwright/lancer.sh 2>&1 | tee bancs.log
+      - name: Composant de compte partagé (compte_cloud_test)
+        if: ${{ !cancelled() }}
+        run: |
+          export NODE_PATH="$(npm root -g)"
+          node tests/compte_cloud_test.js 2>&1 | grep -E "^FAIL|===" | tee compte.log
+      - name: Verdict
+        if: ${{ !cancelled() }}
+        run: |
+          cat bancs.log compte.log > balayage.log 2>/dev/null || true
+          # un banc sans ligne « === » s'est arrêté en route (exception, délai dépassé)
+          awk '/^--- /{ if (nom && !bilan) { print "SANS BILAN : " nom; ko=1 } nom=$2; bilan=0 } /===/{ bilan=1 } END { if (nom && !bilan) { print "SANS BILAN : " nom; ko=1 } exit ko }' bancs.log
+          ! grep -E "^FAIL" balayage.log
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with: { name: balayage-bancs, path: balayage.log, retention-days: 30 }
