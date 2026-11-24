@@ -1,45 +1,65 @@
-# Rapport — module `demarrage` — 23/11/2026
+# Rapport — module `bibliotheque` — 23/11/2026
 
 ## Résumé
-- Testé : ouverture de l'appli, fenêtre d'accueil du compte, garde-fou production, deux modes (sans compte / compte fictif), **hors ligne (SDK Firebase refusé)**, « Ne plus me le proposer ».
-- Résultat : **59 réussis / 0 échoué / 25 sautés voulus** sur les 7 projets (chromium 11, firefox / webkit / edge / mobile-android / mobile-iphone / tablette 8 chacun). Aucun test instable (2 passages complets identiques).
-- Suite conseillée : module `bibliotheque` ; décider du bug D-01 (texte coupé, mineur).
+- Testé : espaces, chapitres, dossiers, exercices (ajout, renommage, copies liées, corbeille, favori, « En cours », archivage), menu clic droit / appui long, sélection multiple, glisser-déposer, volet latéral, fil d'Ariane, tri et filtres, loupe et recherche rapide, annuler / rétablir.
+- Résultat : **93 tests, sur les 7 projets : 578 réussis, 21 « échecs attendus » (bugs BI-01 à BI-03 marqués `test.fail`), 2 ignorés voulus (BI-04), 0 échoué.** Deux passages complets identiques par `emulators:exec` (9,2 et 8,8 min), après deux autres passages qui ont fait corriger 2 tests fragiles.
+- Suite conseillée : décider des bugs BI-02 (accents de la loupe) et BI-03 (barre de sélection) ; puis module `fiche`.
 
 ## Environnement
-- Émulateurs (`demo-trainhub`, Auth 9199, Firestore 8180) et serveur de test (8937) : aucun n'était lancé ; je les ai lancés puis arrêtés.
-- Aucune requête vers la production Firebase pendant l'exploration (`playwright-cli requests` : seules des polices Google, bloquées par la config).
-- `playwright-cli open` échouait ici (« chrome-for-testing » attendu en révision 1255, seule la 1243 est installée). Contournement : `--config /tmp/cli-th.json` (copie de `.playwright/cli.config.json` + `executablePath` vers `/opt/pw-browsers/chromium-1243`). Aucun fichier du dépôt touché. Ce n'est pas un défaut de l'appli.
+- Émulateurs `demo-trainhub` (Auth 9199, Firestore 8180) et serveur de test (8937) : lancés par moi, arrêtés. Session `playwright-cli` `trainhub` fermée.
+- Aucune requête vers la production (le garde-fou de la fixture n'a rien bloqué ; aucun test n'a échoué pour ce motif).
+- Résultats par projet : chromium, firefox, edge 89 tests chacun ; webkit et tablette 88 + 1 ignoré ; mobile-android et mobile-iphone 78 chacun.
 
-## Observé hors ligne (boîte noire)
-- Le SDK est demandé puis refusé (503) : message console « Firebase indisponible : mode local uniquement ».
-- Pas de fenêtre d'accueil, pas de pastille de compte, `window.firebase` absent.
-- La pilule « Se connecter » reste visible, grisée (opacité 0,55, classe `cc-indisponible`). Son `title` : « La connexion Google n'a pas pu se charger (hors connexion ?). Tes données restent enregistrées sur cet appareil. »
-- Ordinateur : libellé « Se connecter (indisponible) ». Au clic : message (toast) avec la même phrase ; rien ne s'ouvre.
-- Téléphone (≤ 700 px) : libellé masqué, il ne reste que l'icône Google grisée (36 px). Le toucher affiche le même message.
-- Exercice ajouté : enregistré dans `trainhub.v1`, toujours là après rechargement.
+## Bugs (détail dans `tests/reports/bugs.md`)
+**BI-01 (mineur, à arbitrer) — le champ « Ajouter un exercice… » perd le focus après Entrée**
+- Étapes : 1. ouvrir un chapitre ; 2. cliquer le champ, taper « Un », Entrée ; 3. taper « Deux », Entrée.
+- Attendu : le champ reste prêt (ajout en rafale au clavier). Observé : le focus passe au `<body>`, « Deux » est perdu.
+- Appareil : observé sur Chromium (playwright-cli) ; le test échoue (attendu) sur les 7 projets.
+- Trace : `exercices.spec.ts`, « après Entrée, le champ… garde le focus ». Avis : bug de l'appli ou choix voulu ; à arbitrer.
 
-## Problème
-**D-01 (mineur) — « (indisponible) » est coupé à l'ordinateur**
-- Étapes : 1. refuser `/__e2e__/firebase/**` ; 2. ouvrir l'appli à 1440 px (idem 1194, 800, 701) ; 3. lire la pilule.
-- Attendu : « Se connecter (indisponible) » lisible.
-- Observé : « Se connecter (indispo… » (libellé 151 px de large, contenu 170 px, `text-overflow: ellipsis`). L'info-bulle et le message au clic donnent bien la raison complète.
-- Appareil : tous les écrans > 700 px (testé en Chromium).
-- Trace : mesure directe, pas de test en échec ; le test `hors-ligne` vérifie le contenu « (indisponible) » de la feuille de style, pas l'absence de coupure.
-- Avis : bug de l'appli (cosmétique, à arbitrer). Non couvert par un test en échec.
+**BI-02 (gênant) — la loupe est sensible aux accents**
+- Étapes : 1. loupe ; 2. taper « arpeges » (ou « arpe »). Attendu : « Arpèges » trouvé. Observé : aucun résultat.
+- La recherche rapide (Ctrl/⌘ + F), elle, ignore les accents. « ARPÈGES » (casse seule) marche.
+- Appareil : tous. Trace : `recherche.spec.ts`, « la loupe trouve « Arpèges » en tapant « arpeges » ». Avis : bug de l'appli (incohérence entre les deux recherches).
 
-## Tests ajoutés
-- `tests/e2e/demarrage/hors-ligne.spec.ts` : 4 tests, `@critique @demarrage` (dont un `@ordinateur`, un `@mobile`) :
-  1. utilisable en local, exercice conservé après rechargement, ni accueil ni compte ;
-  2. état existant affiché hors ligne ;
-  3. ordinateur : pilule grisée, « (indisponible) », `title`, toast au clic, pas de fenêtre ;
-  4. téléphone : icône seule, taille tactile, `title`, toast au toucher.
-- `tests/e2e/demarrage/accueil.spec.ts` : 2 tests, `@critique @demarrage` :
-  1. « Continuer sans compte » : pas de retour au rechargement, retour dans un nouvel onglet ;
-  2. « Ne plus me le proposer sur cet appareil » : clé enregistrée, plus de fenêtre dans un nouvel onglet, pilule non grisée.
-- Fichiers existants inchangés (parcours-principal 1, garde-fou 3, deux-modes 3).
+**BI-03 (gênant) — la barre de sélection recouvre le bas de la liste**
+- Étapes : 1. 14 exercices dans un dossier ; 2. « Sélectionner (plusieurs) » sur le premier ; 3. descendre tout en bas.
+- Attendu : le dernier exercice et le champ d'ajout passent au-dessus de la barre. Observé : la barre fixe les recouvre, même au bas du défilement (mesuré sur les 7 projets).
+- Au téléphone c'est pire : sur iPhone (659 px de haut), le 2ᵉ exercice d'un dossier de 2 exercices n'est déjà plus touchable. Contournements : « Tout », ✕.
+- Trace : `selection.spec.ts`, « la barre d'actions ne recouvre pas… ». Avis : bug de l'appli.
 
-## Sélecteurs CSS utilisés (pas de mieux)
-- `#folder-container .exercise .exercise-title`, `#cloud-guard-modal`, `#account-info`, `.toast` : ni rôle ni étiquette. Le message (toast) n'a pas de `role="status"` : un `data-testid="toast"` ou ce rôle aiderait.
+**BI-04 (gênant, intermittent ≈ 30 %) — palette « Recherche rapide » sans focus sur WebKit**
+- Étapes : 1. Ctrl/⌘ + F (ou loupe puis « Recherche rapide ») ; 2. taper aussitôt.
+- Attendu : le texte entre dans le champ. Observé : une fois sur trois, le focus reste sur `<body>` / le bouton, le texte est perdu.
+- Appareil : `webkit` et `tablette` seulement (15 essais Chromium, Firefox, Edge : 0 échec ; iPhone 10 essais : 0 échec).
+- Test : `test.fixme` sur ces deux projets (intermittent) ; la même vérification tourne ailleurs. Avis : bug de l'appli (course sur le focus), à confirmer sur un vrai Safari.
 
-## Résultats par projet
-chromium 11 + 1 sauté (fenêtre Google : CI seulement) ; les 6 autres 8 réussis + 4 sautés (garde-fou chromium seul, fenêtre Google, test @mobile ou @ordinateur selon l'appareil). Les 2 ✘ du garde-fou (chromium) sont des échecs attendus, comptés réussis.
+## Autres observations (pas des bugs)
+- Il n'y a pas d'archivage de chapitre : « Archivés » liste les exercices archivés (testé).
+- Le champ « Nouveau sous-dossier… » n'est affiché qu'au téléphone ; à l'ordinateur, on crée par le menu (clic droit › Nouveau sous-dossier). L'appli ouvre le dossier créé.
+- Dupliquer un chapitre ou un dossier ajoute « (copie) » à TOUS les noms copiés (exercices et dossiers). Un déplacement par glisser vers un dossier de la colonne ouvre un petit menu « Déplacer ici / Copier ici ».
+- L'ordre des chapitres glissés est enregistré dans `pinnedOrder`, pas dans l'ordre de `categories`.
+- Glisser un dossier sur un dossier de la colonne : sans effet (non pris en charge, non testé).
+- Le badge favori (`.exercise-favorite-badge`) est une boîte de 0 × 0 : seule son étoile est visible (Playwright le juge « hidden »).
+- Technique : l'appui long du téléphone est simulé par un `pointerdown` tactile maintenu (Playwright n'a pas ce geste) ; sur iPhone le premier appui juste après une action échoue parfois, l'aide réessaie (annotation `appui-long` dans le test).
+- Sélecteurs CSS utilisés faute de mieux (aucun `data-testid`) : `#sidebar-tree`, `#chapter-bar`, `#breadcrumb`, `#undo-btn` / `#redo-btn` / `#more-btn`, `.folder-row`, `.exercise-row`, `.exercise-title`, `.ctx-backdrop`, `.folder-picker-panel`, `.exercise-picker-panel`, `.result-path`. Rôles et libellés partout ailleurs.
+
+## Tests ajoutés (`tests/e2e/bibliotheque/`, 93 tests, 28 `@critique`)
+- `espaces.spec.ts` 6 : créer, changer, renommer, supprimer (+ annuler), nom vide, corbeille.
+- `chapitres.spec.ts` 8 : créer, nom vide, renommer, réordonner (glisser), dupliquer, fusionner, supprimer (+ rétablir), nouveau sous-dossier.
+- `dossiers.spec.ts` 11 : créer / sous-dossier / fil d'Ariane, champ au téléphone, menu à l'ordinateur, renommer (crayon et menu), déplacer (dans un dossier, vers un autre chapitre), fusionner, dupliquer, supprimer, note.
+- `exercices.spec.ts` 14 : rafale, focus (BI-01), dossier ouvert, renommer ×2, dupliquer, copies liées ×2, supprimer ×2, favori, « En cours », archiver, déplacer.
+- `menu-contextuel.spec.ts` 7 : clic droit, appui long (`@mobile`), « Plus d'actions », retirer favori / en cours, menus dossier et chapitre, un seul menu.
+- `selection.spec.ts` 9 : Ctrl/⌘ + clic, ⌘, Maj + clic, menu « Sélectionner », actions de la barre ×3, copier vers, menu sur sélection, BI-03.
+- `glisser.spec.ts` 7 : réordonner exercices, annuler, glisser raté, réordonner dossiers, exercice sur dossier / chapitre de la colonne, titre éditable.
+- `volet.spec.ts` 4 : masquer / afficher (+ Ctrl/⌘ + B), largeur (souris, flèches, bornes, double clic), largeur conservée, téléphone (`@mobile`).
+- `recherche.spec.ts` 12 : loupe ×5 (+ BI-02), recherche rapide ×6 (Ctrl/⌘ + F, bouton, clic, dossier, accents, focus BI-04).
+- `tri-filtres.spec.ts` 9 : A → Z / Z → A, création, modifiés récemment, ★ Favoris, ● En cours, Notes, PJ, filtre vide, barre absente si vide.
+- `annuler-retablir.spec.ts` 6 : enchaînement, nouvelle action, clavier, chapitre, menu « ⋯ » (`@mobile`), boutons du haut (`@ordinateur`).
+- `aide-bibliotheque.ts` : état de départ, lecture de l'état, menus, appui long, glisser, annuler / rétablir.
+
+## Non couvert
+Voir `tests/PLAN.md` § 3, ligne 2 : archivage de chapitre (n'existe pas), glisser un dossier dans la colonne (sans effet), actions des modules `morceaux` / `session` / `fiche` du menu, filtres PJ et vidéo avec de vraies pièces jointes, détails tenus par les bancs (corbeille, favoris, notes de dossier).
+
+## Rejouer
+`npx firebase emulators:exec --project demo-trainhub --only auth,firestore "npx playwright test tests/e2e/bibliotheque --grep '@smoke|@critique' --project=chromium"` (28 tests, aucun `@smoke` dans ce module).
