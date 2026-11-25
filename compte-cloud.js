@@ -1,5 +1,5 @@
 // COMPTE CLOUD — composant d'interface COMMUN à HarmoHub, TabHub et TrainHub.
-// VERSION 1 — 28/10/2026. Fichier de référence : dépôt HarmoHub. À COPIER TEL QUEL dans les autres applis
+// VERSION 2 — 25/11/2026 (v1 : 28/10/2026 ; v2 : refus de la fenêtre retenu sept jours, ES-17). Fichier de référence : dépôt HarmoHub. À COPIER TEL QUEL dans les autres applis
 // (voir docs/fichiers-partages.md) : on n'y met rien de propre à une appli, tout passe par les options.
 //
 // Retour utilisateur : « sur les 3 applis, les pastilles de connexion sont différentes. Je veux mettre les
@@ -41,7 +41,7 @@
 //                                 // pastille orange tant qu'elle existe) — ex. TrainHub : « 3 séances
 //                                 // enregistrées hors connexion : connecte-toi pour les envoyer ». '' l'efface.
 
-var COMPTE_CLOUD_VERSION = 1;
+var COMPTE_CLOUD_VERSION = 2;
 
 var COMPTE_CLOUD_LIBELLES = {
     synced: 'Synchronisé avec le cloud',
@@ -147,6 +147,11 @@ function monterCompteCloud(hote, options) {
     var objets = options.objets || 'données';
     var CLE_NE_PLUS = 'compteCloud.' + slug + '.nePlusProposer';   // localStorage : décision durable
     var CLE_PROPOSE = 'compteCloud.' + slug + '.propose';          // sessionStorage : une fois par onglet
+    // ES-17 (essai neutre du 20/11 : « la fenêtre revient à chaque chargement… elle ne revient pas avant un certain temps »). Quelqu'un qui répond « Continuer sans compte »
+    // (ou ferme la fenêtre) n'est pas relancé pendant sept jours, dans AUCUN onglet de cet appareil : une décision de durée moyenne, entre « une fois par onglet » (trop) et
+    // la case « Ne plus me le proposer » (pour toujours). Le délai se lit dans le stockage local, donc se partage entre onglets et survit à la fermeture du navigateur.
+    var CLE_REPORT = 'compteCloud.' + slug + '.reporteJusqua';     // localStorage : date (ms) avant laquelle on ne repropose pas
+    var DELAI_REPORT_MS = 7 * 24 * 3600 * 1000;
 
     if (!document.getElementById('compte-cloud-style')) {
         var style = document.createElement('style');
@@ -181,7 +186,7 @@ function monterCompteCloud(hote, options) {
         + '<div class="cc-menu-etat"><span class="cc-pastille" data-etat=""></span><span id="cloud-menu-etat"></span></div>'
         + '<div class="cc-menu-sep"></div>'
         + '<button type="button" id="signout-btn" role="menuitem"><span>Se déconnecter</span>'
-        + '<span class="cc-aide">Ce qui est déjà envoyé reste dans le cloud</span></button>';
+        + '<span class="cc-aide">Ce qui est déjà envoyé reste dans le cloud ; les morceaux restent sur cet appareil</span></button>';
     document.body.appendChild(menu);
 
     var voile = document.createElement('div');
@@ -284,20 +289,22 @@ function monterCompteCloud(hote, options) {
         accueil: {
             titre: 'Retrouve ton travail partout',
             texte: 'Connecte-toi avec ton compte Google : tes ' + objets + ' sont enregistrés automatiquement dans le cloud, et tu les retrouves sur tous tes appareils.',
-            aide: 'Sans compte, ils restent seulement dans ce navigateur, et peuvent disparaître si ses données sont effacées.',
+            aide: 'Sans compte, ils restent seulement dans ce navigateur, et peuvent disparaître si ses données sont effacées. Si tu continues sans compte, cette fenêtre ne reviendra pas avant une semaine.',
             continuer: 'Continuer sans compte',
         },
         modification: {
             titre: 'Tu n\'es pas connecté',
             texte: 'Ce que tu fais maintenant ne sera pas enregistré dans le cloud : il restera seulement sur cet appareil, et un autre appareil ne le verra pas.',
-            aide: 'Tu pourras te connecter plus tard avec le bouton « Se connecter », en haut de l\'écran.',
+            aide: 'Tu pourras te connecter plus tard avec le bouton « Se connecter », en haut de l\'écran. Cette fenêtre ne reviendra pas avant une semaine.',
             continuer: 'Continuer sans synchroniser',
         },
     };
 
-    function fermerFenetre() {
+    function fermerFenetre(pourSeConnecter) {
         if (voile.hidden) return;
         if (document.getElementById('cloud-guard-ne-plus').checked) ecrireCle(localStorage, CLE_NE_PLUS, '1');
+        // Fermée SANS compte (« Continuer… », Échap, clic à côté) : on ne relance pas avant sept jours. Fermée parce que la connexion a réussi : rien à reporter.
+        if (!etat.user && pourSeConnecter !== true) ecrireCle(localStorage, CLE_REPORT, String(Date.now() + DELAI_REPORT_MS));
         voile.hidden = true;
         if (focusAvant && focusAvant.focus) { try { focusAvant.focus(); } catch (e) { /* élément disparu */ } }
     }
@@ -308,6 +315,7 @@ function monterCompteCloud(hote, options) {
     function proposerConnexion(raison) {
         if (etat.user || !etat.authPrete || etat.indisponible) return false;
         if (lireCle(localStorage, CLE_NE_PLUS) === '1') return false;
+        if ((Number(lireCle(localStorage, CLE_REPORT)) || 0) > Date.now()) return false;
         if (lireCle(sessionStorage, CLE_PROPOSE) === '1') return false;
         ecrireCle(sessionStorage, CLE_PROPOSE, '1');
         var t = TEXTES[raison] || TEXTES.accueil;
@@ -325,7 +333,8 @@ function monterCompteCloud(hote, options) {
 
     document.getElementById('cloud-guard-connect').addEventListener('click', function () {
         // La connexion part DIRECTEMENT de ce clic : le navigateur n'ouvre la fenêtre Google que dans un geste.
-        fermerFenetre();
+        // Choisir de se connecter n'est pas un refus : rien n'est reporté (si la connexion échoue, la fenêtre peut revenir).
+        fermerFenetre(true);
         if (options.seConnecter) options.seConnecter();
     });
     document.getElementById('cloud-guard-continue').addEventListener('click', fermerFenetre);
