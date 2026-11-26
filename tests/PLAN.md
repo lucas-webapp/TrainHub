@@ -1,12 +1,12 @@
 # Plan des tests Playwright (`@playwright/test`) — TrainHub
 
-État : **phases 1 à 4 faites (23/11/2026) ; phase 5 (couverture intégrale) EN COURS — prochain module : `mobile` (`session` reste ◐ : voir § 3, ligne 4).** Plan validé par l'utilisateur le 23/11 (§ 8).
+État : **phases 1 à 4 faites (23/11/2026) ; phase 5 (couverture intégrale) EN COURS — prochain module : `morceaux` (`session` reste ◐ : voir § 3, ligne 4).** Plan validé par l'utilisateur le 23/11 (§ 8).
 Validation phase 4 : `@smoke` vert sur les 7 projets (VM et CI, https://github.com/lucas-webapp/TrainHub/actions/runs/45262782406) ; garde-fou éprouvé (requête de production
 bloquée → test en échec ; projet sans `demo-` refusé) ; testeur : rapport `tests/reports/latest.md` ; vidéos du smoke : https://claude.ai/artifact/LCAUcZ53M5ocBrShSBqHxF.
 **L'utilisateur a autorisé (23/11) l'enchaînement automatique de la phase 5, sans qu'il le redise** ; il fera des `/clear` : tout l'état doit rester ICI et dans
 `CLAUDE-TRAINHUB.md` (« Suite à faire »). Après un module : Chromium vert, `@smoke` + `@critique` verts sur les 7 projets, PLAN à jour, push sur `main` ET
 `structure-dossiers`, CI verte, point de 3 lignes à l'utilisateur.
-Avancement : 6 modules sur 16 faits (`demarrage`, `bibliotheque`, `fiche`, `libre`, `metronome`, `synchro`), 1 en cours (`session`, ◐ après le lot 2).
+Avancement : 7 modules sur 16 faits (`demarrage`, `bibliotheque`, `fiche`, `libre`, `metronome`, `synchro`, `mobile`), 1 en cours (`session`, ◐ après le lot 2).
 Ce fichier est la mémoire de ce chantier : le sous-agent `testeur-e2e` y lit l'état de chaque module ; après un `/clear`, c'est ici qu'on reprend
 (« Reprends la phase 5 » → § 3, premier module qui n'est pas ☑).
 Référence reprise : l'infrastructure d'HarmoHub (`lucas-webapp/HarmoHub`, branche `claude/harmohub-travail-Claude`, `tests/PLAN.md` § 9), lue le 23/11.
@@ -78,7 +78,7 @@ Référence reprise : l'infrastructure d'HarmoHub (`lucas-webapp/HarmoHub`, bran
 | `synchro-cloud.js` partagé | moteur propre, documents multiples (état, journal mensuel, captures, fichiers) | le module `synchro` vérifie les 4 familles de documents |
 | pas de service worker | `sw.js` met **tout** en cache (y compris `firebase-config.js`) | service worker **bloqué** dans tous les tests, sauf un test PWA dédié (Chromium) |
 | `window.app` pour relire l'état | rien d'exposé | on relit `localStorage["trainhub.v1"]` et l'écran (boîte noire) |
-| rupture de mise en page à 900 px | à **700 px** | mêmes tags `@ordinateur` / `@mobile` ; mêmes projets (aucun n'est entre 700 et 900 px) |
+| rupture de mise en page à 900 px | à **700 px** pour les tags (mesuré le 26/11 : barre du haut « téléphone » jusqu'à 760 px, colonne latérale dès 880 px) | mêmes tags `@ordinateur` / `@mobile` ; mêmes projets (aucun n'est entre 700 et 880 px ; un téléphone COUCHÉ, si : module `mobile`) |
 | Tone.js en ligne | piano local, mais **YouTube** et **micro** | faux lecteur YouTube (`tests/playwright/yt_mock_api.js`, déjà écrit pour les bancs) servi partout ; faux micro (Chromium, Edge, Firefox) |
 | branche de travail `claude/harmohub-travail-Claude` | publication par `structure-dossiers`, `main` recopiée | on pousse sur les deux ; CI sur `structure-dossiers` (D1) |
 | la session s'ouvre dans le dépôt | jusqu'ici dans **HarmoHub**, TrainHub à côté ; désormais directement sur TrainHub | hook `SessionStart` + consigne de repli (D8) |
@@ -120,11 +120,11 @@ Priorité : **P1** parcours principal, **P2** important, **P3** secondaire. Stat
 | 12 | `video` | lecteurs YouTube sous la session (faux lecteur), plein écran, clavier de la vidéo, ouverture de plusieurs liens | P2 | ☐ |
 | 13 | `donnees` | export / import JSON, sauvegardes de secours (panneau, restaurer), corbeille (restaurer, vider, vider les plus anciens, rappel au-delà de 20), export / réimport des captures | P2 | ☐ |
 | 14 | `parametres` | thème (sombre / clair / auto), verre dépoli, halo, préférences, raccourcis et astuces, persistance après rechargement | P3 | ☐ |
-| 15 | `mobile` | barre des chapitres, menu « ⋯ » (annuler, rétablir, corbeille), « Outils de musique », volet, appui long = menu, session et métronome au téléphone, messages lisibles | P1 (projets mobiles) | ☐ |
+| 15 | `mobile` | barre des chapitres, menu « ⋯ » (annuler, rétablir, corbeille), « Outils de musique », volet, appui long = menu, session et métronome au téléphone, messages lisibles | P1 (projets mobiles) | ☑ 26/11 : 9 fichiers `tests/e2e/mobile/` (+ aide `aide-mobile.ts`), 74 tests (23 `@critique`, 72 `@mobile`, 2 `@ordinateur` : les seuils de mise en page, seuls tests du module qui tournent sur chromium, firefox, webkit, edge et tablette) ; 154 exécutions sur les 7 projets : 134 réussies + 13 échecs voulus (MO-01 à MO-07) + 7 ignorées voulues / 0 échoué (2 passages identiques, ≈ 2 min chacun) ; 8 bugs ouverts : MO-01 (mineur, barre des chapitres coupée sous la barre du haut après un défilement), MO-02 (mineur, nom de chapitre long qui déborde de sa pastille), MO-03 (mineur, WebKit, espace au nom long : page plus large que l'écran), MO-04 (mineur, cibles tactiles < 24 px : étoiles, commentaire, retrait, « ＋ Note »), MO-05 (gênant, métronome épinglé couché : Jouer à 18 px), MO-06 (gênant, la barre de sélection recouvre le lecteur audio flottant), MO-07 (gênant, le lecteur audio recouvre le bas des menus d'appui long), MO-08 (gênant, intermittent ≈ 3 %, un balayage qui part d'une ligne intervertit deux exercices, `test.fixme`). **À savoir** : les seuils réels de mise en page sont 760 px (barre du haut « téléphone » → « ordinateur ») et 880 px (barre des chapitres → colonne latérale), pas 700 px ; un téléphone couché (734 ou 863 px) tombe entre les deux. **Non couvert / limites** : clavier virtuel SIMULÉ par une fenêtre plus basse (modèle Android ; sous iOS le clavier recouvre la page sans la redimensionner : à vérifier sur iPhone) ; sous WebKit-Linux : pas de vrai geste tactile (ENV-MO-02 : balayage et annulation de l'appui long ignorés sur iPhone), pas de zone sûre émulée (ENV-MO-03 : 3 tests d'encoche ignorés), et un `tap()` ne produit pas de `click` sur une pastille de chapitre / ligne d'exercice (ENV-MO-01 : le test utilise `click()` sur WebKit) ; liste déroulante au texte coupé en haut sur WebKit-Linux (rendu à confirmer sur iPhone) ; fenêtre « Données en ligne trouvées » et déroulé de session au téléphone (modules `synchro`, `session`) ; pincement / zoom (désactivé par la page : `maximum-scale=1`) ; vrai clavier iOS, vraie encoche, vrai appui long iOS |
 | 16 | `robustesse` | états vides, très gros contenu, stockage plein ou refusé, deux onglets, service worker (enregistré, hors ligne après une visite — Chromium), garde-fou de fermeture pendant une synchro | P3 | ☐ |
 
 Tags : `@smoke`, `@critique` (parcours P1), `@<module>`, plus `@ordinateur` / `@mobile` (filtre par appareil), `@micro` (faux micro : pas sur WebKit).
-Ordre de la phase 5 : `bibliotheque`, `fiche`, `session`, `libre`, `metronome`, `synchro`, `mobile`, puis P2 dans l'ordre du tableau, puis P3.
+Ordre de la phase 5 : `bibliotheque`, `fiche`, `session`, `libre`, `metronome`, `synchro`, `mobile` (fait), puis P2 dans l'ordre du tableau, puis P3.
 
 ## 4. Matrice navigateurs / appareils
 

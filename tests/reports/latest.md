@@ -1,78 +1,71 @@
-# Rapport — module `synchro` — 26/11/2026
+# Rapport — module `mobile` — 26/11/2026
 
 ## Résumé
-- Testé : la synchro cloud de bout en bout contre les émulateurs (`demo-trainhub`) : connexion par un compte Google FICTIF, envoi de l'état, second appareil (second contexte, même compte), conflit à la première connexion, fusion du journal mensuel, captures et fichiers joints dans Firestore, déconnexion, réseau coupé puis repris, règles de sécurité.
-- Résultat : **55 tests, 378 exécutions sur les 7 projets : 316 réussies + 32 échecs voulus (bugs SY-01 à SY-04) + 30 ignorées voulues (ENV-FI-01, WebKit sous Linux), 0 échoué** — deux passages complets identiques (≈ 13 min chacun, dernier réglage des délais compris).
-- Suite conseillée : arbitrer SY-02 et SY-04 (gênants, données qui divergent) ; confirmer sur un vrai Safari / iPhone les 30 tests ignorés ; puis module `mobile`.
+- Testé : l'appli au téléphone (≤ 700 px : Pixel 7 et iPhone 15) et sa bascule de mise en page : barres du haut et des chapitres, panneaux plein écran, menus d'appui long, gestes (toucher, appui long, balayage, glisser), clavier virtuel (simulé), rotation, barre de sélection, compte et déconnexion au doigt, zone sûre (encoche) ; plus, sur les projets d'ordinateur, les seuils de mise en page.
+- Résultat : **74 tests, 154 exécutions sur les 7 projets : 134 réussies + 13 échecs voulus (bugs MO-01 à MO-07) + 7 ignorées voulues, 0 échoué** — deux passages complets identiques (≈ 2 min chacun).
+- Suite conseillée : arbitrer MO-05, MO-06, MO-07 (gênants, métronome épinglé couché et lecteur audio qui recouvre / est recouvert) et MO-08 (intermittent : un balayage qui part d'une ligne peut intervertir deux exercices) ; vérifier sur un vrai iPhone la liste « à vérifier » ci-dessous ; puis module `morceaux`.
 
 ## Environnement
-- Émulateurs `demo-trainhub` (Auth 9199, Firestore 8180) et serveur de test (8937) lancés par moi, **arrêtés à la fin**. Sessions `playwright-cli` `trainhub` et `tb2` fermées. Sortie audio factice laissée allumée.
-- Production : la fixture commune fait échouer tout test qui enverrait une requête vers un domaine Firebase de production ; le second appareil (`ouvrirAppareil`, aide du module) reprend le MÊME garde-fou et note dans la même liste. Résultat : aucune requête bloquée. `playwright-cli requests` relevé en fin d'exploration : seule la police Google a été tentée (bloquée), rien vers la production.
-- Par projet (attendus) : chromium 54, firefox 54, edge 54, mobile-android 54, webkit 54, tablette 54, mobile-iphone 54 (1 test `@ordinateur` absent des projets mobiles, 1 test `@mobile` absent des autres).
+- Émulateurs `demo-trainhub` (Auth 9199, Firestore 8180) et serveur de test (8937) lancés par moi (ils étaient tombés en cours de route : relancés), à arrêter à la fin. Session `playwright-cli` `trainhub` fermée.
+- Production : la fixture commune fait échouer tout test qui enverrait une requête vers un domaine Firebase de production ; aucun test n'a échoué pour cela. `playwright-cli requests` : aucune requête vers un domaine Firebase de production.
+- Par projet : chromium, firefox, webkit, edge, tablette 2 exécutions chacun (les 2 tests `@ordinateur` des seuils) ; mobile-android 72 (65 réussies + 6 échecs voulus + 1 ignorée) ; mobile-iphone 72 (59 réussies + 7 échecs voulus + 6 ignorées).
 
 ## Ce que l'exploration a appris (comportements à connaître)
-- Documents sous `users/{uid}/apps/` : `trainhub` (l'état entier en champs Firestore natifs, `settings.logRev` = révision de chaque mois du journal), `trainhub-log-AAAA-MM` (`month`, `records`, `deleted`, `updatedAt`), `trainhub-img-<id>` (`data` = image en base64, `type`, `name`), `trainhub-file-<cid>-<n>` (`bytes`, `i`, `n` ; morceaux de 800 Kio). Aucun Storage.
-- Pastille `#sync-status`, attribut `data-etat` : `synced`, `pending` (modification, envoi différé de 1,5 s), `syncing`, `error`. Hors réseau elle reste sur `syncing` ; Firestore et Auth injoignables au chargement : `error`.
-- Règle de fusion à la première connexion (observée) : état local plus ANCIEN que le cloud = le cloud est repris sans question (sauvegarde de secours de l'état remplacé) ; local plus récent ET cloud avec plus d'UN exercice de plus = fenêtre « Données en ligne trouvées » (Échap et clic à côté = garder les données en ligne ; « Remplacer par cet appareil… » demande une seconde confirmation) ; appareil sans aucun exercice = le cloud est repris, message « Données en ligne récupérées (N exercices). » ; écart d'un exercice au plus = l'appareil écrase le cloud.
-- Un appareil vierge qui se connecte reçoit l'état sans question (son état par défaut est « plus ancien »). L'écoute temps réel (`onSnapshot`) met l'autre appareil à jour sans rechargement.
-- Une séance saisie hors connexion est comptée : info-bulle de la pilule « Se connecter » (« N séance enregistrée hors connexion : connecte-toi pour l'envoyer ») puis message à la connexion.
-- Connecter un AUTRE compte sur le même appareil envoie la bibliothèque de l'appareil dans ce compte (testé comme comportement observé, **à arbitrer** : appareil partagé).
-- Le libellé du trombone dit « envoyé dans votre compte » même quand personne n'est connecté (texte statique ; non testé, non jugé).
+- Au téléphone, la barre du haut (`.top-bar`, 2 rangées, icônes de 36 × 38 px) ET la barre des chapitres (`#chapter-bar`, passe à la ligne) sont collantes : avec les 5 chapitres de l'utilisateur elles prennent 221 px sur les 659 de l'iPhone (33 %).
+- Seuils réels de mise en page, mesurés sur 100 largeurs : **≤ 760 px barre du haut « téléphone » (neuf icônes + « ⋯ »)**, 761 → 879 px barre du haut « ordinateur » + barre des chapitres, **≥ 880 px colonne latérale**. `PLAN.md` / `CLAUDE-TRAINHUB.md` disent 700 px (vrai pour la fonction `auTelephone` et les tags des projets de test, pas pour l'écran). Un téléphone couché (iPhone 734 × 343, Pixel 863 × 360) tombe dans la zone intermédiaire : pas de colonne latérale, mais barre des chapitres + barres collantes qui prennent 49 à 54 % de la hauteur.
+- Panneaux (Paramètres, Corbeille, Gammes, Harmonie, Aides, Enregistreur) : plein écran avec « Fermer » ; ils se redimensionnent à la rotation avec ≈ 0,5 s de retard (attendu par `expect.poll`, sans pause). Les onglets de Paramètres (7) défilent de côté dans leur bandeau, la page non.
+- Les menus d'appui long sont bornés à la hauteur de l'écran et défilent. La poignée ⠿ et les pastilles de chapitre ont `touch-action: none`.
+- Le Lecteur audio est un panneau flottant en bas (pas un bandeau docké comme à l'ordinateur).
+- La page déclare `maximum-scale=1, user-scalable=no`, sans `viewport-fit=cover` : le navigateur garde la page hors de l'encoche ; `env(safe-area-inset-bottom)` est quand même pris en compte pour le volet du métronome, la barre de sélection et le lecteur (vérifié avec une zone sûre émulée de 34 px sous Chromium).
+- À confirmer sur iPhone : le texte des listes déroulantes (tri, filtres) est coupé en haut sur le WebKit de Playwright (hauteur 32 px, texte 11,5 px) — probablement un rendu de WebKit sous Linux, non consigné comme bug.
 
 ## Bugs (détail dans `tests/reports/bugs.md`)
-**SY-01 (mineur) — « les 1 exercice »**
-- Étapes : 1. un compte a 4 exercices en ligne ; 2. un appareil neuf à 1 exercice (plus récent) se connecte ; 3. « Remplacer par cet appareil… ».
-- Attendu : une phrase correcte. Observé : « Les 4 exercices en ligne seront remplacés par **les 1 exercice** de cet appareil ». Correct à partir de 2.
-- Appareils : tous. Test : `conflit.spec.ts` « la seconde confirmation s'écrit correctement au singulier… » (`test.fail`). Avis : bug de l'appli (texte).
+**MO-01 (mineur) — la barre des chapitres glisse sous la barre du haut** — Étapes : 1. ouvrir un chapitre long ; 2. défiler de 900 px. Attendu : barre des chapitres entière sous la barre du haut, ou masquée. Observé : une bande de ≈ 23 px de pastilles coupées. Appareils : les deux téléphones. Test : `barre-haut.spec.ts` (`test.fail`). Avis : bug de l'appli (`top: 0` sur deux barres collantes).
 
-**SY-02 (gênant) — le journal fusionné n'arrive pas sur l'appareil déjà connecté**
-- Étapes : 1. A connecté a la séance s-a1 ; 2. B (autre contexte) a la séance s-b1 le même mois ; 3. B se connecte au même compte.
-- Attendu : A reçoit s-b1 (comme une séance saisie en direct). Observé : le cloud a bien les deux ; B les a ; A ne reçoit s-b1 ni tout de suite, ni après rechargement. Il la reçoit seulement quand B renvoie le document principal (n'importe quelle modification de B : test passant « dès que l'appareil… modifie quoi que ce soit »).
-- Cause probable : la fusion écrit le document du mois mais pas le document principal ; A compare la révision notée dans le principal (périmée) à la sienne et ne relit pas le mois.
-- Appareils : tous (Chromium observé). Tests : `journal.spec.ts` « le premier appareil, resté ouvert, reçoit… » et « même en rouvrant l'appli… » (`test.fail` ×2). Avis : bug de l'appli.
+**MO-02 (mineur) — nom de chapitre long hors de sa pastille** — Étapes : 1. un chapitre au nom de 85 caractères. Observé : le texte passe sur deux lignes et sort du cadre de 30 px. Test : `barre-haut.spec.ts` (`test.fail`). Avis : bug de l'appli (CSS).
 
-**SY-03 (mineur) — info-bulle d'un fichier du compte**
-- Étapes : 1. connecté, ajouter un PDF (il part dans `trainhub-file-…`, la fiche porte `cloud: true`) ; 2. survoler la pastille du fichier.
-- Attendu : plus de « seulement sur cet appareil ». Observé : « Fichier stocké seulement sur cet appareil (non synchronisé) » en permanence.
-- Appareils : tous sauf WebKit sous Linux (ignoré, ENV-FI-01). Test : `images-fichiers.spec.ts` « l'info-bulle d'un fichier qui est dans le compte… » (`test.fail`). Avis : bug de l'appli (texte ancien).
+**MO-03 (mineur, WebKit) — espace au nom très long : page plus large que l'écran** — Étapes : 1. nom d'espace de 47 caractères. Observé (iPhone) : `scrollWidth` 551 pour 393 ; la page glisse de côté. Pixel : normal. Test : `barre-haut.spec.ts` (`test.fail` sur WebKit seulement). Avis : bug probable de l'appli (largeur de la liste déroulante) ; à confirmer sur un vrai iPhone.
 
-**SY-04 (gênant) — un envoi en attente plus ancien écrase le cloud au retour du réseau**
-- Étapes : 1. A et B connectés au même compte ; 2. réseau coupé chez A ; 3. A ajoute « A hors réseau » (t1) ; 4. B ajoute « B en ligne » (t2 > t1), le cloud l'a ; 5. réseau rendu à A.
-- Attendu : « le plus récent gagne » : B partout. Observé : le cloud et A ont « A hors réseau », B garde « B en ligne » sous la pastille « Synchronisé » : divergence jusqu'à la prochaine modification.
-- Appareils : tous (Chromium et WebKit observés ; échec voulu ×7). Test : `reseau.spec.ts` « deux appareils, l'un coupé du réseau… » (`test.fail`). Avis : bug de l'appli (envoi sans comparaison de dates). Cas rare mais sans perte visible pour l'utilisateur.
+**MO-04 (mineur) — cibles tactiles de moins de 24 px** — Observé : étoiles de la note (15 px liste, 19 px éditeur), « Commentaire sur la session » (18), « Retirer de la session » (18), « ＋ Note » (23 de haut), − / + des champs numériques (20 de large). Test : `panneaux.spec.ts` (`test.fail`). Avis : choix de conception à arbitrer (WCAG 2.2 AA demande 24 px).
 
-**Intermittence vue puis traitée (pas un bug consigné)** : sur deux passages complets antérieurs, le même test (`second-appareil` « dans les deux sens ») a échoué une fois sur `mobile-iphone` puis une fois sur `webkit` : la pastille restait 20 s sur « Envoi en cours… ». Jamais en isolation (45 exécutions de ce test en rafale sur les 3 projets WebKit et 40 exécutions du fichier sur `mobile-iphone`, toutes réussies) ni sur trois passages complets des seuls projets WebKit. Avis : lenteur WebKit / émulateur sous la charge de 7 projets, pas démontrée côté appli. Réglage : attente de la pastille portée à 30 s et délai de chaque test du module à 90 s (aucune vérification retirée) ; les deux derniers passages complets sont verts. À surveiller en CI.
+**MO-05 (gênant) — métronome épinglé, téléphone couché : Jouer écrasé à 18 px** — Étapes : 1. épingler le métronome ; 2. coucher le téléphone. Observé : volet de ≈ 200 px sur 343-360 (58 %), bouton Jouer de 18 px de haut. Test : `rotation.spec.ts` (`test.fail`). Avis : bug de l'appli (mise en page).
 
-## Tests ajoutés — `tests/e2e/synchro/` (+ aide `aide-synchro.ts`)
-- `connexion.spec.ts` — 6 (4 `@critique`, 1 `@ordinateur`, 1 `@mobile`) : connexion et menu du compte, état entier dans Firestore, ajout / renommage / suppression suivis, rechargement connecté, deux comptes isolés, pilule à l'ordinateur et au téléphone.
-- `second-appareil.spec.ts` — 4 (3 `@critique`) : appareil vierge qui reçoit tout, direct dans les deux sens (ajout, renommage, suppression), le plus récent gagne, mêmes identifiants.
-- `conflit.spec.ts` — 8 (5 `@critique`) : garder (rien d'écrit tant que la question est ouverte), remplacer (2ᵉ confirmation, sauvegarde de secours, l'autre appareil suit), « Non, garder », Échap et clic à côté, appareil vide, appareil plus ancien (sauvegarde de secours), écart d'un exercice, SY-01.
-- `journal.spec.ts` — 9 (5 `@critique`) : un document par mois, fusion (+ relance par le document principal), SY-02 ×2, séance saisie en direct, suppression partout (même sur un 3ᵉ appareil), correction d'une durée, séance hors connexion (pilule puis message).
-- `images-fichiers.spec.ts` — 10 (8 `@critique`) : capture (octets identiques, `cloud`), second appareil, lecture d'une capture posée dans l'émulateur (tous navigateurs), PDF (octets identiques, message), SY-03, gros fichier en 3 morceaux (recollés, ouvert par un second appareil), lecture de 3 morceaux posés (tous navigateurs), retrait (documents supprimés), ajout hors connexion puis connexion, fichier de plus de 30 Mo (message, rien envoyé).
-- `reseau.spec.ts` — 7 (5 `@critique`) : coupure puis reprise, plusieurs modifications, séance saisie, capture, rattrapage d'un appareil resté coupé, rechargement Firestore / Auth injoignables, SY-04.
-- `deconnexion.spec.ts` — 5 (3 `@critique`) : menu « Se déconnecter », modification déconnecté, modification « en attente » au départ, écoute arrêtée, autre compte sur le même appareil (observé).
-- `regles.spec.ts` — 6 (5 `@critique`) : inconnu, autre compte (jeton valide), propriétaire (200, hors chemin 403), SDK de l'appli avec un autre compte et sans compte (`permission-denied`), capture envoyée par l'appli.
-- Total 55 tests : 38 `@critique`, 1 `@ordinateur`, 1 `@mobile`.
+**MO-06 (gênant) — la barre de sélection recouvre le lecteur audio** — Étapes : 1. sélectionner un exercice ; 2. ouvrir le Lecteur audio. Observé : barre 701–825 et lecteur 734–831 (Pixel) : ils se recouvrent. Test : `selection.spec.ts` (`test.fail`). Avis : bug de l'appli (la règle `audio-docked` ne s'applique pas au panneau flottant).
+
+**MO-07 (gênant) — le lecteur audio recouvre le bas des menus d'appui long** — Étapes : 1. ouvrir le Lecteur audio ; 2. appui long sur un exercice, « Plus d'actions ». Observé : « Dupliquer », « Archiver », « Supprimer… » recouverts, intouchables. Test : `panneaux.spec.ts` (`test.fail`). Avis : bug de l'appli (ordre d'empilement).
+
+**MO-08 (gênant, intermittent ≈ 3 %) — un balayage qui part d'une ligne intervertit deux exercices** — Étapes : 1. longue liste ; 2. balayer pour défiler en posant le doigt sur une ligne (vrais événements tactiles, Chromium). Observé : `pointerdown` puis `pointercancel (0, 0)` et deux exercices voisins échangés, 6 fois sur 180 (3/40, 1/60, 2/80) ; jamais en partant de la marge. Trace : essais `repeat-each` consignés dans cette session, pas de trace conservée (réussit presque toujours). Test : `tactile.spec.ts` (`test.fixme`, bug intermittent). Avis : bug probable de l'appli (annulation du geste traitée comme un lâcher).
+
+**Intermittence vue puis traitée (pas un bug)** : le balayage de la liste a d'abord échoué 3 fois sur 40 sous charge ; l'examen en rafale (80 essais, journal des événements) a montré que c'était MO-08, pas le test. Le test qui reste (départ dans la marge, horloge de la page figée) a passé 40 essais d'affilée.
+
+## Tests ajoutés — `tests/e2e/mobile/` (+ aide `aide-mobile.ts`)
+- `barre-haut.spec.ts` — 11 (5 `@critique`) : neuf icônes dans l'écran sans chevauchement, toucher de chaque icône, menus « Outils » et « ⋯ », pastilles (toucher, retour à la ligne, 14 chapitres), noms longs, place des barres collantes, MO-01, MO-02, MO-03, fenêtre de l'appli (viewport, pas de zoom au double toucher).
+- `panneaux.spec.ts` — 24 (7 `@critique`) : six panneaux plein écran (dans l'écran, « Fermer ») ×2 (écran normal puis bas), onglets et interrupteurs de Paramètres, écrans de session (liste, éditeur, choix, calendrier, historique, statistiques), recherche, lecteur audio, paysage et clavier ouvert, MO-04, MO-07.
+- `rotation.spec.ts` — 7 (1 `@critique`) : état et texte conservés à l'aller-retour, chapitre, place des barres couché, panneau ouvert pendant la rotation, métronome flottant en lecture, MO-05, volet épinglé couché.
+- `clavier.spec.ts` — 8 (1 `@critique`) : « Ajouter un exercice… » en bas de liste, champ de fiche, champ au milieu de l'écran, volet épinglé + clavier, tempo du métronome, « Renommer l'espace », recherche, éditeur de session.
+- `tactile.spec.ts` — 10 (4 `@critique`) : appui long sur pastille / dossier, bords de l'écran, écran bas, annulation par le mouvement, `touch-action`, balayage (marge, MO-08), glisser un exercice et une pastille au doigt, commandes sans survol.
+- `selection.spec.ts` — 5 (2 `@critique`) : sélection au doigt, barre dans l'écran, MO-06, couché, message « Annuler ».
+- `compte.spec.ts` — 3 (2 `@critique`) : fenêtre d'accueil, écran bas, menu du compte et déconnexion au doigt.
+- `encoche.spec.ts` — 4 : viewport et `viewport-fit`, zone sûre de 34 px (Jouer, barre de sélection, lecteur audio).
+- `seuils.spec.ts` — 2 (1 `@critique`, `@ordinateur`) : mise en page à la largeur du projet, paliers de 1 200 à 480 px.
+- Total : 74 tests, 23 `@critique`, 72 `@mobile`, 2 `@ordinateur`.
 
 ## Par projet (passage complet, identique deux fois)
-- chromium 49 réussis + 5 échecs voulus (SY-01, SY-02 ×2, SY-03, SY-04) ; firefox, edge, mobile-android idem.
-- webkit 40 + 4 échecs voulus (SY-03 est ignoré) + 10 ignorés ; tablette et mobile-iphone idem. Aucun échec.
-- Les 10 ignorés par projet WebKit (30 en tout) sont l'ENV-FI-01 déjà documenté (rapport du module `fiche`) : le WebKit de Playwright sous Linux refuse de ranger un Blob dans IndexedDB, donc AJOUTER une capture ou un fichier est impossible. `test.fixme` annoncé dans le test, à rejouer sur macOS / iPhone. Ce qui ne demande pas d'ajouter (lecture d'une capture et d'un fichier de 3 morceaux venus du cloud) tourne sur les 7 projets.
+- chromium, firefox, webkit, edge, tablette : 2 réussies chacun.
+- mobile-android : 65 réussies + 6 échecs voulus (MO-01, 02, 04, 05, 06, 07) + 1 ignorée (MO-08 `test.fixme`).
+- mobile-iphone : 59 réussies + 7 échecs voulus (MO-01 à MO-07) + 6 ignorées : MO-08, ENV-MO-02 ×2 (balayage de la marge ; annulation de l'appui long), ENV-MO-03 ×3 (zone sûre).
+- Limites WebKit sous Linux (comme les modules précédents) : **ENV-MO-01** un `tap()` sur une pastille de chapitre ou une ligne d'exercice n'envoie pas de `click` (pointerdown annulé par le glisser-déposer : 4 événements au lieu de 5) ; sur un vrai iPhone ça marche, les tests utilisent `click()` sur WebKit pour ces deux éléments. **ENV-MO-02** aucun geste tactile réel (« mouse.wheel is not supported in mobile WebKit »). **ENV-MO-03** pas d'émulation de zone sûre (pas de CDP). Aucun n'est un défaut prouvé de l'appli.
 
 ## Sélecteurs et limites
-- Sélecteurs CSS faute de mieux : `#sync-status` (lit `data-etat`), `#account-info`, `#google-signin-btn`, `.cc-libelle`, `.cc-initiale`, `.gs-history-panel`, `.gs-history-entry`, `.gs-save-run-panel`, `.img-fig`, `.toast`. Aucun `data-testid` manquant gênant : la pastille porte déjà un attribut d'état.
-- L'état de départ posé dans `localStorage` n'est pas renormalisé tant qu'on ne modifie rien : on compare les identifiants et les titres, pas le JSON brut.
-- Documents préparés dans l'émulateur avec le jeton « owner » (`poserDocument`) seulement pour éprouver la LECTURE d'un second appareil (capture, fichier de 3 morceaux) ; tout le reste est écrit par l'appli.
+- Sélecteurs CSS faute de mieux : `.top-bar`, `#chapter-bar .chapter-chip`, `.chapter-chip-label`, `.settings-panel`, `.trash-panel`, `.scales-panel`, `.harmony-panel`, `.aides-panel`, `.recorder-panel`, `.audio-panel`, `.metronome-panel`, `aside#metro-dock`, `.exercise-row`, `.exercise-drag-handle`, `.gs-session-name`, `.toast`, `#cloud-guard-modal`. Aucun `data-testid` indispensable.
+- Clavier virtuel SIMULÉ en réduisant la hauteur de la fenêtre à 58 % (modèle Android) ; le navigateur recentre le champ, ce que l'aide `champAccessible` rejoue quand `focus()` ne le fait pas (WebKit laisse un champ à moitié coupé).
+- Horloge de la page figée (`ouvrirAvecHorloge`) pour les tests d'appui long et de balayage.
 
-## Non couvert
-- La vraie fenêtre Google de l'émulateur (CI seulement : `demarrage/deux-modes.spec.ts`, `apis.google.com` bloqué dans la VM).
-- Ajout de capture / fichier sur WebKit sous Linux (ENV-FI-01, 30 ignorés).
-- Séance libre ou guidée terminée EN DIRECT puis synchronisée (seules la saisie « Séance passée » et le journal posé d'avance sont testés ; même chemin d'écriture).
-- Plafond de stockage (800 Mo) et avertissements à 80 %, document principal proche de 1 Mio, fichiers partagés entre copies liées, effacement des morceaux à la vidage de la corbeille.
-- Coupure du réseau PENDANT l'envoi d'un fichier de plusieurs morceaux ; connexion lancée réseau coupé ; jeton expiré ou révoqué ; fermeture de l'onglet pendant un envoi (module `robustesse`) ; deux onglets du même navigateur.
-- Comportement à arbitrer, non jugé : un autre compte sur le même appareil reçoit la bibliothèque de l'appareil.
+## Non couvert / à vérifier sur un vrai iPhone
+- Vrai clavier iOS (il recouvre la page sans la redimensionner), vraie encoche et barre d'accueil (application installée), vrai appui long et balayage tactile sous Safari (ENV-MO-02), `tap` sur une pastille de chapitre (ENV-MO-01), texte coupé des listes déroulantes.
+- Fenêtre « Données en ligne trouvées » (conflit de synchro) et déroulé de session au téléphone : modules `synchro` et `session` ; pincement et zoom (désactivés par la page) ; accordeur et enregistreur avec micro (module `audio`).
 
 ## Rejouer
-- Les `@critique` du module (émulateurs et serveur déjà lancés) : `npx playwright test tests/e2e/synchro --grep @critique`.
-- Avec les émulateurs lancés par la commande : `npx firebase emulators:exec --project demo-trainhub --only auth,firestore "npx playwright test tests/e2e/synchro --grep @critique"`.
-- Tout le module : `npm run test:e2e:module -- synchro`.
+- Les `@critique` du module (émulateurs et serveur déjà lancés) : `npx playwright test tests/e2e/mobile --grep @critique`.
+- Avec les émulateurs lancés par la commande : `npx firebase emulators:exec --project demo-trainhub --only auth,firestore "npx playwright test tests/e2e/mobile --grep @critique"`.
+- Tout le module : `npm run test:e2e:module -- mobile`.
