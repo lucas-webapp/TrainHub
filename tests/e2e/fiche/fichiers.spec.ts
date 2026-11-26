@@ -47,7 +47,7 @@ test.describe('Fiche : fichiers joints @fiche', () => {
     const fenetre = page.getByText('boucle.mp3', { exact: true }).last();
     await expect(fenetre).toBeVisible();
     // Le MP3 fabriqué est décodé : le lecteur connaît sa durée (≈ 1 s) et propose la lecture.
-    await expect(page.getByText('0:01', { exact: true })).toBeVisible();
+    await expect(page.locator('.audio-clock-total')).toHaveText('0:01');   // la DURÉE TOTALE (l'horloge courante « .audio-clock » peut aussi afficher 0:01 pendant la lecture)
     await lecteur(page).click();
     await expect(lecteur(page)).toBeHidden();
     // Le bouton de l'en-tête rouvre le lecteur.

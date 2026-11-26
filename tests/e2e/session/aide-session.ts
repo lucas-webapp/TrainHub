@@ -18,18 +18,27 @@ export { etatFiche, idExerciceDepart, journal, auTelephone, lireEtat };
 // ---------------------------------------------------------------------------------------------------------------------------------
 /** « 25/11/2026 10:00 » à Paris : l'instant où l'horloge de la page est posée. */
 export const MAINT = new Date('2026-11-25T10:00:00+01:00');
-export type SessionDepart = { nom: string; exercices: Array<string | [string, number]>; note?: number; commentaire?: string; id?: string; archivee?: boolean };
+export type SessionDepart = { nom: string; exercices: Array<string | [string, number]>; note?: number; commentaire?: string; id?: string; archivee?: boolean; ephemere?: boolean; onglets?: string[] };
 
 /** Un espace « Basse », un chapitre « Technique » (exercices dont la fiche est repliée : sans effet ici), et des sessions enregistrées d'avance. Chaque exercice de session : `titre` ou `[titre, minutes]` (5 par défaut). */
 export function etatSession(exos: Array<string | ExoFiche>, sessions: SessionDepart[] = [], extra: Record<string, unknown> = {}) {
   const base: any = etatFiche(exos);
   const guidedSessions = sessions.map((s, i) => ({
-    id: s.id ?? `sess-${i}`, name: s.nom, instrumentId: 'esp-0', tabIds: [], createdAt: MAINT.getTime() - 86_400_000 * (i + 1),
-    ...(s.note ? { rating: s.note } : {}), ...(s.commentaire ? { comment: s.commentaire } : {}), ...(s.archivee ? { archived: true } : {}),
+    id: s.id ?? `sess-${i}`, name: s.nom, instrumentId: 'esp-0', tabIds: [], createdAt: s.ephemere ? Date.now() - 60_000 : MAINT.getTime() - 86_400_000 * (i + 1),
+    ...(s.note ? { rating: s.note } : {}), ...(s.commentaire ? { comment: s.commentaire } : {}), ...(s.archivee ? { archived: true } : {}), ...(s.ephemere ? { ephemeral: true } : {}), ...(s.onglets ? { tabIds: s.onglets } : {}),
     steps: s.exercices.map((e, j) => { const [titre, minutes] = typeof e === 'string' ? [e, 5] : e; return { id: `st-${i}-${j}`, exerciseId: idExerciceDepart(titre), minutes, note: '', hidden: [] }; }),
   }));
   base.settings = { guidedSessions, sessionPlan: [], ...extra };
   return base;
+}
+
+/** Ajoute à l'état de départ un chapitre de MORCEAUX (`kind: 'songs'`) rangé après « Technique ». `favori` : le morceau est un favori. */
+export function avecMorceaux(etat: any, morceaux: Array<string | { titre: string; favori?: boolean }>, nom = 'Mes morceaux') {
+  etat.instruments[0].categories.push({
+    id: 'ch-songs', name: nom, kind: 'songs', color: '#ff3d9a', folders: [],
+    exercises: morceaux.map((m) => { const x = typeof m === 'string' ? { titre: m } as { titre: string; favori?: boolean } : m; return { id: idExerciceDepart(x.titre), title: x.titre, notes: '', fixedNotes: '', collapsed: true, links: [], files: [], images: [], favorite: !!x.favori, archived: false, updatedAt: Date.now() }; }),
+  });
+  return etat;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -178,6 +187,17 @@ export const arreter = (page: Page) => page.getByRole('button', { name: 'Arrête
 export const enchainement = (page: Page) => page.locator('.gs-run-auto-btn');
 export const cloche = (page: Page) => page.locator('.gs-run-bell-btn');
 export const listeDeroule = (page: Page) => page.getByRole('list', { name: 'Exercices de la session' });
+export const rangeeListe = (page: Page, titre: string) => page.locator('.gs-run-up-row').filter({ has: page.locator('.gs-run-up-title', { hasText: new RegExp(`^${titre}$`) }) });
+export const titresListe = (page: Page) => page.locator('.gs-run-up-row .gs-run-up-title').allTextContents();
+export const minutesListe = (page: Page) => page.locator('.gs-run-up-row .gs-run-up-min').allTextContents();
+export const ajouterListe = (page: Page) => page.locator('.gs-run-up-add');
+/** Clic droit (appui long au téléphone) sur un exercice de la liste du déroulé, puis une action du menu. */
+export async function actionListe(page: Page, titre: string, action: string | RegExp) {
+  await rangeeListe(page, titre).click({ button: 'right' });
+  const menu = page.getByRole('menu');
+  await expect(menu).toBeVisible();
+  await menu.getByRole('button', { name: action, exact: typeof action === 'string' }).click();
+}
 export const elementsDeroule = (page: Page) => listeDeroule(page).getByRole('listitem');
 export const colonneGauche = (page: Page) => page.locator('.gs-run-colmain');
 export const colonneDroite = (page: Page) => page.locator('.gs-run-colside');
