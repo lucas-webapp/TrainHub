@@ -1,78 +1,38 @@
-# Rapport — module `synchro` — 26/11/2026
+# Rapport — module `morceaux` — 26/11/2026
 
 ## Résumé
-- Testé : la synchro cloud de bout en bout contre les émulateurs (`demo-trainhub`) : connexion par un compte Google FICTIF, envoi de l'état, second appareil (second contexte, même compte), conflit à la première connexion, fusion du journal mensuel, captures et fichiers joints dans Firestore, déconnexion, réseau coupé puis repris, règles de sécurité.
-- Résultat : **55 tests, 378 exécutions sur les 7 projets : 316 réussies + 32 échecs voulus (bugs SY-01 à SY-04) + 30 ignorées voulues (ENV-FI-01, WebKit sous Linux), 0 échoué** — deux passages complets identiques (≈ 13 min chacun, dernier réglage des délais compris).
-- Suite conseillée : arbitrer SY-02 et SY-04 (gênants, données qui divergent) ; confirmer sur un vrai Safari / iPhone les 30 tests ignorés ; puis module `mobile`.
+- Testé : les chapitres de morceaux en entier — ajout, fiche (artiste, titre, style, technique, travail), les cinq rangements et leurs dossiers calculés, tri, gestion des valeurs, menu d'un morceau, classement groupé, recherche, transformations (chapitre ↔ morceaux, exercice → morceau, morceau → exercice), Ménage, sessions, remise en forme des données, téléphone.
+- Résultat : **142 tests, 940 exécutions sur les 7 projets : 919 réussies + 21 échecs voulus (bugs MZ-01 et MZ-02) + 0 ignorée, 0 échoué** — deux passages complets identiques (≈ 16 min chacun). Aucun `test.fixme`.
+- Suite conseillée : arbitrer MZ-01 et MZ-02 (mineurs, libellés) ; passer au module `statistiques`.
 
 ## Environnement
-- Émulateurs `demo-trainhub` (Auth 9199, Firestore 8180) et serveur de test (8937) lancés par moi, **arrêtés à la fin**. Sessions `playwright-cli` `trainhub` et `tb2` fermées. Sortie audio factice laissée allumée.
-- Production : la fixture commune fait échouer tout test qui enverrait une requête vers un domaine Firebase de production ; le second appareil (`ouvrirAppareil`, aide du module) reprend le MÊME garde-fou et note dans la même liste. Résultat : aucune requête bloquée. `playwright-cli requests` relevé en fin d'exploration : seule la police Google a été tentée (bloquée), rien vers la production.
-- Par projet (attendus) : chromium 54, firefox 54, edge 54, mobile-android 54, webkit 54, tablette 54, mobile-iphone 54 (1 test `@ordinateur` absent des projets mobiles, 1 test `@mobile` absent des autres).
+- Émulateurs `demo-trainhub` (Auth 9199, Firestore 8180) et serveur de test (8937) lancés par moi ; à arrêter à la fin. Session `playwright-cli` `trainhub` fermée.
+- Production : la fixture commune fait échouer tout test qui enverrait une requête vers un domaine Firebase de production ; aucun test n'a échoué pour cela. `playwright-cli requests` : aucune requête vers un domaine Firebase de production. (Le proxy a refusé du trafic propre aux navigateurs — mises à jour de Firefox, services d'Edge — sans rapport.)
+- Par projet : chromium, firefox, webkit, edge, tablette 136 exécutions chacun (133 réussies + 3 échecs voulus) ; mobile-android et mobile-iphone 130 chacun (127 + 3).
+- Tests : 32 `@critique`, 12 `@ordinateur`, 6 `@mobile` ; le reste tourne partout. Commande des `@critique` du module : voir plus bas.
 
 ## Ce que l'exploration a appris (comportements à connaître)
-- Documents sous `users/{uid}/apps/` : `trainhub` (l'état entier en champs Firestore natifs, `settings.logRev` = révision de chaque mois du journal), `trainhub-log-AAAA-MM` (`month`, `records`, `deleted`, `updatedAt`), `trainhub-img-<id>` (`data` = image en base64, `type`, `name`), `trainhub-file-<cid>-<n>` (`bytes`, `i`, `n` ; morceaux de 800 Kio). Aucun Storage.
-- Pastille `#sync-status`, attribut `data-etat` : `synced`, `pending` (modification, envoi différé de 1,5 s), `syncing`, `error`. Hors réseau elle reste sur `syncing` ; Firestore et Auth injoignables au chargement : `error`.
-- Règle de fusion à la première connexion (observée) : état local plus ANCIEN que le cloud = le cloud est repris sans question (sauvegarde de secours de l'état remplacé) ; local plus récent ET cloud avec plus d'UN exercice de plus = fenêtre « Données en ligne trouvées » (Échap et clic à côté = garder les données en ligne ; « Remplacer par cet appareil… » demande une seconde confirmation) ; appareil sans aucun exercice = le cloud est repris, message « Données en ligne récupérées (N exercices). » ; écart d'un exercice au plus = l'appareil écrase le cloud.
-- Un appareil vierge qui se connecte reçoit l'état sans question (son état par défaut est « plus ancien »). L'écoute temps réel (`onSnapshot`) met l'autre appareil à jour sans rechargement.
-- Une séance saisie hors connexion est comptée : info-bulle de la pilule « Se connecter » (« N séance enregistrée hors connexion : connecte-toi pour l'envoyer ») puis message à la connexion.
-- Connecter un AUTRE compte sur le même appareil envoie la bibliothèque de l'appareil dans ce compte (testé comme comportement observé, **à arbitrer** : appareil partagé).
-- Le libellé du trombone dit « envoyé dans votre compte » même quand personne n'est connecté (texte statique ; non testé, non jugé).
+- Un morceau est un exercice dont le titre est toujours « Artiste - Titre » ; les « dossiers » sont calculés d'après le rangement choisi (Artistes : un dossier dès 2 morceaux ; Styles / Techniques / Travail : un dossier par valeur du chapitre, même vide, puis « Sans style » / « Sans technique » / « À classer »).
+- Le tri A → Z se fait sur le TITRE complet sans « The / Le / La… » : « The Doors - … » se range à D.
+- Dans la case « Artiste » seule, « + » crée un morceau SANS artiste dont le titre est ce texte (« Queen » → morceau « Queen »).
+- Le menu d'un morceau n'a ni « Dupliquer », ni liaison ; « Classer : style, technique, travail… » ouvre sa fiche ; « En cours » = l'état de Travail que le chapitre désigne (il suit son renommage).
+- Titre de menu groupé : « Styles — 3 morceaux » (pluriel du rangement, pas « Style »).
+- Les champs `isSong`, `artist`, `songName` se recalculent à l'affichage et ne sont réenregistrés qu'à la modification suivante ; un rechargement donne le même résultat à l'écran. Les tests lisent donc l'écran, ou rechargent, avant de juger l'état.
+- La sélection multiple survit au changement de chapitre ; « Annuler » du message n'annule que le DERNIER changement (déplier une fiche en est un).
+- Un rechargement vide l'historique Annuler / Rétablir.
+- Petits indicateurs (étoile de favori, point « En cours ») : posés sur le titre, sans place ; Playwright les voit « cachés » (testés avec `toBeAttached`).
 
 ## Bugs (détail dans `tests/reports/bugs.md`)
-**SY-01 (mineur) — « les 1 exercice »**
-- Étapes : 1. un compte a 4 exercices en ligne ; 2. un appareil neuf à 1 exercice (plus récent) se connecte ; 3. « Remplacer par cet appareil… ».
-- Attendu : une phrase correcte. Observé : « Les 4 exercices en ligne seront remplacés par **les 1 exercice** de cet appareil ». Correct à partir de 2.
-- Appareils : tous. Test : `conflit.spec.ts` « la seconde confirmation s'écrit correctement au singulier… » (`test.fail`). Avis : bug de l'appli (texte).
+**MZ-01 (mineur) — « exercice » au lieu de « morceau »** — Étapes : 1. menu d'un morceau › « Renommer… » ; 2. ou : ouvrir sa fiche, taper dans l'en-tête le titre d'un autre morceau, Entrée. Attendu : « Renommer le morceau » et « Un morceau « … » existe déjà ici. » (comme l'ajout et les champs de la fiche). Observé : « Renommer l'exercice » et « Un exercice « … » existe déjà ici. ». Appareil : tous (Chromium observé). Tests : `menu.spec.ts` et `fiche.spec.ts` (`test.fail`). Avis : bug de l'appli (texte), sans conséquence sur les données.
 
-**SY-02 (gênant) — le journal fusionné n'arrive pas sur l'appareil déjà connecté**
-- Étapes : 1. A connecté a la séance s-a1 ; 2. B (autre contexte) a la séance s-b1 le même mois ; 3. B se connecte au même compte.
-- Attendu : A reçoit s-b1 (comme une séance saisie en direct). Observé : le cloud a bien les deux ; B les a ; A ne reçoit s-b1 ni tout de suite, ni après rechargement. Il la reçoit seulement quand B renvoie le document principal (n'importe quelle modification de B : test passant « dès que l'appareil… modifie quoi que ce soit »).
-- Cause probable : la fusion écrit le document du mois mais pas le document principal ; A compare la révision notée dans le principal (périmée) à la sienne et ne relit pas le mois.
-- Appareils : tous (Chromium observé). Tests : `journal.spec.ts` « le premier appareil, resté ouvert, reçoit… » et « même en rouvrant l'appli… » (`test.fail` ×2). Avis : bug de l'appli.
+**MZ-02 (mineur) — fautes d'accord** — Étapes : 1. rangement Techniques ou Travail ; 2. clic droit sur un dossier. Attendu : « Renommer la technique », « Supprimer cette technique… », « Supprimer cet état… », « Aucune technique pour l'instant ». Observé : « Renommer le technique », « Supprimer ce technique… », « Supprimer ce état… », « Aucun technique pour l'instant ». Appareil : tous. Test : `valeurs.spec.ts` (`test.fail`). Avis : bug de l'appli (le mot est composé à partir du nom de la valeur, sans accord).
 
-**SY-03 (mineur) — info-bulle d'un fichier du compte**
-- Étapes : 1. connecté, ajouter un PDF (il part dans `trainhub-file-…`, la fiche porte `cloud: true`) ; 2. survoler la pastille du fichier.
-- Attendu : plus de « seulement sur cet appareil ». Observé : « Fichier stocké seulement sur cet appareil (non synchronisé) » en permanence.
-- Appareils : tous sauf WebKit sous Linux (ignoré, ENV-FI-01). Test : `images-fichiers.spec.ts` « l'info-bulle d'un fichier qui est dans le compte… » (`test.fail`). Avis : bug de l'appli (texte ancien).
+**Intermittence vue puis traitée (pas un bug de l'appli)** : un test enchaînant deux appuis longs sur la même ligne a échoué 1 fois sur 4 sur iPhone (« aucun point libre »). Examen : juste après un nouveau dessin, le titre occupe toute la largeur de la ligne jusqu'à l'image suivante (l'appli règle sa largeur à `requestAnimationFrame`) ; l'appui long tombait dans le champ. Correction du TEST (attente de l'espace libre de la ligne, sans pause fixe, dans `aide-morceaux.ts`) ; vérifié sur 56 exécutions de rafale (iPhone), puis les deux passages complets. Aucune vérification n'a été retirée.
 
-**SY-04 (gênant) — un envoi en attente plus ancien écrase le cloud au retour du réseau**
-- Étapes : 1. A et B connectés au même compte ; 2. réseau coupé chez A ; 3. A ajoute « A hors réseau » (t1) ; 4. B ajoute « B en ligne » (t2 > t1), le cloud l'a ; 5. réseau rendu à A.
-- Attendu : « le plus récent gagne » : B partout. Observé : le cloud et A ont « A hors réseau », B garde « B en ligne » sous la pastille « Synchronisé » : divergence jusqu'à la prochaine modification.
-- Appareils : tous (Chromium et WebKit observés ; échec voulu ×7). Test : `reseau.spec.ts` « deux appareils, l'un coupé du réseau… » (`test.fail`). Avis : bug de l'appli (envoi sans comparaison de dates). Cas rare mais sans perte visible pour l'utilisateur.
+## À vérifier sur un vrai Safari / iPhone
+- Rien de propre aux morceaux n'est limité par WebKit sous Linux : aucun test ignoré. La liste de complétion native de la case « Artiste » (`<datalist>`) n'est vérifiée que dans son contenu, pas dans son affichage.
+- Appui long sur un morceau ou un dossier calculé : simulé par événements « pointeur » tactiles (comme les modules précédents), pas un vrai doigt.
 
-**Intermittence vue puis traitée (pas un bug consigné)** : sur deux passages complets antérieurs, le même test (`second-appareil` « dans les deux sens ») a échoué une fois sur `mobile-iphone` puis une fois sur `webkit` : la pastille restait 20 s sur « Envoi en cours… ». Jamais en isolation (45 exécutions de ce test en rafale sur les 3 projets WebKit et 40 exécutions du fichier sur `mobile-iphone`, toutes réussies) ni sur trois passages complets des seuls projets WebKit. Avis : lenteur WebKit / émulateur sous la charge de 7 projets, pas démontrée côté appli. Réglage : attente de la pastille portée à 30 s et délai de chaque test du module à 90 s (aucune vérification retirée) ; les deux derniers passages complets sont verts. À surveiller en CI.
-
-## Tests ajoutés — `tests/e2e/synchro/` (+ aide `aide-synchro.ts`)
-- `connexion.spec.ts` — 6 (4 `@critique`, 1 `@ordinateur`, 1 `@mobile`) : connexion et menu du compte, état entier dans Firestore, ajout / renommage / suppression suivis, rechargement connecté, deux comptes isolés, pilule à l'ordinateur et au téléphone.
-- `second-appareil.spec.ts` — 4 (3 `@critique`) : appareil vierge qui reçoit tout, direct dans les deux sens (ajout, renommage, suppression), le plus récent gagne, mêmes identifiants.
-- `conflit.spec.ts` — 8 (5 `@critique`) : garder (rien d'écrit tant que la question est ouverte), remplacer (2ᵉ confirmation, sauvegarde de secours, l'autre appareil suit), « Non, garder », Échap et clic à côté, appareil vide, appareil plus ancien (sauvegarde de secours), écart d'un exercice, SY-01.
-- `journal.spec.ts` — 9 (5 `@critique`) : un document par mois, fusion (+ relance par le document principal), SY-02 ×2, séance saisie en direct, suppression partout (même sur un 3ᵉ appareil), correction d'une durée, séance hors connexion (pilule puis message).
-- `images-fichiers.spec.ts` — 10 (8 `@critique`) : capture (octets identiques, `cloud`), second appareil, lecture d'une capture posée dans l'émulateur (tous navigateurs), PDF (octets identiques, message), SY-03, gros fichier en 3 morceaux (recollés, ouvert par un second appareil), lecture de 3 morceaux posés (tous navigateurs), retrait (documents supprimés), ajout hors connexion puis connexion, fichier de plus de 30 Mo (message, rien envoyé).
-- `reseau.spec.ts` — 7 (5 `@critique`) : coupure puis reprise, plusieurs modifications, séance saisie, capture, rattrapage d'un appareil resté coupé, rechargement Firestore / Auth injoignables, SY-04.
-- `deconnexion.spec.ts` — 5 (3 `@critique`) : menu « Se déconnecter », modification déconnecté, modification « en attente » au départ, écoute arrêtée, autre compte sur le même appareil (observé).
-- `regles.spec.ts` — 6 (5 `@critique`) : inconnu, autre compte (jeton valide), propriétaire (200, hors chemin 403), SDK de l'appli avec un autre compte et sans compte (`permission-denied`), capture envoyée par l'appli.
-- Total 55 tests : 38 `@critique`, 1 `@ordinateur`, 1 `@mobile`.
-
-## Par projet (passage complet, identique deux fois)
-- chromium 49 réussis + 5 échecs voulus (SY-01, SY-02 ×2, SY-03, SY-04) ; firefox, edge, mobile-android idem.
-- webkit 40 + 4 échecs voulus (SY-03 est ignoré) + 10 ignorés ; tablette et mobile-iphone idem. Aucun échec.
-- Les 10 ignorés par projet WebKit (30 en tout) sont l'ENV-FI-01 déjà documenté (rapport du module `fiche`) : le WebKit de Playwright sous Linux refuse de ranger un Blob dans IndexedDB, donc AJOUTER une capture ou un fichier est impossible. `test.fixme` annoncé dans le test, à rejouer sur macOS / iPhone. Ce qui ne demande pas d'ajouter (lecture d'une capture et d'un fichier de 3 morceaux venus du cloud) tourne sur les 7 projets.
-
-## Sélecteurs et limites
-- Sélecteurs CSS faute de mieux : `#sync-status` (lit `data-etat`), `#account-info`, `#google-signin-btn`, `.cc-libelle`, `.cc-initiale`, `.gs-history-panel`, `.gs-history-entry`, `.gs-save-run-panel`, `.img-fig`, `.toast`. Aucun `data-testid` manquant gênant : la pastille porte déjà un attribut d'état.
-- L'état de départ posé dans `localStorage` n'est pas renormalisé tant qu'on ne modifie rien : on compare les identifiants et les titres, pas le JSON brut.
-- Documents préparés dans l'émulateur avec le jeton « owner » (`poserDocument`) seulement pour éprouver la LECTURE d'un second appareil (capture, fichier de 3 morceaux) ; tout le reste est écrit par l'appli.
-
-## Non couvert
-- La vraie fenêtre Google de l'émulateur (CI seulement : `demarrage/deux-modes.spec.ts`, `apis.google.com` bloqué dans la VM).
-- Ajout de capture / fichier sur WebKit sous Linux (ENV-FI-01, 30 ignorés).
-- Séance libre ou guidée terminée EN DIRECT puis synchronisée (seules la saisie « Séance passée » et le journal posé d'avance sont testés ; même chemin d'écriture).
-- Plafond de stockage (800 Mo) et avertissements à 80 %, document principal proche de 1 Mio, fichiers partagés entre copies liées, effacement des morceaux à la vidage de la corbeille.
-- Coupure du réseau PENDANT l'envoi d'un fichier de plusieurs morceaux ; connexion lancée réseau coupé ; jeton expiré ou révoqué ; fermeture de l'onglet pendant un envoi (module `robustesse`) ; deux onglets du même navigateur.
-- Comportement à arbitrer, non jugé : un autre compte sur le même appareil reçoit la bibliothèque de l'appareil.
-
-## Rejouer
-- Les `@critique` du module (émulateurs et serveur déjà lancés) : `npx playwright test tests/e2e/synchro --grep @critique`.
-- Avec les émulateurs lancés par la commande : `npx firebase emulators:exec --project demo-trainhub --only auth,firestore "npx playwright test tests/e2e/synchro --grep @critique"`.
-- Tout le module : `npm run test:e2e:module -- synchro`.
+## Tests ajoutés (tests/e2e/morceaux/)
+- `ajouter.spec.ts` 15 · `fiche.spec.ts` 18 · `rangements.spec.ts` 16 · `tri.spec.ts` 5 · `valeurs.spec.ts` 16 · `menu.spec.ts` 15 · `selection.spec.ts` 6 · `recherche.spec.ts` 4 · `transformer.spec.ts` 13 · `menage.spec.ts` 8 · `vers-exercice.spec.ts` 7 · `persistance.spec.ts` 8 · `sessions.spec.ts` 5 · `telephone.spec.ts` 6 (`@mobile`) (total 142). Aide : `aide-morceaux.ts`.
+- Rejouer les `@critique` : `firebase emulators:exec --project demo-trainhub --only auth,firestore "playwright test tests/e2e/morceaux --grep @critique"` (ou, émulateurs et serveur déjà lancés : `npx playwright test tests/e2e/morceaux --grep @critique`).
