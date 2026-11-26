@@ -1,66 +1,78 @@
-# Rapport — module `metronome` — 26/11/2026
+# Rapport — module `synchro` — 26/11/2026
 
 ## Résumé
-- Testé : le métronome de bout en bout : ouvrir / fermer la fenêtre, volet épinglé (à droite, en bas sous 1 100 px et au téléphone), Jouer / Arrêter et chrono, tempo (±1, ±10, saisie, molette, TAP, bornes), mesure et accents, volume et son du clic, préréglages (réglages enregistrés du tempo progressif : créer, appliquer, renommer, supprimer, appliquer en pleine lecture), métronome d'un exercice (suivre la fiche ouverte, Annuler, disquette, ▶), « Tester le son » et journal du son, téléphone.
-- Résultat : **73 tests, 479 exécutions sur les 7 projets : 474 réussies (dont 7 échecs voulus du bug ME-01) + 5 ignorées voulues (fixme : ME-02 sur chromium et edge, ME-03 sur webkit, tablette, mobile-iphone), 0 échoué** — deux passages complets identiques (≈ 10 min chacun, les deux derniers d'une série de six passages qui ont servi à stabiliser). Détail par projet plus bas.
-- Suite conseillée : arbitrer ME-01 et ME-02 (mineurs), confirmer ME-03 sur un vrai Safari ; puis module `synchro`. Non couvert : le SON lui-même (aucune mesure du signal), l'avancée réelle du tempo progressif dans le temps, le mode « entraînement » (barres muettes) — voir la fin.
+- Testé : la synchro cloud de bout en bout contre les émulateurs (`demo-trainhub`) : connexion par un compte Google FICTIF, envoi de l'état, second appareil (second contexte, même compte), conflit à la première connexion, fusion du journal mensuel, captures et fichiers joints dans Firestore, déconnexion, réseau coupé puis repris, règles de sécurité.
+- Résultat : **55 tests, 378 exécutions sur les 7 projets : 316 réussies + 32 échecs voulus (bugs SY-01 à SY-04) + 30 ignorées voulues (ENV-FI-01, WebKit sous Linux), 0 échoué** — deux passages complets identiques (≈ 13 min chacun, dernier réglage des délais compris).
+- Suite conseillée : arbitrer SY-02 et SY-04 (gênants, données qui divergent) ; confirmer sur un vrai Safari / iPhone les 30 tests ignorés ; puis module `mobile`.
 
 ## Environnement
-- Émulateurs `demo-trainhub` (Auth 9199, Firestore 8180) et serveur de test (8937) lancés par moi, **arrêtés à la fin**. Session `playwright-cli` `trainhub` fermée. Sortie audio factice (PulseAudio) laissée allumée, comme demandé.
-- Production : la fixture commune échoue tout test qui enverrait une requête vers la production Firebase : aucune n'a été bloquée. À l'exploration, je n'ai pas relevé `playwright-cli requests` à intervalles réguliers (oubli) ; la configuration de la session bloque ces origines.
-- Par projet (attendus) : chromium 69, firefox 69, webkit 69, edge 69, tablette 69, mobile-android 67, mobile-iphone 67.
-- Temps : `page.clock` pour le chrono (5 s jouées = `00:05`, exact) et TAP ; le reste en temps réel avec des attentes sur des états (aucun `waitForTimeout`).
+- Émulateurs `demo-trainhub` (Auth 9199, Firestore 8180) et serveur de test (8937) lancés par moi, **arrêtés à la fin**. Sessions `playwright-cli` `trainhub` et `tb2` fermées. Sortie audio factice laissée allumée.
+- Production : la fixture commune fait échouer tout test qui enverrait une requête vers un domaine Firebase de production ; le second appareil (`ouvrirAppareil`, aide du module) reprend le MÊME garde-fou et note dans la même liste. Résultat : aucune requête bloquée. `playwright-cli requests` relevé en fin d'exploration : seule la police Google a été tentée (bloquée), rien vers la production.
+- Par projet (attendus) : chromium 54, firefox 54, edge 54, mobile-android 54, webkit 54, tablette 54, mobile-iphone 54 (1 test `@ordinateur` absent des projets mobiles, 1 test `@mobile` absent des autres).
 
 ## Ce que l'exploration a appris (comportements à connaître)
-- « Métronome » ouvre une fenêtre flottante (100 BPM, 4/4, volume 80). **« Fermer » arrête aussi la lecture** et remet le chrono à zéro (testé comme comportement observé). Un rechargement arrête tout.
-- La punaise épingle dans un volet : à droite à partir de 1 100 px, **en bas** au-dessous (et au téléphone, avec ▾ / ▴ pour réduire). Le choix est retenu (`trainhub.metroDock.v1`) : le bouton rouvre ensuite le volet épinglé, même après un rechargement.
-- Les « préréglages » du métronome sont les **« Réglages enregistrés » du tempo progressif** (signet sous l'escalier) : nom par défaut « Paliers N », ✎ renomme, ✕ supprime, un clic sur le nom applique (et ferme le menu). Appliquer ne change pas le tempo affiché, seulement le délai / seuil / paliers. Le réglage rattaché à un EXERCICE est autre chose (module `fiche` pour sa fenêtre).
-- « Suivre l'exercice ouvert » (Paramètres, allumé par défaut) : volet épinglé seulement ; déplier une fiche qui a un réglage charge son tempo et sa mesure, même en lecture (elle continue), avec « Métronome réglé sur « X » … » + Annuler. Une icône disquette propose « Mettre à jour ce réglage dans l'exercice « X » ». Rouvrir la MÊME fiche après un exercice sans réglage ne recharge rien.
-- Tempo : 30 à 300 ; une saisie hors limites est ramenée à la borne ; un 0 dans « Temps/mesure » est refusé (4 revient). Le « pas des gros boutons » (Paramètres) change le « 10 » de ± 10.
-- Les quatre boutons autour du cadran passent sous le cadran rond : Playwright refuse le clic au centre, on vise leur partie libre (comme le doigt). Leur nom accessible est « − », « + », « − 10 » ; leur info-bulle (`title`) sert de repère. Les interrupteurs de Paramètres n'ont pas de nom accessible.
-- **Graine d'état** : un état de départ sans `settings.metronome` ni `settings.prefs` (impossible en vrai : une appli neuve les crée) rend « Suivre l'exercice ouvert » muet alors que son interrupteur s'affiche allumé. Les tests partent donc des réglages d'une appli neuve (`METRO_DEFAUT`, `PREFS_DEFAUT`).
-- Observé, non retenu : déplier une fiche dans les premières centaines de ms après l'ouverture du volet ou le chargement n'est pas suivi (une fois sur deux, surtout au premier test d'un navigateur froid) ; personne ne clique si vite. Les tests attendent que le volet soit immobile et que la page ait 3 s.
-- Le journal du son : « Tester le son » affiche « Deux bips : … » et écrit « test du son » ; « Journal du son » copie dans le presse-papiers, ou, si la copie échoue, ouvre une boîte avec les dernières lignes datées (`MM-JJ hh:mm:ss.mmm état-page JOUE|arrêt ctx… | message`). Les tests remplacent le presse-papiers par un faux pour jouer les deux cas sur tous les navigateurs.
+- Documents sous `users/{uid}/apps/` : `trainhub` (l'état entier en champs Firestore natifs, `settings.logRev` = révision de chaque mois du journal), `trainhub-log-AAAA-MM` (`month`, `records`, `deleted`, `updatedAt`), `trainhub-img-<id>` (`data` = image en base64, `type`, `name`), `trainhub-file-<cid>-<n>` (`bytes`, `i`, `n` ; morceaux de 800 Kio). Aucun Storage.
+- Pastille `#sync-status`, attribut `data-etat` : `synced`, `pending` (modification, envoi différé de 1,5 s), `syncing`, `error`. Hors réseau elle reste sur `syncing` ; Firestore et Auth injoignables au chargement : `error`.
+- Règle de fusion à la première connexion (observée) : état local plus ANCIEN que le cloud = le cloud est repris sans question (sauvegarde de secours de l'état remplacé) ; local plus récent ET cloud avec plus d'UN exercice de plus = fenêtre « Données en ligne trouvées » (Échap et clic à côté = garder les données en ligne ; « Remplacer par cet appareil… » demande une seconde confirmation) ; appareil sans aucun exercice = le cloud est repris, message « Données en ligne récupérées (N exercices). » ; écart d'un exercice au plus = l'appareil écrase le cloud.
+- Un appareil vierge qui se connecte reçoit l'état sans question (son état par défaut est « plus ancien »). L'écoute temps réel (`onSnapshot`) met l'autre appareil à jour sans rechargement.
+- Une séance saisie hors connexion est comptée : info-bulle de la pilule « Se connecter » (« N séance enregistrée hors connexion : connecte-toi pour l'envoyer ») puis message à la connexion.
+- Connecter un AUTRE compte sur le même appareil envoie la bibliothèque de l'appareil dans ce compte (testé comme comportement observé, **à arbitrer** : appareil partagé).
+- Le libellé du trombone dit « envoyé dans votre compte » même quand personne n'est connecté (texte statique ; non testé, non jugé).
 
 ## Bugs (détail dans `tests/reports/bugs.md`)
-**ME-01 (mineur) — épingler pendant la lecture remet le chrono à zéro**
-- Étapes : 1. ouvrir le métronome, Jouer ; 2. attendre 3 s (chrono `00:03`) ; 3. cliquer la punaise.
-- Attendu : le volet s'ouvre, la lecture et le chrono continuent (≥ `00:03`). Observé : la lecture continue mais le chrono repart de `00:00`.
-- Appareils : identique sur les 7 projets. Test : `ouvrir-fermer.spec.ts` « épingler pendant la lecture ne remet pas le chrono à zéro » (`test.fail`, échec voulu ×7). Avis : bug de l'appli (le panneau est reconstruit).
+**SY-01 (mineur) — « les 1 exercice »**
+- Étapes : 1. un compte a 4 exercices en ligne ; 2. un appareil neuf à 1 exercice (plus récent) se connecte ; 3. « Remplacer par cet appareil… ».
+- Attendu : une phrase correcte. Observé : « Les 4 exercices en ligne seront remplacés par **les 1 exercice** de cet appareil ». Correct à partir de 2.
+- Appareils : tous. Test : `conflit.spec.ts` « la seconde confirmation s'écrit correctement au singulier… » (`test.fail`). Avis : bug de l'appli (texte).
 
-**ME-02 (mineur, à arbitrer, intermittent) — Échap pendant la saisie du tempo valide la valeur**
-- Étapes : 1. fenêtre FLOTTANTE ouverte, tempo 88 ; 2. cliquer le chiffre du cadran ; 3. taper 77 ; 4. Échap.
-- Attendu : saisie abandonnée, tempo 88. Observé : la fenêtre se ferme ET 77 est enregistré. Dans le volet épinglé, Échap abandonne bien la saisie.
-- Appareils : Chromium et Edge de bureau seulement, environ 6 fois sur 10 (8 échecs voulus sur 20 essais) ; jamais vu ailleurs. Test : `tempo.spec.ts` « saisie dans la fenêtre flottante : Échap abandonne… » (`test.fixme` sur chromium et edge, exigé ailleurs). Avis : bug de l'appli (ordre fermeture / validation à la sortie du champ).
+**SY-02 (gênant) — le journal fusionné n'arrive pas sur l'appareil déjà connecté**
+- Étapes : 1. A connecté a la séance s-a1 ; 2. B (autre contexte) a la séance s-b1 le même mois ; 3. B se connecte au même compte.
+- Attendu : A reçoit s-b1 (comme une séance saisie en direct). Observé : le cloud a bien les deux ; B les a ; A ne reçoit s-b1 ni tout de suite, ni après rechargement. Il la reçoit seulement quand B renvoie le document principal (n'importe quelle modification de B : test passant « dès que l'appareil… modifie quoi que ce soit »).
+- Cause probable : la fusion écrit le document du mois mais pas le document principal ; A compare la révision notée dans le principal (périmée) à la sienne et ne relit pas le mois.
+- Appareils : tous (Chromium observé). Tests : `journal.spec.ts` « le premier appareil, resté ouvert, reçoit… » et « même en rouvrant l'appli… » (`test.fail` ×2). Avis : bug de l'appli.
 
-**ME-03 (mineur, intermittent, avis : environnement WebKit plutôt que l'appli) — rechargement qui ne rend pas la main**
-- Étapes : 1. Paramètres › Métronome, allumer « Son de secours » ; 2. recharger la page.
-- Attendu : la page se recharge, l'interrupteur reste allumé. Observé : sur WebKit sous Linux, dans la série complète seulement (4 passages complets sur 6), `page.reload()` n'aboutit pas en 45 s (même en `domcontentloaded`) ; 24 rechargements sur 24 hors série (avec « Son de secours », « Bouée audio » ou rien) ont abouti en ≈ 0,2 s.
-- Appareils : projets `webkit`, `mobile-iphone` (et une fois un comportement voisin sur iPhone avant correction des sélecteurs). Test : `journal-son.spec.ts` « Son de secours allumé : l'interrupteur garde son état après un rechargement » (`test.fixme` sur WebKit hors CI, exigé ailleurs). À rejouer en CI (macOS) avant d'y voir un bug de l'appli.
+**SY-03 (mineur) — info-bulle d'un fichier du compte**
+- Étapes : 1. connecté, ajouter un PDF (il part dans `trainhub-file-…`, la fiche porte `cloud: true`) ; 2. survoler la pastille du fichier.
+- Attendu : plus de « seulement sur cet appareil ». Observé : « Fichier stocké seulement sur cet appareil (non synchronisé) » en permanence.
+- Appareils : tous sauf WebKit sous Linux (ignoré, ENV-FI-01). Test : `images-fichiers.spec.ts` « l'info-bulle d'un fichier qui est dans le compte… » (`test.fail`). Avis : bug de l'appli (texte ancien).
 
-## Tests ajoutés — `tests/e2e/metronome/` (+ aide `aide-metronome.ts`)
-- `ouvrir-fermer.spec.ts` — 9 (2 `@critique`, 2 `@ordinateur`) : ouvrir / fermer, fermer en lecture, tempo gardé, volet à droite / en bas (1 101 px / 1 099 px), ✕ et rechargement, épingler en lecture, ME-01, position et taille.
-- `lecture.spec.ts` — 7 (1 `@critique`, 1 `@ordinateur`) : Jouer / Arrêter, pastille qui s'allume, chrono sous horloge, remise à zéro, tempo changé en lecture, muet, rechargement.
-- `tempo.spec.ts` — 13 (2 `@critique`) : ±1, ±10, saisie (Entrée, sortie du champ, Échap épinglé et flottant = ME-02), bornes, molette, TAP ×3, persistance, pas des gros boutons.
-- `mesure.spec.ts` — 11 (2 `@critique`) : 2/4, 3/4, 4/4, 5/4, 6/8, « None », cycle des accents, glisser sur les pastilles, « ⋯ » (temps/mesure 1-12, subdivision), changement en lecture, persistance.
-- `son-volume.spec.ts` — 5 (1 `@critique`, 3 `@ordinateur`) : curseur de volume, muet, persistance, cinq sons du clic, « Écouter ce son ».
-- `prereglages.spec.ts` — 8 (3 `@critique`) : tempo progressif, créer, appliquer, deux préréglages, renommer, supprimer, persistance, appliquer en pleine lecture (réf. B-01).
-- `exercice.spec.ts` — 9 (4 `@critique`) : suivre la fiche ouverte, en lecture, Annuler, exercice sans réglage, interrupteur éteint, fenêtre flottante, disquette, ▶ de la fiche, ▶ d'une autre fiche en lecture (réf. B-01).
-- `journal-son.spec.ts` — 7 (2 `@critique`) : « Tester le son », journal (copie impossible / réussie), traces d'une lecture, interrupteurs « Son de secours » et « Bouée audio » (état, puis état après rechargement = ME-03), lecture avec le son de secours.
-- `telephone.spec.ts` — 4 (1 `@critique`, 4 `@mobile`) : fenêtre, tempo et mesure, bouton « Volume », volet en bas réductible.
-- Total 73 tests : 18 `@critique`, 6 `@ordinateur`, 4 `@mobile`.
+**SY-04 (gênant) — un envoi en attente plus ancien écrase le cloud au retour du réseau**
+- Étapes : 1. A et B connectés au même compte ; 2. réseau coupé chez A ; 3. A ajoute « A hors réseau » (t1) ; 4. B ajoute « B en ligne » (t2 > t1), le cloud l'a ; 5. réseau rendu à A.
+- Attendu : « le plus récent gagne » : B partout. Observé : le cloud et A ont « A hors réseau », B garde « B en ligne » sous la pastille « Synchronisé » : divergence jusqu'à la prochaine modification.
+- Appareils : tous (Chromium et WebKit observés ; échec voulu ×7). Test : `reseau.spec.ts` « deux appareils, l'un coupé du réseau… » (`test.fail`). Avis : bug de l'appli (envoi sans comparaison de dates). Cas rare mais sans perte visible pour l'utilisateur.
+
+**Intermittence vue puis traitée (pas un bug consigné)** : sur deux passages complets antérieurs, le même test (`second-appareil` « dans les deux sens ») a échoué une fois sur `mobile-iphone` puis une fois sur `webkit` : la pastille restait 20 s sur « Envoi en cours… ». Jamais en isolation (45 exécutions de ce test en rafale sur les 3 projets WebKit et 40 exécutions du fichier sur `mobile-iphone`, toutes réussies) ni sur trois passages complets des seuls projets WebKit. Avis : lenteur WebKit / émulateur sous la charge de 7 projets, pas démontrée côté appli. Réglage : attente de la pastille portée à 30 s et délai de chaque test du module à 90 s (aucune vérification retirée) ; les deux derniers passages complets sont verts. À surveiller en CI.
+
+## Tests ajoutés — `tests/e2e/synchro/` (+ aide `aide-synchro.ts`)
+- `connexion.spec.ts` — 6 (4 `@critique`, 1 `@ordinateur`, 1 `@mobile`) : connexion et menu du compte, état entier dans Firestore, ajout / renommage / suppression suivis, rechargement connecté, deux comptes isolés, pilule à l'ordinateur et au téléphone.
+- `second-appareil.spec.ts` — 4 (3 `@critique`) : appareil vierge qui reçoit tout, direct dans les deux sens (ajout, renommage, suppression), le plus récent gagne, mêmes identifiants.
+- `conflit.spec.ts` — 8 (5 `@critique`) : garder (rien d'écrit tant que la question est ouverte), remplacer (2ᵉ confirmation, sauvegarde de secours, l'autre appareil suit), « Non, garder », Échap et clic à côté, appareil vide, appareil plus ancien (sauvegarde de secours), écart d'un exercice, SY-01.
+- `journal.spec.ts` — 9 (5 `@critique`) : un document par mois, fusion (+ relance par le document principal), SY-02 ×2, séance saisie en direct, suppression partout (même sur un 3ᵉ appareil), correction d'une durée, séance hors connexion (pilule puis message).
+- `images-fichiers.spec.ts` — 10 (8 `@critique`) : capture (octets identiques, `cloud`), second appareil, lecture d'une capture posée dans l'émulateur (tous navigateurs), PDF (octets identiques, message), SY-03, gros fichier en 3 morceaux (recollés, ouvert par un second appareil), lecture de 3 morceaux posés (tous navigateurs), retrait (documents supprimés), ajout hors connexion puis connexion, fichier de plus de 30 Mo (message, rien envoyé).
+- `reseau.spec.ts` — 7 (5 `@critique`) : coupure puis reprise, plusieurs modifications, séance saisie, capture, rattrapage d'un appareil resté coupé, rechargement Firestore / Auth injoignables, SY-04.
+- `deconnexion.spec.ts` — 5 (3 `@critique`) : menu « Se déconnecter », modification déconnecté, modification « en attente » au départ, écoute arrêtée, autre compte sur le même appareil (observé).
+- `regles.spec.ts` — 6 (5 `@critique`) : inconnu, autre compte (jeton valide), propriétaire (200, hors chemin 403), SDK de l'appli avec un autre compte et sans compte (`permission-denied`), capture envoyée par l'appli.
+- Total 55 tests : 38 `@critique`, 1 `@ordinateur`, 1 `@mobile`.
 
 ## Par projet (passage complet, identique deux fois)
-- chromium 67 réussis + 1 échec voulu (ME-01) + 1 ignoré (ME-02) ; edge idem ; firefox 68 + 1 ; webkit 67 + 1 + 1 ignoré (ME-03) ; tablette idem ; mobile-android 66 + 1 ; mobile-iphone 65 + 1 + 1 ignoré (ME-03). Aucun échec.
+- chromium 49 réussis + 5 échecs voulus (SY-01, SY-02 ×2, SY-03, SY-04) ; firefox, edge, mobile-android idem.
+- webkit 40 + 4 échecs voulus (SY-03 est ignoré) + 10 ignorés ; tablette et mobile-iphone idem. Aucun échec.
+- Les 10 ignorés par projet WebKit (30 en tout) sont l'ENV-FI-01 déjà documenté (rapport du module `fiche`) : le WebKit de Playwright sous Linux refuse de ranger un Blob dans IndexedDB, donc AJOUTER une capture ou un fichier est impossible. `test.fixme` annoncé dans le test, à rejouer sur macOS / iPhone. Ce qui ne demande pas d'ajouter (lecture d'une capture et d'un fichier de 3 morceaux venus du cloud) tourne sur les 7 projets.
 
-## Sélecteurs et limites d'environnement
-- Sélecteurs CSS faute de mieux : `.metronome-panel`, `.metro-dial-value`, `.metro-step`, `.metro-play-btn-big`, `.metro-chrono-value`, `.metro-presets-pop`, `.toast`. `data-testid` ou `aria-label` utiles : les quatre boutons du cadran, les interrupteurs de Paramètres, le curseur de volume.
-- Pastilles : une pastille n'est « courante » qu'un instant, un sondage régulier la manque (Edge) ; le test pose un observateur de mutations dans la page.
-- Limite d'environnement PROUVÉE : Playwright refuse `mouse.wheel` en WebKit mobile (« Mouse wheel is not supported in mobile WebKit ») ; le test de la molette y envoie le même événement `wheel` au cadran (assertion identique).
-- B-01 (contexte audio de plus quand on applique un préréglage en lecture, sortie audio factice) : non re-testé ; les tests « appliquer en pleine lecture » ne vérifient que l'observable (la lecture continue, le chrono n'est pas remis à zéro, le tempo change).
+## Sélecteurs et limites
+- Sélecteurs CSS faute de mieux : `#sync-status` (lit `data-etat`), `#account-info`, `#google-signin-btn`, `.cc-libelle`, `.cc-initiale`, `.gs-history-panel`, `.gs-history-entry`, `.gs-save-run-panel`, `.img-fig`, `.toast`. Aucun `data-testid` manquant gênant : la pastille porte déjà un attribut d'état.
+- L'état de départ posé dans `localStorage` n'est pas renormalisé tant qu'on ne modifie rien : on compare les identifiants et les titres, pas le JSON brut.
+- Documents préparés dans l'émulateur avec le jeton « owner » (`poserDocument`) seulement pour éprouver la LECTURE d'un second appareil (capture, fichier de 3 morceaux) ; tout le reste est écrit par l'appli.
 
 ## Non couvert
-- Le SON lui-même (aucune mesure du signal ; banc `son`), les contextes audio (bancs `son`, `eph`, `preset`).
-- L'avancée réelle du tempo progressif dans le temps (+1 BPM toutes les N s, seuil, paliers, retour au tempo de départ) et le mode « entraînement » (mesures muettes, fondu) : ni explorés ni testés ; dépendent du temps audio réel.
-- Pré-remplissage de « Tempo atteint » par le métronome en séance libre (≈ 25 s d'audio réel) ; « Suivant » d'une session guidée qui applique le réglage de l'exercice (module `session`, banc `preset`) ; fenêtre « Réglage pour « X » » (module `fiche`).
-- Glisser pour déplacer / redimensionner la fenêtre ou la largeur du volet.
+- La vraie fenêtre Google de l'émulateur (CI seulement : `demarrage/deux-modes.spec.ts`, `apis.google.com` bloqué dans la VM).
+- Ajout de capture / fichier sur WebKit sous Linux (ENV-FI-01, 30 ignorés).
+- Séance libre ou guidée terminée EN DIRECT puis synchronisée (seules la saisie « Séance passée » et le journal posé d'avance sont testés ; même chemin d'écriture).
+- Plafond de stockage (800 Mo) et avertissements à 80 %, document principal proche de 1 Mio, fichiers partagés entre copies liées, effacement des morceaux à la vidage de la corbeille.
+- Coupure du réseau PENDANT l'envoi d'un fichier de plusieurs morceaux ; connexion lancée réseau coupé ; jeton expiré ou révoqué ; fermeture de l'onglet pendant un envoi (module `robustesse`) ; deux onglets du même navigateur.
+- Comportement à arbitrer, non jugé : un autre compte sur le même appareil reçoit la bibliothèque de l'appareil.
+
+## Rejouer
+- Les `@critique` du module (émulateurs et serveur déjà lancés) : `npx playwright test tests/e2e/synchro --grep @critique`.
+- Avec les émulateurs lancés par la commande : `npx firebase emulators:exec --project demo-trainhub --only auth,firestore "npx playwright test tests/e2e/synchro --grep @critique"`.
+- Tout le module : `npm run test:e2e:module -- synchro`.
