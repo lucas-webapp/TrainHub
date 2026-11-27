@@ -148,18 +148,25 @@ export async function appuiLong(page: Page, cible: Locator) {
   await cible.evaluate((el) => el.scrollIntoView({ block: 'center' }));   // au centre : un bandeau collant ne doit pas recouvrir le point visé
   const appuyer = () => cible.evaluate((racine) => {
     // Un point de l'élément qui n'est ni un champ ni un bouton (un champ de saisie ou un bouton n'ouvre pas le menu à l'appui long).
+    // On essaie plusieurs hauteurs de la ligne : un bandeau, un message ou une ligne en cours de réaffichage peut en recouvrir une.
     const b = racine.getBoundingClientRect();
-    for (const f of [0.5, 0.92, 0.35, 0.75, 0.2, 0.62, 0.08]) {
-      const x = b.left + b.width * f, y = b.top + b.height / 2;
-      const el = document.elementFromPoint(x, y);
-      if (el && racine.contains(el) && !el.closest('input, button, textarea, select, a')) {
-        const init = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, pointerId: 7, pointerType: 'touch', isPrimary: true, button: 0, buttons: 1 };
-        el.dispatchEvent(new PointerEvent('pointerdown', init));
-        (window as any).__appuiLong = { el, init };
-        return true;
+    const vue = { h: window.innerHeight, w: window.innerWidth };
+    const recouvrant: string[] = [];
+    for (const g of [0.5, 0.3, 0.7]) {
+      for (const f of [0.5, 0.92, 0.35, 0.75, 0.2, 0.62, 0.08]) {
+        const x = b.left + b.width * f, y = b.top + b.height * g;
+        if (x < 0 || y < 0 || x >= vue.w || y >= vue.h) continue;
+        const el = document.elementFromPoint(x, y);
+        if (el && racine.contains(el) && !el.closest('input, button, textarea, select, a')) {
+          const init = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, pointerId: 7, pointerType: 'touch', isPrimary: true, button: 0, buttons: 1 };
+          el.dispatchEvent(new PointerEvent('pointerdown', init));
+          (window as any).__appuiLong = { el, init };
+          return { ok: true, vu: '' };
+        }
+        if (g === 0.5 && el) recouvrant.push(`${el.tagName.toLowerCase()}${el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/).join('.') : ''}`);
       }
     }
-    return false;
+    return { ok: false, vu: `ligne ${Math.round(b.width)}×${Math.round(b.height)} à (${Math.round(b.left)},${Math.round(b.top)}) dans ${vue.w}×${vue.h} ; éléments au centre : ${[...new Set(recouvrant)].join(' | ') || 'aucun'}` };
   });
   const relacher = () => page.evaluate(() => {
     const a = (window as any).__appuiLong; if (!a) return;
@@ -168,7 +175,10 @@ export async function appuiLong(page: Page, cible: Locator) {
   });
   // Comme un doigt : si le menu ne s'ouvre pas (ligne en cours de réaffichage juste après une action), on relève et on réappuie.
   for (let essai = 1; essai <= 3; essai++) {
-    if (!(await appuyer())) throw new Error('appuiLong : aucun point libre (hors champ et bouton) sur cet élément');
+    // La ligne peut être en cours de réaffichage juste après une action : on attend qu'un point libre existe (état, pas de pause fixe).
+    let dernier = { ok: false, vu: '' };
+    await expect.poll(async () => { dernier = await appuyer(); return dernier.ok; }, { timeout: 8_000, message: 'appuiLong : un point libre (hors champ et bouton) sur cet élément' }).toBe(true)
+      .catch((e) => { throw new Error(`appuiLong : aucun point libre (hors champ et bouton) sur cet élément — ${dernier.vu}\n${e.message}`); });
     const ouvert = await menuContextuel(page).waitFor({ state: 'visible', timeout: 2500 }).then(() => true, () => false);
     await relacher();
     if (ouvert) { if (essai > 1) test.info().annotations.push({ type: 'appui-long', description: `menu ouvert au ${essai}e appui` }); return; }

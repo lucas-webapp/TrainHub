@@ -2,7 +2,7 @@
 // Observé en boîte noire (playwright-cli, 26/11/2026) : après la connexion la pilule « Se connecter » devient le compte (pastille d'état + nom ; au téléphone, l'initiale seule) ; son menu donne
 // le nom, l'adresse, l'état (« Synchronisé avec le cloud ») et « Se déconnecter » ; l'état entier part dans `users/{uid}/apps/trainhub` ; une modification passe par « en attente » (envoi différé de
 // 1,5 s) puis « Synchronisé ». La vraie fenêtre Google (celle de l'émulateur) reste dans demarrage/deux-modes (CI seulement : apis.google.com est bloqué dans la VM).
-import { test, expect, adresse, attendreSynchro, attendreTitresCloud, connecter, documents, document, lancerConnexion, pastille, pilule, titresCloud } from './aide-synchro';
+import { test, expect, adresse, attendreSynchro, attendreTitresCloud, connecter, documents, document, lancerConnexion, pastille, pilule, titresCloud, noterEtatsPastille, etatsPastille } from './aide-synchro';
 import { actionExercice, ajouterExercice, auTelephone, confirmer, ligne } from '../bibliotheque/aide-bibliotheque';
 
 test.describe('Synchro : connexion et envoi de l\'état @synchro', () => {
@@ -40,9 +40,12 @@ test.describe('Synchro : connexion et envoi de l\'état @synchro', () => {
     const uid = await connecter(page, adresse(testInfo.project.name, 'e2e-suivi'));
     await attendreTitresCloud(uid, ['Gamme de do']);
 
+    await noterEtatsPastille(page);
     await ajouterExercice(page, 'Gamme de ré');
-    await expect(pastille(page)).toHaveAttribute('data-etat', 'pending');   // modification faite, envoi différé de 1,5 s
+    // modification faite, envoi différé de 1,5 s : la pastille passe par « en attente » (état noté, pas guetté à un instant précis), puis revient à « Synchronisé »
+    await expect.poll(() => etatsPastille(page)).toContain('pending');
     await attendreSynchro(page);
+    expect((await etatsPastille(page)).slice(-1)).toEqual(['synced']);
     await attendreTitresCloud(uid, ['Gamme de do', 'Gamme de ré']);
 
     // Renommer : le titre est un champ de saisie, validé en le quittant.

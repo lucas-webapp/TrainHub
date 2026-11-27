@@ -78,6 +78,19 @@ export async function lancerConnexion(page: Page, email: string, nom = 'Testeur 
   }, [email, nom]);
 }
 export const pastille = (page: Page) => page.locator('#sync-status');
+/** Note, dans la page, chaque état que prend la pastille (`data-etat`) à partir de maintenant : « en attente » ne dure que 1,5 s, et une machine
+ *  chargée peut ne le regarder qu'après coup. On vérifie alors que l'état a bien été traversé (sans dépendre de l'instant où on le regarde). */
+export async function noterEtatsPastille(page: Page) {
+  await page.evaluate(() => {
+    const el = document.querySelector('#sync-status')!;
+    const w = window as any;
+    w.__etatsPastille = [el.getAttribute('data-etat')];
+    new MutationObserver(() => { const e = el.getAttribute('data-etat'); if (w.__etatsPastille[w.__etatsPastille.length - 1] !== e) w.__etatsPastille.push(e); })
+      .observe(el, { attributes: true, attributeFilter: ['data-etat'] });
+  });
+}
+/** Les états notés par `noterEtatsPastille`, dans l'ordre. */
+export const etatsPastille = (page: Page) => page.evaluate(() => (window as any).__etatsPastille as string[]);
 export const pilule = (page: Page) => page.locator('#account-info');
 /** Attend la pastille « Synchronisé » (`data-etat="synced"`). */
 export const attendreSynchro = (page: Page) => expect(pastille(page)).toHaveAttribute('data-etat', 'synced', { timeout: 30_000 });
