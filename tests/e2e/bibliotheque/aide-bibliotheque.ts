@@ -152,8 +152,15 @@ export async function appuiLong(page: Page, cible: Locator) {
     const b = racine.getBoundingClientRect();
     const vue = { h: window.innerHeight, w: window.innerWidth };
     const recouvrant: string[] = [];
+    // Les points essayés : d'abord le milieu de l'espace libre que l'appli laisse dans la ligne (`.exercise-row-spacer`, parfois quelques pixels seulement
+    // quand le titre est long), puis toute la largeur de la ligne de 4 px en 4 px, en partant du milieu.
+    const sp = racine.querySelector('.exercise-row-spacer')?.getBoundingClientRect();
+    const fractions: number[] = [];
+    if (sp && sp.width > 0) fractions.push((sp.left + sp.width / 2 - b.left) / b.width);
+    for (let px = 0; px < b.width; px += 4) { fractions.push(0.5 + (px % 8 === 0 ? 1 : -1) * Math.ceil(px / 8) * 8 / b.width); }
     for (const g of [0.5, 0.3, 0.7]) {
-      for (const f of [0.5, 0.92, 0.35, 0.75, 0.2, 0.62, 0.08]) {
+      for (const f of fractions) {
+        if (f < 0 || f > 1) continue;
         const x = b.left + b.width * f, y = b.top + b.height * g;
         if (x < 0 || y < 0 || x >= vue.w || y >= vue.h) continue;
         const el = document.elementFromPoint(x, y);
